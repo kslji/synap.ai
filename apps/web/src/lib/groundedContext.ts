@@ -144,11 +144,20 @@ export function offlineFileBrief(files: NamedDoc[], query: string): string {
   const q = query.trim() || "What is in these files?";
   const blocks = usable.map((f) => {
     const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
-    const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
-    const start = lines.slice(0, 24).join("\n");
-    const rest = raw.replace(/\s+/g, " ").trim();
-    const body = start.length > 80 ? start : rest.slice(0, 2200);
-    return `**${f.name}**\n${body}${rest.length > body.length ? "…" : ""}`;
+    const clean = raw
+      .split(/\s+/)
+      .filter((w) => {
+        if (w.length < 2) return false;
+        if (/^https?:\/\//i.test(w)) return true;
+        const alnum = (w.match(/[A-Za-z0-9]/g) || []).length;
+        return alnum >= 2 && alnum / w.length >= 0.5;
+      })
+      .join(" ")
+      .slice(0, 3500);
+    if (!clean || clean.length < 24) {
+      return `**${f.name}**\nNo readable text layer in this file. It may be a scanned PDF. Keep Wi-Fi on until the in-browser model finishes downloading, or attach a .txt / .docx copy.`;
+    }
+    return `**${f.name}**\n${clean}${raw.length > clean.length ? "…" : ""}`;
   });
   return (
     `Wi-Fi is off, so this is taken from the file already on this chat — not the full in-browser model.\n\n` +

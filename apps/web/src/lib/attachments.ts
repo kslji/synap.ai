@@ -28,10 +28,23 @@ export function packAttachments(files: StoredAttachment[], limit = 24_000): stri
 export async function unpackZipIfNeeded(file: StoredAttachment): Promise<StoredAttachment> {
   const zip = /\.zip$/i.test(file.name) || file.mime.includes("zip");
   const already = /Extracted zip|File tree/i.test(file.text);
-  if (!zip || already) return file;
+  if (!zip || already) return refreshPdfText(file);
   if (!file.bytes || file.bytes.byteLength < 22) return file;
   const text = await extractZipProject(file.name, file.bytes);
   return { ...file, text };
+}
+
+export async function refreshPdfText(file: StoredAttachment): Promise<StoredAttachment> {
+  const pdf = /\.pdf$/i.test(file.name) || file.mime.includes("pdf");
+  if (!pdf || !file.bytes || file.bytes.byteLength < 8) return file;
+  if (file.text && !looksLikeBinaryJunk(file.text)) return file;
+  const extracted = readablePlainText(await extractPdf(file.bytes));
+  return {
+    ...file,
+    text:
+      extracted ||
+      `PDF "${file.name}" is stored on this chat. No readable text layer was found (it may be scanned images).`,
+  };
 }
 
 export async function ingestFile(file: File, threadId: string): Promise<StoredAttachment> {
@@ -96,8 +109,8 @@ async function extractText(file: File, bytes: ArrayBuffer, mime: string): Promis
     return extractZipProject(file.name, bytes);
   }
   if (mime === "application/pdf" || name.endsWith(".pdf")) {
-    const extracted = await extractPdf(bytes);
-    return extracted || `PDF "${file.name}" stored locally. No plain text could be extracted from this file.`;
+    const extracted = readablePlainText(await extractPdf(bytes));
+    return extracted || `PDF "${file.name}" stored locally. No readable text layer was found (it may be scanned images).`;
   }
   if (name.endsWith(".docx") || mime.includes("wordprocessingml")) {
     const xml = await zipFileText(bytes, "word/document.xml");
@@ -238,7 +251,15 @@ async function inflate(data: Uint8Array): Promise<Uint8Array> {
 async function extractPdf(buf: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buf);
   const ascii = new TextDecoder("latin1").decode(bytes);
-  const chunks: string[] = [];
+  const bits: string[] = [];
+
+  const meta = [/\/Title/, /\/Author/, /\/Subject/, /\/Keywords/, /\/URI/];
+  for (const key of meta) {
+    const re = new RegExp(`${key.source}\\s*(\\((?:\\\\.|[^\\\\)])*\\)|<[^>]+>)`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(ascii))) bits.push(decodePdfStringToken(m[1]));
+  }
+
   const streamRe = /stream\r?\n([\s\S]*?)endstream/g;
   let match: RegExpExecArray | null;
   while ((match = streamRe.exec(ascii))) {
@@ -254,26 +275,122 @@ async function extractPdf(buf: ArrayBuffer): Promise<string> {
       }
     }
     const text = new TextDecoder("latin1").decode(payload);
-    chunks.push(pdfStrings(text));
+    if (!/\bBT\b|\bTj\b|\bTJ\b|T\*|'\s/.test(text)) continue;
+    bits.push(pdfStrings(text));
   }
-  chunks.push(pdfStrings(ascii));
-  return chunks.join(" ").replace(/\s+/g, " ").trim();
+
+  return bits.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function decodePdfStringToken(token: string): string {
+  const t = token.trim();
+  if (t.startsWith("<") && t.endsWith(">")) return decodePdfHex(t.slice(1, -1));
+  if (t.startsWith("(") && t.endsWith(")")) return unescapePdfLiteral(t.slice(1, -1));
+  return t;
+}
+
+function unescapePdfLiteral(inner: string): string {
+  let out = "";
+  for (let i = 0; i < inner.length; i++) {
+    if (inner[i] !== "\\") {
+      out += inner[i];
+      continue;
+    }
+    const n = inner[i + 1];
+    if (n === "n") {
+      out += "\n";
+      i++;
+    } else if (n === "r" || n === "t") {
+      out += n === "r" ? "" : "\t";
+      i++;
+    } else if (n >= "0" && n <= "7") {
+      const oct = inner.slice(i + 1, i + 4).match(/^[0-7]{1,3}/)?.[0] || "";
+      out += String.fromCharCode(parseInt(oct, 8));
+      i += oct.length;
+    } else {
+      out += n || "";
+      i++;
+    }
+  }
+  if (out.charCodeAt(0) === 0xfe && out.charCodeAt(1) === 0xff) {
+    let u = "";
+    for (let i = 2; i + 1 < out.length; i += 2) {
+      u += String.fromCharCode((out.charCodeAt(i) << 8) | out.charCodeAt(i + 1));
+    }
+    return u;
+  }
+  return out.replace(/\0/g, "");
+}
+
+function decodePdfHex(hex: string): string {
+  const h = hex.replace(/\s+/g, "");
+  const bytes = new Uint8Array(Math.ceil(h.length / 2));
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(h.slice(i * 2, i * 2 + 2).padEnd(2, "0"), 16);
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    let u = "";
+    for (let i = 2; i + 1 < bytes.length; i += 2) u += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+    return u;
+  }
+  return new TextDecoder("latin1").decode(bytes);
 }
 
 function pdfStrings(src: string): string {
   const out: string[] = [];
-  const re = /\((?:\\.|[^\\)])*\)/g;
+  const re = /\((?:\\.|[^\\)])*\)|<[^>]+>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
-    const inner = m[0].slice(1, -1).replace(/\\n/g, "\n").replace(/\\r/g, "").replace(/\\(.)/g, "$1");
-    if (inner.trim()) out.push(inner);
+    const inner = decodePdfStringToken(m[0]);
+    if (isReadablePdfPiece(inner)) out.push(inner);
   }
-  const tj = src.match(/\[(.*?)\]\s*TJ/g) || [];
+  const tj = src.match(/\[[\s\S]*?\]\s*TJ/g) || [];
   for (const block of tj) {
-    const parts = block.match(/\((?:\\.|[^\\)])*\)/g) || [];
-    out.push(parts.map((p) => p.slice(1, -1)).join(""));
+    const parts = block.match(/\((?:\\.|[^\\)])*\)|<[^>]+>/g) || [];
+    const line = parts.map((p) => decodePdfStringToken(p)).join("");
+    if (isReadablePdfPiece(line)) out.push(line);
   }
   return out.join(" ");
+}
+
+function isReadablePdfPiece(s: string): boolean {
+  const t = s.replace(/\0/g, " ").trim();
+  if (t.length < 2) return false;
+  if (/^https?:\/\//i.test(t)) return true;
+  let ok = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    if (c === 9 || c === 10 || c === 13 || (c >= 32 && c < 127) || c >= 160) ok++;
+  }
+  if (ok / t.length < 0.88) return false;
+  return ([...t.matchAll(/[A-Za-z]/g)].length || 0) >= Math.min(3, t.length);
+}
+
+export function looksLikeBinaryJunk(text: string): boolean {
+  const t = String(text || "");
+  if (t.length < 40) return false;
+  let weird = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    if (c < 9 || (c > 13 && c < 32) || (c > 126 && c < 160)) weird++;
+  }
+  const letters = (t.match(/[A-Za-z]/g) || []).length;
+  return weird / t.length > 0.04 || letters / t.length < 0.2;
+}
+
+export function readablePlainText(text: string): string {
+  const raw = String(text || "");
+  const urls = [...new Set(raw.match(/https?:\/\/[^\s<>"'\\)]+/gi) || [])];
+  const words = raw
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, " ")
+    .split(/\s+/)
+    .filter((w) => {
+      if (w.length < 2) return false;
+      if (/^https?:\/\//i.test(w)) return true;
+      const alnum = (w.match(/[A-Za-z0-9]/g) || []).length;
+      return alnum >= 2 && alnum / w.length >= 0.5;
+    });
+  const body = words.join(" ").replace(/ {2,}/g, " ").trim();
+  const extra = urls.filter((u) => !body.includes(u)).join("\n");
+  return [body, extra].filter(Boolean).join("\n").trim();
 }
 
 function latin1ToBytes(s: string): Uint8Array {

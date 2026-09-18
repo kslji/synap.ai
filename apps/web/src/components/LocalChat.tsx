@@ -575,18 +575,31 @@ export function LocalChat() {
           .filter(Boolean)
           .join("\n\n");
         const prior = trimTurns(thread.messages, BROWSER_TURN_BUDGET);
-        await streamBrowserChat(
-          fitBrowserPrompt(
-            systemPrompt(memory, extra, BROWSER_MEMORY_BUDGET),
-            prior,
-            docs
-              ? `${asked}\n\n(The folder listing is in the system context. Draw it. Do not say you lack access.)`
-              : asked,
-          ),
-          paint,
-          setProgress,
-        );
-        finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
+        try {
+          await streamBrowserChat(
+            fitBrowserPrompt(
+              systemPrompt(memory, extra, BROWSER_MEMORY_BUDGET),
+              prior,
+              docs
+                ? `${asked}\n\n(The folder listing is in the system context. Draw it. Do not say you lack access.)`
+                : asked,
+            ),
+            paint,
+            setProgress,
+          );
+          finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
+        } catch (err) {
+          const brief = offlineFileBrief(
+            hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
+            asked,
+          );
+          if (brief) {
+            paint(brief);
+            finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
+            return;
+          }
+          throw err;
+        }
       };
       let usedHost = false;
       let skipMoss = !getToken();

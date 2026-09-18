@@ -1,6 +1,6 @@
 "use client";
 
-import { CreateMLCEngine, type MLCEngine } from "@mlc-ai/web-llm";
+import { CreateMLCEngine, prebuiltAppConfig, type MLCEngine } from "@mlc-ai/web-llm";
 import { BROWSER_PROMPT_CHARS, fitBrowserPrompt, isModelNoise } from "./groundedContext";
 import { networkOnline } from "./net";
 
@@ -8,6 +8,7 @@ let enginePromise: Promise<MLCEngine> | null = null;
 let engineReady = false;
 
 export const BROWSER_MODEL = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
+const LOCAL_WASM = "/mlc/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm";
 
 export function hasReadyBrowserEngine(): boolean {
   return engineReady;
@@ -19,6 +20,17 @@ export function webGpuOk(): boolean {
 
 function overflow(err: unknown): boolean {
   return isModelNoise(err instanceof Error ? err.message : String(err));
+}
+
+function mlcAppConfig() {
+  const origin = typeof location !== "undefined" ? location.origin : "";
+  const wasm = origin ? `${origin}${LOCAL_WASM}` : "";
+  return {
+    ...prebuiltAppConfig,
+    model_list: prebuiltAppConfig.model_list.map((m) =>
+      m.model_id === BROWSER_MODEL && wasm ? { ...m, model_lib: wasm } : m,
+    ),
+  };
 }
 
 async function completeOnce(
@@ -40,19 +52,21 @@ async function completeOnce(
 
 function engineError(err: unknown): Error {
   const m = err instanceof Error ? err.message : String(err);
+  const hint = m.replace(/\s+/g, " ").trim().slice(0, 220);
   if (/loading chunk|chunkloaderror|failed to fetch dynamically imported/i.test(m)) {
     return new Error(
       "A chat script is not saved on this device yet. Stay online, reload this page once, then you can use it with Wi-Fi off.",
     );
   }
-  if (/failed to fetch|network|load failed|offline|internet/i.test(m)) {
+  if (/failed to fetch|network|load failed|offline|internet|err_connection|cors/i.test(m)) {
     if (!networkOnline()) {
       return new Error(
-        "The in-browser model is only partly saved on this device (your sidebar shows the size — it needs about 700 MB). Turn Wi-Fi on, keep this chat open until that number stops growing, then you can chat offline. Attached files still work offline as excerpts. Or start Ollama on this computer.",
+        "The in-browser model is only partly saved (about 700 MB when done). Turn Wi-Fi on and keep this chat open. Attached files still work as excerpts. Or start Ollama on this computer.",
       );
     }
     return new Error(
-      "Could not download the in-browser model. Stay on this page while online until the progress line finishes (the files come from Hugging Face), then send again. Or start Ollama on this computer.",
+      "Could not finish downloading the in-browser model from Hugging Face (weights, ~700 MB). This site does not ship the model in the zip. Allow huggingface.co in the browser, keep this tab open until the progress line finishes, or start Ollama on this computer." +
+        (hint ? ` (${hint})` : ""),
     );
   }
   return err instanceof Error ? err : new Error(m);
@@ -64,6 +78,7 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
   }
   if (!enginePromise) {
     enginePromise = CreateMLCEngine(BROWSER_MODEL, {
+      appConfig: mlcAppConfig(),
       initProgressCallback: (p: { text: string }) => onProgress(p.text),
     })
       .then((engine) => {

@@ -20,3 +20,4 @@ harness/evals/last-report.json
 apps/web/.next
 apps/web/out
 apps/web/public/web-llm.js
+apps/web/public/mlc/*.wasm

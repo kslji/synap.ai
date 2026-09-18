@@ -110,12 +110,30 @@ Attach engines from the sidebar: local host, Ollama, default model, LiveKit on :
 
 Point DNS **A** records for `synap.surf` and `www.synap.surf` at the VM. Nginx serves the static Next.js export and proxies `/v1` to Gunicorn on loopback. Chat engines stay on the user’s device; this host is the website plus auth/feedback.
 
-On the VM (Ubuntu 22.04/24.04):
+On the VM (Debian/Ubuntu). Use the default `python3` package — many images do **not** have `python3.12` in apt. Python **3.10–3.13** is fine; avoid **3.14**.
 
 ```bash
-sudo apt update
-sudo apt install -y nginx certbot python3-certbot-nginx git build-essential python3.12 python3.12-venv nodejs npm
+python3 --version
+. /etc/os-release && echo "$PRETTY_NAME"
 
+sudo apt update
+sudo apt install -y nginx certbot python3-certbot-nginx git build-essential python3 python3-venv python3-pip nodejs npm
+# If python3 is older than 3.10, Ubuntu 22.04 can add 3.12 with:
+#   sudo apt install -y software-properties-common
+#   sudo add-apt-repository -y ppa:deadsnakes/ppa
+#   sudo apt update && sudo apt install -y python3.12 python3.12-venv
+```
+
+Need **Node 18+** for the Next.js build (`node -v`). If apt’s Node is too old:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+Then:
+
+```bash
 sudo mkdir -p /var/www/synap.surf /var/lib/synap/platform
 sudo chown -R "$USER":"$USER" /var/www/synap.surf /var/lib/synap
 
@@ -131,7 +149,7 @@ NEXT_PUBLIC_HOST_URL=https://synap.surf npm run build
 rsync -a --delete out/ /var/www/synap.surf/
 
 cd ~/surf.ai/apps/host
-python3.12 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -181,6 +199,9 @@ server {
         proxy_read_timeout 180s;
         proxy_buffering off;
     }
+    # WebGPU + Hugging Face model shards in the user's browser
+    add_header Cross-Origin-Opener-Policy same-origin always;
+    add_header Cross-Origin-Embedder-Policy credentialless always;
 }
 ```
 

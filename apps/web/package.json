@@ -6,7 +6,7 @@
     "dev": "next dev -p 3000",
     "vendor-llm": "cp node_modules/@mlc-ai/web-llm/lib/index.js public/web-llm.js",
     "predev": "npm run vendor-llm",
-    "prebuild": "npm run vendor-llm",
+    "prebuild": "npm run vendor-llm && node scripts/fetch-mlc-wasm.mjs",
     "build": "next build",
     "postbuild": "node scripts/write-sw-precache.mjs",
     "start": "npx --yes serve out -p 3000"

@@ -17,6 +17,7 @@ const PRECACHE = [
   "/LOCAL-SETUP.bat",
   "/system.md",
   "/web-llm.js",
+  "/mlc/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm",
   "/sw-assets.json",
 ];
 
@@ -84,16 +85,22 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname === "/sw.js") return;
   if (isLocalDevNoise(url)) return;
+  const dest = req.destination;
+  if (dest === "worker" || dest === "sharedworker" || dest === "audioworklet") return;
 
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE);
       const cached = await cache.match(req, { ignoreSearch: true });
       const hashed = url.pathname.startsWith("/_next/static/");
-      if (hashed && cached) return cached;
+      const cachedOk =
+        cached &&
+        cached.ok &&
+        !String(cached.headers.get("content-type") || "").includes("text/html");
+      if (hashed && cachedOk) return cached;
       try {
         const res = await fetch(req);
-        if (res && res.ok) {
+        if (res && res.ok && !String(res.headers.get("content-type") || "").includes("text/html")) {
           await cache.put(req, res.clone());
         }
         return res;

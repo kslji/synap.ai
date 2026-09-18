@@ -564,6 +564,7 @@ export function LocalChat() {
           const brief = offlineFileBrief(
             hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
             asked,
+            "offline",
           );
           if (brief) {
             paint(brief);
@@ -592,6 +593,7 @@ export function LocalChat() {
           const brief = offlineFileBrief(
             hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
             asked,
+            networkOnline() ? "no-model" : "offline",
           );
           if (brief) {
             paint(brief);

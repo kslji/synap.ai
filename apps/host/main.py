@@ -60,6 +60,13 @@ import vault
 
 _SYSTEM_PROMPT: str | None = None
 
+_FILE_GROUND = (
+    "Attached files follow. Infer what they actually are from the filename and text. "
+    "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. "
+    "Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. "
+    "If a line says you cannot see pixels, do not describe the image.\n\n"
+)
+
 
 def load_system_prompt() -> str:
     global _SYSTEM_PROMPT
@@ -584,22 +591,18 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
                 re.I,
             )
         )
-        if interview:
+        already = file_ctx.lstrip().startswith(("OVERRIDE:", "Attached files follow."))
+        if already:
+            ground = file_ctx[:18000]
+        elif interview:
             ground = (
-                "OVERRIDE: The user asked for INTERVIEW QUESTIONS, not a project summary. "
-                "Write only numbered interview Q&A. Do not use template section titles. "
-                "Write a one-line title then 8–12 numbered questions, each answerable only from these files "
-                "(real folders, tests, configs, quotes). Under each, 1–2 bullets of a strong answer from the tree.\n\n"
+                "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. "
+                "Write only numbered interview Q&A grounded in whatever these files actually are. "
+                "Do not force a project or folder template.\n\n"
                 + file_ctx[:18000]
             )
         else:
-            ground = (
-                "You have the user's files. Name the project, what it is, real folders/quotes, "
-                "what they might miss, and one thing to do next. "
-                "Markdown that is easy to scan. For diagrams use mermaid flowchart TB with subgraphs of real folders, "
-                "not a circular 'agent uses runtime uses execution' chain. No vague 'appears to be robotics' unless the files say so.\n\n"
-                + file_ctx[:18000]
-            )
+            ground = _FILE_GROUND + file_ctx[:18000]
     elif retrieval.get("docs"):
         lines = []
         for d in retrieval["docs"][:6]:

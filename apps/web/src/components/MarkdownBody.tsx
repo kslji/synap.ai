@@ -52,7 +52,12 @@ function prose(block: string): ReactNode {
     if (heading) {
       flush();
       const title = heading[2].replace(/\s+overview\s*$/i, "").trim();
-      if (!title || /^(hook|map|overview|key components|useful extras|next move|specific references)$/i.test(title)) {
+      if (
+        !title ||
+        /^(hook|map|overview|key components|useful extras|next move|specific references|what it is|real folders(?:\/quotes)?|what they might miss|one thing to do next)$/i.test(
+          title,
+        )
+      ) {
         continue;
       }
       const Tag = heading[1].length === 1 ? "h3" : heading[1].length === 2 ? "h4" : "h5";

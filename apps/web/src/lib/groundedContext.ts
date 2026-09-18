@@ -74,34 +74,32 @@ export function wantsInterviewQuestions(q: string): boolean {
   return /\b(prep(are)? me for (an )?interview|ask me (interview )?questions)\b/.test(t);
 }
 
+const FILE_GROUND =
+  "Attached files follow. Infer what they actually are from the filename and text " +
+  "(any personal or work document, photo note, spreadsheet, PDF, or code). " +
+  "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. " +
+  "Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. " +
+  "If a line says you cannot see pixels, do not describe the image.\n\n";
+
 export function retrieveFileContext(files: NamedDoc[], query: string, budget: number): string {
   const usable = files.filter((f) => (f.text || "").trim());
   if (!usable.length) return "";
   const heads = () =>
     usable.map((f) => `### ${f.name}\n${f.text.slice(0, Math.min(budget, 18000))}`).join("\n\n");
-  if (wantsInterviewQuestions(query)) {
-    return (
-      "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. " +
-      "Write only numbered interview Q&A. Do not use template section titles. " +
-      "Output: a one-line title, then 8–12 numbered interview questions. " +
-      "Each question must be answerable only from the tree below (real folders, files, tests, configs, quotes). " +
-      "Under each question put 1–2 short bullets of what a strong answer would mention from these files.\n\n" +
-      heads().slice(0, budget)
-    );
-  }
   const wantsOverview =
     /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|walk (me )?through|brief me|what(?:'s| is) (in )?this)\b/i.test(
       query,
     );
-  if (wantsOverview) {
-    const heads = usable
-      .map((f) => `### ${f.name}\n${f.text.slice(0, Math.min(budget, 18000))}`)
-      .join("\n\n");
+  if (wantsInterviewQuestions(query)) {
     return (
-      "You have the real project below. Write like a staffer who read it. " +
-      "Name real folders, files, tests, and quotes. If they asked for a diagram, use a mermaid flowchart TB with subgraphs named from real folders — never a circular 'X uses X environment' graph.\n\n" +
-      heads.slice(0, budget)
+      "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. " +
+      "Write only numbered interview Q&A grounded in whatever these files actually are. " +
+      "Do not force a project or folder template.\n\n" +
+      heads().slice(0, budget)
     );
+  }
+  if (wantsOverview) {
+    return FILE_GROUND + heads().slice(0, budget);
   }
   const ranked: Array<{ name: string; text: string; s: number; i: number }> = [];
   for (const f of usable) {
@@ -129,12 +127,7 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
       .join("\n\n");
     return head.slice(0, budget);
   }
-  return (
-    "Attached local files (excerpts for this question). Stay inside this text. " +
-    "Quote names and lines. Write a briefing the reader wants to finish. " +
-    "Do not draw a folder diagram unless they asked for one.\n\n" +
-    parts.join("\n\n")
-  );
+  return FILE_GROUND + parts.join("\n\n");
 }
 
 /** User-visible answer from files already in this tab when the LLM cannot run. */
@@ -167,16 +160,20 @@ export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offl
 }
 
 export function stripStafferLabels(text: string): string {
-  const banned =
-    /^(#{1,6}\s*)?(\*\*)?(hook|map|overview|key components|useful extras|next move|specific references)(\*\*)?\s*:?\s*$/i;
+  const label =
+    "hook|map|overview|key components|useful extras|next move|specific references|" +
+    "what it is|real folders(?:\\/quotes)?|what they might miss|one thing to do next";
+  const banned = new RegExp(`^(#{1,6}\\s*)?(\\*\\*)?(${label})(\\*\\*)?\\s*:?\\s*$`, "i");
+  const lead = new RegExp(`^(\\*\\*)?(${label})(\\*\\*)?\\s*:\\s*`, "i");
+  const bold = new RegExp(`\\*\\*(${label})\\*\\*\\s*:?\\s*`, "gi");
   return String(text || "")
     .split("\n")
     .flatMap((line) => {
       const t = line.trim();
       if (banned.test(t)) return [];
       let next = line.replace(/\s+overview\s*$/i, "");
-      next = next.replace(/\*\*(hook|map|overview|key components|useful extras|next move|specific references)\*\*\s*:?\s*/gi, "");
-      next = next.replace(/^(hook|map|overview|key components|useful extras|next move|specific references)\s*:\s*/i, "");
+      next = next.replace(bold, "");
+      next = next.replace(lead, "");
       return [next];
     })
     .join("\n")
@@ -230,11 +227,10 @@ export function groundedSystem(memory: string, extra: string, memoryBudget: numb
     ? `\n\nRetained memory from older chats on this device:\n${memory.trim().slice(0, memoryBudget)}`
     : "";
   return (
-    "You are a document agent on this device. Match the user's ask. " +
-    "If they asked for interview questions, the whole reply is numbered interview Q&A from the files. " +
-    "Otherwise when files are attached: name the project, what it is, real folders and quotes, then what to do next. " +
+    "You are a document agent on this device. Infer what was attached from the text, then answer the user's ask. " +
     "Stay accurate. Prefer attached-file excerpts, then recent chat, then retained memory. " +
-    "Do not invent names, jobs, or facts that are not in that context. " +
+    "Do not invent names, jobs, folders, or facts that are not in that context. " +
+    "Interview questions: numbered Q&A from the files. Images: you cannot see pixels unless the note says otherwise. " +
     "Do not mention Moss, Ollama, WebGPU, or this product unless the user or files do. " +
     "Use retained memory silently. Never reprint it. Never output headings like User Memory Note, Open Tasks, or Retained Information unless the user asked to see the saved summary." +
     mem +

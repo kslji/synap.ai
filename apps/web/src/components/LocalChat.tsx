@@ -514,7 +514,7 @@ export function LocalChat() {
     if (wantsPdfExport(asked) && hydrated.length) {
       try {
         const done = await convertAttachmentsToPdf(hydrated);
-        pdfNote = `A PDF (${done.filename}) was just saved on this computer from ${done.count} attached file(s). Mention that briefly, then still write the rich document briefing.`;
+        pdfNote = `A PDF (${done.filename}) was just saved on this computer from ${done.count} attached file(s). Mention that briefly, then still answer from the attached files.`;
       } catch (err) {
         pdfNote = `PDF conversion failed: ${err instanceof Error ? err.message : String(err)}. Still brief the attached files.`;
       }

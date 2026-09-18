@@ -1269,7 +1269,7 @@
       const usable = attached.filter((f) => String(f.text || "").trim());
       if (overview && usable.length) {
         const heads = usable.map((f) => "### " + f.name + "\n" + String(f.text).slice(0, Math.min(budget, 18000))).join("\n\n");
-        return "You have the real project below. Write like a staffer who read it. Name real folders, files, tests, and quotes. If they asked for interview questions, each question must be answerable only from this tree. If they asked for a diagram, use mermaid flowchart TB with subgraphs of real folders — never a circular 'X uses X environment' graph.\n\n" + heads.slice(0, budget);
+        return "Attached files follow. Infer what they actually are from the filename and text. Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. If a line says you cannot see pixels, do not describe the image.\n\n" + heads.slice(0, budget);
       }
       const ranked = [];
       for (const f of usable) {
@@ -1305,7 +1305,7 @@
       if (!parts.length) {
         return usable.map((f) => "### " + f.name + "\n" + String(f.text || "").slice(0, Math.floor(budget / Math.max(usable.length, 1)))).join("\n\n").slice(0, budget);
       }
-      return "Attached local files (excerpts for this question). Stay inside this text. Quote names and lines. Write a briefing the reader wants to finish.\n\n" + parts.join("\n\n");
+      return "Attached files follow. Infer what they actually are from the filename and text. Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below.\n\n" + parts.join("\n\n");
     }
     function sanitizeUserText(text) {
       let cleaned = String(text || "").trim();

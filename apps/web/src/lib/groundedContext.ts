@@ -137,8 +137,8 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   );
 }
 
-/** User-visible answer from files already in this tab when the LLM cannot run (Wi-Fi off, model incomplete). */
-export function offlineFileBrief(files: NamedDoc[], query: string): string {
+/** User-visible answer from files already in this tab when the LLM cannot run. */
+export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offline" | "no-model" = "offline"): string {
   const usable = files.filter((f) => (f.text || "").trim());
   if (!usable.length) return "";
   const q = query.trim() || "What is in these files?";
@@ -155,15 +155,15 @@ export function offlineFileBrief(files: NamedDoc[], query: string): string {
       .join(" ")
       .slice(0, 3500);
     if (!clean || clean.length < 24) {
-      return `**${f.name}**\nNo readable text layer in this file. It may be a scanned PDF. Keep Wi-Fi on until the in-browser model finishes downloading, or attach a .txt / .docx copy.`;
+      return `**${f.name}**\nNo readable text layer in this file. It may be a scanned PDF. Attach a .txt / .docx copy, or wait until the in-browser model finishes downloading.`;
     }
     return `**${f.name}**\n${clean}${raw.length > clean.length ? "…" : ""}`;
   });
-  return (
-    `Wi-Fi is off, so this is taken from the file already on this chat — not the full in-browser model.\n\n` +
-    `You asked: ${q}\n\n` +
-    blocks.join("\n\n")
-  );
+  const lead =
+    reason === "offline"
+      ? "This tab is offline, so this is taken from the file already on this chat — not the full in-browser model."
+      : "The in-browser model is not ready on this site yet (it must download ~700 MB once per browser origin). This is taken from the file already on this chat.";
+  return `${lead}\n\nYou asked: ${q}\n\n` + blocks.join("\n\n");
 }
 
 export function stripStafferLabels(text: string): string {

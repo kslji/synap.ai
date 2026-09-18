@@ -45,7 +45,7 @@ import {
 import { canUseFilePicker, filesFromDataTransfer, pickFilesOrFolder } from "@/lib/deviceFolder";
 import { downloadOnThisDevice } from "@/lib/openOnDevice";
 import { convertAttachmentsToPdf } from "@/lib/convertToPdf";
-import { fetchHostStorage, getToken, health, indexMoss, parseApiError, searchMoss, streamChat, type Health } from "@/lib/api";
+import { fetchHostStorage, getToken, health, indexMoss, parseApiError, searchMoss, streamChat, createLocalInstance, type Health } from "@/lib/api";
 import { fetchProfile, clearAccount, type UserProfile } from "@/lib/account";
 import { looksLikeNetworkFailure, networkOnline } from "@/lib/net";
 import { AuthDialog } from "./AuthDialog";
@@ -151,7 +151,16 @@ export function LocalChat() {
 
   const refreshHost = useCallback(async () => {
     try {
-      setStatus(await health());
+      let next = await health();
+      if ((next.local_llm?.backend || next.ollama) && !next.platform?.instance) {
+        try {
+          await createLocalInstance("synap");
+          next = await health();
+        } catch {
+          /* first chat can still use the in-browser model */
+        }
+      }
+      setStatus(next);
     } catch {
       setStatus(null);
     }

@@ -22,6 +22,8 @@ export function looksLikeNetworkFailure(err: unknown): boolean {
     m.includes("aborterror") ||
     m.includes("the operation was aborted") ||
     m.includes("err_internet_offline") ||
-    m.includes("err_network_changed")
+    m.includes("err_network_changed") ||
+    m.includes("loading chunk") ||
+    m.includes("chunkloaderror")
   );
 }

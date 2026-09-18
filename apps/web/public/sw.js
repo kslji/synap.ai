@@ -1,5 +1,5 @@
 /* Surf AI — keep the site usable offline, like YouTube with saved videos. */
-const CACHE = "surf-shell-v3";
+const CACHE = "surf-shell-v4";
 const PRECACHE = [
   "/",
   "/index.html",
@@ -17,17 +17,25 @@ const PRECACHE = [
   "/LOCAL-SETUP.bat",
   "/system.md",
   "/web-llm.js",
+  "/sw-assets.json",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE);
-      await Promise.all(
-        PRECACHE.map((url) =>
-          cache.add(url).catch(() => undefined),
-        ),
-      );
+      await Promise.all(PRECACHE.map((url) => cache.add(url).catch(() => undefined)));
+      try {
+        const res = await fetch("/sw-assets.json", { cache: "no-store" });
+        if (res.ok) {
+          const urls = await res.json();
+          await Promise.all(
+            (Array.isArray(urls) ? urls : []).map((url) => cache.add(url).catch(() => undefined)),
+          );
+        }
+      } catch {
+        /* first visit without the asset list still caches pages as they load */
+      }
       await self.skipWaiting();
     })(),
   );
@@ -81,6 +89,8 @@ self.addEventListener("fetch", (event) => {
     (async () => {
       const cache = await caches.open(CACHE);
       const cached = await cache.match(req, { ignoreSearch: true });
+      const hashed = url.pathname.startsWith("/_next/static/");
+      if (hashed && cached) return cached;
       try {
         const res = await fetch(req);
         if (res && res.ok) {

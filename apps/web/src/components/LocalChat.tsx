@@ -58,7 +58,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
-import { completeBrowserChat, streamBrowserChat, webGpuOk } from "@/lib/webllm";
+import { completeBrowserChat, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
 
@@ -161,6 +161,7 @@ export function LocalChat() {
     setDictateOk(canDictate());
     void load();
     void refreshHost();
+    if (networkOnline()) warmBrowserEngine(setProgress);
     void fetchProfile().then((me) => {
       setProfile(me);
       if (!me && networkOnline()) setAuthOpen(true);
@@ -169,6 +170,7 @@ export function LocalChat() {
       const up = networkOnline();
       setNetOn(up);
       if (up) {
+        warmBrowserEngine(setProgress);
         void fetchProfile().then((me) => {
           setProfile(me);
           if (!me) setAuthOpen(true);

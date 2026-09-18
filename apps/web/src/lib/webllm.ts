@@ -1,7 +1,8 @@
 "use client";
 
-import type { MLCEngine } from "@mlc-ai/web-llm";
+import { CreateMLCEngine, type MLCEngine } from "@mlc-ai/web-llm";
 import { BROWSER_PROMPT_CHARS, fitBrowserPrompt, isModelNoise } from "./groundedContext";
+import { networkOnline } from "./net";
 
 let enginePromise: Promise<MLCEngine> | null = null;
 
@@ -32,32 +33,53 @@ async function completeOnce(
   }
 }
 
+function engineError(err: unknown): Error {
+  const m = err instanceof Error ? err.message : String(err);
+  if (/loading chunk|chunkloaderror|failed to fetch dynamically imported/i.test(m)) {
+    return new Error(
+      "A chat script is not saved on this device yet. Stay online, reload this page once, then you can use it with Wi-Fi off.",
+    );
+  }
+  if (/failed to fetch|network|load failed|offline|internet/i.test(m)) {
+    if (!networkOnline()) {
+      return new Error(
+        "The in-browser model is not on this device yet. Turn Wi-Fi on, keep this chat open until the download finishes (~1 GB), then you can chat offline. Or start Ollama on this computer.",
+      );
+    }
+    return new Error(
+      "Could not download the in-browser model. Stay on this page while online until the progress line finishes (the files come from Hugging Face), then send again. Or start Ollama on this computer.",
+    );
+  }
+  return err instanceof Error ? err : new Error(m);
+}
+
+export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<MLCEngine> {
+  if (!webGpuOk()) {
+    return Promise.reject(new Error("WebGPU is not available in this browser. Use Chrome or Edge."));
+  }
+  if (!enginePromise) {
+    enginePromise = CreateMLCEngine(BROWSER_MODEL, {
+      initProgressCallback: (p: { text: string }) => onProgress(p.text),
+    }).catch((err) => {
+      enginePromise = null;
+      throw engineError(err);
+    });
+  }
+  return enginePromise;
+}
+
+/** Start the Hugging Face model download while the tab is online (do not wait for the first send). */
+export function warmBrowserEngine(onProgress: (s: string) => void): void {
+  if (!webGpuOk() || !networkOnline()) return;
+  void ensureBrowserEngine(onProgress).then(() => onProgress("")).catch(() => undefined);
+}
+
 export async function streamBrowserChat(
   messages: { role: string; content: string }[],
   onDelta: (t: string) => void,
   onProgress: (s: string) => void,
 ): Promise<void> {
-  if (!webGpuOk()) {
-    throw new Error("WebGPU is not available in this browser. Use Chrome or Edge.");
-  }
-  if (!enginePromise) {
-    enginePromise = (async () => {
-      const { CreateMLCEngine } = await import("@mlc-ai/web-llm");
-      return CreateMLCEngine(BROWSER_MODEL, {
-        initProgressCallback: (p: { text: string }) => onProgress(p.text),
-      });
-    })().catch((err) => {
-      enginePromise = null;
-      const m = err instanceof Error ? err.message : String(err);
-      if (/failed to fetch|network|load failed|offline/i.test(m)) {
-        throw new Error(
-          "The in-browser model is not cached on this device yet. Leave this chat open once while online so it can download, or start Ollama on this computer.",
-        );
-      }
-      throw err;
-    });
-  }
-  const engine = await enginePromise;
+  const engine = await ensureBrowserEngine(onProgress);
   onProgress("");
   const system = messages.find((m) => m.role === "system")?.content || "";
   const question = [...messages].reverse().find((m) => m.role === "user")?.content || "";
@@ -66,7 +88,7 @@ export async function streamBrowserChat(
   try {
     await completeOnce(engine, packed, onDelta);
   } catch (err) {
-    if (!overflow(err)) throw err;
+    if (!overflow(err)) throw engineError(err);
     packed = fitBrowserPrompt(system, [], question, 2200);
     await completeOnce(engine, packed, onDelta);
   }

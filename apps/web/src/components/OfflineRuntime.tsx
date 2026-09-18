@@ -30,6 +30,16 @@ export function OfflineRuntime() {
     void Promise.all([
       prefetchLocalPack(),
       ...WARM.map((path) => fetch(path, { credentials: "same-origin" }).catch(() => null)),
+      fetch("/sw-assets.json", { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((urls) =>
+          Promise.all(
+            (Array.isArray(urls) ? urls : []).map((path) =>
+              fetch(path, { credentials: "same-origin" }).catch(() => null),
+            ),
+          ),
+        )
+        .catch(() => null),
     ]);
   }, []);
   return null;

@@ -1,0 +1,24 @@
+{
+  "name": "Surf AI",
+  "short_name": "Surf",
+  "description": "Local chat on this computer. Works offline after the first visit, like saved YouTube videos.",
+  "start_url": "/chat",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c0f0e",
+  "theme_color": "#0c0f0e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,1866 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <style id="legacy-setup-killer">
+    #setup-scrim, #setup-open, #setup-side, #setup-btn { display: none !important; }
+    .setup-scrim:not(#auth-scrim) { display: none !important; }
+  </style>
+  <title>Surf AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+  <style>
+    :root { color-scheme: dark; --bg:#0c0f0e; --bg-2:#141a18; --line:#24302b; --text:#e8eee9; --muted:#8b9a92; --accent:#7dcea0; --warn:#e2b657; --danger:#e07a6a; --font:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
+    button, textarea, input { font-family: inherit; }
+    button { cursor: pointer; }
+    a { color: var(--accent); text-decoration: none; }
+    .chat-shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+    .chat-side { background: var(--bg-2); border-right: 1px solid var(--line); padding: 18px 14px; display: flex; flex-direction: column; min-height: 100vh; overflow: auto; }
+    .brand { font-weight: 600; letter-spacing: -0.03em; font-size: 18px; color: var(--text); }
+    a.brand:hover { color: var(--accent); }
+    .muted { color: var(--muted); }
+    .tiny { font-size: 12px; }
+    .primary { display: inline-flex; align-items: center; gap: 8px; background: var(--accent); color: #0c0f0e; border: 0; border-radius: 999px; padding: 12px 18px; font-weight: 600; font-size: 15px; }
+    .primary.wide { width: 100%; justify-content: center; border-radius: 10px; margin: 16px 0 12px; }
+    .ghost { display: inline-flex; align-items: center; gap: 8px; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 10px 14px; font-size: 14px; }
+    .ghost.wide, .danger.wide { width: 100%; justify-content: center; margin-top: 8px; border-radius: 10px; }
+    .danger { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 999px; padding: 10px 14px; font-size: 13px; }
+    .thread-list { flex: 1; overflow: auto; }
+    .thread { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+    .thread.on { background: #1c2622; }
+    .thread-open { flex: 1; text-align: left; background: transparent; color: var(--text); border: 0; padding: 8px 10px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .icon { background: transparent; border: 0; color: var(--muted); padding: 6px; display: inline-flex; align-items: center; justify-content: center; }
+    .chat-main { display: flex; flex-direction: column; min-height: 100vh; }
+    .chat-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line); gap: 12px; }
+    .head-title { font-weight: 600; }
+    .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .chat-log { flex: 1; overflow: auto; padding: 28px 22px 12px; display: flex; flex-direction: column; gap: 12px; }
+    .empty { margin: auto; max-width: 520px; text-align: center; }
+    .empty h1 { font-size: 32px; letter-spacing: -0.04em; margin: 0 0 12px; font-weight: 600; }
+    .warn { color: var(--warn); font-size: 14px; }
+    .bubble { max-width: min(72%, 720px); padding: 12px 16px; border-radius: 16px; white-space: pre-wrap; line-height: 1.5; font-size: 15px; }
+    .bubble.user { align-self: flex-end; background: #1d2a24; }
+    .bubble.assistant { align-self: flex-start; background: var(--bg-2); border: 1px solid var(--line); white-space: normal; }
+    .md-body p { margin: 0 0 .65em; }
+    .md-body p:last-child, .md-body ul:last-child, .md-body ol:last-child, .md-body pre:last-child { margin-bottom: 0; }
+    .md-body h3, .md-body h4 { margin: 0 0 .45em; font-size: 15px; }
+    .md-body ul, .md-body ol { margin: 0 0 .65em; padding-left: 1.2em; }
+    .md-body code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .05em .35em; }
+    .md-pre { margin: 0 0 .75em; padding: 10px 12px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+    .md-pre code { border: 0; padding: 0; background: transparent; white-space: pre; }
+    .flow-map { margin: 0 0 .9em; padding: 14px; overflow: auto; background: linear-gradient(180deg, #121a17, #0e1412); border: 1px solid var(--line); border-radius: 16px; }
+    .flow-map.flow-lr, .flow-stage { display: flex; align-items: stretch; gap: 8px; }
+    .flow-map.flow-tb { display: flex; flex-direction: column; gap: 4px; }
+    .flow-map.flow-tb .flow-stage { flex-direction: column; }
+    .flow-layer { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; }
+    .flow-node { min-width: 140px; max-width: 220px; padding: 12px 14px; border-radius: 14px; border: 1px solid #355246; background: #1a2621; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 13px; line-height: 1.35; text-align: center; font-weight: 500; }
+    .flow-node.flow-round { border-radius: 999px; }
+    .flow-node.tone-1 { background: #1c2c24; border-color: #4a7d62; }
+    .flow-node.tone-2 { background: #1e2830; border-color: #4d6d82; }
+    .flow-node.tone-3 { background: #26221c; border-color: #7a6a3e; }
+    .flow-connectors { display: flex; flex-direction: column; justify-content: center; gap: 8px; min-width: 72px; }
+    .flow-map.flow-tb .flow-connectors { min-width: 0; min-height: 36px; align-items: center; }
+    .flow-arrow { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .flow-map.flow-tb .flow-arrow { flex-direction: column; }
+    .flow-shaft { flex: 1; min-width: 28px; min-height: 2px; background: var(--accent); opacity: .7; }
+    .flow-map.flow-tb .flow-shaft { min-width: 2px; min-height: 18px; width: 2px; }
+    .flow-head { width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 8px; border-color: transparent transparent transparent var(--accent); }
+    .flow-map.flow-tb .flow-head { border-width: 8px 5px 0 5px; border-color: var(--accent) transparent transparent transparent; }
+    .flow-arrow em { font-style: normal; max-width: 140px; line-height: 1.25; color: var(--accent); }
+    .bubble-wrap { display: flex; flex-direction: column; max-width: min(72%, 720px); }
+    .bubble-wrap.user { align-self: flex-end; }
+    .bubble-wrap.assistant { align-self: flex-start; }
+    .bubble-wrap .bubble { max-width: 100%; }
+    .cite { max-width: min(72%, 720px); align-self: flex-start; margin-top: 4px; }
+    .msg-time { max-width: min(72%, 720px); align-self: flex-start; margin-top: 4px; }
+    .fb-votes { display: flex; gap: 2px; }
+    .fb-votes .icon.on { color: var(--accent); }
+    .fb-form { display: none; flex-direction: column; gap: 6px; margin-top: 6px; }
+    .fb-form.open { display: flex; }
+    .fb-form input, .fb-form textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
+    .fb-form .ghost { align-self: flex-start; border-radius: 10px; padding: 6px 10px; font-size: 12px; }
+    .fb-inbox .fb-list { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .fb-inbox .ok { color: var(--accent); }
+    .think { display: flex; align-items: center; gap: 10px; min-width: 160px; }
+    .think-dots { display: flex; gap: 4px; }
+    .think-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: block; animation: think-bounce 1.05s ease-in-out infinite; }
+    .think-dots i:nth-child(2) { animation-delay: .15s; }
+    .think-dots i:nth-child(3) { animation-delay: .3s; }
+    .think-label { color: var(--muted); font-size: 14px; }
+    @keyframes think-bounce { 0%,80%,100% { opacity:.35; transform: translateY(0); } 40% { opacity:1; transform: translateY(-3px); } }
+    .composer { padding: 12px 22px 24px; }
+    .composer-wrap { max-width: 760px; margin: 0 auto; }
+    .composer-box { display: flex; align-items: flex-end; gap: 8px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 16px; padding: 8px 8px 8px 14px; }
+    .composer-box textarea { flex: 1; background: transparent; color: var(--text); border: 0; resize: none; outline: none; min-height: 24px; max-height: 160px; padding: 8px 0; font-size: 15px; }
+    .send { background: var(--accent); color: #0c0f0e; border: 0; border-radius: 10px; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+    .send:disabled { opacity: .4; }
+    .attach-one { position: relative; }
+    .attach-menu { display: none; position: absolute; left: 0; bottom: 44px; z-index: 8; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; min-width: 200px; padding: 6px; flex-direction: column; gap: 2px; }
+    .attach-menu.open { display: flex; }
+    .attach-menu button { background: transparent; border: 0; color: var(--text); text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 14px; width: 100%; }
+    .attach-menu button:hover { background: var(--bg); }
+    .attach-bar { max-width: 760px; margin: 0 auto 8px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px; }
+    .attach-bar-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .attach-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 72px; overflow: auto; }
+    .attach-chip { display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; max-width: 180px; }
+    .attach-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+    .attach-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .attach-x { flex-shrink: 0; background: transparent; border: 0; color: var(--muted); padding: 2px; }
+    .engine-panel { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+    .engine-dots { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+    .engine-dots .ok { color: var(--accent); }
+    .memory-panel { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+    .memory-preview { font-size: 12px; line-height: 1.45; color: var(--muted); max-height: 88px; overflow: auto; margin: 8px 0 0; }
+    .memory-banner { align-self: center; max-width: 720px; font-size: 12px; color: var(--muted); background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+    .data-card { background: #101614; border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+    .data-line { font-size: 13px; margin: 4px 0 6px; }
+    .data-help { margin: 8px 0 0; padding-left: 16px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .data-help .ok { color: var(--accent); }
+    .setup-scrim { position: fixed; inset: 0; background: rgba(8,10,9,.72); z-index: 40; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .setup-scrim.hidden { display: none; }
+    .setup-panel { background: var(--bg-2); border: 1px solid var(--line); border-radius: 16px; max-width: 520px; width: 100%; max-height: min(88vh, 720px); overflow: auto; padding: 22px; }
+    .setup-panel h2 { margin: 0 0 8px; font-size: 20px; letter-spacing: -0.03em; }
+    .setup-panel .auth-input { display: block; width: 100%; margin: 4px 0 10px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+    button.linkish { background: none; border: 0; color: var(--accent); padding: 0; font-size: inherit; }
+    .setup-cmd { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; margin: 8px 0; }
+    .mobile-only { display: none; }
+    @media (max-width: 560px) {
+      .chat-shell { grid-template-columns: 1fr; }
+      .chat-side { display: none; }
+      .mobile-only { display: block; }
+    }
+    html.standalone #sign-out,
+    html.standalone #dl-zip,
+    html.standalone #auth-scrim { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="chat-shell">
+    <aside class="chat-side">
+      <a class="brand" href="./local-agent.html" title="Surf AI home">Surf AI</a>
+      <button type="button" class="primary wide" id="new-side">+ New chat</button>
+      <div class="thread-list" id="thread-list"></div>
+      <div class="engine-panel">
+        <div class="tiny muted">What's running</div>
+        <ul class="data-help" id="engine-dots">
+          <li>Finding text in your files: off (start the local host to turn this on)</li>
+          <li>Writing answers with: the small model in this browser (or start Ollama)</li>
+        </ul>
+      </div>
+      <div class="memory-panel">
+        <div class="data-card" id="data-card"></div>
+        <div class="data-card fb-inbox" id="fb-inbox"></div>
+        <p class="memory-preview" id="memory-preview" hidden></p>
+        <button type="button" class="ghost wide" id="summarize-side">Save a short summary and delete chats</button>
+        <button type="button" class="danger wide" id="erase-side">Delete all chats and files</button>
+      </div>
+    </aside>
+    <section class="chat-main" id="chat-main">
+      <header class="chat-head">
+        <div>
+          <div class="head-title">Chat</div>
+          <div class="muted tiny" id="mode">in-browser model</div>
+        </div>
+        <div class="head-actions">
+          <button type="button" class="ghost" id="new">+ New chat</button>
+          <button type="button" class="ghost" id="dl-zip">Download zip</button>
+          <button type="button" class="ghost" id="summarize">Save summary</button>
+          <button type="button" class="ghost" id="erase">Delete data</button>
+          <button type="button" class="ghost" id="sign-out">Sign out</button>
+        </div>
+      </header>
+      <div class="chat-log" id="log"></div>
+      <div class="composer">
+        <div class="composer-wrap">
+          <div class="attach-bar" id="attach-bar" hidden>
+            <div class="attach-bar-head">
+              <span class="tiny muted" id="attach-head">0 files on this chat</span>
+            </div>
+            <div class="attach-list" id="files"></div>
+          </div>
+          <div class="composer-box">
+            <input id="pick" type="file" hidden multiple />
+            <input id="pick-image" type="file" hidden multiple accept="image/*,image/heic,image/heif,.heic,.heif,.png,.jpg,.jpeg,.gif,.webp,.bmp,.avif" />
+            <div class="attach-one">
+              <button class="icon" id="attach" type="button" aria-label="Attach" title="Attach files, a folder, or photos">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              </button>
+              <div class="attach-menu" id="attach-menu">
+                <button type="button" id="pick-files-or-folder">Files or folder</button>
+                <button type="button" id="pick-image-btn">Upload image</button>
+              </div>
+            </div>
+            <textarea id="input" rows="1" placeholder="Message…"></textarea>
+            <button type="button" class="icon" id="mic" aria-label="Dictate" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/></svg>
+            </button>
+            <button class="send" id="send" type="button" disabled aria-label="Send">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="setup-scrim hidden" id="auth-scrim">
+    <div class="setup-panel" role="dialog" aria-labelledby="auth-title">
+      <h2 id="auth-title">Create an account</h2>
+      <p class="muted" id="auth-copy">Create an account with your email and a password (at least 8 characters). We email a 6-digit code so we know the address is yours.</p>
+      <input class="auth-input" id="auth-email" type="email" placeholder="you@example.com" />
+      <input class="auth-input" id="auth-pass" type="password" placeholder="Password (at least 8 characters)" />
+      <input class="auth-input" id="auth-otp" placeholder="6-digit code from email" hidden />
+      <p class="tiny muted" id="auth-hint"></p>
+      <p class="warn" id="auth-err"></p>
+      <button type="button" class="primary wide" id="auth-go">Send verification code</button>
+      <button type="button" class="ghost wide" id="auth-resend" hidden>Send a new code</button>
+      <p class="tiny muted">
+        <button type="button" class="linkish" id="auth-switch">Already have an account? Sign in</button>
+        <button type="button" class="linkish" id="auth-forgot">Forgot password</button>
+      </p>
+    </div>
+  </div>
+  <script type="module">
+    const HOST = "http://127.0.0.1:18765";
+    const MODEL = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
+    function isStandalone() {
+      return location.port === "18766";
+    }
+    function localOn(h) {
+      return !!(h && (h.local_llm?.backend || h.ollama) && h.platform?.instance);
+    }
+    if (isStandalone()) document.documentElement.classList.add("standalone");
+    const EMPTY = `<div class="empty" id="empty"><h1>Ask anything</h1><p class="muted">Type a question, clip files, or pick a folder. We only read what you attach. Answers
+                come from your private ai model. Wi-Fi is optional.</p></div>`;
+    const logEl = document.getElementById("log");
+    const input = document.getElementById("input");
+    const filesEl = document.getElementById("files");
+    const modeEl = document.getElementById("mode");
+    const sendBtn = document.getElementById("send");
+    const SKIP_DIR = /^(node_modules|\.git|\.ssh|\.gnupg|Library|AppData|__pycache__|\.venv)$/i;
+    const SKIP_FILE = /(\.pem|\.key|\.p12|\.env|id_rsa|credentials|secret)/i;
+    const DB = "local-ai-standalone";
+    let engine = null;
+    let clientId = localStorage.getItem("local.ai.client") || crypto.randomUUID();
+    localStorage.setItem("local.ai.client", clientId);
+    let memory = "";
+    let wipeArmed = false;
+    let threads = [];
+    let activeId = null;
+    let healthCache = null;
+    let authMode = "register";
+    let fbInbox = [];
+
+    async function postAuth(path, body) {
+      const r = await fetch(HOST + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await r.text();
+      if (!r.ok) {
+        let msg = text.slice(0, 240);
+        try {
+          const j = JSON.parse(text);
+          if (typeof j.detail === "string") msg = j.detail;
+          else if (Array.isArray(j.detail)) {
+            msg = j.detail.map((d) => {
+              if (typeof d === "string") return d;
+              if (d && d.msg) {
+                const loc = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body").join(" ") : "";
+                if (/password/i.test(loc) && /at least 8/i.test(d.msg)) return "Password must be at least 8 characters.";
+                return loc ? loc + ": " + d.msg : d.msg;
+              }
+              return "";
+            }).filter(Boolean).join(" ") || msg;
+          }
+        } catch { /* */ }
+        throw new Error(msg);
+      }
+      return text ? JSON.parse(text) : {};
+    }
+    function paintAuth() {
+      const title = document.getElementById("auth-title");
+      const go = document.getElementById("auth-go");
+      const pass = document.getElementById("auth-pass");
+      const otp = document.getElementById("auth-otp");
+      const resend = document.getElementById("auth-resend");
+      const sw = document.getElementById("auth-switch");
+      const copy = document.getElementById("auth-copy");
+      const map = {
+        register: ["Create an account", "Send verification code", false, true, false, "Already have an account? Sign in", "Create an account with your email and a password (at least 8 characters). We email a 6-digit code so we know the address is yours."],
+        login: ["Sign in", "Sign in", false, true, false, "Create an account", "Sign in with the same email and password you used to register."],
+        verify: ["Enter the email code", "Confirm email", true, false, true, "Back to sign in", "Enter the 6-digit code from your email. It expires in 10 minutes. Mail is sent by Python smtplib (not Nodemailer). If nothing arrives, SMTP is not set — look in mail-outbox.jsonl on the host."],
+        forgot: ["Forgot password", "Send reset code", false, false, false, "Back to sign in", "We’ll email a 6-digit reset code to this address if an account exists."],
+        reset: ["Choose a new password", "Save password and sign in", true, true, true, "Back to sign in", "Enter the 6-digit reset code from email, then choose a new password (at least 8 characters)."],
+      };
+      const row = map[authMode];
+      title.textContent = row[0];
+      go.textContent = row[1];
+      otp.hidden = !row[2];
+      pass.hidden = !row[3];
+      resend.hidden = !row[4];
+      sw.textContent = row[5];
+      if (copy) copy.textContent = row[6];
+    }
+    async function ensureAuth() {
+      const scrim = document.getElementById("auth-scrim");
+      scrim.classList.add("hidden");
+      if (location.port === "18766") {
+        const so = document.getElementById("sign-out");
+        if (so) so.hidden = true;
+        return true;
+      }
+      const tok = localStorage.getItem("local.ai.jwt");
+      if (navigator.onLine === false) {
+        scrim.classList.add("hidden");
+        modeEl.textContent = "Internet is off. Sign-in and thumbs wait on our backend. You can chat with attached files.";
+        return true;
+      }
+      if (tok) {
+        const r = await fetch(HOST + "/v1/auth/me", { headers: { Authorization: "Bearer " + tok } });
+        if (r.ok) {
+          scrim.classList.add("hidden");
+          return true;
+        }
+        localStorage.removeItem("local.ai.jwt");
+      }
+      scrim.classList.remove("hidden");
+      paintAuth();
+      return false;
+    }
+    document.getElementById("auth-switch").onclick = () => {
+      authMode = authMode === "register" ? "login" : "register";
+      document.getElementById("auth-err").textContent = "";
+      paintAuth();
+    };
+    document.getElementById("auth-forgot").onclick = () => {
+      authMode = "forgot";
+      document.getElementById("auth-err").textContent = "";
+      paintAuth();
+    };
+    document.getElementById("auth-resend").onclick = async () => {
+      const email = document.getElementById("auth-email").value.trim();
+      try {
+        await postAuth("/v1/auth/resend-otp", { email, purpose: authMode === "reset" ? "reset" : "verify" });
+        document.getElementById("auth-hint").textContent = "We sent another code to that email.";
+      } catch (e) {
+        document.getElementById("auth-err").textContent = e.message || String(e);
+      }
+    };
+    document.getElementById("auth-go").onclick = async () => {
+      const email = document.getElementById("auth-email").value.trim();
+      const password = document.getElementById("auth-pass").value;
+      const otp = document.getElementById("auth-otp").value.trim();
+      const err = document.getElementById("auth-err");
+      const hint = document.getElementById("auth-hint");
+      err.textContent = "";
+      if (navigator.onLine === false) {
+        err.textContent = "Internet is off. Sign-in waits until you are online. You can chat with attached files.";
+        document.getElementById("auth-scrim").classList.add("hidden");
+        return;
+      }
+      try {
+        if ((authMode === "register" || authMode === "login" || authMode === "reset") && password.length < 8) {
+          err.textContent = "Password must be at least 8 characters.";
+          return;
+        }
+        if (authMode === "register") {
+          await postAuth("/v1/auth/register", { email, password });
+          authMode = "verify";
+          hint.textContent = "Check your inbox for a 6-digit code, then paste it below.";
+          paintAuth();
+        } else if (authMode === "verify") {
+          const data = await postAuth("/v1/auth/verify-email", { email, otp });
+          localStorage.setItem("local.ai.jwt", data.token);
+          document.getElementById("auth-scrim").classList.add("hidden");
+        } else if (authMode === "login") {
+          const data = await postAuth("/v1/auth/login", { email, password });
+          localStorage.setItem("local.ai.jwt", data.token);
+          document.getElementById("auth-scrim").classList.add("hidden");
+        } else if (authMode === "forgot") {
+          await postAuth("/v1/auth/forgot", { email });
+          authMode = "reset";
+          hint.textContent = "If that email has an account, we sent a reset code. Check your inbox.";
+          paintAuth();
+        } else {
+          const data = await postAuth("/v1/auth/reset", { email, otp, password });
+          localStorage.setItem("local.ai.jwt", data.token);
+          document.getElementById("auth-scrim").classList.add("hidden");
+        }
+      } catch (e) {
+        err.textContent = e.message || String(e);
+        if (/Verify your email/i.test(err.textContent)) {
+          authMode = "verify";
+          paintAuth();
+        }
+      }
+    };
+
+    function uid() { return crypto.randomUUID(); }
+    function newThread() {
+      return { id: uid(), title: "New chat", msgs: [], attached: [], cid: null, updatedAt: Date.now() };
+    }
+    function active() {
+      return threads.find((t) => t.id === activeId) || threads[0] || null;
+    }
+    function titleFrom(text) {
+      const t = String(text || "").replace(/\s+/g, " ").trim();
+      return t.slice(0, 42) || "New chat";
+    }
+    function openDb() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore("kv");
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    async function kvGet(key) {
+      const db = await openDb();
+      const v = await new Promise((resolve, reject) => {
+        const q = db.transaction("kv").objectStore("kv").get(key);
+        q.onsuccess = () => resolve(q.result);
+        q.onerror = () => reject(q.error);
+      });
+      db.close();
+      return v;
+    }
+    async function kvSet(key, value) {
+      const db = await openDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction("kv", "readwrite");
+        tx.objectStore("kv").put(value, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    }
+    function bytes(n) {
+      if (!Number.isFinite(n) || n < 0) return "0 B";
+      if (n < 1024) return Math.round(n) + " B";
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+      if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + " MB";
+      return (n / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+    }
+    function sizeOf(v) {
+      return new TextEncoder().encode(JSON.stringify(v ?? null)).length;
+    }
+    async function persist() {
+      await kvSet("state", { threads, activeId, memory, fbInbox });
+      paintStats();
+      renderThreads();
+    }
+    function paintStats() {
+      const card = document.getElementById("data-card");
+      const msgs = threads.reduce((n, t) => n + (t.msgs || []).filter((m) => m.content).length, 0);
+      const chatB = threads.reduce((n, t) => n + sizeOf(t.msgs), 0);
+      const files = threads.reduce((n, t) => n + (t.attached?.length || 0), 0);
+      const fileB = threads.reduce((n, t) => n + (t.attached || []).reduce((m, f) => m + (f.size || sizeOf(f.text || "")), 0), 0);
+      const memB = memory ? sizeOf(memory) : 0;
+      card.innerHTML =
+        `<div class="tiny muted">What's saved in this browser</div>` +
+        `<ul class="data-help" id="data-help-live">` +
+        `<li>Chats: ${threads.length} · messages: ${msgs}${files ? " · files: " + files : ""}</li>` +
+        `<li>Size of your chats and files: ${bytes(chatB + memB + fileB)}</li>` +
+        (memB > 0 ? `<li>Saved summary kept for later chats: ${bytes(memB)}</li>` : "") +
+        `</ul>` +
+        `<p class="tiny muted" style="margin-top:8px">Save summary deletes chat text and keeps a short note so the assistant still has context. Delete data removes chats, files, and that note from this browser.</p>`;
+      navigator.storage?.estimate?.().then((o) => {
+        const ul = document.getElementById("data-help-live");
+        if (!o || !ul) return;
+        const details = o.usageDetails || {};
+        if (details.caches != null) {
+          const li = document.createElement("li");
+          li.textContent = "Size of the in-browser model: " + bytes(details.caches) + " (this is the AI file, not your chats)";
+          ul.appendChild(li);
+        }
+        if (o.quota != null) {
+          const li = document.createElement("li");
+          li.textContent = "Space Chrome allows this site: " + bytes(o.quota);
+          ul.appendChild(li);
+        }
+      }).catch(() => {});
+      const prev = document.getElementById("memory-preview");
+      prev.hidden = true;
+      prev.textContent = "";
+    }
+    function renderThreads() {
+      const list = document.getElementById("thread-list");
+      list.innerHTML = "";
+      threads.slice().sort((a, b) => b.updatedAt - a.updatedAt).forEach((t) => {
+        const row = document.createElement("div");
+        row.className = "thread" + (t.id === activeId ? " on" : "");
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "thread-open";
+        open.textContent = t.title;
+        open.onclick = () => { activeId = t.id; renderAll(); persist(); };
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "icon";
+        del.setAttribute("aria-label", "Delete chat");
+        del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          threads = threads.filter((x) => x.id !== t.id);
+          if (activeId === t.id) activeId = threads[0]?.id || null;
+          if (!threads.length) {
+            const n = newThread();
+            threads = [n];
+            activeId = n.id;
+          }
+          renderAll();
+          await persist();
+        };
+        row.append(open, del);
+        list.appendChild(row);
+      });
+    }
+    function renderLog() {
+      const t = active();
+      const msgs = t?.msgs || [];
+      logEl.innerHTML = "";
+      const mobile = document.createElement("div");
+      mobile.className = "mobile-only";
+      mobile.innerHTML = `<div class="engine-panel"><div class="tiny muted">What's running</div><ul class="data-help">${document.getElementById("engine-dots").innerHTML}</ul></div>` +
+        document.getElementById("data-card").outerHTML +
+        document.getElementById("fb-inbox").outerHTML;
+      logEl.appendChild(mobile);
+      mobile.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+      if (!msgs.length) {
+        logEl.insertAdjacentHTML("beforeend", EMPTY);
+        if (!("gpu" in navigator) && !healthCache?.local_llm?.backend && !healthCache?.ollama) {
+          const w = document.createElement("p");
+          w.className = "warn";
+          w.textContent = "WebGPU is not available. Open Chrome or Edge, or attach Ollama on this computer.";
+          logEl.querySelector(".empty")?.appendChild(w);
+        }
+        return;
+      }
+      for (const m of msgs) {
+        const d = document.createElement("div");
+        d.className = "bubble " + m.role;
+        if (m.role === "assistant") fillMarkdown(d, m.content);
+        else d.textContent = m.content;
+        if (m.role === "assistant") {
+          const wrap = document.createElement("div");
+          wrap.className = "bubble-wrap assistant";
+          wrap.appendChild(d);
+          wrap.appendChild(feedbackUi());
+          paintTime(wrap, m);
+          logEl.appendChild(wrap);
+        } else {
+          logEl.appendChild(d);
+        }
+      }
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    function renderFiles() {
+      const t = active();
+      const attached = t?.attached || [];
+      const bar = document.getElementById("attach-bar");
+      filesEl.innerHTML = "";
+      if (!attached.length) { bar.hidden = true; input.placeholder = "Message…"; syncSend(); return; }
+      bar.hidden = false;
+      document.getElementById("attach-head").textContent = attached.length + " file" + (attached.length === 1 ? "" : "s") + " on this chat";
+      input.placeholder = "Ask about the files on this chat";
+      attached.forEach((f, i) => {
+        const chip = document.createElement("div");
+        chip.className = "attach-chip";
+        chip.title = f.name;
+        if (f.preview) {
+          const img = document.createElement("img");
+          img.className = "attach-thumb";
+          img.alt = "";
+          img.src = f.preview;
+          chip.appendChild(img);
+        }
+        const name = document.createElement("span");
+        name.className = "attach-name";
+        name.textContent = f.name.split("/").pop() || f.name;
+        chip.appendChild(name);
+        const x = document.createElement("button");
+        x.type = "button";
+        x.className = "attach-x";
+        x.textContent = "×";
+        x.onclick = async () => {
+          t.attached.splice(i, 1);
+          renderFiles();
+          await persist();
+        };
+        chip.appendChild(x);
+        filesEl.appendChild(chip);
+      });
+      syncSend();
+    }
+    function renderAll() {
+      renderThreads();
+      paintStats();
+      renderLog();
+      renderFiles();
+      syncSend();
+    }
+    function syncSend() {
+      const t = active();
+      sendBtn.disabled = !input.value.trim() && !(t?.attached?.length);
+    }
+    function progress(label) {
+      let p = logEl.querySelector(".think");
+      if (!label) { p?.remove(); return; }
+      document.getElementById("empty")?.remove();
+      if (!p) {
+        p = document.createElement("div");
+        p.className = "bubble assistant think";
+        p.innerHTML = '<span class="think-dots"><i></i><i></i><i></i></span><span class="think-label"></span>';
+        logEl.appendChild(p);
+      }
+      p.querySelector(".think-label").textContent = label;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    async function probeOllama() {
+      try {
+        const r = await fetch("http://127.0.0.1:11434/api/tags", { signal: AbortSignal.timeout(800) });
+        if (!r.ok) return null;
+        const j = await r.json();
+        const names = (j.models || []).map((m) => m.name).filter(Boolean);
+        const model = names.find((n) => /llama3\.2:3b/i.test(n)) || names[0] || "llama3.2:3b";
+        return { model, names };
+      } catch {
+        return null;
+      }
+    }
+    async function standaloneHealth() {
+      const ollama = await probeOllama();
+      return {
+        ollama: !!ollama,
+        active_model: ollama ? ollama.model : "in-browser model",
+        default_model: ollama ? ollama.model : "in-browser model",
+        local_llm: ollama ? { backend: "ollama", url: "http://127.0.0.1:11434" } : null,
+        moss: { enabled: false, docs: 0 },
+        platform: { instance: !!ollama },
+      };
+    }
+    async function hostHealth() {
+      if (isStandalone()) return standaloneHealth();
+      try {
+        const r = await fetch(HOST + "/health");
+        if (!r.ok) return null;
+        return r.json();
+      } catch { return null; }
+    }
+    function hasJwt() {
+      return !!localStorage.getItem("local.ai.jwt");
+    }
+    function useHostChat(h) {
+      return localOn(h) && hasJwt() && !isStandalone();
+    }
+    async function token(force) {
+      const existing = localStorage.getItem("local.ai.jwt");
+      if (!existing) throw new Error("Sign in with your email profile first.");
+      if (force) {
+        localStorage.removeItem("local.ai.jwt");
+        throw new Error("Sign in with your email profile first.");
+      }
+      return existing;
+    }
+    async function authFetch(path, init) {
+      const headers = new Headers((init && init.headers) || {});
+      headers.set("Authorization", "Bearer " + await token());
+      let r = await fetch(HOST + path, { ...init, headers });
+      if (r.status === 401) {
+        headers.set("Authorization", "Bearer " + await token(true));
+        r = await fetch(HOST + path, { ...init, headers });
+      }
+      return r;
+    }
+    function escapeText(s) {
+      return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+    function inlineMd(s) {
+      return escapeText(s)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    }
+    function mdToHtml(src) {
+      return String(src || "").split(/```/).map((part, i) => {
+        if (i % 2 === 1) {
+          const nl = part.indexOf("\n");
+          const lang = (nl === -1 ? "" : part.slice(0, nl)).trim().toLowerCase();
+          const body = nl === -1 ? part : part.slice(nl + 1);
+          if (lang === "mermaid" || /^(flowchart|graph)\s+(LR|RL|TB|BT|TD)\b/i.test(body.trim())) {
+            return mermaidHtml(body);
+          }
+          const code = escapeText(body).replace(/\n$/, "");
+          return `<pre class="md-pre"><code>${code}</code></pre>`;
+        }
+        return part.split("\n").map((line) => {
+          const h = /^(#{1,3})\s+(.+)$/.exec(line);
+          if (h) return `<h4>${inlineMd(h[2])}</h4>`;
+          if (/^[-*]\s+/.test(line)) return `<li>${inlineMd(line.replace(/^[-*]\s+/, ""))}</li>`;
+          if (/^\d+\.\s+/.test(line)) return `<li>${inlineMd(line.replace(/^\d+\.\s+/, ""))}</li>`;
+          if (!line.trim()) return "";
+          return `<p>${inlineMd(line)}</p>`;
+        }).join("");
+      }).join("");
+    }
+    function mermaidHtml(src) {
+      const graph = parseSimpleMermaid(src);
+      if (!graph) return `<pre class="md-pre"><code>${escapeText(src)}</code></pre>`;
+      const layers = mermaidLayers(graph);
+      const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
+      const dir = graph.dir === "LR" ? "flow-lr" : "flow-tb";
+      return `<div class="flow-map ${dir}">` + layers.map((layer, i) => {
+        const next = layers[i + 1] || [];
+        const cards = layer.map((id, ni) => {
+          const n = byId[id];
+          if (!n) return "";
+          return `<div class="flow-node flow-${n.kind} tone-${(i + ni) % 4}"><span>${escapeText(n.label)}</span></div>`;
+        }).join("");
+        let arrows = "";
+        if (next.length) {
+          let edges = graph.edges.filter((e) => layer.includes(e.from) && next.includes(e.to));
+          if (!edges.length) edges = graph.edges.filter((e) => layer.includes(e.from)).slice(0, 3);
+          arrows = `<div class="flow-connectors">` + edges.map((e) =>
+            `<div class="flow-arrow"><span class="flow-shaft"></span>${e.label ? `<em>${escapeText(e.label)}</em>` : ""}<span class="flow-head"></span></div>`
+          ).join("") + `</div>`;
+        }
+        return `<div class="flow-stage"><div class="flow-layer">${cards}</div>${arrows}</div>`;
+      }).join("") + `</div>`;
+    }
+    function parseSimpleMermaid(src) {
+      const text = String(src || "").replace(/\r/g, "").trim();
+      const first = (text.split("\n")[0] || "").trim();
+      const header = /^(?:flowchart|graph)\s+(LR|RL|TB|BT|TD)\b/i.exec(first);
+      if (!header && !/-->/.test(text)) return null;
+      const dir = header && /LR|RL/i.test(header[1]) ? "LR" : "TB";
+      const nodes = {};
+      const edges = [];
+      const upsert = (id, label, kind) => {
+        if (!id) return;
+        const prev = nodes[id] || { id, label: id, kind: "box" };
+        nodes[id] = { id, label: label ? label.replace(/^["']|["']$/g, "") : prev.label, kind: kind || prev.kind };
+      };
+      const NODE = /([A-Za-z][\w-]*)(?:\[\[([^\]]+)\]\]|\[([^\]]+)\]|\(\(([^)]+)\)\)|\(([^)]+)\)|\{([^}]+)\})?/g;
+      const EDGE = /([A-Za-z][\w-]*)[^\n]*?(-->|---|==>|-\.->)\s*(?:\|([^|]+)\|)?\s*>?\s*([A-Za-z][\w-]*)/;
+      for (const raw of text.split("\n")) {
+        const line = raw.trim();
+        if (!line || /^(flowchart|graph|subgraph|end|classDef|style|click|%%)/i.test(line)) continue;
+        NODE.lastIndex = 0;
+        let n;
+        while ((n = NODE.exec(line))) {
+          const label = n[2] || n[3] || n[4] || n[5] || n[6];
+          let kind = "box";
+          if (n[4] || n[5]) kind = "round";
+          if (n[6]) kind = "diamond";
+          upsert(n[1], label, label ? kind : undefined);
+        }
+        const e = EDGE.exec(line);
+        if (e) {
+          upsert(e[1]);
+          upsert(e[4]);
+          edges.push({ from: e[1], to: e[4], label: (e[3] || "").trim() });
+        }
+      }
+      const list = Object.values(nodes);
+      if (!list.length) return null;
+      return { dir, nodes: list, edges };
+    }
+    function mermaidLayers(graph) {
+      const ids = graph.nodes.map((n) => n.id);
+      const incoming = Object.fromEntries(ids.map((id) => [id, 0]));
+      for (const e of graph.edges) incoming[e.to] = (incoming[e.to] || 0) + 1;
+      const remaining = new Set(ids);
+      const layers = [];
+      while (remaining.size) {
+        let ready = [...remaining].filter((id) => !incoming[id]);
+        if (!ready.length) ready = [[...remaining][0]];
+        layers.push(ready);
+        for (const id of ready) remaining.delete(id);
+        for (const e of graph.edges) {
+          if (ready.includes(e.from) && remaining.has(e.to)) incoming[e.to] = Math.max(0, (incoming[e.to] || 1) - 1);
+        }
+      }
+      return layers;
+    }
+    function fillMarkdown(el, text) {
+      el.classList.add("md-body");
+      el.innerHTML = mdToHtml(text);
+    }
+    function formatWait(ms) {
+      if (!Number.isFinite(ms) || ms < 0) return "";
+      const s = Math.round(ms / 1000);
+      return s < 1 ? "<1 s" : s + " s";
+    }
+    function replyTimeLabel(m) {
+      if (m.waitMs == null) return "";
+      return formatWait(m.waitMs);
+    }
+    function paintTime(wrap, m) {
+      if (!wrap) return;
+      wrap.querySelector(".msg-time")?.remove();
+      const label = replyTimeLabel(m);
+      if (!label) return;
+      const el = document.createElement("div");
+      el.className = "tiny muted msg-time";
+      el.textContent = label;
+      wrap.appendChild(el);
+    }
+    function paintCite(bot, payload) {
+      if (!payload?.sources?.length) return;
+      const wrap = bot.parentElement;
+      if (!wrap) return;
+      wrap.querySelector(".cite")?.remove();
+      const c = document.createElement("div");
+      c.className = "tiny muted cite";
+      const names = payload.sources.map((s) => s.title).filter(Boolean).join(", ");
+      const moss = payload.moss && payload.moss.time_taken_ms != null ? " · Moss " + payload.moss.time_taken_ms + " ms" : "";
+      const model = payload.model ? " · " + payload.model : "";
+      c.textContent = "Used " + names + moss + model;
+      wrap.appendChild(c);
+    }
+    const fbQueue = [];
+    let fbFlushing = false;
+    function netOnline() {
+      return navigator.onLine !== false;
+    }
+    function showFbCaution(count) {
+      let el = document.getElementById("fb-offline");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "fb-offline";
+        el.className = "setup-scrim";
+        el.innerHTML =
+          '<div class="setup-panel"><h2>You are offline</h2><p class="muted" data-body></p><button type="button" class="primary" data-ok>OK, send when online</button></div>';
+        document.body.appendChild(el);
+        el.querySelector("[data-ok]").onclick = () => el.classList.add("hidden");
+      }
+      el.querySelector("[data-body]").textContent =
+        "Feedback is not saved in this browser or on disk here. " +
+        count +
+        " note" +
+        (count === 1 ? "" : "s") +
+        " will be sent with the POST API when the internet is back.";
+      el.classList.remove("hidden");
+    }
+    function waitOnline() {
+      if (netOnline()) return Promise.resolve();
+      return new Promise((resolve) => window.addEventListener("online", resolve, { once: true }));
+    }
+    async function flushFeedbackQueue() {
+      if (isStandalone()) return;
+      if (fbFlushing) return;
+      fbFlushing = true;
+      try {
+        while (fbQueue.length) {
+          if (!netOnline()) await waitOnline();
+          const item = fbQueue[0];
+          try {
+            const r = await authFetch("/v1/feedback", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(item),
+            });
+            if (!r.ok) throw new Error("post");
+            fbQueue.shift();
+            await paintFeedback();
+          } catch {
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+            if (!netOnline()) await waitOnline();
+          }
+        }
+      } finally {
+        fbFlushing = false;
+      }
+    }
+    window.addEventListener("online", () => void flushFeedbackQueue());
+    async function paintFeedback() {
+      const box = document.getElementById("fb-inbox");
+      if (!box) return;
+      const note = "Human feedback will be received on our backend and we will check what the problem is and fix that as soon as possible.";
+      const render = (items) => {
+        box.innerHTML =
+          `<div class="tiny muted">Human feedback</div><p class="tiny muted" style="margin:6px 0 0">${note}</p>` +
+          (items.length
+            ? `<ul class="fb-list">${items.map((it) => `<li><span class="${it.rating === "up" ? "ok" : "warn"}">${it.rating}</span> · ${escapeText(it.title)}</li>`).join("")}</ul>`
+            : "");
+      };
+      if (isStandalone()) {
+        render(fbInbox.slice(0, 12));
+        return;
+      }
+      if (!netOnline()) {
+        render([]);
+        return;
+      }
+      try {
+        const r = await authFetch("/v1/feedback?limit=12", { method: "GET" });
+        if (!r.ok) throw new Error("feedback");
+        const j = await r.json();
+        render(j.items || []);
+      } catch {
+        render([]);
+      }
+    }
+    function feedbackUi() {
+      const root = document.createElement("div");
+      root.className = "fb";
+      const votes = document.createElement("div");
+      votes.className = "fb-votes";
+      const form = document.createElement("div");
+      form.className = "fb-form";
+      form.innerHTML = `<input maxlength="120" placeholder="Title (what to look at)" /><textarea rows="3" maxlength="4000" placeholder="What should we keep or fix?"></textarea><button type="button" class="ghost">Send feedback</button><div class="tiny muted" data-note></div>`;
+      let rating = "";
+      function pick(next, btn) {
+        rating = next;
+        votes.querySelectorAll(".icon").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        form.classList.add("open");
+        form.querySelector("[data-note]").textContent = "";
+      }
+      const up = document.createElement("button");
+      up.type = "button";
+      up.className = "icon";
+      up.title = "This reply was useful";
+      up.setAttribute("aria-label", "Thumbs up");
+      up.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
+      up.onclick = () => pick("up", up);
+      const down = document.createElement("button");
+      down.type = "button";
+      down.className = "icon";
+      down.title = "This reply needs a fix";
+      down.setAttribute("aria-label", "Thumbs down");
+      down.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
+      down.onclick = () => pick("down", down);
+      votes.append(up, down);
+      form.querySelector("button").onclick = async () => {
+        const title = form.querySelector("input").value.trim();
+        const message = form.querySelector("textarea").value.trim();
+        const note = form.querySelector("[data-note]");
+        if (!rating || !title || !message) {
+          note.textContent = "Add a short title and what went wrong or well.";
+          return;
+        }
+        const t = active();
+        const engine = localOn(healthCache) ? (healthCache.local_llm?.backend || "ollama") : "browser";
+        const payload = {
+          rating,
+          title,
+          message,
+          conversation_id: t?.cid || null,
+          engine,
+        };
+        if (isStandalone()) {
+          fbInbox.unshift({ id: crypto.randomUUID(), rating, title, created_at: new Date().toISOString() });
+          fbInbox = fbInbox.slice(0, 40);
+          await persist();
+          form.classList.remove("open");
+          form.querySelector("input").value = "";
+          form.querySelector("textarea").value = "";
+          note.textContent = "Saved on this computer. The zip does not send thumbs to the website.";
+          await paintFeedback();
+          return;
+        }
+        if (!netOnline()) {
+          fbQueue.push(payload);
+          showFbCaution(fbQueue.length);
+          form.classList.remove("open");
+          form.querySelector("input").value = "";
+          form.querySelector("textarea").value = "";
+          note.textContent = "Waiting for internet. Not stored on this device.";
+          void flushFeedbackQueue();
+          return;
+        }
+        try {
+          const r = await authFetch("/v1/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+          form.classList.remove("open");
+          form.querySelector("input").value = "";
+          form.querySelector("textarea").value = "";
+          note.textContent = "Sent to the host. Nothing was kept in this browser.";
+          await paintFeedback();
+        } catch (e) {
+          fbQueue.push(payload);
+          showFbCaution(fbQueue.length);
+          form.classList.remove("open");
+          form.querySelector("input").value = "";
+          form.querySelector("textarea").value = "";
+          note.textContent = "Waiting to send. Not stored on this device.";
+          void flushFeedbackQueue();
+        }
+      };
+      root.append(votes, form);
+      return root;
+    }
+    function mountAssistant(bot) {
+      if (bot.parentElement && bot.parentElement.classList.contains("bubble-wrap")) return;
+      const wrap = document.createElement("div");
+      wrap.className = "bubble-wrap assistant";
+      if (bot.parentNode) bot.parentNode.replaceChild(wrap, bot);
+      else logEl.appendChild(wrap);
+      wrap.appendChild(bot);
+      wrap.appendChild(feedbackUi());
+    }
+    async function indexMoss(text, id) {
+      if (isStandalone() || !hasJwt()) return;
+      try {
+        const tok = await token();
+        await fetch(HOST + "/v1/memory", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+          body: JSON.stringify({ text: String(text).slice(0, 16000), id }),
+        });
+      } catch { /* host optional */ }
+    }
+    function paintEngines(h) {
+      healthCache = h;
+      const attached = (active()?.attached || []).length;
+      const moss = isStandalone() ? attached > 0 : !!h?.moss?.enabled;
+      const mossLine = isStandalone()
+        ? (attached
+          ? ("Finding text in your files: on (" + attached + " attached)")
+          : "Finding text in your files: attach a file or folder on this chat")
+        : (moss
+          ? ("Finding text in your files: on (" + (h?.moss?.docs ?? 0) + " pieces ready)")
+          : "Finding text in your files: off (start the local host to turn this on)");
+      const localKind = h?.local_llm?.backend;
+      const local = !!(localKind || h?.ollama) && !!h?.platform?.instance;
+      const backend = localKind === "lmstudio" ? "LM Studio" : localKind === "llamacpp" ? "llama.cpp" : localKind === "ollama" || h?.ollama ? "Ollama" : "local model";
+      const model = h?.active_model || h?.default_model || "in-browser model";
+      const html =
+        `<li class="${moss ? "ok" : ""}">${mossLine}</li>` +
+        `<li class="${local ? "ok" : ""}">${local ? ("Writing answers with: " + backend + " (" + model + ")") : "Writing answers with: the small model in this browser (or start Ollama)"}</li>` +
+        (local && h?.runtime?.ram_gb != null ? `<li>This computer’s RAM: about ${h.runtime.ram_gb} GB</li>` : "");
+      document.getElementById("engine-dots").innerHTML = html;
+      modeEl.textContent = model;
+      const so = document.getElementById("sign-out");
+      if (so) so.hidden = isStandalone();
+    }
+    async function refreshHost() {
+      const h = await hostHealth();
+      paintEngines(h);
+      await paintFeedback();
+    }
+    async function ollamaDirect(text, onDelta, system) {
+      const model = healthCache?.active_model || healthCache?.default_model || "llama3.2:3b";
+      const t0 = performance.now();
+      const messages = [];
+      const sys = String(system || "").trim();
+      if (sys) messages.push({ role: "system", content: sys.slice(0, 4500) });
+      messages.push({ role: "user", content: String(text).slice(0, 18000) });
+      const res = await fetch("http://127.0.0.1:11434/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: true,
+          options: { temperature: 0.4, num_ctx: 8192 },
+        }),
+      });
+      if (!res.ok || !res.body) throw new Error("Ollama is not reachable from this page.");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const payload = JSON.parse(line);
+          const piece = payload?.message?.content || "";
+          if (piece) onDelta(piece);
+        }
+      }
+      return Math.round(performance.now() - t0);
+    }
+    async function ollamaChat(text, onDelta, conversationId) {
+      const tok = await token();
+      const res = await fetch(HOST + "/v1/chat", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+        body: JSON.stringify({ content: String(text).slice(0, 7900), conversation_id: conversationId }),
+      });
+      if (!res.ok || !res.body) {
+        const raw = await res.text();
+        let msg = raw;
+        try {
+          const j = JSON.parse(raw);
+          const d = j.detail;
+          if (Array.isArray(d) && d[0]?.type === "string_too_long") {
+            msg = "The folder is large. I sent the most relevant files (README first). Try asking about one file by name.";
+          } else if (typeof d === "string") msg = d;
+          else if (d?.msg) msg = d.msg;
+        } catch { if (raw.length > 400) msg = "The local host rejected that message. Try fewer files, or save a summary first."; }
+        throw new Error(msg);
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let backendMs = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          const payload = JSON.parse(line.slice(6));
+          if (payload.type === "meta") {
+            const t = active();
+            if (t) {
+              t.cid = payload.conversation_id;
+              t.lastCite = payload;
+            }
+          }
+          if (payload.type === "delta") onDelta(payload.content);
+          if (payload.type === "done" && typeof payload.latency_ms === "number") backendMs = payload.latency_ms;
+          if (payload.type === "error") throw new Error(payload.detail);
+        }
+      }
+      return backendMs;
+    }
+    async function browserChat(all, onDelta, onProg) {
+      if (!("gpu" in navigator)) {
+        throw new Error("Use Chrome or Edge with WebGPU, or start Ollama on this computer.");
+      }
+      if (!engine) {
+        const { CreateMLCEngine } = await import("./web-llm.js");
+        engine = await CreateMLCEngine(MODEL, { initProgressCallback: (p) => onProg(p.text) });
+      }
+      onProg("");
+      function noise(t) { return /prompt tokens exceed|context window size|sliding_window_size|string_too_long/i.test(String(t || "")); }
+      function fit(msgs, maxChars) {
+        const system = (msgs.find((m) => m.role === "system") || {}).content || "";
+        const question = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
+        const history = msgs.filter((m) => m.role !== "system" && !(m.role === "user" && m.content === question) && !noise(m.content));
+        let sys = String(system);
+        const q = String(question).slice(0, 400);
+        const pack = () => [{ role: "system", content: sys }, ...history, { role: "user", content: q }].filter((m) => m.content && m.content.trim());
+        const size = () => pack().reduce((n, m) => n + m.content.length, 0);
+        while (history.length && size() > maxChars) history.shift();
+        while (sys.length > 280 && size() > maxChars) sys = sys.slice(0, Math.floor(sys.length * 0.72));
+        if (size() > maxChars) sys = sys.slice(0, Math.max(180, maxChars - q.length - 40));
+        return pack();
+      }
+      async function once(msgs) {
+        if (engine.resetChat) await engine.resetChat();
+        const stream = await engine.chat.completions.create({ messages: msgs, stream: true, max_tokens: 280 });
+        for await (const chunk of stream) {
+          const piece = chunk.choices[0]?.delta?.content;
+          if (piece) onDelta(piece);
+        }
+      }
+      try {
+        await once(fit(all, 6000));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!noise(msg)) throw err;
+        await once(fit(all, 2200));
+      }
+    }
+    function wantsPdfExport(q) {
+      const t = String(q || "").trim().toLowerCase();
+      if (!t) return false;
+      if (/\bpdf\b/.test(t) && /\b(convert|export|download|save|make|turn|render|print)\b/.test(t)) return true;
+      return /\b(docx?|xlsx|xls|csv|pptx?|word|excel|spreadsheet|slides?)\b/.test(t) && /\bpdf\b/.test(t);
+    }
+    function downloadPdfBytes(bytes, filename) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+    function textToPdf(title, text) {
+      const wrap = [];
+      for (const para of String(text || "").split(/\r?\n/)) {
+        let buf = para.replace(/\t/g, "  ");
+        if (!buf.trim()) { wrap.push(""); continue; }
+        while (buf.length > 92) {
+          let cut = buf.lastIndexOf(" ", 92);
+          if (cut < 20) cut = 92;
+          wrap.push(buf.slice(0, cut));
+          buf = buf.slice(cut).trimStart();
+        }
+        wrap.push(buf);
+      }
+      const lines = wrap.slice(0, 2000);
+      const per = 48;
+      const pages = [];
+      for (let i = 0; i < Math.max(lines.length, 1); i += per) pages.push(lines.slice(i, i + per));
+      const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+      const latin = (s) => {
+        const out = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 255;
+        return out;
+      };
+      const enc = (s) => new TextEncoder().encode(s);
+      const n = pages.length;
+      const fontId = 3 + n * 2;
+      const built = [enc("<< /Type /Catalog /Pages 2 0 R >>"), enc("<< /Type /Pages /Count " + n + " /Kids [" + pages.map((_, i) => (3 + i * 2) + " 0 R").join(" ") + "] >>")];
+      for (let i = 0; i < pages.length; i++) {
+        let y = 760;
+        const chunks = ["BT /F1 12 Tf 48 " + y + " Td (" + esc(String(title).slice(0, 80)) + ") Tj ET"];
+        y = 736;
+        for (const ln of pages[i]) {
+          y -= 14;
+          if (y < 40) break;
+          chunks.push("BT /F1 10 Tf 48 " + y + " Td (" + esc(ln.slice(0, 118)) + ") Tj ET");
+        }
+        const stream = latin(chunks.join("\n"));
+        const page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 " + fontId + " 0 R >> >> /Contents " + (4 + i * 2) + " 0 R >>";
+        const head = "<< /Length " + stream.length + " >>\nstream\n";
+        const content = (() => {
+          const h = enc(head), t = enc("\nendstream");
+          const u = new Uint8Array(h.length + stream.length + t.length);
+          u.set(h, 0); u.set(stream, h.length); u.set(t, h.length + stream.length);
+          return u;
+        })();
+        built.push(enc(page), content);
+      }
+      built.push(enc("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"));
+      const parts = [enc("%PDF-1.4\n")];
+      const offsets = [0];
+      let size = parts[0].length;
+      built.forEach((body, idx) => {
+        offsets.push(size);
+        const head = enc((idx + 1) + " 0 obj\n");
+        const tail = enc("\nendobj\n");
+        parts.push(head, body, tail);
+        size += head.length + body.length + tail.length;
+      });
+      let xref = "xref\n0 " + (built.length + 1) + "\n0000000000 65535 f \n";
+      for (const off of offsets.slice(1)) xref += String(off).padStart(10, "0") + " 00000 n \n";
+      xref += "trailer << /Size " + (built.length + 1) + " /Root 1 0 R >>\nstartxref\n" + size + "\n%%EOF\n";
+      parts.push(enc(xref));
+      const total = parts.reduce((n, p) => n + p.length, 0);
+      const out = new Uint8Array(total);
+      let o = 0;
+      for (const p of parts) { out.set(p, o); o += p.length; }
+      return out;
+    }
+    function convertAttachedToPdf(thread) {
+      const docs = (thread?.attached || []).filter((f) => f && !/\.(png|jpe?g|gif|webp)$/i.test(f.name || ""));
+      if (!docs.length) throw new Error("Attach a Word, Excel, CSV, slides, text, or PDF file first.");
+      const chunks = docs.map((f) => "# " + f.name + "\n" + String(f.text || "").trim());
+      const filename = (docs.length === 1 ? String(docs[0].name).replace(/\.[^.]+$/, "") : "attachments") + ".pdf";
+      downloadPdfBytes(textToPdf(docs.length === 1 ? docs[0].name : "attachments.pdf", chunks.join("\n\n")), filename);
+      return filename;
+    }
+    function retrieveFiles(thread, query, budget) {
+      const attached = thread?.attached || [];
+      if (!attached.length) return "";
+      const q = (query || "").toLowerCase();
+      const words = q.split(/\W+/).filter((w) => w.length > 2);
+      const overview = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is) (in )?this|this file|tell me|about)\b/.test(q);
+      const usable = attached.filter((f) => String(f.text || "").trim());
+      if (overview && usable.length) {
+        const heads = usable.map((f) => "### " + f.name + "\n" + String(f.text).slice(0, Math.min(budget, 18000))).join("\n\n");
+        return "You have the real project below. Write like a staffer who read it. Name real folders, files, tests, and quotes. If they asked for interview questions, each question must be answerable only from this tree. If they asked for a diagram, use mermaid flowchart TB with subgraphs of real folders — never a circular 'X uses X environment' graph.\n\n" + heads.slice(0, budget);
+      }
+      const ranked = [];
+      for (const f of usable) {
+        const raw = String(f.text || "").replace(/\s+/g, " ").trim();
+        const size = 480;
+        const step = 410;
+        for (let i = 0, n = 0; i < raw.length && n < 60; i += step, n++) {
+          const ch = raw.slice(i, i + size);
+          let s = n === 0 ? 12 : (n === 1 ? 6 : 0);
+          if (overview && n === 0) s += 40;
+          const blob = (f.name + " " + ch).toLowerCase();
+          for (const w of words) {
+            if (f.name.toLowerCase().includes(w)) s += 10;
+            if (blob.includes(w)) s += 5;
+          }
+          ranked.push({ name: f.name, text: ch, s, i: n });
+        }
+      }
+      ranked.sort((a, b) => b.s - a.s || a.i - b.i);
+      const parts = [];
+      let used = 0;
+      const seen = new Set();
+      for (const row of ranked) {
+        const key = row.name + ":" + row.i;
+        if (seen.has(key)) continue;
+        const block = "### " + row.name + "\n" + row.text;
+        if (used + block.length > budget) continue;
+        seen.add(key);
+        parts.push(block);
+        used += block.length;
+        if (parts.length >= 12) break;
+      }
+      if (!parts.length) {
+        return usable.map((f) => "### " + f.name + "\n" + String(f.text || "").slice(0, Math.floor(budget / Math.max(usable.length, 1)))).join("\n\n").slice(0, budget);
+      }
+      return "Attached local files (excerpts for this question). Stay inside this text. Quote names and lines. Write a briefing the reader wants to finish.\n\n" + parts.join("\n\n");
+    }
+    function sanitizeUserText(text) {
+      let cleaned = String(text || "").trim();
+      cleaned = cleaned.replace(/ignore (all|any|previous|prior) (instructions|prompts)/gi, "[blocked-instruction]");
+      cleaned = cleaned.replace(/system prompt override/gi, "[blocked-instruction]");
+      cleaned = cleaned.replace(/exfiltrate/gi, "[blocked-instruction]");
+      cleaned = cleaned.replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[redacted]");
+      return cleaned;
+    }
+    function trimTurns(list, budget) {
+      const out = [];
+      let used = 0;
+      for (let i = list.length - 1; i >= 0; i--) {
+        const c = String(list[i].content || "").slice(0, 700);
+        if (!c.trim() || /prompt tokens exceed|context window size/i.test(c)) continue;
+        if (used + c.length > budget) break;
+        out.unshift({ role: list[i].role, content: c });
+        used += c.length;
+      }
+      return out;
+    }
+    function wantsSavedSummary(q) {
+      const t = String(q || "").trim().toLowerCase();
+      if (!t) return false;
+      if (/\b(zip|file|project|code|repo|folder|readme)\b/.test(t) && !/\b(saved|chat|memory)\b/.test(t)) return false;
+      return /^(what(?:'s| is)|show(?: me)?|tell me|read)\s+(the |my |our )?(saved )?(chat )?summary\b/.test(t)
+        || /\b(saved summary|memory note|user memory note|retained memory|what did you (save|keep|summarize)|show (my )?memory)\b/.test(t)
+        || /^summary\??$/.test(t);
+    }
+    async function send() {
+      let t = active();
+      if (!t) {
+        t = newThread();
+        threads.unshift(t);
+        activeId = t.id;
+      }
+      const text = input.value.trim();
+      if (!text && !t.attached.length) return;
+      const asked = sanitizeUserText(text || "Answer using the attached files on this chat.");
+      if (wantsSavedSummary(asked)) {
+        input.value = "";
+        syncSend();
+        t.msgs.push({ role: "user", content: asked });
+        if (t.msgs.length === 1) t.title = titleFrom(asked);
+        t.updatedAt = Date.now();
+        const reply = (memory && String(memory).trim()) || "There is no saved summary yet. Use Save summary to keep one.";
+        t.msgs.push({ role: "assistant", content: reply });
+        renderAll();
+        await persist();
+        return;
+      }
+      input.value = "";
+      syncSend();
+      t.msgs.push({ role: "user", content: asked });
+      if (t.msgs.length === 1) t.title = titleFrom(asked);
+      t.updatedAt = Date.now();
+      renderLog();
+      progress(t.attached.length ? "Using " + t.attached.length + " attached file(s) · generating…" : (useHostChat(healthCache) || isStandalone() ? "Generating…" : "Thinking"));
+      const bot = document.createElement("div");
+      bot.className = "bubble assistant";
+      try {
+        const h = await hostHealth();
+        paintEngines(h);
+        const ollamaOn = useHostChat(h);
+        let pdfNote = "";
+        if (wantsPdfExport(asked) && t.attached.length) {
+          try {
+            const fn = convertAttachedToPdf(t);
+            pdfNote = "A PDF (" + fn + ") was just saved on this computer from the attached file(s). Mention that briefly, then still write the rich document briefing.";
+          } catch (err) {
+            pdfNote = "PDF conversion failed: " + (err instanceof Error ? err.message : String(err)) + ". Still brief the attached files.";
+          }
+        }
+        const fileBlock = retrieveFiles(t, asked, (ollamaOn || isStandalone()) ? 18000 : 3500);
+        const packed = [fileBlock, pdfNote, (fileBlock || pdfNote) ? "User question:\n" + asked : asked].filter(Boolean).join("\n\n");
+        const prior = trimTurns(t.msgs.slice(0, -1), ollamaOn || isStandalone() ? 2400 : 400);
+        const system = (crispe || (fileBlock
+          ? "You are a document agent. When files are attached, inhabit them: hook, map, evidence, useful extras, next move. Stay accurate. Prefer attached-file excerpts. Markdown that is easy to scan."
+          : "You are Surf AI on this device. Prefer recent chat and retained memory. Be accurate. Format with Markdown (lists, bold, fenced code). Never reprint retained memory or headings like User Memory Note unless the user asked to see the saved summary.")) +
+          (fileBlock ? "\n\n" + fileBlock : "") +
+          (pdfNote ? "\n\n" + pdfNote : "") +
+          (memory ? "\n\nRetained memory:\n" + memory.slice(0, ollamaOn || isStandalone() ? 1200 : 400) : "");
+        const onDelta = (piece) => {
+          if (!bot.isConnected) {
+            progress("");
+            mountAssistant(bot);
+          }
+          bot.textContent += piece;
+          logEl.scrollTop = logEl.scrollHeight;
+        };
+        const startedAt = performance.now();
+        let backendMs = null;
+        let engineUsed = "browser";
+        if (isStandalone()) {
+          if (h?.ollama || h?.local_llm?.backend === "ollama") {
+            try {
+              backendMs = await ollamaDirect(packed, onDelta, system);
+              engineUsed = "host";
+            } catch {
+              await browserChat(
+                [{ role: "system", content: system }, ...prior, { role: "user", content: asked }],
+                onDelta,
+                progress,
+              );
+            }
+          } else {
+            await browserChat(
+              [{ role: "system", content: system }, ...prior, { role: "user", content: asked }],
+              onDelta,
+              progress,
+            );
+          }
+        } else if (ollamaOn) {
+          backendMs = await ollamaChat(packed, onDelta, t.cid);
+          engineUsed = "host";
+        } else {
+          await browserChat(
+            [{ role: "system", content: system }, ...prior, { role: "user", content: asked }],
+            onDelta,
+            progress,
+          );
+        }
+        const waitMs = Math.round(performance.now() - startedAt);
+        if (!bot.textContent) bot.textContent = "(no reply)";
+        const finalText = bot.textContent;
+        if (!bot.isConnected) progress("");
+        mountAssistant(bot);
+        fillMarkdown(bot, finalText);
+        paintCite(bot, t.lastCite);
+        const rec = {
+          role: "assistant",
+          content: finalText,
+          waitMs,
+          backendMs,
+          engine: engineUsed,
+        };
+        t.msgs.push(rec);
+        paintTime(bot.parentElement, rec);
+        await persist();
+      } catch (e) {
+        let msg = e instanceof Error ? e.message : String(e);
+        const already = (bot.textContent || "").trim();
+        if (already.length > 20 && /is not defined|Sign in with your email profile first/i.test(msg)) {
+          msg = already;
+        } else if (/Sign in with your email profile first/i.test(msg) && isStandalone()) {
+          try {
+            progress("Generating…");
+            bot.textContent = "";
+            await browserChat(
+              [{ role: "system", content: "You are Surf AI on this computer. Answer the user." }, { role: "user", content: asked }],
+              (piece) => { bot.textContent += piece; },
+              progress,
+            );
+            msg = bot.textContent || "(no reply)";
+          } catch { /* keep original */ }
+        }
+        if (/context window|prompt tokens/i.test(msg)) {
+          msg = "That file is larger than the in-browser model. Start Ollama (llama3.2:3b) for longer documents, or ask a more specific question.";
+        }
+        bot.textContent = msg;
+        if (!bot.isConnected) progress("");
+        mountAssistant(bot);
+        fillMarkdown(bot, msg);
+        t.msgs.push({ role: "assistant", content: msg });
+        await persist();
+      } finally {
+        progress("");
+      }
+    }
+    async function inflateRaw(data) {
+      for (const format of ["deflate-raw", "deflate"]) {
+        try {
+          const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream(format));
+          return new Uint8Array(await new Response(stream).arrayBuffer());
+        } catch { /* next */ }
+      }
+      return null;
+    }
+    async function extractZip(name, buf) {
+      const bytes = new Uint8Array(buf);
+      const view = new DataView(buf);
+      const skipDir = /(^|\/)(node_modules|\.git|__pycache__|\.venv|dist|build|\.next)(\/|$)/i;
+      const textName = /\.(md|txt|json|yml|yaml|toml|py|js|ts|tsx|go|rs|java|c|h|cpp|cs|sh|makefile|css|html|xml)$/i;
+      const baseOk = (p) => /^(readme|license|makefile|dockerfile|landscape)(\.|$)/i.test((p.split("/").pop() || ""));
+      const names = [];
+      const bodies = [];
+      let offset = 0;
+      while (offset + 30 < bytes.length) {
+        const sig = view.getUint32(offset, true);
+        if (sig === 0x02014b50 || sig === 0x06054b50) break;
+        if (sig !== 0x04034b50) break;
+        const flags = view.getUint16(offset + 6, true);
+        const method = view.getUint16(offset + 8, true);
+        const compSize = view.getUint32(offset + 18, true);
+        const nameLen = view.getUint16(offset + 26, true);
+        const extraLen = view.getUint16(offset + 28, true);
+        const path = new TextDecoder().decode(bytes.slice(offset + 30, offset + 30 + nameLen));
+        const dataStart = offset + 30 + nameLen + extraLen;
+        if (flags & 8 && !compSize) break;
+        if (!path.endsWith("/") && !skipDir.test(path)) names.push(path);
+        const data = bytes.slice(dataStart, dataStart + compSize);
+        const leaf = (path.split("/").pop() || "").toLowerCase();
+        if (!path.endsWith("/") && !skipDir.test(path) && (textName.test(leaf) || baseOk(path))) {
+          try {
+            const raw = method === 0 ? data : method === 8 ? await inflateRaw(data) : null;
+            if (raw) bodies.push({ path, text: new TextDecoder().decode(raw) });
+          } catch { /* skip */ }
+        }
+        offset = dataStart + compSize;
+      }
+      bodies.sort((a, b) => {
+        const rank = (p) => /^readme/i.test(p.split("/").pop()) ? 2 : /landscape|makefile/i.test(p) ? 1 : 0;
+        return rank(b.path) - rank(a.path);
+      });
+      let out = `Extracted zip "${name}". This IS the project. Summarize from the tree and excerpts.\nFile tree:\n` +
+        names.slice(0, 250).map((n) => "- " + n).join("\n");
+      for (const b of bodies) {
+        const chunk = `\n--- ${b.path} ---\n` + b.text.slice(0, 4000);
+        if (out.length + chunk.length > 45000) break;
+        out += chunk;
+      }
+      return out;
+    }
+    async function readAttach(file) {
+      try {
+        if (file.type && file.type.startsWith("image/") && file.type !== "image/svg+xml") {
+          try {
+            const bmp = await createImageBitmap(file);
+            const line = `Image "${file.name}" (${bmp.width}×${bmp.height}px). Stored only on this device. You cannot see the pixels; answer from the filename, this note, and the user's question.`;
+            bmp.close();
+            return line;
+          } catch {
+            return `Image "${file.name}" stored locally. You cannot see the pixels. Answer from the filename and the user's question.`;
+          }
+        }
+        const buf = await file.arrayBuffer();
+        const lower = file.name.toLowerCase();
+        if (lower.endsWith(".zip") || file.type === "application/zip") return extractZip(file.name, buf);
+        const raw = new TextDecoder().decode(buf);
+        const sample = raw.slice(0, 12000);
+        const printable = sample.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+        if (printable.trim().length > 20 && printable.length > sample.length * 0.65) return raw.slice(0, 40000);
+        return `File "${file.name}" (${file.type || "unknown"}, ${file.size} bytes) is stored on this device. It looks binary so no text was extracted.`;
+      } catch {
+        return `File "${file.name}" stored on this device. Could not read bytes.`;
+      }
+    }
+    async function filePreview(file) {
+      if (!file.type || !file.type.startsWith("image/") || file.size > 6 * 1024 * 1024) return "";
+      try {
+        return await new Promise((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result || ""));
+          r.onerror = () => resolve("");
+          r.readAsDataURL(file);
+        });
+      } catch {
+        return "";
+      }
+    }
+    async function addAttachment(name, text, size, preview) {
+      let t = active();
+      if (!t) {
+        t = newThread();
+        t.title = titleFrom(name);
+        threads.unshift(t);
+        activeId = t.id;
+      }
+      if (t.attached.length >= 40) return;
+      const body = String(text || "").slice(0, 40000);
+      t.attached.push({ name, text: body, size: size || new TextEncoder().encode(body).length, preview: preview || "" });
+      t.updatedAt = Date.now();
+      renderFiles();
+      await persist();
+      if (text) await indexMoss(name + "\n" + String(text).slice(0, 8000), ("file-" + name).slice(0, 80));
+    }
+    async function startNew() {
+      const t = newThread();
+      threads.unshift(t);
+      activeId = t.id;
+      renderAll();
+      await persist();
+    }
+    async function compact() {
+      const packed = threads.flatMap((th) => th.msgs.map((m) => m.role + ": " + m.content)).join("\n").slice(0, 10000);
+      if (!packed && !memory) return;
+      progress("Summarizing chats on this device…");
+      const ask = "Write a short plain paragraph (max 120 words) of facts from these chats. No headings. Do not use User Memory Note, Open Tasks, or Retained Information. Reply with the paragraph only.\n\n" +
+        (memory ? "Existing retained memory:\n" + memory + "\n\n" : "") +
+        (packed ? "Chats to fold in:\n" + packed : "");
+      let summary = "";
+      try {
+        const h = await hostHealth();
+        if (useHostChat(h)) {
+          await ollamaChat(ask, (piece) => { summary += piece; }, null);
+        } else if (isStandalone() && (h?.ollama || h?.local_llm?.backend === "ollama")) {
+          try {
+            await ollamaDirect(ask, (piece) => { summary += piece; });
+          } catch {
+            if ("gpu" in navigator) {
+              await browserChat(
+                [{ role: "system", content: "Write a short factual summary." }, { role: "user", content: ask }],
+                (piece) => { summary += piece; },
+                progress,
+              );
+            } else summary = packed.slice(0, 600);
+          }
+        } else if ("gpu" in navigator) {
+          await browserChat(
+            [{ role: "system", content: "Write a short factual summary." }, { role: "user", content: ask }],
+            (piece) => { summary += piece; },
+            progress,
+          );
+        } else summary = packed.slice(0, 600);
+      } catch {
+        summary = packed.slice(0, 600);
+      }
+      memory = (summary || packed).trim().slice(0, 4000);
+      const kept = threads.flatMap((th) => th.attached || []);
+      const fresh = newThread();
+      fresh.title = "Memory kept";
+      fresh.attached = kept.slice(0, 40);
+      threads = [fresh];
+      activeId = fresh.id;
+      progress("");
+      renderAll();
+      await persist();
+    }
+    async function wipe() {
+      if (!wipeArmed) {
+        wipeArmed = true;
+        document.getElementById("erase").textContent = "Confirm delete";
+        document.getElementById("erase-side").textContent = "Click again to delete everything";
+        return;
+      }
+      await new Promise((resolve) => {
+        const req = indexedDB.deleteDatabase(DB);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+        req.onblocked = () => resolve();
+      });
+      localStorage.removeItem("local.ai.jwt");
+      location.reload();
+    }
+
+    function crc32(data) {
+      let c = ~0 >>> 0;
+      for (let i = 0; i < data.length; i++) {
+        c ^= data[i];
+        for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+      }
+      return ~c >>> 0;
+    }
+    function u16(n) {
+      const b = new Uint8Array(2);
+      new DataView(b.buffer).setUint16(0, n, true);
+      return b;
+    }
+    function u32(n) {
+      const b = new Uint8Array(4);
+      new DataView(b.buffer).setUint32(0, n, true);
+      return b;
+    }
+    function concat(parts) {
+      const n = parts.reduce((s, p) => s + p.length, 0);
+      const out = new Uint8Array(n);
+      let o = 0;
+      for (const p of parts) { out.set(p, o); o += p.length; }
+      return out;
+    }
+    function zipStore(files) {
+      const enc = new TextEncoder();
+      const locals = [];
+      const centrals = [];
+      let offset = 0;
+      for (const file of files) {
+        const name = enc.encode(file.name);
+        const data = typeof file.body === "string" ? enc.encode(file.body) : file.body;
+        const crc = crc32(data);
+        const localBuf = concat([u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), name, data]);
+        locals.push(localBuf);
+        centrals.push(concat([u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name]));
+        offset += localBuf.length;
+      }
+      const centralDir = concat(centrals);
+      return new Blob([concat([...locals, centralDir, concat([u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length), u32(centralDir.length), u32(offset), u16(0)])])], { type: "application/zip" });
+    }
+    async function downloadZip() {
+      const files = [];
+      const names = ["local-agent.html", "LOCAL-SETUP.sh", "LOCAL-SETUP.bat", "system.md", "web-llm.js"];
+      for (const name of names) {
+        try {
+          const r = await fetch("./" + name, { cache: "no-store" });
+          if (!r.ok) continue;
+          files.push(name.endsWith(".js")
+            ? { name: "local-ai/" + name, body: new Uint8Array(await r.arrayBuffer()) }
+            : { name: "local-ai/" + name, body: await r.text() });
+        } catch { /* missing in this folder */ }
+      }
+      if (!files.length) return;
+      const blob = zipStore(files);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "local-ai.zip";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    document.getElementById("send").onclick = () => send();
+    document.getElementById("new").onclick = () => startNew();
+    document.getElementById("new-side").onclick = () => startNew();
+    document.getElementById("dl-zip").onclick = () => void downloadZip();
+    document.getElementById("summarize").onclick = () => compact();
+    document.getElementById("summarize-side").onclick = () => compact();
+    document.getElementById("erase").onclick = () => wipe();
+    document.getElementById("erase-side").onclick = () => wipe();
+    document.getElementById("sign-out").onclick = () => {
+      localStorage.removeItem("local.ai.jwt");
+      document.getElementById("auth-scrim").classList.remove("hidden");
+    };
+    input.addEventListener("input", syncSend);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    const attachMenu = document.getElementById("attach-menu");
+    document.getElementById("attach").onclick = (e) => {
+      e.stopPropagation();
+      attachMenu.classList.toggle("open");
+    };
+    document.addEventListener("click", () => attachMenu.classList.remove("open"));
+    async function walkPickedFolder(dir) {
+      async function walk(handleDir, prefix, depth) {
+        const t = active();
+        if (depth > 3 || (t?.attached.length || 0) >= 40 || !handleDir.values) return;
+        for await (const handle of handleDir.values()) {
+          if ((active()?.attached.length || 0) >= 40) return;
+          const name = handle.name;
+          if (handle.kind === "directory") {
+            if (SKIP_DIR.test(name)) continue;
+            await walk(handle, prefix + name + "/", depth + 1);
+            continue;
+          }
+          if (SKIP_FILE.test(name)) continue;
+          const file = await handle.getFile();
+          if (file.size > 8 * 1024 * 1024) continue;
+          const text = await readAttach(file);
+          const preview = await filePreview(file);
+          await addAttachment(prefix + name, text, file.size, preview);
+        }
+      }
+      await walk(dir, "", 0);
+    }
+    async function attachChosenFiles(list) {
+      for (const file of [...list]) {
+        const text = await readAttach(file);
+        const preview = await filePreview(file);
+        await addAttachment(file.name, text, file.size, preview);
+      }
+    }
+    document.getElementById("pick-files-or-folder").onclick = async () => {
+      attachMenu.classList.remove("open");
+      if (window.showOpenFilePicker) {
+        try {
+          const handles = await window.showOpenFilePicker({ multiple: true });
+          const files = await Promise.all(handles.map((h) => h.getFile()));
+          await attachChosenFiles(files);
+          return;
+        } catch (e) {
+          if (e && e.name === "AbortError") return;
+        }
+      }
+      if (window.showDirectoryPicker) {
+        try {
+          const dir = await window.showDirectoryPicker();
+          await walkPickedFolder(dir);
+          return;
+        } catch (e) {
+          if (e && e.name === "AbortError") return;
+          modeEl.textContent = String(e.message || e);
+          return;
+        }
+      }
+      document.getElementById("pick").click();
+    };
+    document.getElementById("pick-image-btn").onclick = () => {
+      attachMenu.classList.remove("open");
+      document.getElementById("pick-image").click();
+    };
+    document.getElementById("pick").onchange = async (e) => {
+      await attachChosenFiles(e.target.files || []);
+      e.target.value = "";
+    };
+    document.getElementById("pick-image").onchange = async (e) => {
+      await attachChosenFiles(e.target.files || []);
+      e.target.value = "";
+    };
+    const main = document.getElementById("chat-main");
+    main.addEventListener("dragover", (e) => e.preventDefault());
+    main.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      const files = [...(e.dataTransfer?.files || [])];
+      if (files.length) await attachChosenFiles(files);
+    });
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const mic = document.getElementById("mic");
+    if (SR) {
+      mic.disabled = false;
+      let rec = null;
+      mic.onclick = () => {
+        if (rec) { rec.stop(); rec = null; return; }
+        rec = new SR();
+        rec.continuous = true;
+        rec.interimResults = false;
+        rec.onresult = (ev) => {
+          const piece = [...ev.results].slice(ev.resultIndex).map((r) => r[0].transcript).join(" ");
+          input.value = (input.value + " " + piece).trim();
+          syncSend();
+        };
+        rec.onend = () => { rec = null; };
+        rec.start();
+      };
+    }
+
+    let crispe = "";
+    try {
+      const sysRes = await fetch("./system.md", { cache: "no-store" });
+      if (sysRes.ok) crispe = (await sysRes.text()).replace(/^#.*\n/, "").trim().slice(0, 4000);
+    } catch { /* optional */ }
+
+    const saved = await kvGet("state").catch(() => null);
+    if (saved?.threads?.length) {
+      threads = saved.threads;
+      activeId = saved.activeId || threads[0].id;
+      memory = saved.memory || "";
+      fbInbox = Array.isArray(saved.fbInbox) ? saved.fbInbox : [];
+    } else if (saved?.msgs) {
+      const t = newThread();
+      t.msgs = saved.msgs || [];
+      t.attached = saved.attached || [];
+      t.cid = saved.cid || null;
+      t.title = titleFrom(t.msgs[0]?.content || "Chat");
+      threads = [t];
+      activeId = t.id;
+      memory = saved.memory || "";
+    } else {
+      const t = newThread();
+      threads = [t];
+      activeId = t.id;
+    }
+    renderAll();
+    await refreshHost();
+    await ensureAuth();
+    setInterval(() => void refreshHost(), 8000);
+    if (!window.isSecureContext) {
+      modeEl.innerHTML = '<span class="warn">Open via START.command / START.bat (http://127.0.0.1) so WebGPU works. file:// is not a secure context.</span>';
+    }
+  </script>
+</body>
+</html>

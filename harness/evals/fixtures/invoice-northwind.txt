@@ -1,0 +1,6 @@
+Invoice INV-9921
+Vendor: Northwind Paper
+Amount due: 408.50 USD
+Due date: 18 April 2026
+PO: PO-7712
+Line items: 20 reams of A4, 4 boxes of labels.

@@ -1,0 +1,37 @@
+{
+  "forbidden_hit_substrings": [
+    "Small Cloud keeps chat on-device",
+    "static host never receives prompts",
+    "Default model llama3.2:3b uses about 2.4 GB",
+    "Voice uses LiveKit local loopback",
+    "Whisper is not loaded in the UI",
+    "seed-privacy",
+    "seed-ram",
+    "seed-voice"
+  ],
+  "cases": [
+    {
+      "id": "invoice-amount",
+      "query": "How much is invoice INV-9921?",
+      "must_contain_any": ["408.50", "INV-9921", "Northwind"],
+      "must_not_contain_any": ["cardamom", "Maya Chen"]
+    },
+    {
+      "id": "bakery-hours",
+      "query": "When is the bakery closed?",
+      "must_contain_any": ["Monday", "Closed Monday", "7:00"],
+      "must_not_contain_any": ["INV-9921", "Ollama"]
+    },
+    {
+      "id": "payroll-owner",
+      "query": "Who handles PTO requests?",
+      "must_contain_any": ["Maya Chen", "People Ops"],
+      "must_not_contain_any": ["Northwind", "cardamom"]
+    },
+    {
+      "id": "unrelated-empty",
+      "query": "What is the orbital period of Kepler-186f?",
+      "expect_empty": true
+    }
+  ]
+}

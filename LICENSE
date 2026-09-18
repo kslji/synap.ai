@@ -1,0 +1,27 @@
+SYNAP DEVELOPER LICENSE
+Copyright (c) 2026 Synap (https://synap.surf)
+All rights reserved.
+
+This software and its source code (the “Software”) are proprietary to Synap.
+
+1. Grant. If you have been given access to this repository, you may clone, run,
+   and modify the Software solely for internal development, evaluation, and
+   testing of Surf AI / Synap.
+
+2. Restrictions. You may not, without prior written permission from Synap:
+   (a) use the Software in production for third parties;
+   (b) sublicense, sell, rent, or commercially distribute the Software;
+   (c) remove or alter copyright, trademark, or license notices;
+   (d) publish the source, models, keys, or user data derived from it.
+
+3. Ownership. Synap retains all right, title, and interest in the Software,
+   including trademarks such as Surf, Synap, and synap.surf. Contributions
+   submitted to this repository are assigned to Synap unless a separate
+   agreement says otherwise.
+
+4. No warranty. THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR
+   PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL SYNAP BE LIABLE FOR ANY
+   CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE SOFTWARE.
+
+5. Contact. Licensing inquiries: the copyright holder at synap.surf.

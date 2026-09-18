@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "local.ai host chat trace",
+  "type": "object",
+  "required": ["id", "model", "latency_ms", "moss", "otel"],
+  "properties": {
+    "id": { "type": "string", "minLength": 8 },
+    "conversation_id": { "type": "string" },
+    "model": { "type": "string" },
+    "voice_input": { "type": "boolean" },
+    "offline": { "type": "boolean" },
+    "error": {},
+    "guardrail_flags": { "type": "array", "items": { "type": "string" } },
+    "moss": {
+      "type": "object",
+      "properties": {
+        "backend": { "type": "string" },
+        "time_taken_ms": { "type": "number" },
+        "docs": { "type": "array" }
+      }
+    },
+    "latency_ms": { "type": "number" },
+    "prompt_chars": { "type": "integer" },
+    "completion_chars": { "type": "integer" },
+    "keep_alive": { "type": "string" },
+    "otel": {
+      "type": "object",
+      "required": ["trace_id", "span"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "span": { "type": "string" },
+        "attributes": { "type": "object" }
+      }
+    }
+  }
+}

@@ -138,7 +138,7 @@ export type Health = {
 };
 
 export async function health(): Promise<Health> {
-  const res = await fetchTimed(`${HOST}/health`, {}, 2500);
+  const res = await fetchTimed(`${HOST}/v1/health`, {}, 2500);
   if (!res.ok) throw new Error("Host unreachable");
   return res.json();
 }

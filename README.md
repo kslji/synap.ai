@@ -190,6 +190,11 @@ server {
     location / {
         try_files $uri $uri.html $uri/ /index.html;
     }
+    location = /health {
+        proxy_pass http://127.0.0.1:18765/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
     location /v1/ {
         proxy_pass http://127.0.0.1:18765;
         proxy_http_version 1.1;

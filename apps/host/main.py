@@ -236,6 +236,11 @@ async def health():
     }
 
 
+@app.get("/v1/health")
+async def v1_health():
+    return await health()
+
+
 @app.post("/v1/auth/session")
 async def session(req: SessionReq, request: Request):
     if instances.current() is None:

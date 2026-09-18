@@ -38,6 +38,7 @@ import {
   retrieveFileContext,
   trimTurns,
   fitBrowserPrompt,
+  offlineFileBrief,
   wantsPdfExport,
   wantsSavedSummary,
 } from "@/lib/groundedContext";
@@ -58,7 +59,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
-import { completeBrowserChat, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
+import { completeBrowserChat, hasReadyBrowserEngine, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
 
@@ -559,6 +560,17 @@ export function LocalChat() {
         });
       };
       const runBrowser = async (skipMoss = false) => {
+        if (!networkOnline() && !hasReadyBrowserEngine()) {
+          const brief = offlineFileBrief(
+            hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
+            asked,
+          );
+          if (brief) {
+            paint(brief);
+            finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
+            return;
+          }
+        }
         const extra = [docs, pdfNote, !docs && !skipMoss ? formatMossHits(await searchMoss(asked)) : ""]
           .filter(Boolean)
           .join("\n\n");

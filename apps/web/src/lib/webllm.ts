@@ -5,8 +5,13 @@ import { BROWSER_PROMPT_CHARS, fitBrowserPrompt, isModelNoise } from "./grounded
 import { networkOnline } from "./net";
 
 let enginePromise: Promise<MLCEngine> | null = null;
+let engineReady = false;
 
 export const BROWSER_MODEL = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
+
+export function hasReadyBrowserEngine(): boolean {
+  return engineReady;
+}
 
 export function webGpuOk(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
@@ -43,7 +48,7 @@ function engineError(err: unknown): Error {
   if (/failed to fetch|network|load failed|offline|internet/i.test(m)) {
     if (!networkOnline()) {
       return new Error(
-        "The in-browser model is not on this device yet. Turn Wi-Fi on, keep this chat open until the download finishes (~1 GB), then you can chat offline. Or start Ollama on this computer.",
+        "The in-browser model is only partly saved on this device (your sidebar shows the size — it needs about 700 MB). Turn Wi-Fi on, keep this chat open until that number stops growing, then you can chat offline. Attached files still work offline as excerpts. Or start Ollama on this computer.",
       );
     }
     return new Error(
@@ -60,10 +65,16 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
   if (!enginePromise) {
     enginePromise = CreateMLCEngine(BROWSER_MODEL, {
       initProgressCallback: (p: { text: string }) => onProgress(p.text),
-    }).catch((err) => {
-      enginePromise = null;
-      throw engineError(err);
-    });
+    })
+      .then((engine) => {
+        engineReady = true;
+        return engine;
+      })
+      .catch((err) => {
+        enginePromise = null;
+        engineReady = false;
+        throw engineError(err);
+      });
   }
   return enginePromise;
 }
@@ -79,6 +90,9 @@ export async function streamBrowserChat(
   onDelta: (t: string) => void,
   onProgress: (s: string) => void,
 ): Promise<void> {
+  if (!networkOnline() && !engineReady) {
+    throw engineError(new Error("offline"));
+  }
   const engine = await ensureBrowserEngine(onProgress);
   onProgress("");
   const system = messages.find((m) => m.role === "system")?.content || "";

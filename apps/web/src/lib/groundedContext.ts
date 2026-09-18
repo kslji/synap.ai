@@ -137,6 +137,26 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   );
 }
 
+/** User-visible answer from files already in this tab when the LLM cannot run (Wi-Fi off, model incomplete). */
+export function offlineFileBrief(files: NamedDoc[], query: string): string {
+  const usable = files.filter((f) => (f.text || "").trim());
+  if (!usable.length) return "";
+  const q = query.trim() || "What is in these files?";
+  const blocks = usable.map((f) => {
+    const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
+    const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+    const start = lines.slice(0, 24).join("\n");
+    const rest = raw.replace(/\s+/g, " ").trim();
+    const body = start.length > 80 ? start : rest.slice(0, 2200);
+    return `**${f.name}**\n${body}${rest.length > body.length ? "…" : ""}`;
+  });
+  return (
+    `Wi-Fi is off, so this is taken from the file already on this chat — not the full in-browser model.\n\n` +
+    `You asked: ${q}\n\n` +
+    blocks.join("\n\n")
+  );
+}
+
 export function stripStafferLabels(text: string): string {
   const banned =
     /^(#{1,6}\s*)?(\*\*)?(hook|map|overview|key components|useful extras|next move|specific references)(\*\*)?\s*:?\s*$/i;

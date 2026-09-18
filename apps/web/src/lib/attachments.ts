@@ -248,17 +248,18 @@ async function inflate(data: Uint8Array): Promise<Uint8Array> {
   throw new Error("inflate failed");
 }
 
+function isPdfInfoJunk(s: string): boolean {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length < 2) return true;
+  if (/^(anonymous|unspecified|untitled|unknown|none|null|n\/?a)$/i.test(t)) return true;
+  if (/^(adobe|acrobat|microsoft|word|chrome|safari|preview|macos)/i.test(t)) return true;
+  return false;
+}
+
 async function extractPdf(buf: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buf);
   const ascii = new TextDecoder("latin1").decode(bytes);
-  const bits: string[] = [];
-
-  const meta = [/\/Title/, /\/Author/, /\/Subject/, /\/Keywords/, /\/URI/];
-  for (const key of meta) {
-    const re = new RegExp(`${key.source}\\s*(\\((?:\\\\.|[^\\\\)])*\\)|<[^>]+>)`, "g");
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(ascii))) bits.push(decodePdfStringToken(m[1]));
-  }
+  const pageBits: string[] = [];
 
   const streamRe = /stream\r?\n([\s\S]*?)endstream/g;
   let match: RegExpExecArray | null;
@@ -276,10 +277,19 @@ async function extractPdf(buf: ArrayBuffer): Promise<string> {
     }
     const text = new TextDecoder("latin1").decode(payload);
     if (!/\bBT\b|\bTj\b|\bTJ\b|T\*|'\s/.test(text)) continue;
-    bits.push(pdfStrings(text));
+    const piece = pdfStrings(text);
+    if (piece.trim()) pageBits.push(piece);
   }
 
-  return bits.join(" ").replace(/\s+/g, " ").trim();
+  const page = pageBits.join(" ").replace(/\s+/g, " ").trim();
+  if (page.length >= 80) return page;
+
+  const titleMatch = /\/Title\s*(\((?:\\.|[^\\)])*\)|<[^>]+>)/.exec(ascii);
+  const title = titleMatch ? decodePdfStringToken(titleMatch[1]).trim() : "";
+  if (title && !isPdfInfoJunk(title) && title.length > 3) {
+    return page ? `${title} ${page}` : title;
+  }
+  return page;
 }
 
 function decodePdfStringToken(token: string): string {
@@ -354,7 +364,8 @@ function pdfStrings(src: string): string {
 function isReadablePdfPiece(s: string): boolean {
   const t = s.replace(/\0/g, " ").trim();
   if (t.length < 2) return false;
-  if (/^https?:\/\//i.test(t)) return true;
+  if (isPdfInfoJunk(t)) return false;
+  if (/^https?:\/\//i.test(t)) return false;
   let ok = 0;
   for (let i = 0; i < t.length; i++) {
     const c = t.charCodeAt(i);
@@ -378,19 +389,17 @@ export function looksLikeBinaryJunk(text: string): boolean {
 
 export function readablePlainText(text: string): string {
   const raw = String(text || "");
-  const urls = [...new Set(raw.match(/https?:\/\/[^\s<>"'\\)]+/gi) || [])];
   const words = raw
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, " ")
     .split(/\s+/)
     .filter((w) => {
       if (w.length < 2) return false;
-      if (/^https?:\/\//i.test(w)) return true;
+      if (/^https?:\/\//i.test(w)) return false;
+      if (isPdfInfoJunk(w)) return false;
       const alnum = (w.match(/[A-Za-z0-9]/g) || []).length;
       return alnum >= 2 && alnum / w.length >= 0.5;
     });
-  const body = words.join(" ").replace(/ {2,}/g, " ").trim();
-  const extra = urls.filter((u) => !body.includes(u)).join("\n");
-  return [body, extra].filter(Boolean).join("\n").trim();
+  return words.join(" ").replace(/ {2,}/g, " ").trim();
 }
 
 function latin1ToBytes(s: string): Uint8Array {

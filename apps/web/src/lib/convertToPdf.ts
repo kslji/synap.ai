@@ -1,4 +1,4 @@
-import type { StoredAttachment } from "./attachments";
+import { bytesBlob, type StoredAttachment } from "./attachments";
 import { HOST, TOKEN_KEY } from "./config";
 import { networkOnline } from "./net";
 
@@ -114,7 +114,7 @@ export async function convertAttachmentsToPdf(
   if (networkOnline() && token && docs.length === 1 && docs[0].bytes?.byteLength) {
     const f = docs[0];
     const body = new FormData();
-    body.append("file", new Blob([f.bytes], { type: f.mime || "application/octet-stream" }), f.name);
+    body.append("file", bytesBlob(f.bytes, f.mime || "application/octet-stream"), f.name);
     const res = await fetch(`${HOST}/v1/convert/pdf`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -132,6 +132,6 @@ export async function convertAttachmentsToPdf(
     chunks.push(`# ${f.name}\n${(f.text || "").trim() || "(no extractable text)"}`);
   }
   const merged = textPdf(docs.length === 1 ? docs[0].name : "attachments.pdf", chunks.join("\n\n"));
-  downloadBlob(new Blob([merged.bytes], { type: "application/pdf" }), merged.filename);
+  downloadBlob(bytesBlob(merged.bytes, "application/pdf"), merged.filename);
   return { filename: merged.filename, count: docs.length };
 }

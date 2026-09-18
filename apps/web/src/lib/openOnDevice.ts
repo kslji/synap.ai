@@ -80,7 +80,10 @@ function zipStore(files: Array<{ name: string; body: string | Uint8Array; unixMo
     u32(offset),
     u16(0),
   ]);
-  return new Blob([concat([...locals, centralDir, end])], { type: "application/zip" });
+  const zip = concat([...locals, centralDir, end]);
+  const copy = new ArrayBuffer(zip.byteLength);
+  new Uint8Array(copy).set(zip);
+  return new Blob([copy], { type: "application/zip" });
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {

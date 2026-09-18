@@ -215,10 +215,18 @@ function stripXml(xml: string): string {
     .trim();
 }
 
+/** Copy into a real ArrayBuffer so BlobPart types on newer TS/DOM libs accept it. */
+export function bytesBlob(bytes: Uint8Array | ArrayBuffer, type?: string): Blob {
+  const src = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  const copy = new ArrayBuffer(src.byteLength);
+  new Uint8Array(copy).set(src);
+  return type ? new Blob([copy], { type }) : new Blob([copy]);
+}
+
 async function inflate(data: Uint8Array): Promise<Uint8Array> {
   for (const format of ["deflate", "deflate-raw"] as const) {
     try {
-      const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream(format));
+      const stream = bytesBlob(data).stream().pipeThrough(new DecompressionStream(format));
       return new Uint8Array(await new Response(stream).arrayBuffer());
     } catch {
       /* try next */

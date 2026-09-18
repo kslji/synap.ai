@@ -2,12 +2,13 @@
 
 import { FileText, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { bytesBlob } from "@/lib/attachments";
 import { formatBytes, type StoredAttachment } from "@/lib/browserStore";
 
 function Preview({ file }: { file: StoredAttachment }) {
   const url = useMemo(() => {
     if (file.kind !== "image" || !file.bytes || file.bytes.byteLength < 8) return null;
-    return URL.createObjectURL(new Blob([file.bytes], { type: file.mime || "image/*" }));
+    return URL.createObjectURL(bytesBlob(file.bytes, file.mime || "image/*"));
   }, [file]);
   useEffect(() => () => {
     if (url) URL.revokeObjectURL(url);

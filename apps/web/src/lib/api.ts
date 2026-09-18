@@ -206,12 +206,14 @@ export async function streamChat(body: {
   conversation_id?: string | null;
   voice_input?: boolean;
   offline?: boolean;
+  signal?: AbortSignal;
   onMeta: (m: Record<string, unknown>) => void;
   onDelta: (t: string) => void;
 }): Promise<{ conversation_id: string; latency_ms?: number }> {
   const token = await ensureSession();
   const res = await fetch(`${HOST}/v1/chat`, {
     method: "POST",
+    signal: body.signal,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -229,26 +231,35 @@ export async function streamChat(body: {
   let buf = "";
   let conversation_id = body.conversation_id || "";
   let latency_ms: number | undefined;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split("\n\n");
-    buf = parts.pop() || "";
-    for (const part of parts) {
-      const line = part.split("\n").find((l) => l.startsWith("data: "));
-      if (!line) continue;
-      const payload = JSON.parse(line.slice(6));
-      if (payload.type === "meta") {
-        conversation_id = payload.conversation_id;
-        body.onMeta(payload);
-      } else if (payload.type === "delta") {
-        body.onDelta(payload.content);
-      } else if (payload.type === "done") {
-        if (typeof payload.latency_ms === "number") latency_ms = payload.latency_ms;
-      } else if (payload.type === "error") {
-        throw new Error(payload.detail);
+  try {
+    while (true) {
+      if (body.signal?.aborted) throw new DOMException("Stopped", "AbortError");
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() || "";
+      for (const part of parts) {
+        const line = part.split("\n").find((l) => l.startsWith("data: "));
+        if (!line) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.type === "meta") {
+          conversation_id = payload.conversation_id;
+          body.onMeta(payload);
+        } else if (payload.type === "delta") {
+          body.onDelta(payload.content);
+        } else if (payload.type === "done") {
+          if (typeof payload.latency_ms === "number") latency_ms = payload.latency_ms;
+        } else if (payload.type === "error") {
+          throw new Error(payload.detail);
+        }
       }
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      /* already closed */
     }
   }
   return { conversation_id, latency_ms };

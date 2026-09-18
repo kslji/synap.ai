@@ -37,7 +37,9 @@ async function completeOnce(
   engine: MLCEngine,
   messages: { role: string; content: string }[],
   onDelta: (t: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) throw new DOMException("Stopped", "AbortError");
   await engine.resetChat();
   const stream = await engine.chat.completions.create({
     messages: messages as { role: "system" | "user" | "assistant"; content: string }[],
@@ -45,6 +47,7 @@ async function completeOnce(
     max_tokens: 280,
   });
   for await (const chunk of stream) {
+    if (signal?.aborted) throw new DOMException("Stopped", "AbortError");
     const t = chunk.choices[0]?.delta?.content;
     if (t) onDelta(t);
   }
@@ -104,7 +107,9 @@ export async function streamBrowserChat(
   messages: { role: string; content: string }[],
   onDelta: (t: string) => void,
   onProgress: (s: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) throw new DOMException("Stopped", "AbortError");
   if (!networkOnline() && !engineReady) {
     throw engineError(new Error("offline"));
   }
@@ -115,11 +120,12 @@ export async function streamBrowserChat(
   const turns = messages.filter((m) => m.role !== "system" && !(m.role === "user" && m.content === question));
   let packed = fitBrowserPrompt(system, turns, question, BROWSER_PROMPT_CHARS);
   try {
-    await completeOnce(engine, packed, onDelta);
+    await completeOnce(engine, packed, onDelta, signal);
   } catch (err) {
+    if (signal?.aborted) throw new DOMException("Stopped", "AbortError");
     if (!overflow(err)) throw engineError(err);
     packed = fitBrowserPrompt(system, [], question, 2200);
-    await completeOnce(engine, packed, onDelta);
+    await completeOnce(engine, packed, onDelta, signal);
   }
 }
 

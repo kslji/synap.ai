@@ -568,6 +568,41 @@ button.secondary,
   max-width: 100%;
 }
 
+.edit-msg {
+  margin-top: 4px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.75;
+}
+
+.edit-bubble {
+  width: min(72vw, 520px);
+}
+
+.edit-prompt {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 72px;
+}
+
+.bubble-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.send.stop {
+  background: #c45c4a;
+  color: #fff;
+}
+
 .cite {
   max-width: min(72%, 720px);
   align-self: flex-start;

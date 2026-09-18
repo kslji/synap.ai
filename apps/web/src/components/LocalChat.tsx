@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, Mic, MicOff, Paperclip, Plus, Send, Trash2 } from "lucide-react";
+import { ImagePlus, Mic, MicOff, Paperclip, Pencil, Plus, Send, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -47,7 +47,7 @@ import { downloadOnThisDevice } from "@/lib/openOnDevice";
 import { convertAttachmentsToPdf } from "@/lib/convertToPdf";
 import { fetchHostStorage, getToken, health, indexMoss, parseApiError, searchMoss, streamChat, createLocalInstance, type Health } from "@/lib/api";
 import { fetchProfile, clearAccount, type UserProfile } from "@/lib/account";
-import { looksLikeNetworkFailure, networkOnline } from "@/lib/net";
+import { isAbortError, looksLikeNetworkFailure, networkOnline } from "@/lib/net";
 import { AuthDialog } from "./AuthDialog";
 import { OfflineBanner } from "./OfflineBanner";
 import { AttachmentBar } from "./AttachmentBar";
@@ -120,6 +120,8 @@ export function LocalChat() {
   const [authOpen, setAuthOpen] = useState(false);
   const [netOn, setNetOn] = useState(true);
   const [authNext, setAuthNext] = useState<null | (() => void)>(null);
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const [turnMeta, setTurnMeta] = useState<{
     model?: string;
     sources?: Array<{ title?: string; kind?: string; snippet?: string }>;
@@ -129,6 +131,7 @@ export function LocalChat() {
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const stopMic = useRef<(() => void) | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async (preferId?: string) => {
     const [all, mem, quota, host, stored] = await Promise.all([
@@ -462,10 +465,14 @@ export function LocalChat() {
     });
   }
 
-  async function send() {
+  function stopReply() {
+    abortRef.current?.abort();
+  }
+
+  async function send(preset?: string, fromThread?: Thread) {
     if (!(await needProfile())) return;
-    const content = input.trim();
-    let thread = active;
+    const content = (preset ?? input).trim();
+    let thread = fromThread || active;
     if (!thread) thread = newThread();
     const onDisk = (await listAttachments()).filter((f) => f.threadId === thread.id);
     const threadFiles = onDisk.length ? onDisk : files.filter((f) => f.threadId === thread.id);
@@ -533,6 +540,8 @@ export function LocalChat() {
     };
     setInput("");
     await persist(working);
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     setBusy(true);
     let startedAt = performance.now();
     setProgress(
@@ -596,9 +605,11 @@ export function LocalChat() {
             ),
             paint,
             setProgress,
+            abortRef.current?.signal,
           );
           finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
         } catch (err) {
+          if (isAbortError(err)) throw err;
           const brief = offlineFileBrief(
             hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
             asked,
@@ -624,6 +635,7 @@ export function LocalChat() {
             conversation_id: working.hostConversationId,
             voice_input: listening,
             offline: true,
+            signal: abortRef.current?.signal,
             onMeta: (m) => setTurnMeta(m),
             onDelta: paint,
           });
@@ -637,6 +649,7 @@ export function LocalChat() {
             conversation_id,
           );
         } catch (err) {
+          if (isAbortError(err)) throw err;
           if (!looksLikeNetworkFailure(err)) throw err;
           setProgress("Local host unreachable. Continuing in this browser…");
           skipMoss = true;
@@ -648,6 +661,20 @@ export function LocalChat() {
       }
       if (!usedHost) await runBrowser(skipMoss);
     } catch (err) {
+      if (isAbortError(err)) {
+        setActive((cur) => {
+          if (!cur || cur.id !== working.id) return cur;
+          const msgs = cur.messages.map((m, i, arr) =>
+            i === arr.length - 1 && m.role === "assistant"
+              ? { ...m, content: m.content.trim() || "(stopped)" }
+              : m,
+          );
+          const done = { ...cur, messages: msgs, updatedAt: Date.now() };
+          void persist(done);
+          return done;
+        });
+        return;
+      }
       const detail = err instanceof Error ? parseApiError(err.message) : "The local model failed.";
       const waitMs = Math.round(performance.now() - startedAt);
       const failed = {
@@ -660,6 +687,7 @@ export function LocalChat() {
       };
       await persist(failed);
     } finally {
+      abortRef.current = null;
       setBusy(false);
       setProgress("");
     }
@@ -789,9 +817,59 @@ export function LocalChat() {
             const lastAssistant = m.role === "assistant" && i === msgs.length - 1;
             return (
               <div key={`${m.role}-${i}`} className={`bubble-wrap ${m.role}`}>
-                <div className={`bubble ${m.role}`}>
-                  {m.role === "assistant" ? <MarkdownBody text={m.content} /> : m.content}
-                </div>
+                {m.role === "user" && editIdx === i ? (
+                  <div className="bubble user edit-bubble">
+                    <textarea
+                      className="edit-prompt"
+                      value={editDraft}
+                      rows={3}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                    />
+                    <div className="bubble-actions">
+                      <button
+                        type="button"
+                        className="linkish"
+                        disabled={!editDraft.trim()}
+                        onClick={() => {
+                          const text = editDraft.trim();
+                          const thread = active;
+                          if (!thread || !text) return;
+                          const next = {
+                            ...thread,
+                            messages: thread.messages.slice(0, i),
+                            updatedAt: Date.now(),
+                          };
+                          setEditIdx(null);
+                          setEditDraft("");
+                          void persist(next).then(() => send(text, next));
+                        }}
+                      >
+                        Save and send
+                      </button>
+                      <button type="button" className="linkish" onClick={() => setEditIdx(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className={`bubble ${m.role}`}>
+                      {m.role === "assistant" ? <MarkdownBody text={m.content} /> : m.content}
+                    </div>
+                    {m.role === "user" && !busy && (
+                      <button
+                        type="button"
+                        className="linkish edit-msg"
+                        onClick={() => {
+                          setEditIdx(i);
+                          setEditDraft(m.content);
+                        }}
+                      >
+                        <Pencil size={12} /> Edit
+                      </button>
+                    )}
+                  </>
+                )}
                 {lastAssistant && turnMeta?.sources && turnMeta.sources.length > 0 && (
                   <div className="tiny muted cite">
                     Used {turnMeta.sources.map((s) => s.title).filter(Boolean).join(", ")}
@@ -892,21 +970,27 @@ export function LocalChat() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    void send();
+                    if (!busy) void send();
                   }
                 }}
               />
-              <button type="button" className="icon" onClick={toggleMic} disabled={!dictateOk}>
+              <button type="button" className="icon" onClick={toggleMic} disabled={!dictateOk || busy}>
                 {listening ? <MicOff size={16} /> : <Mic size={16} />}
               </button>
-              <button
-                type="button"
-                className="send"
-                disabled={busy || (!input.trim() && !threadFiles.length)}
-                onClick={() => void send()}
-              >
-                <Send size={16} />
-              </button>
+              {busy ? (
+                <button type="button" className="send stop" aria-label="Stop" title="Stop" onClick={stopReply}>
+                  <Square size={14} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="send"
+                  disabled={!input.trim() && !threadFiles.length}
+                  onClick={() => void send()}
+                >
+                  <Send size={16} />
+                </button>
+              )}
             </div>
           </div>
         </div>

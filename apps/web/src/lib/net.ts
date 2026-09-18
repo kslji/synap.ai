@@ -10,7 +10,16 @@ export function waitForOnline(): Promise<void> {
   });
 }
 
+export function isAbortError(err: unknown): boolean {
+  if (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError") {
+    return true;
+  }
+  const m = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return m.includes("aborterror") || m.includes("the operation was aborted") || m === "stopped";
+}
+
 export function looksLikeNetworkFailure(err: unknown): boolean {
+  if (isAbortError(err)) return false;
   const m = (err instanceof Error ? err.message : String(err)).toLowerCase();
   return (
     m.includes("failed to fetch") ||
@@ -19,8 +28,6 @@ export function looksLikeNetworkFailure(err: unknown): boolean {
     m.includes("host unreachable") ||
     m.includes("internet is off") ||
     m.includes("load failed") ||
-    m.includes("aborterror") ||
-    m.includes("the operation was aborted") ||
     m.includes("err_internet_offline") ||
     m.includes("err_network_changed") ||
     m.includes("loading chunk") ||

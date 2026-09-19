@@ -31,7 +31,7 @@ export function LocalDataCard({
         <li>Size of your chats and files: {formatBytes(stats.chatBytes + stats.memoryBytes + stats.fileBytes)}</li>
         {modelCache != null && (
           <li>
-            Size of the in-browser model: {formatBytes(modelCache)} (this is the AI file, not your chats)
+            Size of the on-device model: {formatBytes(modelCache)} (the model file on this browser, not your chats)
           </li>
         )}
         {origin?.quota != null && <li>Space Chrome allows this site: {formatBytes(origin.quota)}</li>}

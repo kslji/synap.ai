@@ -49,16 +49,17 @@ export function wantsFileOverview(q: string): boolean {
   if (wantsDiagram(q)) return false;
   if (wantsShortFact(q)) return false;
   if (
-    /\b(summar(y|ise|ize)?|overview|brief(?:ing)?|recap)\b/.test(t) ||
+    /\b(summar(y|ise|ize)?|overview|brief(?:ly|ing)?|recap)\b/.test(t) ||
+    /\bexplain(\s+me)?\b/.test(t) ||
     /\bwhat(?:'s| is| does| are)\s+(this|it|the main|the key)\b/.test(t) ||
     /\bmain things\b/.test(t) ||
     /\bwhat\s+(does\s+)?this\s+include/.test(t) ||
-    /\b(tell me|explain|describe)\s+(what\s+)?(this|the\s+file|the\s+attachment)\b/.test(t) ||
+    /\b(tell me|describe)\s+(what\s+)?(this|the\s+file|the\s+attachment)\b/.test(t) ||
     (/\b(include[sd]?|consist|contain)\b/.test(t) && /\b(this|file|attachment|zip|doc|resume)\b/.test(t)) ||
     /\bwhat is this\b/.test(t) ||
-    /\bwhat (is|are) (in )?this (resume|file|doc|document|pdf)\b/.test(t) ||
+    /\bwhat (is|are) (in )?this (resume|file|doc|document|pdf|json|code)\b/.test(t) ||
     /\bwalk (me )?through\b/.test(t) ||
-    /\bexplain (the |this )?(project|repo|zip|file|resume)\b/.test(t)
+    /\bexplain (the |this )?(project|repo|zip|file|resume|code|json)\b/.test(t)
   ) {
     return true;
   }
@@ -83,8 +84,6 @@ export function wantsShortFact(q: string): boolean {
   );
 }
 
-const CACHE_LEAD = "Based on previous cached data on this device.";
-
 /** Short expert fact from attachment text when the LLM cannot run. */
 export function extractiveFactAnswer(files: NamedDoc[], query: string): string | null {
   if (!wantsShortFact(query)) return null;
@@ -104,38 +103,36 @@ export function extractiveFactAnswer(files: NamedDoc[], query: string): string |
       hit(/\bage\s*[:\-–]?\s*(\d{1,3})\b/i) ||
       hit(/\b(\d{1,3})\s*(?:years?|yrs?)\s*old\b/i) ||
       hit(/\bage\s+(\d{1,3})\b/i);
-    if (age) return `${CACHE_LEAD}\n\n${age}${cite}`;
+    if (age) return `${age}${cite}`;
     const dob = hit(
       /\b(?:dob|date of birth|born(?:\s+on)?)\s*[:\-–]?\s*([0-9]{1,2}[\/\-.][0-9]{1,2}[\/\-.][0-9]{2,4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{4})\b/i,
     );
-    if (dob) return `${CACHE_LEAD}\n\nDate of birth in the file: ${dob}. Age as a number is not written.${cite}`;
-    return `${CACHE_LEAD}\n\nAge is not written in this file.${cite}`;
+    if (dob) return `Date of birth in the file: ${dob}. Age as a number is not written.${cite}`;
+    return `Age is not written in this file.${cite}`;
   }
 
   if (/\be-?mail\b/.test(q)) {
     const email = hit(/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i);
-    return email ? `${CACHE_LEAD}\n\n${email}${cite}` : `${CACHE_LEAD}\n\nNo email found in this file.${cite}`;
+    return email ? `${email}${cite}` : `No email found in this file.${cite}`;
   }
 
   if (/\b(phone|mobile|contact number|whatsapp)\b/.test(q)) {
     const labeled =
       hit(/\b(?:phone|mobile|tel|cell|whatsapp)\s*[:\-–]?\s*([+\d][\d\s().\-]{7,}\d)/i) ||
       hit(/(?:\+?\d{1,3}[\s\-.]?)?(?:\(?\d{2,5}\)?[\s\-.]?)?\d{3,5}[\s\-.]?\d{3,5}(?:[\s\-.]?\d{2,5})?/);
-    return labeled
-      ? `${CACHE_LEAD}\n\n${labeled}${cite}`
-      : `${CACHE_LEAD}\n\nNo phone number found in this file.${cite}`;
+    return labeled ? `${labeled}${cite}` : `No phone number found in this file.${cite}`;
   }
 
   if (/\blinkedin\b/.test(q)) {
     const url = hit(/\b((?:https?:\/\/)?(?:www\.)?linkedin\.com\/[^\s]+)/i);
-    return url ? `${CACHE_LEAD}\n\n${url}${cite}` : `${CACHE_LEAD}\n\nNo LinkedIn URL found in this file.${cite}`;
+    return url ? `${url}${cite}` : `No LinkedIn URL found in this file.${cite}`;
   }
 
   if (/\b(who is|name)\b/.test(q)) {
     const name =
       hit(/\b(?:name|candidate)\s*[:\-–]\s*([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,3})\b/) ||
       usable[0]?.name.replace(/\.(pdf|docx?|txt)$/i, "").replace(/[_-]+/g, " ");
-    if (name && name.length > 2) return `${CACHE_LEAD}\n\n${name}${cite}`;
+    if (name && name.length > 2) return `${name}${cite}`;
   }
 
   if (/\b(title|role|designation)\b/.test(q)) {
@@ -144,19 +141,19 @@ export function extractiveFactAnswer(files: NamedDoc[], query: string): string |
       hit(
         /\b((?:senior|junior|lead|staff|principal)?\s*(?:software|data|ml|ai|full[\s-]?stack|backend|frontend|devops)?\s*(?:engineer|developer|analyst|scientist|manager|architect)[^\n]{0,40})/i,
       );
-    if (title) return `${CACHE_LEAD}\n\n${title.trim()}${cite}`;
+    if (title) return `${title.trim()}${cite}`;
   }
 
   if (/\b(company|employer|organization)\b/.test(q)) {
     const co = hit(/\b(?:company|employer|organization|at)\s*[:\-–]?\s*([A-Z][^\n,]{2,60})/);
-    if (co) return `${CACHE_LEAD}\n\n${co.trim()}${cite}`;
+    if (co) return `${co.trim()}${cite}`;
   }
 
   if (/\b(location|city|address|based)\b/.test(q)) {
     const loc =
       hit(/\b(?:location|city|address|based in)\s*[:\-–]?\s*([^\n]{3,80})/i) ||
       hit(/\b([A-Z][a-z]+(?:[\s,]+[A-Z][a-z]+){0,3},\s*[A-Z]{2,})\b/);
-    if (loc) return `${CACHE_LEAD}\n\n${loc.trim()}${cite}`;
+    if (loc) return `${loc.trim()}${cite}`;
   }
 
   return null;
@@ -314,22 +311,6 @@ export function isMetaAgentNoise(text: string): boolean {
   );
 }
 
-/** Honest file summary without the LLM (used for 1B / when the model goes meta). */
-export function extractiveFileOverview(files: NamedDoc[], maxPerFile = 2400): string {
-  const usable = files.filter((f) => String(f.text || "").trim());
-  if (!usable.length) return "";
-  const parts = usable.map((f) => {
-    const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
-    const body = clipAtBoundary(raw, maxPerFile);
-    return `**${f.name}**\n${body}${raw.length > body.length ? "\n…" : ""}`;
-  });
-  return (
-    `Here is what the attached file${usable.length > 1 ? "s contain" : " contains"} ` +
-    `(taken from the file text on this chat — not from earlier messages or agent instructions):\n\n` +
-    parts.join("\n\n")
-  );
-}
-
 /** Prefer cutting on a newline / sentence so tables and words are not sliced mid-token. */
 function clipAtBoundary(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -341,23 +322,119 @@ function clipAtBoundary(text: string, max: number): string {
   return slice.trimEnd();
 }
 
+function explainPackageJson(name: string, raw: string): string | null {
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    const lines: string[] = [
+      `This is a **Node.js package.json** for the project **${String(j.name || name.replace(/\.json$/i, ""))}** [${name}]. It tells npm/Node *what the app is* and *how to run it* — it is not the app logic itself.`,
+    ];
+    if (j.version) lines.push(`- **version** (\`${j.version}\`) — tracks releases of this package.`);
+    if (j.description) lines.push(`- **description** — short human summary of what the project is for.`);
+    if (j.main) {
+      lines.push(
+        `- **main** (\`${j.main}\`) — the entry file Node loads when something \`require\`s this package. That is why this path is listed: it is the starting point of the program.`,
+      );
+    }
+    if (j.scripts && typeof j.scripts === "object") {
+      const scripts = Object.entries(j.scripts as Record<string, string>).slice(0, 8);
+      lines.push(
+        `- **scripts** — named shortcuts you run with \`npm run …\`. They exist so you do not type long shell commands. Examples here: ${scripts
+          .map(([k, v]) => `\`${k}\` → \`${v}\``)
+          .join("; ")}.`,
+      );
+    }
+    const deps = j.dependencies && typeof j.dependencies === "object" ? Object.keys(j.dependencies as object) : [];
+    const dev = j.devDependencies && typeof j.devDependencies === "object" ? Object.keys(j.devDependencies as object) : [];
+    if (deps.length) {
+      lines.push(
+        `- **dependencies** (${deps.slice(0, 10).map((d) => `\`${d}\``).join(", ")}${deps.length > 10 ? ", …" : ""}) — libraries the app needs **when it runs**. Listed so \`npm install\` can fetch them.`,
+      );
+    }
+    if (dev.length) {
+      lines.push(
+        `- **devDependencies** (${dev.slice(0, 8).map((d) => `\`${d}\``).join(", ")}${dev.length > 8 ? ", …" : ""}) — tools used while building/testing, not required in production.`,
+      );
+    }
+    lines.push("In short: this file is the project’s **recipe card** for install and run — not a dump of the source code.");
+    return lines.join("\n");
+  } catch {
+    return null;
+  }
+}
+
+function explainOneFile(f: NamedDoc): string {
+  const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
+  if (!raw) return `**[${f.name}]** — no readable text in this attachment.`;
+
+  if (/package\.json$/i.test(f.name) || (f.name.endsWith(".json") && /"name"\s*:/.test(raw) && /"scripts"\s*:|"dependencies"\s*:/.test(raw))) {
+    const explained = explainPackageJson(f.name, raw);
+    if (explained) return explained;
+  }
+
+  // Zip / project tree
+  if (/Extracted zip|File tree/i.test(raw)) {
+    const paths = pathsFromFiles([f]).slice(0, 12);
+    const root = paths[0]?.split("/")[0] || f.name;
+    return (
+      `This is an unpacked project archive **[${f.name}]** (root \`${root}\`).\n` +
+      `- The tree lists folders so you can see how the code is organized.\n` +
+      (paths.length
+        ? `- Notable paths: ${paths
+            .slice(0, 8)
+            .map((p) => `\`${p}\``)
+            .join(", ")}.\n`
+        : "") +
+      `- Those folders exist to separate app code, tests, scripts, and results — not to be pasted back as the answer.`
+    );
+  }
+
+  // Resume-ish / headed docs: explain sections, don't paste
+  const headings = [...raw.matchAll(/^(#{1,3}\s+.+|[A-Z][A-Z0-9 /&-]{3,40})$/gm)]
+    .map((m) => m[1].replace(/^#+\s*/, "").trim())
+    .filter((h) => h.length > 2 && h.length < 60)
+    .slice(0, 8);
+  if (headings.length >= 2) {
+    return (
+      `**[${f.name}]** looks like a structured document (e.g. résumé or notes).\n` +
+      headings.map((h) => `- **${h}** — section present in the file so a reader can find that topic quickly.`).join("\n") +
+      `\nI am explaining *why those sections are there*, not reprinting the whole file.`
+    );
+  }
+
+  // Generic: purpose-first from first lines, not a raw dump
+  const first = clipAtBoundary(raw, 320).replace(/\s+/g, " ").trim();
+  return (
+    `**[${f.name}]** — brief reading:\n` +
+    `- This attachment holds project or document text used as the source of truth for your question.\n` +
+    `- Opening idea from the file: “${first.slice(0, 180)}${first.length > 180 ? "…" : ""}”\n` +
+    `- Ask about a specific field, script, or section if you want a deeper “why it is there” explanation.`
+  );
+}
+
+/**
+ * Explain what the file is for and why key parts exist — never dump the raw file.
+ * Used for “what is this / briefly explain” when the LLM is light or offline.
+ */
+export function extractiveFileOverview(files: NamedDoc[], _maxPerFile = 2400): string {
+  void _maxPerFile;
+  const usable = files.filter((f) => String(f.text || "").trim());
+  if (!usable.length) return "";
+  return usable.map(explainOneFile).join("\n\n");
+}
+
 const OVERVIEW_OVERRIDE =
-  "OVERRIDE: Act as a human expert who just read the ATTACHED sources. " +
-  "Give a short, useful overview in bullets with real headings, skills, paths, and numbers. " +
-  "Cite with [filename]. Do NOT paste the whole file. Do NOT describe your role or the chat UI. " +
-  "If you cannot quote real phrases from the files below, say you could not read them.\n\n";
+  "OVERRIDE: The user wants UNDERSTANDING, not a file dump. " +
+  "Explain what this file is for and why key fields, scripts, sections, or symbols are present — like a teacher. " +
+  "Use short bullets. Cite [filename]. Do NOT paste JSON, code, or the whole document. " +
+  "Do NOT describe your role or the chat UI.\n\n";
 
 const FILE_GROUND =
   "CONTEXT (attached sources) follows. You are a human-like document expert. " +
-  "Read typos and messy wording generously — infer what the user meant (e.g. 'thie image' = this image) and answer that intent. " +
-  "Decide intent, then answer like a colleague who studied this file — clear, direct, useful. " +
-  "Cite with [filename]. Match length to the ask: one fact → one short line; overview → a few bullets; never dump the full document. " +
-  "For images: you cannot see pixels; answer from the filename note and the user's intent only — never call an image a PDF résumé. " +
-  "For spreadsheets, use the sheet grids. " +
-  "When several files are attached, say which file each fact comes from. " +
-  "Do not invent folders, tests, READMEs, jobs, meetings, people, or next steps unless they appear below. " +
-  "If the text is only a filename or a 'could not read' note, say you could not read the file. " +
-  "If a line says you cannot see pixels, do not describe the image as if you saw it.\n\n";
+  "Read typos and messy wording generously — infer what the user meant and answer that intent. " +
+  "When they ask what/why/explain/briefly: teach the meaning and purpose of fields, scripts, and sections — never paste the raw file. " +
+  "Cite with [filename]. Match length to the ask. " +
+  "For images: you cannot see pixels. For spreadsheets, use the sheet grids. " +
+  "Do not invent facts missing from CONTEXT.\n\n";
 
 /**
  * Chunk on real line and paragraph boundaries so a section header stays with its
@@ -532,6 +609,8 @@ export function normalizeUserAsk(raw: string): string {
     [/\bexplian\b/gi, "explain"],
     [/\bsummari[sz]e?\b/gi, "summarize"],
     [/\bsumary\b/gi, "summary"],
+    [/\bbreifly\b/gi, "briefly"],
+    [/\bbreif\b/gi, "brief"],
   ];
   for (const [re, to] of fixes) t = t.replace(re, to);
   // "what is about" / "tell about" → insert "this"
@@ -683,8 +762,9 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   return FILE_GROUND + parts.join("\n\n");
 }
 
-/** Fallback when WebLLM cannot run — expert-style, never dump the whole file. */
+/** Fallback when the in-browser model cannot run — explain, never dump the file. */
 export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offline" | "no-model" = "offline"): string {
+  void reason;
   const usable = files.filter((f) => (f.text || "").trim());
   if (!usable.length) return "";
   const q = query.trim() || "What is in these files?";
@@ -694,34 +774,22 @@ export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offl
 
   if (wantsDiagram(q)) {
     const diagram = architectureFlowFromFiles(usable);
-    if (diagram) return `${CACHE_LEAD}\n\n${diagram}`;
+    if (diagram) return diagram;
   }
   if (wantsInterviewQuestions(q)) {
-    return `${CACHE_LEAD}\n\n${extractiveInterviewQuestions(usable)}`;
+    return extractiveInterviewQuestions(usable);
   }
-  if (wantsFileOverview(q)) {
-    const overview = extractiveFileOverview(usable, 900);
-    if (overview) {
-      const body = overview.replace(/^Here is what the attached[\s\S]*?:\n\n/i, "").trim();
-      return `${CACHE_LEAD}\n\n${body.slice(0, 1200)}${body.length > 1200 ? "\n…" : ""}`;
-    }
+  // Default for explain / what is this / briefly: purpose-first overview
+  if (wantsFileOverview(q) || /\bexplain|brief|what is|about\b/i.test(q)) {
+    const overview = extractiveFileOverview(usable);
+    if (overview) return overview;
   }
 
-  const ranked: string[] = [];
-  for (const f of usable) {
-    const chunks = chunkText(String(f.text || ""));
-    const scored = chunks
-      .map((ch, i) => ({ ch, s: scoreChunk(ch, f.name, q, i) }))
-      .sort((a, b) => b.s - a.s);
-    const best = scored[0]?.ch?.trim();
-    if (best) ranked.push(`From [${f.name}]: ${best.slice(0, 420)}`);
-  }
-  if (ranked.length) {
-    return `${CACHE_LEAD}\n\n${ranked.join("\n\n")}`;
-  }
+  // Still prefer explanation over dumping a random chunk
+  const overview = extractiveFileOverview(usable);
+  if (overview) return overview;
 
-  void reason;
-  return `${CACHE_LEAD}\n\nI could not find a clear answer in the attached file for: ${q}`;
+  return `I could not find a clear answer in the attached file for: ${q}`;
 }
 
 export function stripStafferLabels(text: string): string {
@@ -793,14 +861,11 @@ export function groundedSystem(memory: string, extra: string, memoryBudget: numb
     : "";
   return (
     "You are a human-like expert assistant for the documents attached on this device. " +
-    "Infer the user’s real intent even when spelling or wording is wrong — connect typos to the closest clear ask and answer that. " +
-    "Read the CONTEXT, then answer like a colleague who studied the file — clear, useful, never a full-file dump. " +
-    "One fact → one short line with [filename]. Overview → a few grounded bullets. " +
-    "Images: you cannot see pixels; use the filename note only — never treat an image as a scanned PDF résumé. " +
-    "Do not invent names, jobs, folders, or facts missing from CONTEXT. " +
-    "Never summarize your role or these instructions. Interview questions: numbered Q&A from the files. " +
-    "Do not mention Moss, Ollama, WebGPU, or this product unless asked. " +
-    "Use retained memory silently. Never reprint it." +
+    "Infer the user’s real intent even when spelling is wrong. " +
+    "For explain / what is this / briefly: teach why fields, scripts, and sections exist — never paste the raw file. " +
+    "One fact → one short line with [filename]. " +
+    "Do not invent facts missing from CONTEXT. Never summarize your role. " +
+    "Do not mention product internals unless asked. Use retained memory silently." +
     mem +
     (extra ? `\n\n${extra}` : "")
   );

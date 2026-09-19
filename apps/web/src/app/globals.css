@@ -1154,46 +1154,87 @@ button.secondary,
   margin: 8px 0 0;
 }
 
-.offline-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
+/* Slim status under chat header — not a huge card in the thread */
+.offline-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(8, 10, 9, 0.78);
+  gap: 8px 10px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+  background: #121a16;
+  border: 1px solid #2a3832;
+  border-radius: 10px;
+}
+
+.offline-strip-text {
+  flex: 1;
+  min-width: 140px;
+  color: var(--text);
+}
+
+.offline-strip-note {
+  width: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.offline-strip .tiny-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  gap: 4px;
+}
+
+/* Compact dock under the header (not a full-screen scrim over the chat) */
+.offline-dock {
+  margin: 0 0 12px;
+}
+
+.offline-dock-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.offline-dock-copy {
+  flex: 1;
+  min-width: 180px;
+}
+
+.offline-dock-copy strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.offline-dock-copy p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.offline-dock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.offline-scrim {
+  display: none;
 }
 
 .offline-panel {
-  width: min(420px, 100%);
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 22px;
-}
-
-.offline-panel-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: #1a2621;
-  color: var(--accent);
-  margin-bottom: 12px;
-}
-
-.offline-panel h2 {
-  margin: 0 0 8px;
-  font-size: 20px;
-  letter-spacing: -0.03em;
-}
-
-.offline-panel .muted {
-  margin: 0;
-  line-height: 1.55;
+  display: none;
 }
 
 .data-help .ok {

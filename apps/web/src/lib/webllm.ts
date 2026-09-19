@@ -64,7 +64,7 @@ function engineError(err: unknown): Error {
   if (/failed to fetch|network|load failed|offline|internet|err_connection|cors/i.test(m)) {
     if (!networkOnline()) {
       return new Error(
-        "Based on previous cached data on this device — the in-browser expert model is not fully saved yet. Stay online in Chrome until the model finishes caching (~700 MB), then Continue offline chat will use WebLLM.",
+        "The on-device model is not fully ready yet. Stay online in Chrome until the model finishes downloading (~700 MB), then continue offline chat.",
       );
     }
     return new Error(
@@ -101,7 +101,7 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
 export function warmBrowserEngine(onProgress: (s: string) => void): void {
   if (!webGpuOk()) return;
   void ensureBrowserEngine((s) => {
-    if (!networkOnline() && s) onProgress("Loading cached expert model…");
+    if (!networkOnline() && s) onProgress("Starting on-device model…");
     else onProgress(s);
   })
     .then(() => onProgress(""))
@@ -115,9 +115,8 @@ export async function streamBrowserChat(
   signal?: AbortSignal,
 ): Promise<void> {
   if (signal?.aborted) throw new DOMException("Stopped", "AbortError");
-  // Offline: still try Cache Storage — do not refuse before ensureBrowserEngine.
   if (!networkOnline()) {
-    onProgress(engineReady ? "" : "Loading cached expert model…");
+    onProgress(engineReady ? "" : "Starting on-device model…");
   }
   const engine = await ensureBrowserEngine(onProgress);
   onProgress("");

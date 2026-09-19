@@ -775,7 +775,7 @@ export function LocalChat() {
               docs
                 ? wantsShortFact(asked)
                   ? `${asked}\n\n(Answer as a human expert in one short line from the attached text. Cite [filename]. Do not paste the file.)`
-                  : `${asked}\n\n(Answer as a human document expert from the attached context. Be useful and concise. Cite [filename]. Do not dump the whole file.)`
+                  : `${asked}\n\n(Explain what this file is for and why key fields/scripts/sections exist. Teach briefly. Cite [filename]. Do NOT paste the raw file or JSON.)`
                 : asked,
             ),
             paint,

@@ -47,19 +47,119 @@ export function wantsFileOverview(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
   if (wantsDiagram(q)) return false;
+  if (wantsShortFact(q)) return false;
   if (
     /\b(summar(y|ise|ize)?|overview|brief(?:ing)?|recap)\b/.test(t) ||
-    /\bwhat(?:'s| is| does)\s+(this|it)\b/.test(t) ||
+    /\bwhat(?:'s| is| does| are)\s+(this|it|the main|the key)\b/.test(t) ||
+    /\bmain things\b/.test(t) ||
     /\bwhat\s+(does\s+)?this\s+include/.test(t) ||
     /\b(tell me|explain|describe)\s+(what\s+)?(this|the\s+file|the\s+attachment)\b/.test(t) ||
-    (/\b(include[sd]?|consist|contain)\b/.test(t) && /\b(this|file|attachment|zip|doc)\b/.test(t)) ||
+    (/\b(include[sd]?|consist|contain)\b/.test(t) && /\b(this|file|attachment|zip|doc|resume)\b/.test(t)) ||
     /\bwhat is this\b/.test(t) ||
+    /\bwhat (is|are) (in )?this (resume|file|doc|document|pdf)\b/.test(t) ||
     /\bwalk (me )?through\b/.test(t) ||
-    /\bexplain (the |this )?(project|repo|zip|file)\b/.test(t)
+    /\bexplain (the |this )?(project|repo|zip|file|resume)\b/.test(t)
   ) {
     return true;
   }
   return false;
+}
+
+/** Single-field lookup — answer in a few words, never dump the file. */
+export function wantsShortFact(q: string): boolean {
+  const t = q.trim().toLowerCase();
+  if (!t) return false;
+  if (wantsInterviewQuestions(q) || wantsDiagram(q)) return false;
+  return (
+    /\b(how old|years?\s*old|date of birth|\bdob\b|\bage\b)\b/.test(t) ||
+    /\b(e-?mail|phone|mobile|contact number|whatsapp|linkedin)\b/.test(t) ||
+    /\bwhat(?:'s| is| was)\s+(his|her|their|the person'?s?|this (person|candidate)'?s?)\s+(name|age|email|phone|number|address|title|role|company|location|city)\b/.test(
+      t,
+    ) ||
+    /\b(name|age|email|phone|number|address|title|role|company)\s+(of|for)\s+(the |this )?(person|candidate|author|user)?\b/.test(
+      t,
+    ) ||
+    /\bwho is (this|the) (person|candidate|author)\b/.test(t)
+  );
+}
+
+const CACHE_LEAD = "Based on previous cached data on this device.";
+
+/** Short expert fact from attachment text when the LLM cannot run. */
+export function extractiveFactAnswer(files: NamedDoc[], query: string): string | null {
+  if (!wantsShortFact(query)) return null;
+  const usable = files.filter((f) => String(f.text || "").trim());
+  if (!usable.length) return null;
+  const blob = usable.map((f) => String(f.text || "")).join("\n");
+  const q = query.trim().toLowerCase();
+  const cite = usable[0]?.name ? ` [${usable[0].name}]` : "";
+
+  const hit = (re: RegExp): string | null => {
+    const m = blob.match(re);
+    return m?.[1]?.trim() || null;
+  };
+
+  if (/\bage|how old|years?\s*old\b/.test(q)) {
+    const age =
+      hit(/\bage\s*[:\-–]?\s*(\d{1,3})\b/i) ||
+      hit(/\b(\d{1,3})\s*(?:years?|yrs?)\s*old\b/i) ||
+      hit(/\bage\s+(\d{1,3})\b/i);
+    if (age) return `${CACHE_LEAD}\n\n${age}${cite}`;
+    const dob = hit(
+      /\b(?:dob|date of birth|born(?:\s+on)?)\s*[:\-–]?\s*([0-9]{1,2}[\/\-.][0-9]{1,2}[\/\-.][0-9]{2,4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{4})\b/i,
+    );
+    if (dob) return `${CACHE_LEAD}\n\nDate of birth in the file: ${dob}. Age as a number is not written.${cite}`;
+    return `${CACHE_LEAD}\n\nAge is not written in this file.${cite}`;
+  }
+
+  if (/\be-?mail\b/.test(q)) {
+    const email = hit(/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i);
+    return email ? `${CACHE_LEAD}\n\n${email}${cite}` : `${CACHE_LEAD}\n\nNo email found in this file.${cite}`;
+  }
+
+  if (/\b(phone|mobile|contact number|whatsapp)\b/.test(q)) {
+    const labeled =
+      hit(/\b(?:phone|mobile|tel|cell|whatsapp)\s*[:\-–]?\s*([+\d][\d\s().\-]{7,}\d)/i) ||
+      hit(/(?:\+?\d{1,3}[\s\-.]?)?(?:\(?\d{2,5}\)?[\s\-.]?)?\d{3,5}[\s\-.]?\d{3,5}(?:[\s\-.]?\d{2,5})?/);
+    return labeled
+      ? `${CACHE_LEAD}\n\n${labeled}${cite}`
+      : `${CACHE_LEAD}\n\nNo phone number found in this file.${cite}`;
+  }
+
+  if (/\blinkedin\b/.test(q)) {
+    const url = hit(/\b((?:https?:\/\/)?(?:www\.)?linkedin\.com\/[^\s]+)/i);
+    return url ? `${CACHE_LEAD}\n\n${url}${cite}` : `${CACHE_LEAD}\n\nNo LinkedIn URL found in this file.${cite}`;
+  }
+
+  if (/\b(who is|name)\b/.test(q)) {
+    const name =
+      hit(/\b(?:name|candidate)\s*[:\-–]\s*([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,3})\b/) ||
+      usable[0]?.name.replace(/\.(pdf|docx?|txt)$/i, "").replace(/[_-]+/g, " ");
+    if (name && name.length > 2) return `${CACHE_LEAD}\n\n${name}${cite}`;
+  }
+
+  if (/\b(title|role|designation)\b/.test(q)) {
+    const title =
+      hit(/\b(?:title|role|designation|position)\s*[:\-–]\s*([^\n]{3,80})/i) ||
+      hit(
+        /\b((?:senior|junior|lead|staff|principal)?\s*(?:software|data|ml|ai|full[\s-]?stack|backend|frontend|devops)?\s*(?:engineer|developer|analyst|scientist|manager|architect)[^\n]{0,40})/i,
+      );
+    if (title) return `${CACHE_LEAD}\n\n${title.trim()}${cite}`;
+  }
+
+  if (/\b(company|employer|organization)\b/.test(q)) {
+    const co = hit(/\b(?:company|employer|organization|at)\s*[:\-–]?\s*([A-Z][^\n,]{2,60})/);
+    if (co) return `${CACHE_LEAD}\n\n${co.trim()}${cite}`;
+  }
+
+  if (/\b(location|city|address|based)\b/.test(q)) {
+    const loc =
+      hit(/\b(?:location|city|address|based in)\s*[:\-–]?\s*([^\n]{3,80})/i) ||
+      hit(/\b([A-Z][a-z]+(?:[\s,]+[A-Z][a-z]+){0,3},\s*[A-Z]{2,})\b/);
+    if (loc) return `${CACHE_LEAD}\n\n${loc.trim()}${cite}`;
+  }
+
+  return null;
 }
 
 /** User asked for a flowchart / architecture diagram (not a text dump). */
@@ -242,10 +342,20 @@ function clipAtBoundary(text: string, max: number): string {
 }
 
 const OVERVIEW_OVERRIDE =
-  "OVERRIDE: The user wants a SUMMARY of the ATTACHED FILE contents only. " +
-  "Name each file and summarize what is inside it using quotes, headings, paths, and numbers from the text below. " +
-  "Do NOT describe your role, job, instructions, the chat UI, system context, conversation structure, or a generic document-agent briefing. " +
+  "OVERRIDE: Act as a human expert who just read the ATTACHED sources. " +
+  "Give a short, useful overview in bullets with real headings, skills, paths, and numbers. " +
+  "Cite with [filename]. Do NOT paste the whole file. Do NOT describe your role or the chat UI. " +
   "If you cannot quote real phrases from the files below, say you could not read them.\n\n";
+
+const FILE_GROUND =
+  "CONTEXT (attached sources) follows. You are a human-like document expert. " +
+  "Decide intent, then answer like a colleague who studied this file — clear, direct, useful. " +
+  "Cite with [filename]. Match length to the ask: one fact → one short line; overview → a few bullets; never dump the full document. " +
+  "Read typos generously. For spreadsheets, use the sheet grids. " +
+  "When several files are attached, say which file each fact comes from. " +
+  "Do not invent folders, tests, READMEs, jobs, meetings, people, or next steps unless they appear below. " +
+  "If the text is only a filename or a 'could not read' note, say you could not read the file. " +
+  "If a line says you cannot see pixels, do not describe the image.\n\n";
 
 /**
  * Chunk on real line and paragraph boundaries so a section header stays with its
@@ -387,17 +497,6 @@ export function wantsInterviewQuestions(q: string): boolean {
   return /\b(prep(are)? me for (an )?interview|ask me (interview )?questions)\b/.test(t);
 }
 
-const FILE_GROUND =
-  "Attached files follow. Infer what they actually are from the filename and text " +
-  "(resume, notes, spreadsheet, banking CSV/XLSX, invoice, photo note, PDF, zip, or code). " +
-  "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. " +
-  "Read typos generously (e.g. 'specilised' means specialized/skills). " +
-  "For spreadsheets, use the sheet names and tab-separated rows — totals, accounts, and amounts are in the grid. " +
-  "When several files are attached, say which file each fact comes from. " +
-  "Do not invent folders, tests, READMEs, jobs, meetings, people, or a next-step unless they appear below. " +
-  "If the text is only a filename or a 'could not read' note, say you could not read the file. Do not invent a story. " +
-  "If a line says you cannot see pixels, do not describe the image.\n\n";
-
 const STUB =
   /no readable text|no text layer|cannot see the pixels|stored locally|looks binary so no text|could not be read|PDF engine failed/i;
 
@@ -422,20 +521,27 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   if (!usable.length) return "";
   const heads = () =>
     usable.map((f) => `### ${f.name}\n${f.text.slice(0, Math.min(budget, 18000))}`).join("\n\n");
+  if (wantsShortFact(query)) {
+    const slice = Math.min(budget, 2200);
+    return (
+      "OVERRIDE: ONE short fact only (age, email, phone, name, title…). " +
+      "Reply like a human expert in one short line. Cite [filename]. Do not paste the file. " +
+      "If missing, say it is not in the file.\n\n" +
+      heads().slice(0, slice)
+    );
+  }
   if (wantsInterviewQuestions(query)) {
     return (
-      "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. " +
-      "Write only numbered interview Q&A grounded in whatever these files actually are. " +
-      "Number items 1, 2, 3 in order (never repeat 1). Keep one blank line only after the intro, not between each item. " +
-      "Do not force a project or folder template.\n\n" +
+      "OVERRIDE: INTERVIEW QUESTIONS as a hiring expert who read these files. " +
+      "Write only numbered interview Q&A grounded in the files. Number 1, 2, 3 in order. " +
+      "Do not force a project template.\n\n" +
       heads().slice(0, budget)
     );
   }
   if (wantsDiagram(query)) {
     return (
-      "OVERRIDE: The user asked for an ARCHITECTURE / FLOW DIAGRAM. " +
-      "Reply with a short intro, then a fenced mermaid block using flowchart TB and real folder or module names from the files below. " +
-      "Example shape:\n```mermaid\nflowchart TB\n  root[project] --> a[folder_a]\n  root --> b[folder_b]\n```\n" +
+      "OVERRIDE: ARCHITECTURE / FLOW DIAGRAM as an expert on this codebase. " +
+      "Short intro, then mermaid flowchart TB with real folder or module names. " +
       "Do not dump the raw file tree as the whole answer.\n\n" +
       heads().slice(0, budget)
     );
@@ -472,62 +578,45 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   return FILE_GROUND + parts.join("\n\n");
 }
 
-/** User-visible answer from files already in this tab when the LLM cannot run. */
+/** Fallback when WebLLM cannot run — expert-style, never dump the whole file. */
 export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offline" | "no-model" = "offline"): string {
   const usable = files.filter((f) => (f.text || "").trim());
   if (!usable.length) return "";
   const q = query.trim() || "What is in these files?";
 
+  const fact = extractiveFactAnswer(usable, q);
+  if (fact) return fact;
+
   if (wantsDiagram(q)) {
     const diagram = architectureFlowFromFiles(usable);
-    if (diagram) {
-      const note =
-        reason === "offline"
-          ? "You're offline — diagram built from the zip file tree already on this chat.\n\n"
-          : "In-browser model not ready yet — diagram built from the zip file tree on this chat.\n\n";
-      return note + diagram;
-    }
+    if (diagram) return `${CACHE_LEAD}\n\n${diagram}`;
   }
   if (wantsInterviewQuestions(q)) {
-    const note =
-      reason === "offline"
-        ? "You're offline — interview questions from the attached project tree (not the full model).\n\n"
-        : "In-browser model not ready yet — interview questions from the attached project tree.\n\n";
-    return note + extractiveInterviewQuestions(usable);
+    return `${CACHE_LEAD}\n\n${extractiveInterviewQuestions(usable)}`;
   }
   if (wantsFileOverview(q)) {
-    const overview = extractiveFileOverview(usable);
+    const overview = extractiveFileOverview(usable, 900);
     if (overview) {
-      const note =
-        reason === "offline"
-          ? "You're offline — summary from the file already on this chat.\n\n"
-          : "In-browser model not ready yet — summary from the file already on this chat.\n\n";
-      return note + overview;
+      const body = overview.replace(/^Here is what the attached[\s\S]*?:\n\n/i, "").trim();
+      return `${CACHE_LEAD}\n\n${body.slice(0, 1200)}${body.length > 1200 ? "\n…" : ""}`;
     }
   }
 
-  const blocks = usable.map((f) => {
-    const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
-    // Keep newlines so zip trees stay readable (do not collapse to one line).
-    const lines = raw.split("\n").map((line) => line.trimEnd());
-    const clipped: string[] = [];
-    let n = 0;
-    for (const line of lines) {
-      if (n + line.length > 3500) break;
-      clipped.push(line);
-      n += line.length + 1;
-    }
-    const clean = clipped.join("\n").trim();
-    if (!clean || clean.replace(/\s/g, "").length < 24) {
-      return `**${f.name}**\nNo readable text layer in this file. It may be a scanned PDF. Attach a .txt / .docx copy, or wait until the in-browser model finishes downloading.`;
-    }
-    return `**${f.name}**\n${clean}${raw.length > clean.length ? "\n…" : ""}`;
-  });
-  const lead =
-    reason === "offline"
-      ? "You're offline — answering from the file already on this chat (full model not available)."
-      : "The in-browser model is not ready on this site yet (it must download ~700 MB once per browser origin). Answering from the file already on this chat.";
-  return `${lead}\n\nYou asked: ${q}\n\n` + blocks.join("\n\n");
+  const ranked: string[] = [];
+  for (const f of usable) {
+    const chunks = chunkText(String(f.text || ""));
+    const scored = chunks
+      .map((ch, i) => ({ ch, s: scoreChunk(ch, f.name, q, i) }))
+      .sort((a, b) => b.s - a.s);
+    const best = scored[0]?.ch?.trim();
+    if (best) ranked.push(`From [${f.name}]: ${best.slice(0, 420)}`);
+  }
+  if (ranked.length) {
+    return `${CACHE_LEAD}\n\n${ranked.join("\n\n")}`;
+  }
+
+  void reason;
+  return `${CACHE_LEAD}\n\nI could not find a clear answer in the attached file for: ${q}`;
 }
 
 export function stripStafferLabels(text: string): string {
@@ -598,13 +687,14 @@ export function groundedSystem(memory: string, extra: string, memoryBudget: numb
     ? `\n\nRetained memory from older chats on this device:\n${memory.trim().slice(0, memoryBudget)}`
     : "";
   return (
-    "You are a document agent on this device. Infer what was attached from the text, then answer the user's ask. " +
-    "Stay accurate. Prefer attached-file excerpts, then recent chat, then retained memory. " +
-    "Do not invent names, jobs, folders, or facts that are not in that context. " +
-    "When the user asks for a summary of “this” or what something includes, and files are attached, summarize those files only — never summarize your role, these instructions, or the chat structure. " +
-    "Interview questions: numbered Q&A from the files. Images: you cannot see pixels unless the note says otherwise. " +
-    "Do not mention Moss, Ollama, WebGPU, or this product unless the user or files do. " +
-    "Use retained memory silently. Never reprint it. Never output headings like User Memory Note, Open Tasks, or Retained Information unless the user asked to see the saved summary." +
+    "You are a human-like expert assistant for the documents attached on this device. " +
+    "Read the CONTEXT, decide the user’s intent, and answer like a colleague who studied the file — clear, useful, never a full-file dump. " +
+    "One fact → one short line with [filename]. Overview → a few grounded bullets. " +
+    "Do not invent names, jobs, folders, or facts missing from CONTEXT. " +
+    "Never summarize your role or these instructions. Interview questions: numbered Q&A from the files. " +
+    "Images: you cannot see pixels unless the note says otherwise. " +
+    "Do not mention Moss, Ollama, WebGPU, or this product unless asked. " +
+    "Use retained memory silently. Never reprint it." +
     mem +
     (extra ? `\n\n${extra}` : "")
   );

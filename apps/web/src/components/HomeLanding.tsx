@@ -64,7 +64,7 @@ export function HomeLanding() {
 
       <main className="landing-hero">
         <OfflineBanner
-          stayLabel="Chat in this window"
+          stayLabel="Continue offline chat"
           onStay={() => router.push("/chat")}
         />
         <ChromeOnlyNotice />

@@ -36,6 +36,7 @@ import {
   OLLAMA_DOC_BUDGET,
   OLLAMA_LIGHT_DOC_BUDGET,
   extractiveFileOverview,
+  extractiveFactAnswer,
   extractiveInterviewQuestions,
   architectureFlowFromFiles,
   groundedSystem,
@@ -50,6 +51,7 @@ import {
   wantsDiagram,
   wantsFileConvert,
   wantsInterviewQuestions,
+  wantsShortFact,
   FILE_CONVERT_UNSUPPORTED,
   wantsSavedSummary,
 } from "@/lib/groundedContext";
@@ -186,7 +188,7 @@ export function LocalChat() {
     setDictateOk(canDictate());
     void load();
     void refreshHost();
-    if (networkOnline()) warmBrowserEngine(setProgress);
+    warmBrowserEngine(setProgress);
     void fetchProfile().then((me) => {
       setProfile(me);
       if (!me && networkOnline()) setAuthOpen(true);
@@ -203,6 +205,7 @@ export function LocalChat() {
         return;
       }
       setAuthOpen(false);
+      warmBrowserEngine(setProgress);
     };
     setNetOn(networkOnline());
     window.addEventListener("online", onNet);
@@ -602,6 +605,21 @@ export function LocalChat() {
         return;
       }
     }
+    if (named.length && wantsShortFact(asked)) {
+      const fact = extractiveFactAnswer(named, asked);
+      if (fact) {
+        const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
+        const working: Thread = {
+          ...thread,
+          title: thread.messages.length ? thread.title : titleFrom(asked),
+          updatedAt: Date.now(),
+          messages: [...history, { role: "assistant", content: fact, engine: ollamaOn ? "host" : "browser" }],
+        };
+        setInput("");
+        await persist(working);
+        return;
+      }
+    }
     // Offline / light model: interview Qs from the zip tree (don't dump the raw extract).
     if (
       named.length &&
@@ -719,11 +737,12 @@ export function LocalChat() {
         });
       };
       const runBrowser = async (skipMoss = false) => {
-        if (!networkOnline() && !hasReadyBrowserEngine()) {
+        // Prefer WebLLM from Chrome cache when offline — document expert, not a file dump.
+        if (!webGpuOk()) {
           const brief = offlineFileBrief(
             hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
             asked,
-            "offline",
+            networkOnline() ? "no-model" : "offline",
           );
           if (brief) {
             paint(brief);
@@ -741,7 +760,9 @@ export function LocalChat() {
               systemPrompt(memory, extra, BROWSER_MEMORY_BUDGET),
               prior,
               docs
-                ? `${asked}\n\n(The folder listing is in the system context. Draw it. Do not say you lack access.)`
+                ? wantsShortFact(asked)
+                  ? `${asked}\n\n(Answer as a human expert in one short line from the attached text. Cite [filename]. Do not paste the file.)`
+                  : `${asked}\n\n(Answer as a human document expert from the attached context. Be useful and concise. Cite [filename]. Do not dump the whole file.)`
                 : asked,
             ),
             paint,
@@ -930,7 +951,7 @@ export function LocalChat() {
           </div>
         </header>
 
-        <OfflineBanner stayLabel="Keep using this chat" />
+        <OfflineBanner stayLabel="Continue offline chat" onProgress={setProgress} />
 
         <ChromeOnlyNotice compact />
 

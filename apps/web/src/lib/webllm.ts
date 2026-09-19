@@ -44,7 +44,6 @@ async function completeOnce(
   const stream = await engine.chat.completions.create({
     messages: messages as { role: "system" | "user" | "assistant"; content: string }[],
     stream: true,
-    // 1B models need room for a short structured answer from a resume / sheet.
     max_tokens: 640,
   });
   for await (const chunk of stream) {
@@ -59,17 +58,17 @@ function engineError(err: unknown): Error {
   const hint = m.replace(/\s+/g, " ").trim().slice(0, 220);
   if (/loading chunk|chunkloaderror|failed to fetch dynamically imported/i.test(m)) {
     return new Error(
-      "A chat script is not saved on this device yet. Stay online, reload this page once, then you can use it with Wi-Fi off.",
+      "A chat script is not saved on this device yet. Stay online, reload this page once, then continue offline chat.",
     );
   }
   if (/failed to fetch|network|load failed|offline|internet|err_connection|cors/i.test(m)) {
     if (!networkOnline()) {
       return new Error(
-        "The in-browser model is only partly saved (about 700 MB when done). Turn Wi-Fi on and keep this chat open. Attached files still work as excerpts. Or start Ollama on this computer.",
+        "Based on previous cached data on this device — the in-browser expert model is not fully saved yet. Stay online in Chrome until the model finishes caching (~700 MB), then Continue offline chat will use WebLLM.",
       );
     }
     return new Error(
-      "Could not finish downloading the in-browser model from Hugging Face (weights, ~700 MB). This site does not ship the model in the zip. Allow huggingface.co in the browser, keep this tab open until the progress line finishes, or start Ollama on this computer." +
+      "Could not finish downloading the in-browser model from Hugging Face (~700 MB). Keep this tab open until progress finishes, or start Ollama on this computer." +
         (hint ? ` (${hint})` : ""),
     );
   }
@@ -98,10 +97,15 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
   return enginePromise;
 }
 
-/** Start the Hugging Face model download while the tab is online (do not wait for the first send). */
+/** Warm WebLLM from Cache Storage — online downloads; offline loads prior Chrome cache. */
 export function warmBrowserEngine(onProgress: (s: string) => void): void {
-  if (!webGpuOk() || !networkOnline()) return;
-  void ensureBrowserEngine(onProgress).then(() => onProgress("")).catch(() => undefined);
+  if (!webGpuOk()) return;
+  void ensureBrowserEngine((s) => {
+    if (!networkOnline() && s) onProgress("Loading cached expert model…");
+    else onProgress(s);
+  })
+    .then(() => onProgress(""))
+    .catch(() => undefined);
 }
 
 export async function streamBrowserChat(
@@ -111,8 +115,9 @@ export async function streamBrowserChat(
   signal?: AbortSignal,
 ): Promise<void> {
   if (signal?.aborted) throw new DOMException("Stopped", "AbortError");
-  if (!networkOnline() && !engineReady) {
-    throw engineError(new Error("offline"));
+  // Offline: still try Cache Storage — do not refuse before ensureBrowserEngine.
+  if (!networkOnline()) {
+    onProgress(engineReady ? "" : "Loading cached expert model…");
   }
   const engine = await ensureBrowserEngine(onProgress);
   onProgress("");

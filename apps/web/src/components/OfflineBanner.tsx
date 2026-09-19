@@ -4,25 +4,29 @@ import { Download, MessageSquare, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { downloadOnThisDevice, prefetchLocalPack } from "@/lib/openOnDevice";
 import { networkOnline } from "@/lib/net";
+import { warmBrowserEngine, webGpuOk } from "@/lib/webllm";
 
 /**
- * YouTube-style offline chooser: keep chatting in this tab, or download the zip
- * for full offline on a computer. Not removed — still wired from LocalChat + landing.
+ * YouTube-style offline chooser. “Continue offline chat” loads cached WebLLM
+ * and keeps the document-expert assistant running in this tab.
  */
 export function OfflineBanner({
   extra,
-  stayLabel = "Keep using Surf",
+  stayLabel = "Continue offline chat",
   onStay,
+  onProgress,
 }: {
   extra?: string;
   stayLabel?: string;
   onStay?: () => void;
+  onProgress?: (s: string) => void;
 }) {
   const [online, setOnline] = useState(true);
   const [saved, setSaved] = useState(false);
   const [staying, setStaying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [loadingModel, setLoadingModel] = useState(false);
 
   useEffect(() => {
     void prefetchLocalPack();
@@ -32,6 +36,7 @@ export function OfflineBanner({
       if (up) {
         setStaying(false);
         setNote("");
+        setLoadingModel(false);
       }
     };
     const sw = () => setSaved(!!navigator.serviceWorker?.controller);
@@ -59,7 +64,7 @@ export function OfflineBanner({
       setNote(
         err instanceof Error
           ? err.message
-          : "Could not download. This tab still has Surf — keep chatting here.",
+          : "Could not download. This tab still has Surf — continue offline chat here.",
       );
     } finally {
       setBusy(false);
@@ -69,6 +74,20 @@ export function OfflineBanner({
   function chooseStay() {
     setStaying(true);
     onStay?.();
+    if (webGpuOk()) {
+      setLoadingModel(true);
+      setNote("Loading your cached expert model for offline chat…");
+      warmBrowserEngine((s) => {
+        onProgress?.(s);
+        if (s) setNote(s);
+        else {
+          setLoadingModel(false);
+          setNote("Offline expert ready — ask about files already on this chat.");
+        }
+      });
+    } else {
+      setNote("Open this in Google Chrome only for the in-browser expert model.");
+    }
   }
 
   if (staying) {
@@ -76,10 +95,12 @@ export function OfflineBanner({
       <div className="memory-banner offline-card offline-card-sticky" role="status">
         <WifiOff size={14} aria-hidden />
         <div>
-          <strong>Offline — still in this chat.</strong>{" "}
-          {saved
-            ? "This site is saved on this device (like YouTube downloads). Attached files still work here."
-            : "You can keep asking about files already on this chat. For full offline AI, download the zip."}
+          <strong>Offline chat on.</strong>{" "}
+          {loadingModel
+            ? "Loading WebLLM from this device’s cache…"
+            : saved
+              ? "Your document expert is running in this tab from cached data (like a saved YouTube video)."
+              : "Ask about files already on this chat. For fuller offline AI, download the zip."}
           {extra ? ` ${extra}` : ""}
           <div className="offline-actions">
             <button type="button" className="ghost" disabled={busy} onClick={() => void saveZip()}>
@@ -100,9 +121,9 @@ export function OfflineBanner({
         </div>
         <h2 id="offline-title">You are offline</h2>
         <p className="muted">
-          {saved
-            ? "Surf is still available on this device — same idea as watching a saved YouTube video. Keep chatting here, or save the zip for fuller offline use on a computer."
-            : "This tab still has Surf. Keep chatting with files already on this chat, or download a copy to run on your computer without Wi‑Fi."}
+          Continue offline chat to keep your <strong>document expert</strong> running in this tab with
+          WebLLM (uses the model already cached in Chrome). Or download the zip for fuller offline use
+          on a computer.
           {extra ? ` ${extra}` : ""}
         </p>
         <div className="offline-actions offline-actions-stack">

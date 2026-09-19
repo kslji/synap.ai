@@ -12,13 +12,13 @@ import {
   newThread,
   originStorage,
   packThreads,
-  reassignAttachments,
   saveAttachment,
   saveMemory,
   saveThread,
   snapshotStats,
   titleFrom,
   wipeBrowserStore,
+  clearAllAttachments,
   replaceThreads,
   type ChatMsg,
   type DataSnapshot,
@@ -49,7 +49,7 @@ import {
 } from "@/lib/groundedContext";
 import { canUseFilePicker, filesFromDataTransfer, pickFilesOrFolder } from "@/lib/deviceFolder";
 import { downloadOnThisDevice } from "@/lib/openOnDevice";
-import { fetchHostStorage, getToken, health, indexMoss, parseApiError, searchMoss, streamChat, createLocalInstance, type Health } from "@/lib/api";
+import { fetchHostStorage, getToken, health, indexMoss, parseApiError, searchMoss, streamChat, eraseHostData, createLocalInstance, type Health } from "@/lib/api";
 import { fetchProfile, clearAccount, type UserProfile } from "@/lib/account";
 import { isAbortError, looksLikeNetworkFailure, networkOnline } from "@/lib/net";
 import { AuthDialog } from "./AuthDialog";
@@ -136,6 +136,7 @@ export function LocalChat() {
   const imageRef = useRef<HTMLInputElement>(null);
   const stopMic = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const genIdRef = useRef(0);
 
   const load = useCallback(async (preferId?: string) => {
     const [all, mem, quota, host, stored] = await Promise.all([
@@ -324,9 +325,45 @@ export function LocalChat() {
     setFiles(await listAttachments());
   }
 
+  function toggleMic() {
+    if (listening) {
+      stopMic.current?.();
+      stopMic.current = null;
+      setListening(false);
+      return;
+    }
+    if (!dictateOk) return;
+    setListening(true);
+    stopMic.current = startDictation({
+      onInterim: () => undefined,
+      onFinal: (t) => setInput((prev) => `${prev}${prev ? " " : ""}${t}`.trim()),
+      onError: () => setListening(false),
+    });
+  }
+
+  function stopReply() {
+    abortRef.current?.abort();
+    genIdRef.current += 1;
+    setBusy(false);
+    setProgress("");
+    setActive((cur) => {
+      if (!cur) return cur;
+      const last = cur.messages[cur.messages.length - 1];
+      if (!last || last.role !== "assistant") return cur;
+      const msgs = cur.messages.map((m, i, arr) =>
+        i === arr.length - 1 && m.role === "assistant"
+          ? { ...m, content: m.content.trim() || "(stopped)" }
+          : m,
+      );
+      const done = { ...cur, messages: msgs, updatedAt: Date.now() };
+      void persist(done);
+      return done;
+    });
+  }
+
   async function compact() {
     if (!(await needProfile())) return;
-    if (busy) return;
+    if (busy) stopReply();
     const packed = packThreads(threads);
     if (!packed && !memory?.summary) {
       setProgress("Nothing to summarize yet.");
@@ -337,6 +374,8 @@ export function LocalChat() {
       return;
     }
     const before = snapshotStats(threads, memory, files);
+    const summarizeAbort = new AbortController();
+    abortRef.current = summarizeAbort;
     setBusy(true);
     setProgress("Summarizing chats on this device…");
     try {
@@ -368,13 +407,16 @@ export function LocalChat() {
               "Write a short plain paragraph (max 120 words) of facts from these chats. No headings. Do not use User Memory Note, Open Tasks, or Retained Information. Reply with the paragraph only.\n\n" +
               (memory?.summary ? `Existing retained memory:\n${memory.summary}\n\n` : "") +
               (packed ? `Chats to fold in:\n${packed}` : ""),
+            signal: summarizeAbort.signal,
             onMeta: (m) => setTurnMeta(m),
             onDelta: (t) => {
+              if (summarizeAbort.signal.aborted) return;
               summary += t;
             },
           });
           void conversation_id;
         } catch (err) {
+          if (isAbortError(err)) throw err;
           if (!looksLikeNetworkFailure(err)) throw err;
           setProgress("Local host unreachable. Summarizing in this browser…");
           summary = await browserSummary();
@@ -382,6 +424,7 @@ export function LocalChat() {
       } else {
         summary = await browserSummary();
       }
+      if (summarizeAbort.signal.aborted) throw new DOMException("Stopped", "AbortError");
       if (!summary) throw new Error("The model returned an empty summary.");
       const note = summary
         .replace(/^#+\s*Compressed Chat History\s*/i, "")
@@ -393,24 +436,29 @@ export function LocalChat() {
       const fresh = newThread();
       fresh.title = "Memory kept";
       await replaceThreads([fresh]);
-      await reassignAttachments(
-        threads.map((t) => t.id),
-        fresh.id,
-      );
+      // Drop file chips so old attachments do not come back into the next chat.
+      await clearAllAttachments();
       setMemory(saved);
       setThreads([fresh]);
       setActive(fresh);
-      const kept = (await listAttachments()).map((a) => ({ ...a, threadId: fresh.id }));
-      setFiles(kept);
-      const after = snapshotStats([fresh], saved, kept);
+      setFiles([]);
+      const after = snapshotStats([fresh], saved, []);
       setLast({ kind: "summarize", before, after });
       setOrigin(await originStorage());
       setProgress(
-        `Kept a ${after.memoryChars}-character summary. Chat text went from ${before.messages} messages (${before.chatBytes} B) to memory only (${after.memoryBytes} B).`,
+        `Kept a ${after.memoryChars}-character summary. Chat text and files were cleared from this browser.`,
       );
+      // Drop host conversation history so Ollama does not replay old turns.
+      if (getToken()) await eraseHostData();
+      void health().then((h) => setStatus(h)).catch(() => undefined);
     } catch (err) {
+      if (isAbortError(err)) {
+        setProgress("Summarize stopped.");
+        return;
+      }
       setProgress(err instanceof Error ? err.message : "Could not summarize.");
     } finally {
+      if (abortRef.current === summarizeAbort) abortRef.current = null;
       setBusy(false);
       setWipeArmed(false);
     }
@@ -418,15 +466,17 @@ export function LocalChat() {
 
   async function wipe() {
     if (!(await needProfile())) return;
-    if (busy) return;
+    if (busy) stopReply();
     if (!wipeArmed) {
       setWipeArmed(true);
+      setProgress("Click Delete again to erase chats, files, and memory in this browser.");
       return;
     }
     setBusy(true);
     const before = snapshotStats(threads, memory, files);
     try {
       await wipeBrowserStore();
+      if (getToken()) await eraseHostData();
       const after: DataSnapshot = {
         chats: 0,
         messages: 0,
@@ -440,37 +490,20 @@ export function LocalChat() {
       setActive(null);
       setMemory(null);
       setFiles([]);
+      setTurnMeta(null);
       setWipeArmed(false);
       setLast({ kind: "erase", before, after });
       setOrigin(await originStorage());
       setProgress(
-        `Erased ${before.messages} messages and ${before.memoryChars} characters of memory from this browser.`,
+        `Erased ${before.messages} messages, files, and memory from this browser` +
+          (getToken() ? " (and cleared Moss / host chat history)." : "."),
       );
+      void health().then((h) => setStatus(h)).catch(() => undefined);
     } catch (err) {
       setProgress(err instanceof Error ? err.message : "Could not delete local data.");
     } finally {
       setBusy(false);
     }
-  }
-
-  function toggleMic() {
-    if (listening) {
-      stopMic.current?.();
-      stopMic.current = null;
-      setListening(false);
-      return;
-    }
-    if (!dictateOk) return;
-    setListening(true);
-    stopMic.current = startDictation({
-      onInterim: () => undefined,
-      onFinal: (t) => setInput((prev) => `${prev}${prev ? " " : ""}${t}`.trim()),
-      onError: () => setListening(false),
-    });
-  }
-
-  function stopReply() {
-    abortRef.current?.abort();
   }
 
   async function send(preset?: string, fromThread?: Thread) {
@@ -586,6 +619,8 @@ export function LocalChat() {
     await persist(working);
     abortRef.current?.abort();
     abortRef.current = new AbortController();
+    const myGen = ++genIdRef.current;
+    const stillThisGen = () => myGen === genIdRef.current && !abortRef.current?.signal.aborted;
     setBusy(true);
     let startedAt = performance.now();
     setProgress(
@@ -603,12 +638,14 @@ export function LocalChat() {
       }
       startedAt = performance.now();
       const paint = (t: string) => {
+        if (!stillThisGen()) return;
         setActive((cur) => {
           if (!cur || cur.id !== working.id) return cur;
           return { ...cur, messages: appendAssistant(cur.messages, t) };
         });
       };
       const finish = (extra: Pick<ChatMsg, "waitMs" | "backendMs" | "engine">, conversation_id?: string) => {
+        if (!stillThisGen()) return;
         setActive((cur) => {
           if (!cur || cur.id !== working.id) return cur;
           const last = cur.messages[cur.messages.length - 1];
@@ -746,9 +783,11 @@ export function LocalChat() {
       };
       await persist(failed);
     } finally {
-      abortRef.current = null;
-      setBusy(false);
-      setProgress("");
+      if (myGen === genIdRef.current) {
+        abortRef.current = null;
+        setBusy(false);
+        setProgress("");
+      }
     }
   }
 

@@ -153,7 +153,7 @@ def prune() -> None:
         for cid in extra:
             conn.execute("DELETE FROM messages WHERE conversation_id = ?", (cid,))
             conn.execute("DELETE FROM conversations WHERE id = ?", (cid,))
-        for cid in ids[: settings.max_conversations]:
+        for cid in ids[: settings.max_conversations ]:
             mids = [
                 r["id"]
                 for r in conn.execute(
@@ -179,6 +179,18 @@ def prune() -> None:
     traces = sorted(traces_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     for path in traces[settings.max_trace_files :]:
         path.unlink(missing_ok=True)
+
+
+def clear_chat_data() -> dict:
+    """Erase host-side conversations/messages (keeps accounts). Used by Delete data."""
+    if current_dir() is None:
+        return {"conversations": 0, "messages": 0}
+    with _connect() as conn:
+        n_msg = conn.execute("SELECT COUNT(*) AS c FROM messages").fetchone()["c"]
+        n_convo = conn.execute("SELECT COUNT(*) AS c FROM conversations").fetchone()["c"]
+        conn.execute("DELETE FROM messages")
+        conn.execute("DELETE FROM conversations")
+    return {"conversations": int(n_convo), "messages": int(n_msg)}
 
 
 def write_trace(payload: dict) -> Path:

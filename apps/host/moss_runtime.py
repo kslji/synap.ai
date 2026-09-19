@@ -189,5 +189,21 @@ class MossRuntime:
             "docs": docs,
         }
 
+    def clear(self) -> dict:
+        """Drop the on-device Moss/keyword index (user asked to erase data)."""
+        self._docs = []
+        self._persist()
+        root = current_dir()
+        if root is not None:
+            cache = root / "moss_session"
+            if cache.exists():
+                try:
+                    import shutil
+
+                    shutil.rmtree(cache, ignore_errors=True)
+                except OSError:
+                    pass
+        return {"ok": True, "docs": 0, "backend": self.backend}
+
 
 runtime = MossRuntime()

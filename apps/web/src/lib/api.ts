@@ -231,6 +231,10 @@ export async function streamChat(body: {
   let buf = "";
   let conversation_id = body.conversation_id || "";
   let latency_ms: number | undefined;
+  const onAbort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  body.signal?.addEventListener("abort", onAbort);
   try {
     while (true) {
       if (body.signal?.aborted) throw new DOMException("Stopped", "AbortError");
@@ -240,6 +244,7 @@ export async function streamChat(body: {
       const parts = buf.split("\n\n");
       buf = parts.pop() || "";
       for (const part of parts) {
+        if (body.signal?.aborted) throw new DOMException("Stopped", "AbortError");
         const line = part.split("\n").find((l) => l.startsWith("data: "));
         if (!line) continue;
         const payload = JSON.parse(line.slice(6));
@@ -256,6 +261,7 @@ export async function streamChat(body: {
       }
     }
   } finally {
+    body.signal?.removeEventListener("abort", onAbort);
     try {
       await reader.cancel();
     } catch {
@@ -263,4 +269,13 @@ export async function streamChat(body: {
     }
   }
   return { conversation_id, latency_ms };
+}
+
+/** Wipe host chat history + Moss index (pairs with browser Delete data). */
+export async function eraseHostData(): Promise<void> {
+  try {
+    await api("/v1/storage/erase", { method: "POST" });
+  } catch {
+    /* host may be down — browser wipe still proceeds */
+  }
 }

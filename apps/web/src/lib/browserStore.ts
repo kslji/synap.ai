@@ -148,6 +148,10 @@ export async function wipeBrowserStore(): Promise<void> {
   await dropDb("local-ai-cache");
 }
 
+export async function clearAllAttachments(): Promise<void> {
+  await set(ATTACHMENTS, []);
+}
+
 function dropDb(name: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.deleteDatabase(name);

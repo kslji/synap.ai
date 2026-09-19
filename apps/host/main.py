@@ -35,6 +35,7 @@ from ollama_client import (
 from rate_limit import rate_limit
 from store import (
     add_message,
+    clear_chat_data,
     counts,
     create_conversation,
     get_messages,
@@ -507,6 +508,15 @@ def storage_prune(_: dict = Depends(require_user)):
     prune()
     audit.append("storage.prune")
     return {"ok": True}
+
+
+@app.post("/v1/storage/erase")
+def storage_erase(_: dict = Depends(require_user)):
+    """Clear host chat history + Moss index when the user deletes browser data."""
+    cleared = clear_chat_data()
+    moss.clear()
+    audit.append("storage.erase", cleared)
+    return {"ok": True, **cleared, "moss_docs": moss.docs}
 
 
 @app.post("/v1/convert/pdf")

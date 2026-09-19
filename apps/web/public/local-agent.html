@@ -901,30 +901,9 @@
     async function paintFeedback() {
       const box = document.getElementById("fb-inbox");
       if (!box) return;
-      const note = "Human feedback will be received on our backend and we will check what the problem is and fix that as soon as possible.";
-      const render = (items) => {
-        box.innerHTML =
-          `<div class="tiny muted">Human feedback</div><p class="tiny muted" style="margin:6px 0 0">${note}</p>` +
-          (items.length
-            ? `<ul class="fb-list">${items.map((it) => `<li><span class="${it.rating === "up" ? "ok" : "warn"}">${it.rating}</span> · ${escapeText(it.title)}</li>`).join("")}</ul>`
-            : "");
-      };
-      if (isStandalone()) {
-        render(fbInbox.slice(0, 12));
-        return;
-      }
-      if (!netOnline()) {
-        render([]);
-        return;
-      }
-      try {
-        const r = await authFetch("/v1/feedback?limit=12", { method: "GET" });
-        if (!r.ok) throw new Error("feedback");
-        const j = await r.json();
-        render(j.items || []);
-      } catch {
-        render([]);
-      }
+      const note = "Feedback goes to our backend so we can fix issues quickly.";
+      box.innerHTML =
+        `<div class="tiny muted">Human feedback</div><p class="tiny muted" style="margin:6px 0 0">${note}</p>`;
     }
     function feedbackUi() {
       const root = document.createElement("div");

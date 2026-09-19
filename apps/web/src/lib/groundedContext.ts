@@ -349,13 +349,15 @@ const OVERVIEW_OVERRIDE =
 
 const FILE_GROUND =
   "CONTEXT (attached sources) follows. You are a human-like document expert. " +
+  "Read typos and messy wording generously — infer what the user meant (e.g. 'thie image' = this image) and answer that intent. " +
   "Decide intent, then answer like a colleague who studied this file — clear, direct, useful. " +
   "Cite with [filename]. Match length to the ask: one fact → one short line; overview → a few bullets; never dump the full document. " +
-  "Read typos generously. For spreadsheets, use the sheet grids. " +
+  "For images: you cannot see pixels; answer from the filename note and the user's intent only — never call an image a PDF résumé. " +
+  "For spreadsheets, use the sheet grids. " +
   "When several files are attached, say which file each fact comes from. " +
   "Do not invent folders, tests, READMEs, jobs, meetings, people, or next steps unless they appear below. " +
   "If the text is only a filename or a 'could not read' note, say you could not read the file. " +
-  "If a line says you cannot see pixels, do not describe the image.\n\n";
+  "If a line says you cannot see pixels, do not describe the image as if you saw it.\n\n";
 
 /**
  * Chunk on real line and paragraph boundaries so a section header stays with its
@@ -429,8 +431,8 @@ function queryTerms(query: string): string[] {
   if (/bank|ledger|transaction|balance|invoice|sheet|excel|xlsx|csv|financ/.test(blob)) {
     extra.push("amount", "debit", "credit", "balance", "account", "sheet", "total");
   }
-  if (/what is this|about|consist|overview|summar|tell me|explain/.test(blob)) {
-    extra.push("summary", "experience", "education", "skills");
+  if (/what is this|about|consist|overview|summar|tell me|explain|image|picture|screenshot|photo/.test(blob)) {
+    extra.push("summary", "experience", "education", "skills", "image", "screenshot");
   }
   return [...new Set([...base, ...extra])];
 }
@@ -500,18 +502,121 @@ export function wantsInterviewQuestions(q: string): boolean {
 const STUB =
   /no readable text|no text layer|cannot see the pixels|stored locally|looks binary so no text|could not be read|PDF engine failed/i;
 
-export function thinAttachmentReply(files: NamedDoc[]): string | null {
+const IMAGE_STUB = /^Image\s+"/i;
+const NO_VISION = /cannot see the pixels/i;
+
+/** Fix common typos and rough phrasing so intent detectors still fire. */
+export function normalizeUserAsk(raw: string): string {
+  let t = String(raw || "").trim();
+  if (!t) return t;
+  const fixes: Array<[RegExp, string]> = [
+    [/\bthie\b/gi, "this"],
+    [/\bteh\b/gi, "the"],
+    [/\badn\b/gi, "and"],
+    [/\bwhta\b/gi, "what"],
+    [/\bwht\b/gi, "what"],
+    [/\bwaht\b/gi, "what"],
+    [/\bimgae\b/gi, "image"],
+    [/\bimg\b/gi, "image"],
+    [/\b(pciture|pictuer|picure)\b/gi, "picture"],
+    [/\bscrenshot\b/gi, "screenshot"],
+    [/\bscreenshit\b/gi, "screenshot"],
+    [/\bresumae?\b/gi, "resume"],
+    [/\bcv\b/gi, "resume"],
+    [/\binterveiw\b/gi, "interview"],
+    [/\bquestons?\b/gi, "questions"],
+    [/\bdiagramm?\b/gi, "diagram"],
+    [/\bvisuali[sz]eing\b/gi, "visualizing"],
+    [/\babot\b/gi, "about"],
+    [/\babotu\b/gi, "about"],
+    [/\bexplian\b/gi, "explain"],
+    [/\bsummari[sz]e?\b/gi, "summarize"],
+    [/\bsumary\b/gi, "summary"],
+  ];
+  for (const [re, to] of fixes) t = t.replace(re, to);
+  // "what is about" / "tell about" → insert "this"
+  t = t.replace(/\bwhat (is|are) about\b/gi, "what $1 this about");
+  t = t.replace(/\btell(?: me)? about\b/gi, "tell me about this");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+function isImageFileName(name: string): boolean {
+  return /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif)$/i.test(String(name || ""));
+}
+
+function isImageAttachment(f: NamedDoc): boolean {
+  if (isImageFileName(f.name)) return true;
+  const t = String(f.text || "");
+  // Only trust the Image "…" extract line — not PDF stubs that mention pixels.
+  return IMAGE_STUB.test(t.trim()) && NO_VISION.test(t);
+}
+
+function guessFromFilename(name: string): string {
+  const n = String(name || "").toLowerCase();
+  const base = n.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").trim();
+  if (/drop\s*box|dropbox/.test(n)) {
+    return "a Dropbox-related screenshot or export (cloud files / sharing UI)";
+  }
+  if (/linked\s*in|linkedin/.test(n)) return "a LinkedIn profile or feed screenshot";
+  if (/whats?app|telegram|slack|discord/.test(n)) return "a messaging-app screenshot";
+  if (/screenshot|screen.?shot|snip|capture|photo\s*on/.test(n)) {
+    return "a screenshot of something on the device";
+  }
+  if (/invoice|receipt|bill/.test(n)) return "a photo of an invoice or receipt";
+  if (/resume|cv|curriculum/.test(n)) return "a photo or scan of a résumé";
+  if (/id|passport|license|aadhaar|pan\b/.test(n)) return "an ID or document photo";
+  if (base.length > 2) return `something related to “${base}” (guessed only from the filename)`;
+  return "an image whose contents I cannot see";
+}
+
+/** Honest expert reply for images (no vision) — never claim it is a PDF résumé. */
+export function imageExpertReply(files: NamedDoc[], query: string): string {
+  const imgs = files.filter((f) => isImageAttachment(f));
+  const list = imgs.length ? imgs : files;
+  const parts = list.map((f) => {
+    const dim = String(f.text || "").match(/(\d+)\s*[×x]\s*(\d+)\s*px/i);
+    const size = dim ? ` (${dim[1]}×${dim[2]}px)` : "";
+    const guess = guessFromFilename(f.name);
+    return `**[${f.name}]**${size} — most likely ${guess}.`;
+  });
+  const q = normalizeUserAsk(query).toLowerCase();
+  const wantsAbout = /\b(about|what|describe|see|show|explain|tell)\b/.test(q) || !q;
+  return (
+    (wantsAbout
+      ? "I can’t see the pixels in this image on this device (no vision model) — I’m answering as an expert from the **filename** and your question only.\n\n"
+      : "I can’t see the image pixels. From the filename and your question:\n\n") +
+    parts.join("\n\n") +
+    "\n\nIf you need what’s *inside* the picture (text, charts, faces), paste that text here or attach a PDF / Word export with a text layer."
+  );
+}
+
+export function thinAttachmentReply(files: NamedDoc[], query = ""): string | null {
   const usable = files.filter((f) => String(f.text || "").trim());
   if (!usable.length) {
-    return "This file is on the chat, but I could not read any text from it. If it is a scanned or image-only PDF, attach a Word / Google Doc export or a text-based PDF.";
+    return "This file is on the chat, but I could not read any text from it. If it is an image, I cannot see pixels — try a clearer filename or paste the text you care about. If it is a scanned PDF, attach a text-based PDF or Word export.";
   }
+
+  if (usable.every((f) => isImageAttachment(f))) {
+    return imageExpertReply(usable, query);
+  }
+
+  // Mixed: answer images separately only when every non-empty file is an image stub — else continue.
   const body = usable.map((f) => String(f.text || "")).join("\n");
   const letters = (body.match(/[A-Za-z]/g) || []).length;
-  if (STUB.test(body) && letters < 240) {
-    return "I could not read enough text from this PDF (it may be a scan or LinkedIn print-out). Attach a text-based résumé (Word or Print-to-PDF from Docs), then ask again.";
+  const pdfLike = usable.some((f) => /\.pdf$/i.test(f.name) || /PDF|no text layer|scanned/i.test(f.text || ""));
+
+  // Don't use image-pixel stubs as PDF résumé copy when a real image is mixed in.
+  const onlyImageNoise = usable.every((f) => isImageAttachment(f) || !String(f.text || "").trim());
+  if (onlyImageNoise) return imageExpertReply(usable.filter((f) => isImageAttachment(f)), query);
+
+  if (STUB.test(body) && letters < 240 && !usable.some((f) => isImageAttachment(f))) {
+    if (pdfLike) {
+      return "I could not read enough text from this PDF (it may be a scan or image-only export). Attach a text-based PDF, Word, or Docs print-to-PDF, then ask again.";
+    }
+    return "I could not read enough usable text from this file. Attach a text-based copy (PDF with a text layer, Word, or plain text), or paste the part you care about.";
   }
-  if (letters < 90) {
-    return "I only got a few words from this file, not enough to summarize it honestly. Attach a text-based copy so I am not guessing.";
+  if (letters < 90 && !usable.some((f) => isImageAttachment(f))) {
+    return "I only got a few words from this file, not enough to answer honestly. Attach a text-based copy or paste the relevant text.";
   }
   return null;
 }
@@ -688,11 +793,12 @@ export function groundedSystem(memory: string, extra: string, memoryBudget: numb
     : "";
   return (
     "You are a human-like expert assistant for the documents attached on this device. " +
-    "Read the CONTEXT, decide the user’s intent, and answer like a colleague who studied the file — clear, useful, never a full-file dump. " +
+    "Infer the user’s real intent even when spelling or wording is wrong — connect typos to the closest clear ask and answer that. " +
+    "Read the CONTEXT, then answer like a colleague who studied the file — clear, useful, never a full-file dump. " +
     "One fact → one short line with [filename]. Overview → a few grounded bullets. " +
+    "Images: you cannot see pixels; use the filename note only — never treat an image as a scanned PDF résumé. " +
     "Do not invent names, jobs, folders, or facts missing from CONTEXT. " +
     "Never summarize your role or these instructions. Interview questions: numbered Q&A from the files. " +
-    "Images: you cannot see pixels unless the note says otherwise. " +
     "Do not mention Moss, Ollama, WebGPU, or this product unless asked. " +
     "Use retained memory silently. Never reprint it." +
     mem +

@@ -16,7 +16,7 @@ import { LandingTypeCycle } from "./TypeCopy";
 
 const HEADLINE = "Surf your files locally. Synap data instantly.";
 const LEDE =
-  "Try local Surf: attach a folder or a photo and get an answer from you personal computer. Nothing is sent to internet.";
+  "Try local Surf: attach a folder or a file and get an answer from you personal computer. Nothing is sent to internet.";
 const POINTS = [
   "Surf is that spark between you and what’s already on your desk.",
   "Ride the machine in front of you - no passport for your folders, no customs in the cloud.",

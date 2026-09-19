@@ -15,6 +15,7 @@ type FsEntry = {
 
 const SKIP_DIR = /^(node_modules|\.git|\.ssh|\.gnupg|Library|AppData|__pycache__|\.venv)$/i;
 const SKIP_FILE = /(\.pem|\.key|\.p12|\.env|id_rsa|credentials|secret)/i;
+const SKIP_IMAGE = /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif|tiff?|ico)$/i;
 
 export function canPickFolder(): boolean {
   return typeof window !== "undefined" && "showDirectoryPicker" in window;
@@ -99,6 +100,7 @@ async function walk(dir: AnyHandle, prefix: string, out: File[], depth: number):
       continue;
     }
     if (SKIP_FILE.test(name)) continue;
+    if (SKIP_IMAGE.test(name)) continue;
     if (!handle.getFile) continue;
     const file = await handle.getFile();
     if (file.size > 8 * 1024 * 1024) continue;
@@ -113,7 +115,7 @@ function walkEntry(entry: FsEntry, prefix: string, out: File[], depth: number): 
       return;
     }
     if (entry.isFile && entry.file) {
-      if (SKIP_FILE.test(entry.name)) {
+      if (SKIP_FILE.test(entry.name) || SKIP_IMAGE.test(entry.name)) {
         resolve();
         return;
       }

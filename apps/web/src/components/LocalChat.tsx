@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, Mic, MicOff, Paperclip, Pencil, Plus, Send, Square, Trash2 } from "lucide-react";
+import { Mic, MicOff, Paperclip, Pencil, Plus, Send, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -52,6 +52,7 @@ import {
   wantsFileConvert,
   wantsInterviewQuestions,
   wantsShortFact,
+  normalizeUserAsk,
   FILE_CONVERT_UNSUPPORTED,
   wantsSavedSummary,
 } from "@/lib/groundedContext";
@@ -141,7 +142,6 @@ export function LocalChat() {
   } | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const imageRef = useRef<HTMLInputElement>(null);
   const stopMic = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const genIdRef = useRef(0);
@@ -248,16 +248,28 @@ export function LocalChat() {
     if (!(await needProfile())) return;
     const incoming = [...list];
     if (!incoming.length) return;
+    const isImage = (f: File) =>
+      (f.type && f.type.startsWith("image/") && f.type !== "image/svg+xml") ||
+      /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif|tiff?)$/i.test(f.name);
+    const images = incoming.filter(isImage);
+    const docs = incoming.filter((f) => !isImage(f));
+    if (images.length && !docs.length) {
+      setProgress(
+        "Image upload is turned off for now — Surf cannot see picture pixels. Attach a PDF, Word, Excel, text, or zip instead.",
+      );
+      return;
+    }
+    if (!docs.length) return;
     let thread = active;
     if (!thread) {
       thread = newThread();
-      thread.title = titleFrom(incoming[0].name);
+      thread.title = titleFrom(docs[0].name);
       await persist(thread);
     }
     const threadId = thread.id;
     const existing = (await listAttachments()).filter((f) => f.threadId === threadId);
     const room = Math.max(0, 40 - existing.length);
-    const batch = incoming.slice(0, room);
+    const batch = docs.slice(0, room);
     if (!batch.length) {
       setProgress("This chat can hold 40 files. Remove one first.");
       return;
@@ -286,6 +298,7 @@ export function LocalChat() {
       }
       setFiles(await listAttachments());
       const bits = [`Attached ${storedOk.length} file(s) to this chat.`];
+      if (images.length) bits.push(`Skipped ${images.length} image(s) — image upload is off for now.`);
       if (mossed) bits.push(`Moss indexed ${mossed}.`);
       else if (storedOk.length) bits.push("Start the local host so Moss can index them.");
       if (failed.length) bits.push(`Skipped ${failed.length}: ${failed.slice(0, 3).join("; ")}`);
@@ -293,7 +306,6 @@ export function LocalChat() {
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
-      if (imageRef.current) imageRef.current.value = "";
     }
   }
 
@@ -523,7 +535,9 @@ export function LocalChat() {
     const onDisk = (await listAttachments()).filter((f) => f.threadId === thread.id);
     const threadFiles = onDisk.length ? onDisk : files.filter((f) => f.threadId === thread.id);
     if ((!content && !threadFiles.length) || busy) return;
-    const asked = sanitizeUserText(content || "Answer using the attached files on this chat.").text;
+    const asked = normalizeUserAsk(
+      sanitizeUserText(content || "Answer using the attached files on this chat.").text,
+    );
     if (wantsSavedSummary(asked)) {
       const note = memory?.summary?.trim();
       const reply = note
@@ -572,7 +586,7 @@ export function LocalChat() {
       return;
     }
     const named = hydrated.map((f) => ({ name: f.name, text: f.text || "" }));
-    const thin = thinAttachmentReply(named);
+    const thin = thinAttachmentReply(named, asked);
     if (thin) {
       const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
       const working: Thread = {
@@ -1086,16 +1100,7 @@ export function LocalChat() {
                 type="file"
                 hidden
                 multiple
-                onChange={(e) => {
-                  if (e.target.files?.length) void addFiles(e.target.files);
-                }}
-              />
-              <input
-                ref={imageRef}
-                type="file"
-                hidden
-                multiple
-                accept="image/*,image/heic,image/heif,.heic,.heif,.png,.jpg,.jpeg,.gif,.webp,.bmp,.avif"
+                accept=".pdf,.docx,.xlsx,.xls,.csv,.tsv,.pptx,.txt,.md,.json,.zip,application/pdf,text/*,.py,.ts,.tsx,.js"
                 onChange={(e) => {
                   if (e.target.files?.length) void addFiles(e.target.files);
                 }}
@@ -1105,7 +1110,7 @@ export function LocalChat() {
                   type="button"
                   className="icon"
                   aria-label="Attach"
-                  title="Attach files, a folder, or photos"
+                  title="Attach files or a folder"
                   disabled={busy}
                   onClick={() => setAttachOpen((v) => !v)}
                 >
@@ -1121,17 +1126,6 @@ export function LocalChat() {
                       }}
                     >
                       Files or folder
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAttachOpen(false);
-                        imageRef.current?.click();
-                      }}
-                    >
-                      <span className="attach-menu-row">
-                        <ImagePlus size={14} /> Upload image
-                      </span>
                     </button>
                   </div>
                 )}

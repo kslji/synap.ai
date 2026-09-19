@@ -41,11 +41,31 @@ export async function pickDeviceFolder(): Promise<File[]> {
 /** One gesture: files (Chrome file picker) or a whole folder (Chrome folder picker). */
 export async function pickFilesOrFolder(): Promise<File[]> {
   const w = window as unknown as {
-    showOpenFilePicker?: (opts?: { multiple?: boolean }) => Promise<Array<{ getFile: () => Promise<File> }>>;
+    showOpenFilePicker?: (opts?: {
+      multiple?: boolean;
+      types?: Array<{ description: string; accept: Record<string, string[]> }>;
+    }) => Promise<Array<{ getFile: () => Promise<File> }>>;
     showDirectoryPicker?: () => Promise<AnyHandle>;
   };
   if (w.showOpenFilePicker) {
-    const handles = await w.showOpenFilePicker({ multiple: true });
+    const handles = await w.showOpenFilePicker({
+      multiple: true,
+      types: [
+        {
+          description: "Documents",
+          accept: {
+            "application/pdf": [".pdf"],
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+            "text/csv": [".csv", ".tsv"],
+            "text/plain": [".txt", ".md"],
+            "application/zip": [".zip"],
+            "application/json": [".json"],
+          },
+        },
+      ],
+    });
     return Promise.all(handles.map((h) => h.getFile()));
   }
   if (w.showDirectoryPicker) {

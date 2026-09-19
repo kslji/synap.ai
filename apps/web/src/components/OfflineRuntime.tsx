@@ -20,6 +20,9 @@ const WARM = [
   "/web-llm.js",
   "/pdf.mjs",
   "/pdf.worker.mjs",
+  "/icon.svg",
+  "/favicon.png",
+  "/apple-icon.png",
 ];
 
 /** Save the website on this device (YouTube-style) so refresh still works with Wi-Fi off. */

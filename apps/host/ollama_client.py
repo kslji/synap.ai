@@ -70,7 +70,10 @@ def total_ram_gb() -> float:
 
 
 def pick_local_model(installed: list[str]) -> str:
-    """Strongest already-loaded local model that fits this machine. Never auto-downloads."""
+    """Best already-loaded local model that fits this machine. Never auto-downloads.
+
+    On low-RAM hosts prefer light tags (llama3.2:1b) so chat stays usable.
+    """
     names = [n for n in installed if n]
     if not names:
         return settings.default_model
@@ -82,7 +85,15 @@ def pick_local_model(installed: list[str]) -> str:
             continue
         scored.append((need, name))
     if not scored:
-        return settings.default_model if settings.default_model in names else names[0]
+        # Nothing fits the +2 GB headroom rule — still prefer the lightest installed.
+        light = sorted(names, key=lambda n: float(ram_for(n)["ram_gb"]))
+        return light[0]
+    if ram < 5.5:
+        light = sorted(scored, key=lambda row: row[0])
+        for need, name in light:
+            if "1b" in name.lower() or "1.5b" in name.lower() or "2b" in name.lower():
+                return name
+        return light[0][1]
     scored.sort(reverse=True)
     preferred = settings.default_model
     if preferred in names and float(ram_for(preferred)["ram_gb"]) + 2.0 <= ram:
@@ -93,13 +104,21 @@ def pick_local_model(installed: list[str]) -> str:
     return scored[0][1]
 
 
-def ollama_options() -> dict[str, Any]:
-    return {
-        "num_ctx": settings.num_ctx,
+def ollama_options(model: str | None = None) -> dict[str, Any]:
+    low = (model or settings.default_model).lower()
+    light = "1b" in low or "1.5b" in low or "2b" in low
+    ctx = min(settings.num_ctx, 4096) if light else settings.num_ctx
+    opts: dict[str, Any] = {
+        "num_ctx": ctx,
         "num_thread": cpu_threads(),
-        "num_batch": 512,
+        "num_batch": 256 if light else 512,
         "use_mmap": True,
     }
+    if light:
+        # Small models invent less when temperature is low and answers stay short.
+        opts["temperature"] = 0.2
+        opts["top_p"] = 0.9
+    return opts
 
 
 def _bases() -> dict[str, str]:
@@ -216,7 +235,7 @@ async def _stream_ollama(model: str, messages: list[dict[str, str]]) -> AsyncIte
         "messages": messages,
         "stream": True,
         "keep_alive": settings.keep_alive,
-        "options": ollama_options(),
+        "options": ollama_options(model),
     }
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream(

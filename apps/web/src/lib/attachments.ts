@@ -1,4 +1,5 @@
 import { extractPdfText } from "./pdfText";
+import { extractCsvText, extractDocxText, extractPptxText, extractXlsxText } from "./officeDocs";
 
 export type StoredAttachment = {
   id: string;
@@ -130,18 +131,19 @@ async function extractText(file: File, bytes: ArrayBuffer, mime: string): Promis
     return pdfToText(file.name, bytes);
   }
   if (name.endsWith(".docx") || mime.includes("wordprocessingml")) {
-    const xml = await zipFileText(bytes, "word/document.xml");
-    return xml ? stripXml(xml) : `Word file "${file.name}" stored locally. Could not read document.xml.`;
+    return extractDocxText((p) => zipFileText(bytes, p), file.name);
   }
   if (name.endsWith(".xlsx") || mime.includes("spreadsheetml")) {
-    const xml = await zipFileText(bytes, "xl/sharedStrings.xml");
-    return xml ? stripXml(xml) : `Spreadsheet "${file.name}" stored locally. Could not read shared strings.`;
+    return extractXlsxText(() => zipEntries(bytes), file.name);
+  }
+  if (name.endsWith(".xls") && !name.endsWith(".xlsx")) {
+    return `Excel 97-2003 file "${file.name}" is stored locally. Save it as .xlsx or .csv so the sheet values can be read.`;
   }
   if (name.endsWith(".pptx") || mime.includes("presentationml")) {
-    const slides = await zipCollect(bytes, (p) => p.startsWith("ppt/slides/slide") && p.endsWith(".xml"));
-    return slides.length
-      ? slides.map((s, i) => `Slide ${i + 1}: ${stripXml(s)}`).join("\n")
-      : `PowerPoint "${file.name}" stored locally. Could not read slides.`;
+    return extractPptxText((pred) => zipCollect(bytes, pred), file.name);
+  }
+  if (name.endsWith(".csv") || mime === "text/csv") {
+    return extractCsvText(new TextDecoder().decode(bytes), file.name);
   }
   if (name.endsWith(".ipynb")) {
     try {
@@ -231,18 +233,6 @@ async function extractZipProject(archiveName: string, buf: ArrayBuffer): Promise
     parts.push("No plain-text source files could be unpacked. Use the file tree only.");
   }
   return parts.join("\n\n");
-}
-
-function stripXml(xml: string): string {
-  return xml
-    .replace(/<w:p[^>]*>/g, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 /** Copy into a real ArrayBuffer so BlobPart types on newer TS/DOM libs accept it. */

@@ -63,6 +63,9 @@ _SYSTEM_PROMPT: str | None = None
 _FILE_GROUND = (
     "Attached files follow. Infer what they actually are from the filename and text. "
     "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. "
+    "Read typos generously (e.g. 'specilised' means specialized/skills). "
+    "For spreadsheets, use sheet names and tab-separated rows. "
+    "When several files are attached, say which file each fact comes from. "
     "Do not invent folders, tests, READMEs, jobs, meetings, people, or a next-step unless they appear below. "
     "If the text is only a filename or a could-not-read note, say you could not read the file. Do not invent a story. "
     "If a line says you cannot see pixels, do not describe the image.\n\n"

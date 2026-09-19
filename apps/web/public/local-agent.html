@@ -9,6 +9,9 @@
     .setup-scrim:not(#auth-scrim) { display: none !important; }
   </style>
   <title>Surf AI</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./favicon.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="./apple-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
   <style>
@@ -183,7 +186,7 @@
             <div class="attach-list" id="files"></div>
           </div>
           <div class="composer-box">
-            <input id="pick" type="file" hidden multiple />
+            <input id="pick" type="file" hidden multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.tsv,.pptx,.txt,.md,.json,.zip,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/csv" />
             <input id="pick-image" type="file" hidden multiple accept="image/*,image/heic,image/heif,.heic,.heif,.png,.jpg,.jpeg,.gif,.webp,.bmp,.avif" />
             <div class="attach-one">
               <button class="icon" id="attach" type="button" aria-label="Attach" title="Attach files, a folder, or photos">
@@ -627,8 +630,18 @@
         if (!r.ok) return null;
         const j = await r.json();
         const names = (j.models || []).map((m) => m.name).filter(Boolean);
-        const model = names.find((n) => /llama3\.2:3b/i.test(n)) || names[0] || "llama3.2:3b";
-        return { model, names };
+        if (!names.length) return null;
+        const gb = (navigator.deviceMemory || 8);
+        const lightFirst = gb < 6;
+        const order = lightFirst
+          ? [/llama3\.2:1b/i, /qwen2\.5:1\.5b/i, /:1b\b/i, /1\.5b/i, /llama3\.2:3b/i, /:3b\b/i]
+          : [/llama3\.2:3b/i, /llama3\.2:1b/i, /qwen2\.5:3b/i, /qwen2\.5:1\.5b/i, /:3b\b/i, /:1b\b/i];
+        let model = names[0];
+        for (const re of order) {
+          const hit = names.find((n) => re.test(n));
+          if (hit) { model = hit; break; }
+        }
+        return { model, names, light: /1b|1\.5b|2b/i.test(model) };
       } catch {
         return null;
       }
@@ -1049,12 +1062,13 @@
       await paintFeedback();
     }
     async function ollamaDirect(text, onDelta, system) {
-      const model = healthCache?.active_model || healthCache?.default_model || "llama3.2:3b";
+      const model = healthCache?.active_model || healthCache?.default_model || "llama3.2:1b";
+      const light = /1b|1\.5b|2b/i.test(String(model));
       const t0 = performance.now();
       const messages = [];
       const sys = String(system || "").trim();
       if (sys) messages.push({ role: "system", content: sys.slice(0, 4500) });
-      messages.push({ role: "user", content: String(text).slice(0, 18000) });
+      messages.push({ role: "user", content: String(text).slice(0, light ? 12000 : 18000) });
       const res = await fetch("http://127.0.0.1:11434/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1062,7 +1076,11 @@
           model,
           messages,
           stream: true,
-          options: { temperature: 0.4, num_ctx: 8192 },
+          options: {
+            temperature: light ? 0.2 : 0.4,
+            num_ctx: light ? 4096 : 8192,
+            num_predict: light ? 420 : 700,
+          },
         }),
       });
       if (!res.ok || !res.body) throw new Error("Ollama is not reachable from this page.");
@@ -1265,28 +1283,71 @@
       if (!attached.length) return "";
       const q = (query || "").toLowerCase();
       const words = q.split(/\W+/).filter((w) => w.length > 2);
-      const overview = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is) (in )?this|this file|tell me|about)\b/.test(q);
+      if (/speciali[sz]|expertise|focus|strong(est)? at|good at/.test(q)) {
+        words.push("skills", "technical", "experience", "python", "backend", "engineer");
+      }
+      if (/bank|ledger|transaction|balance|invoice|sheet|excel|xlsx|csv|financ/.test(q)) {
+        words.push("amount", "debit", "credit", "balance", "account", "total");
+      }
+      const overview = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is) (in )?this|this file|tell me|about|consist)\b/.test(q);
       const usable = attached.filter((f) => String(f.text || "").trim());
+      const ground =
+        "Attached files follow. Infer what they actually are from the filename and text. " +
+        "Answer from this text only. Quote real names, dates, numbers, and filenames. " +
+        "Read typos generously (e.g. 'specilised' means specialized/skills). " +
+        "For spreadsheets, use sheet names and tab-separated rows. " +
+        "When several files are attached, say which file each fact comes from. " +
+        "Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. " +
+        "If a line says you cannot see pixels, do not describe the image.\n\n";
       if (overview && usable.length) {
         const heads = usable.map((f) => "### " + f.name + "\n" + String(f.text).slice(0, Math.min(budget, 18000))).join("\n\n");
-        return "Attached files follow. Infer what they actually are from the filename and text. Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. If a line says you cannot see pixels, do not describe the image.\n\n" + heads.slice(0, budget);
+        return ground + heads.slice(0, budget);
       }
+      const edit1 = (a, b) => {
+        if (a === b) return true;
+        if (Math.abs(a.length - b.length) > 1) return false;
+        let i = 0, j = 0, skips = 0;
+        const x = a.length <= b.length ? a : b;
+        const y = a.length <= b.length ? b : a;
+        while (i < x.length && j < y.length) {
+          if (x[i] === y[j]) { i++; j++; continue; }
+          if (++skips > 1) return false;
+          if (x.length === y.length) { i++; j++; } else j++;
+        }
+        return true;
+      };
       const ranked = [];
       for (const f of usable) {
-        const raw = String(f.text || "").replace(/\s+/g, " ").trim();
-        const size = 480;
-        const step = 410;
-        for (let i = 0, n = 0; i < raw.length && n < 60; i += step, n++) {
-          const ch = raw.slice(i, i + size);
+        const raw = String(f.text || "").replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
+        const lines = raw.split("\n");
+        let buf = "", n = 0;
+        const flush = () => {
+          if (!buf.trim()) return;
+          const ch = buf.trim();
           let s = n === 0 ? 12 : (n === 1 ? 6 : 0);
           if (overview && n === 0) s += 40;
           const blob = (f.name + " " + ch).toLowerCase();
+          const bwords = blob.split(/\W+/).filter((w) => w.length > 2);
           for (const w of words) {
             if (f.name.toLowerCase().includes(w)) s += 10;
             if (blob.includes(w)) s += 5;
+            else if (w.length >= 4) {
+              for (const bw of bwords) {
+                if (bw.length >= 4 && (edit1(w, bw) || bw.startsWith(w.slice(0, 4)))) { s += 3; break; }
+              }
+            }
           }
           ranked.push({ name: f.name, text: ch, s, i: n });
+          n++;
+          buf = "";
+        };
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          if (buf.length + line.length > 700) flush();
+          buf += line.trim() + "\n";
+          if (n >= 60) break;
         }
+        flush();
       }
       ranked.sort((a, b) => b.s - a.s || a.i - b.i);
       const parts = [];
@@ -1305,7 +1366,7 @@
       if (!parts.length) {
         return usable.map((f) => "### " + f.name + "\n" + String(f.text || "").slice(0, Math.floor(budget / Math.max(usable.length, 1)))).join("\n\n").slice(0, budget);
       }
-      return "Attached files follow. Infer what they actually are from the filename and text. Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below.\n\n" + parts.join("\n\n");
+      return ground + parts.join("\n\n");
     }
     function sanitizeUserText(text) {
       let cleaned = String(text || "").trim();
@@ -1463,7 +1524,7 @@
           } catch { /* keep original */ }
         }
         if (/context window|prompt tokens/i.test(msg)) {
-          msg = "That file is larger than the in-browser model. Start Ollama (llama3.2:3b) for longer documents, or ask a more specific question.";
+          msg = "That file is larger than this model can hold in one pass. Ask a more specific question, or start Ollama with llama3.2:3b if you have the RAM.";
         }
         bot.textContent = msg;
         if (!bot.isConnected) progress("");
@@ -1574,6 +1635,149 @@
         return 'PDF "' + name + '" could not be read on this device (' + (err instanceof Error ? err.message : String(err)) + '). Keep pdf.mjs and pdf.worker.mjs next to this page.';
       }
     }
+    function stripXmlOffice(xml) {
+      return String(xml || "")
+        .replace(/<w:p[^>]*>/g, "\n")
+        .replace(/<a:p[^>]*>/g, "\n")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+        .replace(/\s+/g, " ").trim();
+    }
+    async function zipXmlEntries(buf) {
+      const bytes = new Uint8Array(buf);
+      const view = new DataView(buf);
+      const out = [];
+      let offset = 0;
+      while (offset + 30 < bytes.length) {
+        const sig = view.getUint32(offset, true);
+        if (sig === 0x02014b50 || sig === 0x06054b50) break;
+        if (sig !== 0x04034b50) break;
+        const method = view.getUint16(offset + 8, true);
+        const compSize = view.getUint32(offset + 18, true);
+        const nameLen = view.getUint16(offset + 26, true);
+        const extraLen = view.getUint16(offset + 28, true);
+        const path = new TextDecoder().decode(bytes.slice(offset + 30, offset + 30 + nameLen));
+        const dataStart = offset + 30 + nameLen + extraLen;
+        const data = bytes.slice(dataStart, dataStart + compSize);
+        let text = "";
+        if (!path.endsWith("/") && (path.endsWith(".xml") || path.endsWith(".rels"))) {
+          try {
+            const raw = method === 0 ? data : method === 8 ? await inflateRaw(data) : null;
+            if (raw) text = new TextDecoder().decode(raw);
+          } catch { /* skip */ }
+        }
+        out.push({ name: path, text });
+        offset = dataStart + compSize;
+      }
+      return out;
+    }
+    function xlsxSharedStrings(xml) {
+      const out = [];
+      const re = /<si\b[^>]*>([\s\S]*?)<\/si>/gi;
+      let m;
+      while ((m = re.exec(xml))) {
+        out.push([...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/gi)].map((x) => x[1]).join(""));
+      }
+      return out;
+    }
+    function xlsxSheetTsv(xml, strings) {
+      const cells = new Map();
+      let maxR = 0, maxC = 0;
+      const re = /<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^>]*)\/>/gi;
+      let m;
+      while ((m = re.exec(xml))) {
+        const attrs = m[1] || m[3] || "";
+        const body = m[2] || "";
+        const ref = /\br="([^"]+)"/i.exec(attrs)?.[1];
+        if (!ref) continue;
+        const cm = /^([A-Z]+)(\d+)$/i.exec(ref);
+        if (!cm) continue;
+        let col = 0;
+        for (const ch of cm[1].toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
+        col -= 1;
+        const row = Number(cm[2]) - 1;
+        maxR = Math.max(maxR, row); maxC = Math.max(maxC, col);
+        const type = /\bt="([^"]+)"/i.exec(attrs)?.[1] || "";
+        let val = "";
+        if (type === "s") {
+          const idx = Number(/<v>([\s\S]*?)<\/v>/i.exec(body)?.[1] ?? "");
+          val = Number.isFinite(idx) ? (strings[idx] || "") : "";
+        } else if (type === "inlineStr" || type === "str") {
+          val = [...body.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/gi)].map((x) => x[1]).join("") || stripXmlOffice(body);
+        } else {
+          val = (/<v>([\s\S]*?)<\/v>/i.exec(body)?.[1] || "").trim();
+        }
+        cells.set(row + ":" + col, String(val).replace(/\t|\n/g, " ").trim());
+      }
+      if (!cells.size) return "";
+      const rows = [];
+      for (let r = 0; r <= Math.min(maxR, 400); r++) {
+        const cols = [];
+        let any = false;
+        for (let c = 0; c <= Math.min(maxC, 40); c++) {
+          const v = cells.get(r + ":" + c) || "";
+          if (v) any = true;
+          cols.push(v);
+        }
+        if (any) rows.push(cols.join("\t"));
+      }
+      return rows.join("\n");
+    }
+    async function extractOffice(name, buf) {
+      const lower = name.toLowerCase();
+      const entries = await zipXmlEntries(buf);
+      const by = new Map(entries.map((e) => [e.name, e.text]));
+      if (lower.endsWith(".docx")) {
+        const xml = by.get("word/document.xml") || "";
+        const body = stripXmlOffice(xml);
+        return body || ('Word file "' + name + '" stored locally. Could not read document.xml.');
+      }
+      if (lower.endsWith(".pptx")) {
+        const slides = entries.filter((e) => e.name.startsWith("ppt/slides/slide") && e.name.endsWith(".xml"));
+        if (!slides.length) return 'PowerPoint "' + name + '" stored locally. Could not read slides.';
+        return slides.map((s, i) => "### Slide " + (i + 1) + "\n" + stripXmlOffice(s.text)).join("\n\n");
+      }
+      if (lower.endsWith(".xlsx")) {
+        const strings = xlsxSharedStrings(by.get("xl/sharedStrings.xml") || "");
+        const workbook = by.get("xl/workbook.xml") || "";
+        const rels = by.get("xl/_rels/workbook.xml.rels") || "";
+        const idToPath = new Map();
+        let rm;
+        const relRe = /<Relationship\b([^>]*)\/?>/gi;
+        while ((rm = relRe.exec(rels))) {
+          const id = /\bId="([^"]+)"/i.exec(rm[1])?.[1];
+          const target = /\bTarget="([^"]+)"/i.exec(rm[1])?.[1];
+          if (id && target) idToPath.set(id, ("xl/" + target.replace(/^\.\//, "")).replace(/\\/g, "/"));
+        }
+        const sheets = [];
+        let sm;
+        const sheetRe = /<sheet\b([^>]*)\/?>/gi;
+        while ((sm = sheetRe.exec(workbook))) {
+          const title = /\bname="([^"]+)"/i.exec(sm[1])?.[1] || "Sheet";
+          const rid = /\br:id="([^"]+)"/i.exec(sm[1])?.[1];
+          const path = rid && idToPath.get(rid);
+          if (path) sheets.push({ name: title, path });
+        }
+        if (!sheets.length) {
+          for (const e of entries) {
+            if (/^xl\/worksheets\/sheet\d+\.xml$/i.test(e.name)) sheets.push({ name: e.name.split("/").pop(), path: e.name });
+          }
+        }
+        const parts = ['Spreadsheet "' + name + '" (' + sheets.length + " sheet(s)). Values as tab-separated rows."];
+        for (const sheet of sheets.slice(0, 12)) {
+          const grid = xlsxSheetTsv(by.get(sheet.path) || "", strings);
+          if (grid.trim()) parts.push("### Sheet: " + sheet.name + "\n" + grid);
+        }
+        if (parts.length === 1) {
+          const fallback = strings.filter(Boolean).join(" | ");
+          return fallback
+            ? ('Spreadsheet "' + name + '" (shared strings only):\n' + fallback.slice(0, 20000))
+            : ('Spreadsheet "' + name + '" stored locally. Could not read sheet cells.');
+        }
+        return parts.join("\n\n").slice(0, 45000);
+      }
+      return null;
+    }
     async function readAttach(file) {
       try {
         if (file.type && file.type.startsWith("image/") && file.type !== "image/svg+xml") {
@@ -1590,6 +1794,17 @@
         const lower = file.name.toLowerCase();
         if (lower.endsWith(".zip") || file.type === "application/zip") return extractZip(file.name, buf);
         if (lower.endsWith(".pdf") || file.type === "application/pdf") return extractPdfText(file.name, buf);
+        if (lower.endsWith(".docx") || lower.endsWith(".xlsx") || lower.endsWith(".pptx")) {
+          const office = await extractOffice(file.name, buf);
+          if (office) return office;
+        }
+        if (lower.endsWith(".xls") && !lower.endsWith(".xlsx")) {
+          return `Excel 97-2003 file "${file.name}" is stored locally. Save it as .xlsx or .csv so the sheet values can be read.`;
+        }
+        if (lower.endsWith(".csv") || file.type === "text/csv") {
+          const lines = new TextDecoder().decode(buf).replace(/^\uFEFF/, "").split(/\r?\n/).filter((l) => l.trim()).slice(0, 500);
+          return `CSV "${file.name}" (${lines.length} rows shown):\n` + lines.join("\n");
+        }
         const raw = new TextDecoder().decode(buf);
         const sample = raw.slice(0, 12000);
         const printable = sample.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
@@ -1741,12 +1956,12 @@
     }
     async function downloadZip() {
       const files = [];
-      const names = ["local-agent.html", "LOCAL-SETUP.sh", "LOCAL-SETUP.bat", "system.md", "web-llm.js", "pdf.mjs", "pdf.worker.mjs"];
+      const names = ["local-agent.html", "LOCAL-SETUP.sh", "LOCAL-SETUP.bat", "system.md", "web-llm.js", "pdf.mjs", "pdf.worker.mjs", "icon.svg", "favicon.png", "apple-icon.png"];
       for (const name of names) {
         try {
           const r = await fetch("./" + name, { cache: "no-store" });
           if (!r.ok) continue;
-          files.push(/\.(js|mjs)$/.test(name)
+          files.push(/\.(js|mjs|png|svg)$/.test(name)
             ? { name: "local-ai/" + name, body: new Uint8Array(await r.arrayBuffer()) }
             : { name: "local-ai/" + name, body: await r.text() });
         } catch { /* missing in this folder */ }

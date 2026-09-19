@@ -58,20 +58,76 @@ export function chunkText(text: string, size = 700, overlap = 90): string[] {
   return chunks.slice(0, 60);
 }
 
+function editDistance1(a: string, b: string): boolean {
+  if (a === b) return true;
+  const la = a.length;
+  const lb = b.length;
+  if (Math.abs(la - lb) > 1) return false;
+  if (la > lb) return editDistance1(b, a);
+  let i = 0;
+  let j = 0;
+  let skips = 0;
+  while (i < la && j < lb) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++skips > 1) return false;
+    if (la === lb) {
+      i++;
+      j++;
+    } else {
+      j++;
+    }
+  }
+  return true;
+}
+
+/** Expand common typos / near-synonyms so “specilised” still finds skills sections. */
+function queryTerms(query: string): string[] {
+  const base = query
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 2);
+  const extra: string[] = [];
+  const blob = query.toLowerCase();
+  if (/speciali[sz]|expertise|focus|strong(est)? at|good at/.test(blob)) {
+    extra.push("skills", "technical", "experience", "python", "backend", "engineer", "specialization");
+  }
+  if (/bank|ledger|transaction|balance|invoice|sheet|excel|xlsx|csv|financ/.test(blob)) {
+    extra.push("amount", "debit", "credit", "balance", "account", "sheet", "total");
+  }
+  if (/what is this|about|consist|overview|summar|tell me|explain/.test(blob)) {
+    extra.push("summary", "experience", "education", "skills");
+  }
+  return [...new Set([...base, ...extra])];
+}
+
 function scoreChunk(chunk: string, name: string, query: string, index: number): number {
   const q = query.toLowerCase();
   const body = `${name} ${chunk}`.toLowerCase();
-  const words = q.split(/\W+/).filter((w) => w.length > 2);
+  const bodyWords = body.split(/\W+/).filter((w) => w.length > 2);
+  const words = queryTerms(query);
   let s = 0;
   if (index === 0) s += 12;
   if (index === 1) s += 6;
-  if (/\b(about|summar|overview|what is this|this file|tell me)\b/.test(q)) {
+  if (/\b(about|summar|overview|what is this|this file|tell me|consist|explain)\b/.test(q)) {
     if (index === 0) s += 40;
     if (index === 1) s += 18;
   }
   for (const w of words) {
     if (name.toLowerCase().includes(w)) s += 10;
     if (body.includes(w)) s += 5;
+    else if (w.length >= 4) {
+      for (const bw of bodyWords) {
+        if (bw.length < 4) continue;
+        if (editDistance1(w, bw) || (w.length >= 5 && bw.startsWith(w.slice(0, 4)))) {
+          s += 3;
+          break;
+        }
+      }
+    }
   }
   return s;
 }
@@ -96,8 +152,11 @@ export function wantsInterviewQuestions(q: string): boolean {
 
 const FILE_GROUND =
   "Attached files follow. Infer what they actually are from the filename and text " +
-  "(any personal or work document, photo note, spreadsheet, PDF, or code). " +
+  "(resume, notes, spreadsheet, banking CSV/XLSX, invoice, photo note, PDF, zip, or code). " +
   "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. " +
+  "Read typos generously (e.g. 'specilised' means specialized/skills). " +
+  "For spreadsheets, use the sheet names and tab-separated rows — totals, accounts, and amounts are in the grid. " +
+  "When several files are attached, say which file each fact comes from. " +
   "Do not invent folders, tests, READMEs, jobs, meetings, people, or a next-step unless they appear below. " +
   "If the text is only a filename or a 'could not read' note, say you could not read the file. Do not invent a story. " +
   "If a line says you cannot see pixels, do not describe the image.\n\n";

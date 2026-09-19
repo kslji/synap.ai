@@ -44,7 +44,8 @@ async function completeOnce(
   const stream = await engine.chat.completions.create({
     messages: messages as { role: "system" | "user" | "assistant"; content: string }[],
     stream: true,
-    max_tokens: 280,
+    // 1B models need room for a short structured answer from a resume / sheet.
+    max_tokens: 420,
   });
   for await (const chunk of stream) {
     if (signal?.aborted) throw new DOMException("Stopped", "AbortError");

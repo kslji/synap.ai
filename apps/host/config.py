@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     lmstudio_base: str = "http://127.0.0.1:1234"
     llamacpp_base: str = "http://127.0.0.1:8080"
     local_llm: str = "auto"
-    default_model: str = "llama3.2:3b"
+    default_model: str = "llama3.2:1b"
     keep_alive: str = "24h"
     num_ctx: int = 8192
     num_thread: int = 0

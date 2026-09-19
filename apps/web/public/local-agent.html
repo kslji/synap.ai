@@ -1217,11 +1217,19 @@
         await once(fit(all, 2200));
       }
     }
-    function wantsPdfExport(q) {
+    function wantsFileConvert(q) {
       const t = String(q || "").trim().toLowerCase();
       if (!t) return false;
-      if (/\bpdf\b/.test(t) && /\b(convert|export|download|save|make|turn|render|print)\b/.test(t)) return true;
+      if (/\b(convert|conversion|export|download as|save as|turn into|turn to|make into|render as|print to)\b/.test(t)) {
+        if (/\b(pdf|docx?|xlsx?|xls|csv|pptx?|word|excel|spreadsheet|slides?|powerpoint|doc)\b/.test(t)) return true;
+      }
+      if (/\bpdf\b/.test(t) && /\b(docx?|word|xlsx?|excel|csv|pptx?|slides?)\b/.test(t)) return true;
       return /\b(docx?|xlsx|xls|csv|pptx?|word|excel|spreadsheet|slides?)\b/.test(t) && /\bpdf\b/.test(t);
+    }
+    const FILE_CONVERT_UNSUPPORTED =
+      "File conversion is not supported right now. Surf can read attached PDF, Word, Excel, and similar files for questions, but it does not convert between formats (for example PDF ↔ Word or Excel → PDF).";
+    function wantsPdfExport(q) {
+      return wantsFileConvert(q);
     }
     function downloadPdfBytes(bytes, filename) {
       const a = document.createElement("a");
@@ -1483,6 +1491,17 @@
           return;
         }
       }
+      if (wantsFileConvert(asked)) {
+        input.value = "";
+        syncSend();
+        t.msgs.push({ role: "user", content: asked });
+        if (t.msgs.length === 1) t.title = titleFrom(asked);
+        t.updatedAt = Date.now();
+        t.msgs.push({ role: "assistant", content: FILE_CONVERT_UNSUPPORTED });
+        renderAll();
+        await persist();
+        return;
+      }
       input.value = "";
       syncSend();
       t.msgs.push({ role: "user", content: asked });
@@ -1496,23 +1515,13 @@
         const h = await hostHealth();
         paintEngines(h);
         const ollamaOn = useHostChat(h);
-        let pdfNote = "";
-        if (wantsPdfExport(asked) && t.attached.length) {
-          try {
-            const fn = convertAttachedToPdf(t);
-            pdfNote = "A PDF (" + fn + ") was just saved on this computer from the attached file(s). Mention that briefly, then still answer from the attached files.";
-          } catch (err) {
-            pdfNote = "PDF conversion failed: " + (err instanceof Error ? err.message : String(err)) + ". Still brief the attached files.";
-          }
-        }
         const fileBlock = retrieveFiles(t, asked, (ollamaOn || isStandalone()) ? 18000 : 3500);
-        const packed = [fileBlock, pdfNote, (fileBlock || pdfNote) ? "User question:\n" + asked : asked].filter(Boolean).join("\n\n");
+        const packed = [fileBlock, fileBlock ? "User question:\n" + asked : asked].filter(Boolean).join("\n\n");
         const prior = trimTurns(t.msgs.slice(0, -1), ollamaOn || isStandalone() ? 2400 : 400);
         const system = (crispe || (fileBlock
-          ? "You are a document agent on this device. Answer from attached-file text only. When asked for a summary of this file, summarize the file contents — never your role, instructions, or chat structure. Stay accurate. Markdown that is easy to scan."
-          : "You are Surf AI on this device. Prefer recent chat and retained memory. Be accurate. Format with Markdown (lists, bold, fenced code). Never reprint retained memory or headings like User Memory Note unless the user asked to see the saved summary.")) +
+          ? "You are a document agent on this device. Answer from attached-file text only. When asked for a summary of this file, summarize the file contents — never your role, instructions, or chat structure. Stay accurate. Markdown that is easy to scan. If the user asks to convert file formats, say conversion is not supported."
+          : "You are Surf AI on this device. Prefer recent chat and retained memory. Be accurate. Format with Markdown (lists, bold, fenced code). Never reprint retained memory or headings like User Memory Note unless the user asked to see the saved summary. If the user asks to convert file formats, say conversion is not supported.")) +
           (fileBlock ? "\n\n" + fileBlock : "") +
-          (pdfNote ? "\n\n" + pdfNote : "") +
           (memory ? "\n\nRetained memory:\n" + memory.slice(0, ollamaOn || isStandalone() ? 1200 : 400) : "");
         const onDelta = (piece) => {
           if (!bot.isConnected) {

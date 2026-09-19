@@ -196,15 +196,31 @@ function scoreChunk(chunk: string, name: string, query: string, index: number): 
   return s;
 }
 
-export function wantsPdfExport(q: string): boolean {
+/** User asked to convert / export between file types (PDF, Word, Excel, etc.). */
+export function wantsFileConvert(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
-  if (/\bpdf\b/.test(t) && /\b(convert|export|download|save|make|turn|render|print)\b/.test(t)) return true;
+  if (/\b(convert|conversion|export|download as|save as|turn into|turn to|make into|render as|print to)\b/.test(t)) {
+    if (
+      /\b(pdf|docx?|xlsx?|xls|csv|pptx?|word|excel|spreadsheet|slides?|powerpoint|doc)\b/.test(t)
+    ) {
+      return true;
+    }
+  }
+  if (/\bpdf\b/.test(t) && /\b(docx?|word|xlsx?|excel|csv|pptx?|slides?)\b/.test(t)) return true;
   if (/\b(docx?|xlsx|xls|csv|pptx?|word|excel|spreadsheet|slides?)\b/.test(t) && /\bpdf\b/.test(t)) {
     return true;
   }
   return false;
 }
+
+/** @deprecated use wantsFileConvert */
+export function wantsPdfExport(q: string): boolean {
+  return wantsFileConvert(q);
+}
+
+export const FILE_CONVERT_UNSUPPORTED =
+  "File conversion is not supported right now. Surf can read attached PDF, Word, Excel, and similar files for questions, but it does not convert between formats (for example PDF ↔ Word or Excel → PDF).";
 
 export function wantsInterviewQuestions(q: string): boolean {
   const t = q.trim().toLowerCase();

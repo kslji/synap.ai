@@ -8,14 +8,13 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from auth import mint_token, mint_user_token, require_user
 from config import settings
-from convert import ConvertError, convert_to_pdf
 from guardrails import sanitize_user_text
 import instances
 from livekit_probe import livekit_reachable
@@ -511,21 +510,13 @@ def storage_prune(_: dict = Depends(require_user)):
 
 
 @app.post("/v1/convert/pdf")
-async def convert_pdf_endpoint(
-    file: UploadFile = File(...),
-    _: dict = Depends(require_user),
-):
-    raw = await file.read()
-    if len(raw) > 24 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File is larger than 24 MB.")
-    try:
-        pdf, filename = convert_to_pdf(file.filename or "document", raw, file.content_type or "")
-    except ConvertError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return Response(
-        content=pdf,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+async def convert_pdf_endpoint(_: dict = Depends(require_user)):
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "File conversion is not supported right now. "
+            "Surf can read attached files for questions, but does not convert between formats."
+        ),
     )
 
 

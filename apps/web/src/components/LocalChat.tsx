@@ -43,12 +43,12 @@ import {
   fitBrowserPrompt,
   offlineFileBrief,
   wantsFileOverview,
-  wantsPdfExport,
+  wantsFileConvert,
+  FILE_CONVERT_UNSUPPORTED,
   wantsSavedSummary,
 } from "@/lib/groundedContext";
 import { canUseFilePicker, filesFromDataTransfer, pickFilesOrFolder } from "@/lib/deviceFolder";
 import { downloadOnThisDevice } from "@/lib/openOnDevice";
-import { convertAttachmentsToPdf } from "@/lib/convertToPdf";
 import { fetchHostStorage, getToken, health, indexMoss, parseApiError, searchMoss, streamChat, createLocalInstance, type Health } from "@/lib/api";
 import { fetchProfile, clearAccount, type UserProfile } from "@/lib/account";
 import { isAbortError, looksLikeNetworkFailure, networkOnline } from "@/lib/net";
@@ -514,14 +514,20 @@ export function LocalChat() {
       setProgress("This zip was attached before unpacking was added. Remove the zip chip, attach harbour-agent-OP1.zip again, then ask.");
       return;
     }
-    let pdfNote = "";
-    if (wantsPdfExport(asked) && hydrated.length) {
-      try {
-        const done = await convertAttachmentsToPdf(hydrated);
-        pdfNote = `A PDF (${done.filename}) was just saved on this computer from ${done.count} attached file(s). Mention that briefly, then still answer from the attached files.`;
-      } catch (err) {
-        pdfNote = `PDF conversion failed: ${err instanceof Error ? err.message : String(err)}. Still brief the attached files.`;
-      }
+    if (wantsFileConvert(asked)) {
+      const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
+      const working: Thread = {
+        ...thread,
+        title: thread.messages.length ? thread.title : titleFrom(asked),
+        updatedAt: Date.now(),
+        messages: [
+          ...history,
+          { role: "assistant", content: FILE_CONVERT_UNSUPPORTED, engine: "browser" },
+        ],
+      };
+      setInput("");
+      await persist(working);
+      return;
     }
     const named = hydrated.map((f) => ({ name: f.name, text: f.text || "" }));
     const thin = thinAttachmentReply(named);
@@ -643,7 +649,7 @@ export function LocalChat() {
             return;
           }
         }
-        const extra = [docs, pdfNote, !docs && !skipMoss ? formatMossHits(await searchMoss(asked)) : ""]
+        const extra = [docs, !docs && !skipMoss ? formatMossHits(await searchMoss(asked)) : ""]
           .filter(Boolean)
           .join("\n\n");
         const prior = trimTurns(thread.messages, BROWSER_TURN_BUDGET);
@@ -680,7 +686,7 @@ export function LocalChat() {
       let skipMoss = !getToken();
       if (ollamaOn && getToken()) {
         try {
-          const payload = [docs, pdfNote, docs || pdfNote ? `User question:\n${asked}` : asked]
+          const payload = [docs, docs ? `User question:\n${asked}` : asked]
             .filter(Boolean)
             .join("\n\n");
           const { conversation_id, latency_ms } = await streamChat({

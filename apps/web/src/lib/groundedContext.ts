@@ -71,6 +71,15 @@ export function wantsShortFact(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
   if (wantsInterviewQuestions(q) || wantsDiagram(q)) return false;
+  // Do not treat broad “what is this / summarize” as a single-field fact.
+  if (
+    /\b(summar(y|ise|ize)?|overview|brief(?:ly)?|what is this|walk (me )?through|explain (the |this )?(file|doc|zip|project))\b/.test(
+      t,
+    ) &&
+    !/\b(experience|exp\.?|tenure|how long|how much)\b/.test(t)
+  ) {
+    return false;
+  }
   return (
     /\b(how old|years?\s*old|date of birth|\bdob\b|\bage\b)\b/.test(t) ||
     /\b(e-?mail|phone|mobile|contact number|whatsapp|linkedin)\b/.test(t) ||
@@ -80,8 +89,138 @@ export function wantsShortFact(q: string): boolean {
     /\b(name|age|email|phone|number|address|title|role|company)\s+(of|for)\s+(the |this )?(person|candidate|author|user)?\b/.test(
       t,
     ) ||
-    /\bwho is (this|the) (person|candidate|author)\b/.test(t)
+    /\bwho is (this|the) (person|candidate|author)\b/.test(t) ||
+    /\b(how (much|long)|years?|months?|tenure|duration)?\s*(of\s+)?(experience|exp\.?|worked|work(ed|ing)?)\b/.test(t) ||
+    /\b(experience|exp\.?)\s+(at|in|with|for)\b/.test(t) ||
+    (/\b(at|in|with)\s+[A-Za-z0-9][\w+.&' -]{1,40}\b/.test(t) &&
+      /\b(experience|exp\.?|role|title|worked|work|job|tenure)\b/.test(t))
   );
+}
+
+function looksLikeResumeOrCv(name: string, raw: string): boolean {
+  if (/\.(ya?ml|toml|ini|env|conf|cfg)$/i.test(name)) return false;
+  const t = raw.slice(0, 4000);
+  const hits = [
+    /professional\s+experience/i,
+    /work\s+experience/i,
+    /education/i,
+    /technical\s+skills/i,
+    /curriculum\s+vitae|\bresume\b/i,
+    /\b(bachelor|master|b\.?tech|m\.?tech|university)\b/i,
+    /\b(software|senior|junior)?\s*(engineer|developer|sde)\b/i,
+  ].filter((re) => re.test(t)).length;
+  if (/\.pdf$/i.test(name) && hits >= 1) return true;
+  return hits >= 2;
+}
+
+/** Pull role + dates for a named company from résumé text. */
+function extractCompanyExperience(blob: string, query: string, cite: string): string | null {
+  const q = query.toLowerCase();
+  // Prefer quoted / distinctive tokens (Park+, Acme, …)
+  const fromQuery =
+    query.match(/\b(?:at|in|with|for|about)\s+([A-Za-z0-9][\w+.&'’-]{1,40})/i)?.[1] ||
+    query.match(/\b([A-Za-z][\w+.&'’-]{1,30}\+|\bPark\+?)\b/i)?.[1] ||
+    "";
+  let needle = (fromQuery || "").replace(/\+$/, "").trim();
+  if (!needle || /^(the|this|his|her|their|a|an|my|your|experience|exp|person|candidate)$/i.test(needle)) {
+    // Last capitalized-ish token from query that appears in the blob
+    const cands = [...query.matchAll(/\b([A-Za-z][A-Za-z0-9+.&'’-]{2,40})\b/g)].map((m) => m[1]);
+    needle =
+      cands.reverse().find((c) => {
+        if (/^(how|much|does|the|person|have|experience|exp|please|specific|in|at|with|for)$/i.test(c)) {
+          return false;
+        }
+        return blob.toLowerCase().includes(c.toLowerCase().replace(/\+$/, ""));
+      }) || "";
+  }
+  if (!needle) return null;
+  const needleRe = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\+$/, "\\+?"), "i");
+  const lines = blob.split(/\r?\n/);
+  let hitIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (needleRe.test(lines[i])) {
+      hitIdx = i;
+      break;
+    }
+  }
+  if (hitIdx < 0) {
+    return `No role at “${needle}” is written in this file.${cite}`;
+  }
+  // Prefer a title/company line over a skills line that only mentions the token.
+  for (let j = hitIdx; j >= Math.max(0, hitIdx - 2); j--) {
+    const cand = lines[j].replace(/\s+/g, " ").trim();
+    if (
+      /(engineer|developer|sde|manager|analyst|architect|intern|consultant)/i.test(cand) ||
+      new RegExp(`,\\s*${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(cand)
+    ) {
+      hitIdx = j;
+      break;
+    }
+  }
+  // Role line often is the hit; dates often on next 1–3 lines
+  const window = lines.slice(Math.max(0, hitIdx - 1), hitIdx + 6).join("\n");
+  const roleLine = lines[hitIdx].replace(/\s+/g, " ").trim();
+  if (/^(languages|databases|technologies|skills|testing|practices)\s*:/i.test(roleLine)) {
+    // Landed on a skills label — search again for a role line containing the company.
+    for (let i = 0; i < lines.length; i++) {
+      const cand = lines[i].replace(/\s+/g, " ").trim();
+      if (!needleRe.test(cand)) continue;
+      if (/(engineer|developer|sde|manager|,)/i.test(cand) && !/^(languages|databases|technologies)\s*:/i.test(cand)) {
+        hitIdx = i;
+        break;
+      }
+    }
+  }
+  const window2 = lines.slice(Math.max(0, hitIdx - 1), hitIdx + 6).join("\n");
+  const roleLine2 = lines[hitIdx].replace(/\s+/g, " ").trim();
+  const date =
+    window2.match(
+      /\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4})\s*[-–—to]+\s*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|Present|Current|Now)/i,
+    ) ||
+    window2.match(/\b(\d{1,2}\/\d{4})\s*[-–—to]+\s*(\d{1,2}\/\d{4}|Present|Current)/i);
+  const dateStr = date ? `${date[1]} – ${date[2]}` : "";
+  // Rough tenure if both month-year present
+  let tenure = "";
+  if (date && !/present|current|now/i.test(date[2])) {
+    const parse = (s: string) => {
+      const m = s.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{4})/i);
+      if (!m) return null;
+      const months: Record<string, number> = {
+        jan: 0,
+        feb: 1,
+        mar: 2,
+        apr: 3,
+        may: 4,
+        jun: 5,
+        jul: 6,
+        aug: 7,
+        sep: 8,
+        oct: 9,
+        nov: 10,
+        dec: 11,
+      };
+      return { y: Number(m[2]), m: months[m[1].slice(0, 3).toLowerCase()] ?? 0 };
+    };
+    const a = parse(date[1]);
+    const b = parse(date[2]);
+    if (a && b) {
+      const months = (b.y - a.y) * 12 + (b.m - a.m);
+      if (months >= 0 && months < 120) {
+        const yrs = Math.floor(months / 12);
+        const mos = months % 12;
+        tenure =
+          yrs > 0 && mos > 0
+            ? `${yrs} year${yrs > 1 ? "s" : ""} ${mos} month${mos > 1 ? "s" : ""}`
+            : yrs > 0
+              ? `${yrs} year${yrs > 1 ? "s" : ""}`
+              : `${Math.max(1, mos)} month${mos === 1 ? "" : "s"}`;
+      }
+    }
+  }
+  const bits = [roleLine2];
+  if (dateStr) bits.push(dateStr);
+  if (tenure) bits.push(`about ${tenure}`);
+  return `${bits.join(" · ")}${cite}`;
 }
 
 /** Short expert fact from attachment text when the LLM cannot run. */
@@ -97,6 +236,14 @@ export function extractiveFactAnswer(files: NamedDoc[], query: string): string |
     const m = blob.match(re);
     return m?.[1]?.trim() || null;
   };
+
+  if (
+    /\b(experience|exp\.?|worked|tenure|how long|how much)\b/.test(q) ||
+    (/\b(at|in|with)\b/.test(q) && /\b(experience|exp\.?|role|job)\b/.test(q))
+  ) {
+    const company = extractCompanyExperience(blob, query, cite);
+    if (company) return company;
+  }
 
   if (/\bage|how old|years?\s*old\b/.test(q)) {
     const age =
@@ -586,12 +733,23 @@ function explainCodeFile(name: string, raw: string): string | null {
 }
 
 function explainYamlOrEnv(name: string, raw: string): string | null {
-  const isEnv = /\.env/i.test(name) || (/^[A-Z][A-Z0-9_]+=\S+/m.test(raw) && !raw.trimStart().startsWith("{"));
-  const isYaml =
-    /\.(ya?ml|toml|ini|conf|cfg)$/i.test(name) ||
-    (/^[\w.-]+:\s/m.test(raw) && !raw.trimStart().startsWith("{") && !raw.includes("function "));
+  // Never treat résumés / prose PDFs as YAML just because they have "Languages:" lines.
+  if (looksLikeResumeOrCv(name, raw)) return null;
+  if (/\.(pdf|docx?|md|txt)$/i.test(name) && !/\.(ya?ml|toml|ini|env|conf|cfg)$/i.test(name)) {
+    // Extension is a document — only allow env-style KEY=value files misnamed, not Label: prose.
+    const envOnly = /^[A-Z][A-Z0-9_]+=\S+/m.test(raw) && (raw.match(/^[A-Z][A-Z0-9_]+=/gm) || []).length >= 3;
+    if (!envOnly) return null;
+  }
+  const isEnv =
+    /\.env/i.test(name) ||
+    ((raw.match(/^[A-Z][A-Z0-9_]+=\S+/gm) || []).length >= 3 && !raw.trimStart().startsWith("{"));
+  const extYaml = /\.(ya?ml|toml|ini|conf|cfg)$/i.test(name);
+  // Content heuristic: many short key: value lines, little long prose (résumés fail this).
+  const keyLines = (raw.match(/^[A-Za-z_][\w.-]*:\s*\S+/gm) || []).length;
+  const longProse = (raw.match(/[A-Za-z][^.\n]{80,}/g) || []).length;
+  const isYaml = extYaml || (keyLines >= 5 && longProse < 3 && !raw.includes("function ") && !raw.trimStart().startsWith("{"));
   if (!isEnv && !isYaml) return null;
-  if (isEnv) {
+  if (isEnv && !extYaml) {
     const keys = [...raw.matchAll(/^([A-Z][A-Z0-9_]+)=/gm)].map((m) => m[1]).slice(0, 12);
     return (
       `This is an **environment / secrets-style config** **[${name}]**.\n` +
@@ -602,7 +760,7 @@ function explainYamlOrEnv(name: string, raw: string): string | null {
       `- I explain what keys are for; I do not repeat secret values.`
     );
   }
-  const keys = [...raw.matchAll(/^([A-Za-z_][\w.-]*)\s*:/gm)].map((m) => m[1]).slice(0, 14);
+  const keys = [...new Set([...raw.matchAll(/^([A-Za-z_][\w.-]*)\s*:/gm)].map((m) => m[1]))].slice(0, 14);
   return (
     `This is a **YAML/TOML-style config** **[${name}]**.\n` +
     `- **Why it exists:** human-editable settings for deploy, CI, or an app — named keys beat hard-coding.\n` +
@@ -973,6 +1131,11 @@ function explainOneFile(f: NamedDoc): string {
 
   const receipt = explainReceiptOrInvoice(f.name, raw);
   if (receipt) return receipt;
+
+  // Résumé / CV before YAML heuristic (Languages: / Databases: look like keys).
+  if (looksLikeResumeOrCv(f.name, raw)) {
+    return explainMarkdownOrProse(f.name, raw);
+  }
 
   if (/\.(csv|tsv)$/i.test(f.name) || (raw.includes("\n") && raw.split("\n")[0].split(/,|\t/).length >= 3)) {
     const csv = explainCsv(f.name, raw);
@@ -1365,7 +1528,96 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   return FILE_GROUND + parts.join("\n\n");
 }
 
-/** Fallback when the in-browser model cannot run — explain, never dump the file. */
+/** Pull the most relevant lines for a free-form ask (offline / light-model fallback). */
+export function extractiveTopicAnswer(files: NamedDoc[], query: string): string | null {
+  const usable = files.filter((f) => String(f.text || "").trim());
+  if (!usable.length) return null;
+  const q = query.trim();
+  if (!q) return null;
+  // Prefer company experience when the ask mentions a workplace.
+  const cite = usable[0]?.name ? ` [${usable[0].name}]` : "";
+  const blob = usable.map((f) => String(f.text || "")).join("\n");
+  if (/\b(experience|exp\.?|worked|tenure|role|job)\b/i.test(q)) {
+    const company = extractCompanyExperience(blob, q, cite);
+    if (company) return company;
+  }
+  const stop = new Set([
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "to",
+    "of",
+    "in",
+    "on",
+    "at",
+    "for",
+    "is",
+    "are",
+    "was",
+    "were",
+    "this",
+    "that",
+    "with",
+    "from",
+    "how",
+    "much",
+    "does",
+    "did",
+    "have",
+    "has",
+    "please",
+    "just",
+    "what",
+    "who",
+    "when",
+    "where",
+    "why",
+    "about",
+    "person",
+    "candidate",
+    "file",
+    "document",
+  ]);
+  const terms = q
+    .toLowerCase()
+    .replace(/[^a-z0-9+.\s-]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !stop.has(t));
+  if (!terms.length) return null;
+  const scored: Array<{ line: string; s: number }> = [];
+  for (const f of usable) {
+    for (const line of String(f.text || "").split(/\r?\n/)) {
+      const t = line.replace(/\s+/g, " ").trim();
+      if (t.length < 8 || t.length > 220) continue;
+      const low = t.toLowerCase();
+      let s = 0;
+      for (const term of terms) {
+        if (low.includes(term)) s += term.length > 4 ? 3 : 1;
+      }
+      if (s > 0) scored.push({ line: t, s });
+    }
+  }
+  scored.sort((a, b) => b.s - a.s);
+  const uniq: string[] = [];
+  const seen = new Set<string>();
+  for (const row of scored) {
+    const key = softFactKey(row.line, 12);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(row.line);
+    if (uniq.length >= 4) break;
+  }
+  if (!uniq.length) return null;
+  return (
+    `From the attached file${cite}:\n` +
+    uniq.map((l) => `- ${l}`).join("\n") +
+    `\n(Ask a narrower question if you want one field only.)`
+  );
+}
+
+/** Fallback when the in-browser model cannot run — answer the ask, never mislabel the file. */
 export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offline" | "no-model" = "offline"): string {
   void reason;
   const usable = files.filter((f) => (f.text || "").trim());
@@ -1382,15 +1634,14 @@ export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offl
   if (wantsInterviewQuestions(q)) {
     return extractiveInterviewQuestions(usable);
   }
-  // Default for explain / what is this / briefly: purpose-first overview
-  if (wantsFileOverview(q) || /\bexplain|brief|what is|about\b/i.test(q)) {
+  // Overview / explain only when the user actually asked for that.
+  if (wantsFileOverview(q)) {
     const overview = extractiveFileOverview(usable);
     if (overview) return overview;
   }
 
-  // Still prefer explanation over dumping a random chunk
-  const overview = extractiveFileOverview(usable);
-  if (overview) return overview;
+  const topic = extractiveTopicAnswer(usable, q);
+  if (topic) return topic;
 
   return `I could not find a clear answer in the attached file for: ${q}`;
 }

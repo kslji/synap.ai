@@ -1601,11 +1601,37 @@
         "- Ask “what does X do?” for a specific function or class."
       );
     }
+    function looksLikeResumeOrCv(name, raw) {
+      if (/\.(ya?ml|toml|ini|env|conf|cfg)$/i.test(name)) return false;
+      const t = String(raw || "").slice(0, 4000);
+      const hits = [
+        /professional\s+experience/i,
+        /work\s+experience/i,
+        /education/i,
+        /technical\s+skills/i,
+        /curriculum\s+vitae|\bresume\b/i,
+        /\b(bachelor|master|b\.?tech|m\.?tech|university)\b/i,
+        /\b(software|senior|junior)?\s*(engineer|developer|sde)\b/i,
+      ].filter((re) => re.test(t)).length;
+      if (/\.pdf$/i.test(name) && hits >= 1) return true;
+      return hits >= 2;
+    }
     function explainYamlOrEnv(name, raw) {
-      const isEnv = /\.env/i.test(name) || (/^[A-Z][A-Z0-9_]+=\S+/m.test(raw) && !String(raw).trimStart().startsWith("{"));
-      const isYaml = /\.(ya?ml|toml|ini|conf|cfg)$/i.test(name) || (/^[\w.-]+:\s/m.test(raw) && !String(raw).trimStart().startsWith("{") && !raw.includes("function "));
+      if (looksLikeResumeOrCv(name, raw)) return null;
+      if (/\.(pdf|docx?|md|txt)$/i.test(name) && !/\.(ya?ml|toml|ini|env|conf|cfg)$/i.test(name)) {
+        const envOnly = /^[A-Z][A-Z0-9_]+=\S+/m.test(raw) && (String(raw).match(/^[A-Z][A-Z0-9_]+=/gm) || []).length >= 3;
+        if (!envOnly) return null;
+      }
+      const isEnv =
+        /\.env/i.test(name) ||
+        ((String(raw).match(/^[A-Z][A-Z0-9_]+=\S+/gm) || []).length >= 3 && !String(raw).trimStart().startsWith("{"));
+      const extYaml = /\.(ya?ml|toml|ini|conf|cfg)$/i.test(name);
+      const keyLines = (String(raw).match(/^[A-Za-z_][\w.-]*:\s*\S+/gm) || []).length;
+      const longProse = (String(raw).match(/[A-Za-z][^.\n]{80,}/g) || []).length;
+      const isYaml =
+        extYaml || (keyLines >= 5 && longProse < 3 && !raw.includes("function ") && !String(raw).trimStart().startsWith("{"));
       if (!isEnv && !isYaml) return null;
-      if (isEnv) {
+      if (isEnv && !extYaml) {
         const keys = [...String(raw).matchAll(/^([A-Z][A-Z0-9_]+)=/gm)].map((m) => m[1]).slice(0, 12);
         return (
           "This is an **environment / secrets-style config** **[" + name + "]**.\n" +
@@ -1614,7 +1640,7 @@
           "- I explain what keys are for; I do not repeat secret values."
         );
       }
-      const keys = [...String(raw).matchAll(/^([A-Za-z_][\w.-]*)\s*:/gm)].map((m) => m[1]).slice(0, 14);
+      const keys = [...new Set([...String(raw).matchAll(/^([A-Za-z_][\w.-]*)\s*:/gm)].map((m) => m[1]))].slice(0, 14);
       return (
         "This is a **YAML/TOML-style config** **[" + name + "]**.\n" +
         "- **Why it exists:** human-editable settings for deploy, CI, or an app — named keys beat hard-coding.\n" +
@@ -1788,6 +1814,9 @@
       if (/\.json$/i.test(f.name) || raw.trimStart().startsWith("{") || raw.trimStart().startsWith("[")) {
         const explained = explainGenericJson(f.name, raw);
         if (explained) return explained;
+      }
+      if (looksLikeResumeOrCv(f.name, raw)) {
+        return explainMarkdownOrProse(f.name, raw);
       }
       if (/\.(csv|tsv)$/i.test(f.name) || (raw.includes("\n") && raw.split("\n")[0].split(/,|\t/).length >= 3)) {
         const csv = explainCsv(f.name, raw);

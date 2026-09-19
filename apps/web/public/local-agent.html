@@ -1824,6 +1824,71 @@
       if (!usable.length) return "";
       return usable.map(explainOneFile).join("\n\n");
     }
+    function softFactKey(text, tokenCap) {
+      return String(text || "")
+        .toLowerCase()
+        .replace(/\$[\d.]+/g, "$")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, tokenCap || 10)
+        .join(" ");
+    }
+    function collapseDuplicateBullets(text) {
+      const out = [];
+      const seen = new Set();
+      for (const line of String(text || "").split("\n")) {
+        const t = line.trim();
+        const bullet = t.match(/^([-•*]|\d+[.)])\s+(.*)$/);
+        if (!bullet) {
+          out.push(line);
+          continue;
+        }
+        const key = softFactKey(bullet[2], 10);
+        if (key.length > 12 && seen.has(key)) continue;
+        if (key.length > 12) seen.add(key);
+        out.push(line);
+      }
+      return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    }
+    function looksLikeLoopedSummary(text) {
+      const bullets = String(text || "")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => /^([-•*]|\d+[.)])\s+/.test(l))
+        .map((l) => softFactKey(l.replace(/^([-•*]|\d+[.)])\s+/, ""), 8))
+        .filter((k) => k.length > 10);
+      if (bullets.length < 4) return false;
+      const counts = new Map();
+      for (const k of bullets) counts.set(k, (counts.get(k) || 0) + 1);
+      const max = Math.max(...counts.values());
+      return max >= 3 || counts.size <= Math.ceil(bullets.length / 2);
+    }
+    function hardCapBullets(text, maxN) {
+      const out = [];
+      let n = 0;
+      const cap = maxN || 8;
+      for (const line of String(text || "").split("\n")) {
+        if (/^\s*([-•*]|\d+[.)])\s+/.test(line)) {
+          if (n >= cap) continue;
+          n += 1;
+        }
+        out.push(line);
+      }
+      return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    }
+    /** Same fixed iterations as the website chat — keep offline zip pack in sync. */
+    function repairLoopedReply(text, files, preferExtractive) {
+      let out = collapseDuplicateBullets(String(text || ""));
+      if (!looksLikeLoopedSummary(out)) return out;
+      if (preferExtractive && files && files.length) {
+        const rescue = extractiveFileOverview(files);
+        if (rescue) return rescue;
+      }
+      return hardCapBullets(collapseDuplicateBullets(out), 8);
+    }
     function isMetaAgentNoise(text) {
       const t = String(text || "").toLowerCase();
       return /document agent|system context|list of attached files|agent'?s? (job|role)|these instructions|conversation structure/.test(t);
@@ -1943,9 +2008,14 @@
         const waitMs = Math.round(performance.now() - startedAt);
         if (!bot.textContent) bot.textContent = "(no reply)";
         let finalText = bot.textContent;
+        const modelTagNow = String(healthCache?.active_model || healthCache?.default_model || "");
+        const lightNow = /1b|1\.5b|in-browser/i.test(modelTagNow);
         if (t.attached?.length && wantsFileOverview(asked) && isMetaAgentNoise(finalText)) {
           const rescue = extractiveFileOverview(t.attached);
           if (rescue) finalText = rescue;
+        }
+        if (lightNow || wantsFileOverview(asked) || !navigator.onLine) {
+          finalText = repairLoopedReply(finalText, t.attached, !!(t.attached?.length && wantsFileOverview(asked)));
         }
         if (!bot.isConnected) progress("");
         mountAssistant(bot);

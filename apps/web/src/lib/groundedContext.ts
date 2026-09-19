@@ -322,9 +322,45 @@ function clipAtBoundary(text: string, max: number): string {
   return slice.trimEnd();
 }
 
+function humanKey(k: string): string {
+  return k
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function explainKeyPurpose(key: string): string {
+  const k = key.toLowerCase();
+  if (/contact|people|recruiter|target/.test(k)) return "who to reach (people / hiring contacts)";
+  if (/message|outreach|template|invite|note/.test(k)) return "ready-to-send wording so you do not rewrite each invite";
+  if (/linkedin|url|link|href/.test(k)) return "a web profile or page to open";
+  if (/email|mail/.test(k)) return "an email address for contact";
+  if (/phone|mobile|tel/.test(k)) return "a phone number for contact";
+  if (/role|title|designation|position/.test(k)) return "job title / how this person shows up at work";
+  if (/company|org|employer/.test(k)) return "where they work";
+  if (/relevance|why|reason|note/.test(k)) return "why this entry matters for your goal";
+  if (/script/.test(k)) return "commands you can run (npm / shell shortcuts)";
+  if (/dependenc/.test(k)) return "libraries the project needs installed";
+  if (/version/.test(k)) return "release / version tracking";
+  if (/^main$|entry/.test(k)) return "the starting file of a program";
+  if (/name/.test(k)) return "a human or project label";
+  if (/date|time|created|updated/.test(k)) return "when something happened";
+  if (/amount|price|total|balance|debit|credit/.test(k)) return "money / quantity figures";
+  if (/skill|tech|stack/.test(k)) return "abilities or tools highlighted on purpose";
+  if (/experience|work|employment|history/.test(k)) return "past roles and proof of work";
+  if (/education|school|degree|university/.test(k)) return "schooling / credentials";
+  if (/summary|about|bio|profile/.test(k)) return "a short overview of the person or project";
+  if (/id|uuid|key/.test(k)) return "a unique id so records do not get mixed up";
+  if (/status|state/.test(k)) return "current state of an item";
+  if (/config|setting|option/.test(k)) return "settings that change how something runs";
+  return `holds “${humanKey(key)}” data so it can be found and reused`;
+}
+
 function explainPackageJson(name: string, raw: string): string | null {
   try {
     const j = JSON.parse(raw) as Record<string, unknown>;
+    if (!("scripts" in j || "dependencies" in j || "devDependencies" in j || j.main)) return null;
     const lines: string[] = [
       `This is a **Node.js package.json** for the project **${String(j.name || name.replace(/\.json$/i, ""))}** [${name}]. It tells npm/Node *what the app is* and *how to run it* — it is not the app logic itself.`,
     ];
@@ -362,14 +398,296 @@ function explainPackageJson(name: string, raw: string): string | null {
   }
 }
 
+type Contactish = {
+  name?: string;
+  role?: string;
+  title?: string;
+  linkedin?: string;
+  company?: string;
+  message?: string;
+  relevance?: string;
+};
+
+function asContactList(val: unknown): Contactish[] {
+  if (!Array.isArray(val)) return [];
+  return val.filter((x) => x && typeof x === "object") as Contactish[];
+}
+
+function explainContactsJson(name: string, data: Record<string, unknown> | unknown[]): string | null {
+  const rootArr = Array.isArray(data);
+  const obj: Record<string, unknown> = rootArr ? { list: data } : (data as Record<string, unknown>);
+  const keys = Object.keys(obj);
+  const contactKeys = keys.filter((k) =>
+    /contact|people|recruiter|outreach|message|linkedin|connection|target|list/i.test(k),
+  );
+  let contacts: Contactish[] = [];
+  let listKey = "";
+  for (const k of contactKeys.length ? contactKeys : keys) {
+    const list = asContactList(obj[k]);
+    if (list.length && (list[0].name || list[0].role || list[0].linkedin || list[0].message || list[0].title)) {
+      contacts = list;
+      listKey = k;
+      break;
+    }
+  }
+  if (!contacts.length) return null;
+
+  const sample = contacts.slice(0, 4);
+  const lines: string[] = [
+    `This file **[${name}]** is a **LinkedIn / networking outreach pack** — saved contacts and short connection notes so you can message the right people for a job or intro.`,
+    `- **Why it exists:** keep recruiter/peer targets + ready-to-send lines in one place (often under LinkedIn’s invite character limit).`,
+  ];
+  if (listKey && listKey !== "list") {
+    lines.push(
+      `- **\`${listKey}\`** — ${explainKeyPurpose(listKey)}. That key is present so you (or a tool) can load “who to contact” without digging through prose.`,
+    );
+  }
+  lines.push(`- **${contacts.length} contact(s)** in this file. Examples:`);
+  for (const c of sample) {
+    const who = [c.name, c.role || c.title, c.company].filter(Boolean).join(" — ");
+    lines.push(`  - ${who || "Contact"}${c.linkedin ? ` · LinkedIn saved` : ""}`);
+  }
+  if (contacts.some((c) => c.message || c.relevance)) {
+    lines.push(
+      `- **message / relevance fields** — draft invite text and *why this person matters* for the role. They are here so you can copy-paste a tailored note instead of writing from scratch.`,
+    );
+  }
+  const other = keys.filter((k) => k !== listKey);
+  if (other.length) {
+    lines.push(
+      `- Other top-level fields: ${other
+        .slice(0, 6)
+        .map((k) => `\`${k}\` (${explainKeyPurpose(k)})`)
+        .join("; ")}.`,
+    );
+  }
+  lines.push("In short: use it as a **call sheet + message crib** for outreach — not as random JSON to dump back.");
+  return lines.join("\n");
+}
+
+function explainJsonValueShape(v: unknown): string {
+  if (v == null) return "empty";
+  if (Array.isArray(v)) return `a list of ${v.length} item(s)`;
+  if (typeof v === "object") return `an object with ${Object.keys(v as object).length} field(s)`;
+  if (typeof v === "string") return `text (“${String(v).slice(0, 40)}${String(v).length > 40 ? "…" : ""}”)`;
+  return typeof v;
+}
+
+function explainGenericJson(name: string, raw: string): string | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>;
+      const pkg = explainPackageJson(name, raw);
+      if (pkg) return pkg;
+      const contacts = explainContactsJson(name, obj);
+      if (contacts) return contacts;
+      const keys = Object.keys(obj).slice(0, 14);
+      if (!keys.length) return null;
+      const lines = [
+        `This is a **JSON data file** **[${name}]** — structured records so a program or person can read each field reliably.`,
+        `- **Why JSON:** named fields beat a wall of prose when you need to look up or reuse data.`,
+        `- **What’s inside (and why those keys are there):**`,
+      ];
+      for (const k of keys) {
+        lines.push(`  - \`${k}\` — ${explainKeyPurpose(k)}; here it is ${explainJsonValueShape(obj[k])}.`);
+      }
+      lines.push("Ask about one field if you want a deeper walkthrough of its contents.");
+      return lines.join("\n");
+    }
+    if (Array.isArray(parsed)) {
+      const contacts = explainContactsJson(name, parsed);
+      if (contacts) return contacts;
+      const first = parsed[0];
+      const sampleKeys =
+        first && typeof first === "object" && !Array.isArray(first)
+          ? Object.keys(first as object).slice(0, 8)
+          : [];
+      return (
+        `This is a **JSON list** **[${name}]** with **${parsed.length}** items.\n` +
+        `- A list is used when many similar records matter (contacts, messages, rows, events).\n` +
+        (sampleKeys.length
+          ? `- Each item tends to include: ${sampleKeys.map((k) => `\`${k}\` (${explainKeyPurpose(k)})`).join("; ")}.\n`
+          : "") +
+        `- Ask about one item or field for more detail.`
+      );
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function explainCsv(name: string, raw: string): string | null {
+  const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return null;
+  const delim = lines[0].includes("\t") ? "\t" : ",";
+  const headers = lines[0].split(delim).map((h) => h.trim().replace(/^"|"$/g, "")).filter(Boolean);
+  if (headers.length < 2) return null;
+  return (
+    `This is a **spreadsheet / table export** **[${name}]** (${lines.length - 1} data row(s)).\n` +
+    `- **Why a table:** each column is a field you can sort, filter, or total.\n` +
+    `- **Columns (and why they’re named):** ${headers
+      .slice(0, 12)
+      .map((h) => `\`${h}\` — ${explainKeyPurpose(h)}`)
+      .join("; ")}.\n` +
+    `- Rows under those headers are the actual records. Ask about a column or total if you need numbers.`
+  );
+}
+
+function explainCodeFile(name: string, raw: string): string | null {
+  if (!/\.(py|js|jsx|ts|tsx|mjs|cjs|go|rs|java|rb|php|cs|cpp|c|h|swift|kt|sql|sh|bash|zsh)$/i.test(name)) return null;
+  const lang = name.split(".").pop() || "code";
+  const defs = [
+    ...raw.matchAll(
+      /\b(?:function|class|def|export\s+(?:async\s+)?function|export\s+class|const|let|fn|pub\s+fn|func|CREATE\s+TABLE)\s+([A-Za-z_][\w]*)/gi,
+    ),
+  ]
+    .map((m) => m[1])
+    .filter((n) => n.length > 1 && !/^(const|let|var|export|async|from|table)$/i.test(n));
+  const uniq = [...new Set(defs)].slice(0, 10);
+  const imports = [...raw.matchAll(/^(?:import|from|require\(|use\s)/gm)].length;
+  return (
+    `This is a **${lang} source file** **[${name}]** — program logic, not a config dump.\n` +
+    `- **Why it exists:** implements behavior the app runs (functions, classes, routes, helpers).\n` +
+    (imports ? `- **Imports / requires** appear so this file can reuse libraries or other modules.\n` : "") +
+    (uniq.length
+      ? `- **Named pieces here:** ${uniq.map((n) => `\`${n}\``).join(", ")} — those names mark units you can call or test.\n`
+      : "") +
+    `- Ask “what does X do?” for a specific function or class.`
+  );
+}
+
+function explainYamlOrEnv(name: string, raw: string): string | null {
+  const isEnv = /\.env/i.test(name) || (/^[A-Z][A-Z0-9_]+=\S+/m.test(raw) && !raw.trimStart().startsWith("{"));
+  const isYaml =
+    /\.(ya?ml|toml|ini|conf|cfg)$/i.test(name) ||
+    (/^[\w.-]+:\s/m.test(raw) && !raw.trimStart().startsWith("{") && !raw.includes("function "));
+  if (!isEnv && !isYaml) return null;
+  if (isEnv) {
+    const keys = [...raw.matchAll(/^([A-Z][A-Z0-9_]+)=/gm)].map((m) => m[1]).slice(0, 12);
+    return (
+      `This is an **environment / secrets-style config** **[${name}]**.\n` +
+      `- **Why it exists:** values that change per machine (API keys, URLs, flags) without editing source code.\n` +
+      (keys.length
+        ? `- **Keys present:** ${keys.map((k) => `\`${k}\``).join(", ")} — each name marks one setting so the app can read it at startup.\n`
+        : "") +
+      `- I explain what keys are for; I do not repeat secret values.`
+    );
+  }
+  const keys = [...raw.matchAll(/^([A-Za-z_][\w.-]*)\s*:/gm)].map((m) => m[1]).slice(0, 14);
+  return (
+    `This is a **YAML/TOML-style config** **[${name}]**.\n` +
+    `- **Why it exists:** human-editable settings for deploy, CI, or an app — named keys beat hard-coding.\n` +
+    (keys.length
+      ? `- **Top keys:** ${keys.map((k) => `\`${k}\` (${explainKeyPurpose(k)})`).join("; ")}.\n`
+      : "") +
+    `- Ask about one key if you want what that setting controls.`
+  );
+}
+
+function explainMarkup(name: string, raw: string): string | null {
+  if (!/\.(html?|xml|svg)$/i.test(name) && !/^\s*<[!?]?[A-Za-z]/.test(raw)) return null;
+  const tags = [...raw.matchAll(/<\/?([A-Za-z][\w:-]*)/g)].map((m) => m[1].toLowerCase());
+  const uniq = [...new Set(tags.filter((t) => !["html", "head", "body", "meta", "link", "script", "style"].includes(t)))].slice(
+    0,
+    12,
+  );
+  const kind = /\.svg$/i.test(name) ? "SVG graphic markup" : /\.xml$/i.test(name) ? "XML data document" : "HTML page markup";
+  return (
+    `This is **${kind}** **[${name}]**.\n` +
+    `- **Why it exists:** structure content for a browser or another program that reads tags.\n` +
+    (uniq.length ? `- **Notable tags:** ${uniq.map((t) => `\`${t}\``).join(", ")} — each tag names a kind of content or layout piece.\n` : "") +
+    `- Ask about a section or tag if you want what that piece is for.`
+  );
+}
+
+function explainPptxOrSlides(name: string, raw: string): string | null {
+  if (!/\.(pptx?|odp)$/i.test(name) && !/^Slide\s*\d+/im.test(raw) && !/^---\s*slide/im.test(raw)) return null;
+  const slides = [...raw.matchAll(/^Slide\s*(\d+)[:\s]*(.*)$/gim)].slice(0, 10);
+  const titles = slides.map((m) => (m[2] || `Slide ${m[1]}`).trim()).filter(Boolean);
+  return (
+    `This is a **presentation / slides extract** **[${name}]**.\n` +
+    `- **Why it exists:** talk track in chunks — one idea per slide for a live audience.\n` +
+    (titles.length
+      ? `- **Slides spotted:** ${titles.map((t) => `“${t.slice(0, 60)}${t.length > 60 ? "…" : ""}”`).join("; ")}.\n`
+      : "") +
+    `- Ask about one slide if you want that section explained.`
+  );
+}
+
+function explainMarkdownOrProse(name: string, raw: string): string {
+  const headings = [...raw.matchAll(/^#{1,3}\s+(.+)$/gm)].map((m) => m[1].trim()).slice(0, 10);
+  const labeled = [...raw.matchAll(/^([A-Za-z][A-Za-z0-9 /&-]{1,40})\s*[:|\-|–]\s*(.+)$/gm)]
+    .map((m) => ({ k: m[1].trim(), v: m[2].trim().slice(0, 80) }))
+    .filter((x) => x.k.length > 1 && x.v.length > 1)
+    .slice(0, 10);
+  const emails = [...raw.matchAll(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi)].map((m) => m[0]);
+  const urls = [...raw.matchAll(/https?:\/\/[^\s)]+/gi)].map((m) => m[0]).slice(0, 5);
+  const bullets = [...raw.matchAll(/^\s*[-*•]\s+(.+)$/gm)].map((m) => m[1].trim()).slice(0, 8);
+
+  const kind = /\.md$/i.test(name)
+    ? "Markdown notes / README"
+    : /\.pdf$/i.test(name)
+      ? "PDF text extract"
+      : /\.docx?$/i.test(name)
+        ? "Word document text"
+        : "text document";
+
+  const lines: string[] = [
+    `This is a **${kind}** **[${name}]**.`,
+    `- **Purpose:** hold readable information (story, instructions, résumé, notes) so you can ask about meaning — not so I paste it back.`,
+  ];
+
+  if (/linkedin|outreach|connection message|talent acquisition|recruiter/i.test(raw) && /hi[, ]/i.test(raw)) {
+    const names = [...raw.matchAll(/Name:\s*([^\n|]+)/gi)].map((m) => m[1].trim()).slice(0, 5);
+    return (
+      `This file **[${name}]** is a **LinkedIn outreach / connection-message guide**.\n` +
+      `- **Purpose:** short invite notes aimed at recruiters or peers for a specific role.\n` +
+      `- **Why contacts are listed:** so you know *who* to message and *why they matter*.\n` +
+      (names.length ? `- **People called out:** ${names.join("; ")}.\n` : "") +
+      `- **Why the quoted “Hi …” lines exist:** ready-to-send templates — copy, personalize, send.`
+    );
+  }
+
+  if (/experience|education|skills|resume|curriculum/i.test(raw) && (headings.length || labeled.length || bullets.length)) {
+    lines[0] = `This looks like a **résumé / profile document** **[${name}]**.`;
+    lines.push(`- **Why those sections exist:** hiring readers scan Experience, Skills, Education quickly — each block answers a different question about you.`);
+  }
+
+  if (headings.length) {
+    lines.push(
+      `- **Sections:** ${headings.map((h) => `**${h}**`).join("; ")} — headings exist to jump to topics without reading everything.`,
+    );
+  }
+  if (labeled.length) {
+    lines.push(`- **Labeled fields in the text:**`);
+    for (const { k, v } of labeled.slice(0, 6)) {
+      lines.push(`  - **${k}** — ${explainKeyPurpose(k)}; e.g. “${v}${v.length >= 80 ? "…" : ""}”`);
+    }
+  }
+  if (bullets.length && !headings.length) {
+    lines.push(
+      `- **Bullet points** (${bullets.length}+) — used to list facts or steps clearly (e.g. ${bullets
+        .slice(0, 3)
+        .map((b) => `“${b.slice(0, 50)}${b.length > 50 ? "…" : ""}”`)
+        .join("; ")}).`,
+    );
+  }
+  if (emails.length) lines.push(`- **Email(s) found:** ${[...new Set(emails)].slice(0, 3).join(", ")} — listed for contact.`);
+  if (urls.length) lines.push(`- **Links found:** ${urls.length} URL(s) — so you can open profiles or references.`);
+
+  lines.push("Ask “why is X here?” or name a section for a deeper explanation.");
+  return lines.join("\n");
+}
+
+/**
+ * Universal explainer for any attachment text — works offline.
+ * Never dumps the raw file; teaches what it is and why parts exist.
+ */
 function explainOneFile(f: NamedDoc): string {
   const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
   if (!raw) return `**[${f.name}]** — no readable text in this attachment.`;
-
-  if (/package\.json$/i.test(f.name) || (f.name.endsWith(".json") && /"name"\s*:/.test(raw) && /"scripts"\s*:|"dependencies"\s*:/.test(raw))) {
-    const explained = explainPackageJson(f.name, raw);
-    if (explained) return explained;
-  }
 
   // Zip / project tree
   if (/Extracted zip|File tree/i.test(raw)) {
@@ -388,32 +706,52 @@ function explainOneFile(f: NamedDoc): string {
     );
   }
 
-  // Resume-ish / headed docs: explain sections, don't paste
-  const headings = [...raw.matchAll(/^(#{1,3}\s+.+|[A-Z][A-Z0-9 /&-]{3,40})$/gm)]
-    .map((m) => m[1].replace(/^#+\s*/, "").trim())
-    .filter((h) => h.length > 2 && h.length < 60)
-    .slice(0, 8);
-  if (headings.length >= 2) {
+  if (/\.json$/i.test(f.name) || raw.trimStart().startsWith("{") || raw.trimStart().startsWith("[")) {
+    const explained = explainGenericJson(f.name, raw);
+    if (explained) return explained;
+  }
+
+  if (/\.(csv|tsv)$/i.test(f.name) || (raw.includes("\n") && raw.split("\n")[0].split(/,|\t/).length >= 3)) {
+    const csv = explainCsv(f.name, raw);
+    if (csv) return csv;
+  }
+
+  const slides = explainPptxOrSlides(f.name, raw);
+  if (slides) return slides;
+
+  const yamlEnv = explainYamlOrEnv(f.name, raw);
+  if (yamlEnv) return yamlEnv;
+
+  const markup = explainMarkup(f.name, raw);
+  if (markup) return markup;
+
+  const code = explainCodeFile(f.name, raw);
+  if (code) return code;
+
+  // Spreadsheet-ish sheets from xlsx extract
+  if (/^Sheet:/m.test(raw) || /\t.*\t/.test(raw)) {
+    const sheetNames = [...raw.matchAll(/^Sheet:\s*(.+)$/gm)].map((m) => m[1].trim());
     return (
-      `**[${f.name}]** looks like a structured document (e.g. résumé or notes).\n` +
-      headings.map((h) => `- **${h}** — section present in the file so a reader can find that topic quickly.`).join("\n") +
-      `\nI am explaining *why those sections are there*, not reprinting the whole file.`
+      `This looks like a **spreadsheet extract** **[${f.name}]**.\n` +
+      (sheetNames.length ? `- **Sheets:** ${sheetNames.map((s) => `\`${s}\``).join(", ")} — separate tabs for different tables.\n` : "") +
+      `- Rows and columns hold the real numbers/names; ask for a total, account, or column if you need figures.`
     );
   }
 
-  // Generic: purpose-first from first lines, not a raw dump
-  const first = clipAtBoundary(raw, 320).replace(/\s+/g, " ").trim();
-  return (
-    `**[${f.name}]** — brief reading:\n` +
-    `- This attachment holds project or document text used as the source of truth for your question.\n` +
-    `- Opening idea from the file: “${first.slice(0, 180)}${first.length > 180 ? "…" : ""}”\n` +
-    `- Ask about a specific field, script, or section if you want a deeper “why it is there” explanation.`
-  );
+  if (/\.lock$/i.test(f.name) || /package-lock|yarn\.lock|pnpm-lock|Cargo\.lock/i.test(f.name)) {
+    return (
+      `This is a **dependency lockfile** **[${f.name}]**.\n` +
+      `- **Why it exists:** pins exact library versions so installs stay reproducible across machines.\n` +
+      `- It is machine-generated — ask about a package name if you care what one dependency is for.`
+    );
+  }
+
+  return explainMarkdownOrProse(f.name, raw);
 }
 
 /**
- * Explain what the file is for and why key parts exist — never dump the raw file.
- * Used for “what is this / briefly explain” when the LLM is light or offline.
+ * Explain what each attached file is for and why key parts exist — never dump the raw file.
+ * Used online and offline for “what is this / briefly explain”.
  */
 export function extractiveFileOverview(files: NamedDoc[], _maxPerFile = 2400): string {
   void _maxPerFile;

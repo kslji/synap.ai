@@ -653,7 +653,8 @@ export function LocalChat() {
         return;
       }
     }
-    if (named.length && wantsFileOverview(asked) && lightModel && !wantsDiagram(asked)) {
+    // Purpose-first overview for any file type — works offline and with light models (no raw dump).
+    if (named.length && wantsFileOverview(asked) && !wantsDiagram(asked) && (lightModel || !networkOnline())) {
       const brief = extractiveFileOverview(named);
       if (brief) {
         const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
@@ -661,7 +662,10 @@ export function LocalChat() {
           ...thread,
           title: thread.messages.length ? thread.title : titleFrom(asked),
           updatedAt: Date.now(),
-          messages: [...history, { role: "assistant", content: brief, engine: ollamaOn ? "host" : "browser" }],
+          messages: [
+            ...history,
+            { role: "assistant", content: brief, engine: ollamaOn && networkOnline() ? "host" : "browser" },
+          ],
         };
         setInput("");
         await persist(working);

@@ -70,7 +70,7 @@ export function HomeLanding() {
           headline={HEADLINE}
           lede={LEDE}
           points={POINTS}
-          holdMs={30_000}
+          holdMs={10_000}
           middle={
             <div className="cta-row">
               <button

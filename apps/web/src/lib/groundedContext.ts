@@ -67,28 +67,53 @@ export function wantsDiagram(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
   return (
-    /\b(mermaid|flowchart|diagram|visuali[sz]e|architecture\s+(diagram|map|chart)|draw\s+(a\s+)?(flow|diagram|chart))\b/.test(
+    /\b(mermaid|flowchart|diagram|visuali[sz]e|visuali[sz]?ing|architecture\s+(diagram|map|chart)|draw\s+(a\s+)?(flow|diagram|chart)|show\s+(me\s+)?(a\s+)?(flow|diagram|chart))\b/.test(
       t,
     ) || /\bflowchart\s+(tb|td|lr|rl|bt)\b/.test(t)
   );
+}
+
+/** Collect folder/file paths from zip extract text (bullets or space-separated tree line). */
+export function pathsFromFiles(files: NamedDoc[]): string[] {
+  const blob = files.map((f) => String(f.text || "")).join("\n");
+  const paths: string[] = [];
+  const push = (raw: string) => {
+    const norm = raw
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\.\//, "")
+      .replace(/^[-*`]+/, "")
+      .replace(/\/+$/, "");
+    if (!norm || norm.length > 180) return;
+    if (/^(https?:|mailto:|file tree|extracted zip|no plain-text)/i.test(norm)) return;
+    if (!/[\\/]/.test(norm) && !/\.[A-Za-z0-9]{1,8}$/.test(norm)) {
+      // bare folder name without slash still ok if it looks like a project root
+      if (!/^[A-Za-z0-9._-]+$/.test(norm)) return;
+    }
+    if (!/[A-Za-z0-9._-]+/.test(norm)) return;
+    paths.push(norm);
+  };
+  for (const line of blob.split(/\r?\n/)) {
+    const t = line.trim().replace(/^\d+\.\s*/, "").replace(/^[-*]\s*/, "");
+    if (!t) continue;
+    if (/^file tree/i.test(t)) {
+      const after = t.replace(/^file tree[^:]*:\s*/i, "");
+      if (after && after !== t) {
+        for (const part of after.split(/\s+/)) push(part);
+      }
+      continue;
+    }
+    if (/^(extracted zip|summarize from|folder questions|--- )/i.test(t)) continue;
+    if (/[\\/]/.test(t) || t.endsWith("/")) push(t.replace(/\/+$/, ""));
+  }
+  return [...new Set(paths)];
 }
 
 /**
  * Build a Mermaid flowchart from zip file-tree lines so light models still show a diagram.
  */
 export function architectureFlowFromFiles(files: NamedDoc[]): string | null {
-  const blob = files.map((f) => String(f.text || "")).join("\n");
-  const paths: string[] = [];
-  for (const line of blob.split(/\r?\n/)) {
-    const t = line.trim().replace(/^\d+\.\s*/, "").replace(/^[-*]\s*/, "");
-    if (!t || t.length > 180) continue;
-    if (/^file tree/i.test(t)) continue;
-    if (!/[\\/]/.test(t) && !t.endsWith("/")) continue;
-    if (/^(https?:|mailto:)/i.test(t)) continue;
-    const norm = t.replace(/\\/g, "/").replace(/^\.\//, "");
-    if (!/[A-Za-z0-9._-]+/.test(norm)) continue;
-    paths.push(norm.replace(/\/+$/, ""));
-  }
+  const paths = pathsFromFiles(files);
   if (paths.length < 2) return null;
   const roots = new Map<string, Set<string>>();
   for (const p of paths) {
@@ -128,6 +153,49 @@ export function architectureFlowFromFiles(files: NamedDoc[]): string | null {
   if (lines.length < 4) return null;
   return (
     `Architecture from the attached file tree:\n\n\`\`\`mermaid\n${lines.join("\n")}\n\`\`\``
+  );
+}
+
+/** Interview Q&A from zip tree / file names when the LLM cannot run. */
+export function extractiveInterviewQuestions(files: NamedDoc[]): string {
+  const paths = pathsFromFiles(files);
+  const names = files.map((f) => f.name).filter(Boolean);
+  const root =
+    paths.map((p) => p.split("/")[0]).find(Boolean) ||
+    names[0]?.replace(/\.zip$/i, "") ||
+    "this project";
+  const kids = [
+    ...new Set(
+      paths
+        .map((p) => p.split("/").filter(Boolean)[1])
+        .filter((x): x is string => !!x),
+    ),
+  ].slice(0, 8);
+  const qs: string[] = [];
+  if (kids.length) {
+    qs.push(
+      `What does each top-level area in \`${root}\` do — especially ${kids
+        .slice(0, 4)
+        .map((k) => `\`${k}\``)
+        .join(", ")} — and how do they connect?`,
+    );
+    qs.push(`Walk me through a request that starts in one of these folders and ends in another: ${kids.map((k) => `\`${k}\``).join(", ")}.`);
+  } else {
+    qs.push(`What is \`${root}\`, and what problem does this codebase solve?`);
+  }
+  if (kids.some((k) => /test|eval|contract/i.test(k))) {
+    qs.push(`How would you test or evaluate a change here (look at folders like ${kids.filter((k) => /test|eval|contract/i.test(k)).map((k) => `\`${k}\``).join(", ") || "`tests`"})?`);
+  }
+  if (kids.some((k) => /result|trace|case/i.test(k))) {
+    qs.push(`What belongs in results, traces, or cases, and how would you debug a failing run using those artifacts?`);
+  }
+  qs.push(`If you had one day to improve \`${root}\`, what would you change first and why?`);
+  qs.push(`Which module would you open first in a code review, and what risks would you look for?`);
+  const body = qs.map((q, i) => `${i + 1}. ${q}`).join("\n\n");
+  return (
+    `Interview questions grounded in the attached project (\`${root}\`), from the zip file tree` +
+    (kids.length ? ` (folders: ${kids.map((k) => `\`${k}\``).join(", ")})` : "") +
+    `:\n\n${body}`
   );
 }
 
@@ -409,27 +477,56 @@ export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offl
   const usable = files.filter((f) => (f.text || "").trim());
   if (!usable.length) return "";
   const q = query.trim() || "What is in these files?";
+
+  if (wantsDiagram(q)) {
+    const diagram = architectureFlowFromFiles(usable);
+    if (diagram) {
+      const note =
+        reason === "offline"
+          ? "You're offline — diagram built from the zip file tree already on this chat.\n\n"
+          : "In-browser model not ready yet — diagram built from the zip file tree on this chat.\n\n";
+      return note + diagram;
+    }
+  }
+  if (wantsInterviewQuestions(q)) {
+    const note =
+      reason === "offline"
+        ? "You're offline — interview questions from the attached project tree (not the full model).\n\n"
+        : "In-browser model not ready yet — interview questions from the attached project tree.\n\n";
+    return note + extractiveInterviewQuestions(usable);
+  }
+  if (wantsFileOverview(q)) {
+    const overview = extractiveFileOverview(usable);
+    if (overview) {
+      const note =
+        reason === "offline"
+          ? "You're offline — summary from the file already on this chat.\n\n"
+          : "In-browser model not ready yet — summary from the file already on this chat.\n\n";
+      return note + overview;
+    }
+  }
+
   const blocks = usable.map((f) => {
     const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
-    const clean = raw
-      .split(/\s+/)
-      .filter((w) => {
-        if (w.length < 2) return false;
-        if (/^https?:\/\//i.test(w)) return true;
-        const alnum = (w.match(/[A-Za-z0-9]/g) || []).length;
-        return alnum >= 2 && alnum / w.length >= 0.5;
-      })
-      .join(" ")
-      .slice(0, 3500);
-    if (!clean || clean.length < 24) {
+    // Keep newlines so zip trees stay readable (do not collapse to one line).
+    const lines = raw.split("\n").map((line) => line.trimEnd());
+    const clipped: string[] = [];
+    let n = 0;
+    for (const line of lines) {
+      if (n + line.length > 3500) break;
+      clipped.push(line);
+      n += line.length + 1;
+    }
+    const clean = clipped.join("\n").trim();
+    if (!clean || clean.replace(/\s/g, "").length < 24) {
       return `**${f.name}**\nNo readable text layer in this file. It may be a scanned PDF. Attach a .txt / .docx copy, or wait until the in-browser model finishes downloading.`;
     }
-    return `**${f.name}**\n${clean}${raw.length > clean.length ? "…" : ""}`;
+    return `**${f.name}**\n${clean}${raw.length > clean.length ? "\n…" : ""}`;
   });
   const lead =
     reason === "offline"
-      ? "This tab is offline, so this is taken from the file already on this chat — not the full in-browser model."
-      : "The in-browser model is not ready on this site yet (it must download ~700 MB once per browser origin). This is taken from the file already on this chat.";
+      ? "You're offline — answering from the file already on this chat (full model not available)."
+      : "The in-browser model is not ready on this site yet (it must download ~700 MB once per browser origin). Answering from the file already on this chat.";
   return `${lead}\n\nYou asked: ${q}\n\n` + blocks.join("\n\n");
 }
 

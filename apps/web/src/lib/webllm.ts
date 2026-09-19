@@ -78,7 +78,7 @@ function engineError(err: unknown): Error {
 
 export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<MLCEngine> {
   if (!webGpuOk()) {
-    return Promise.reject(new Error("WebGPU is not available in this browser. Use Chrome or Edge."));
+    return Promise.reject(new Error("WebGPU is not available in this browser. Open this in Google Chrome only."));
   }
   if (!enginePromise) {
     enginePromise = CreateMLCEngine(BROWSER_MODEL, {

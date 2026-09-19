@@ -64,8 +64,9 @@ export function LocalSetupDialog({
           <>
             <h2 id="setup-title">On a phone or tablet</h2>
             <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-              You do not paste setup commands on mobile. Phones have no Terminal for the local zip
-              flow. Use chat in this browser, or set Surf up on a computer for fuller answers.
+              Open this in <strong>Google Chrome</strong> only. You do not paste setup commands on
+              mobile. Phones have no Terminal for the local zip flow. Use chat in Chrome, or set Surf
+              up on a computer for fuller answers.
             </p>
             <ol className="setup-steps">
               <li>
@@ -90,7 +91,8 @@ export function LocalSetupDialog({
           <>
             <h2 id="setup-title">Use Surf AI on this computer</h2>
             <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-              Download the folder, then run one command. Google Chrome opens on its own.
+              Open this in <strong>Google Chrome</strong> only. Download the folder, then run one
+              command — Chrome opens on its own.
             </p>
             <ol className="setup-steps">
               <li>

@@ -36,6 +36,7 @@ import {
   OLLAMA_DOC_BUDGET,
   OLLAMA_LIGHT_DOC_BUDGET,
   extractiveFileOverview,
+  extractiveInterviewQuestions,
   architectureFlowFromFiles,
   groundedSystem,
   isLightModelTag,
@@ -48,6 +49,7 @@ import {
   wantsFileOverview,
   wantsDiagram,
   wantsFileConvert,
+  wantsInterviewQuestions,
   FILE_CONVERT_UNSUPPORTED,
   wantsSavedSummary,
 } from "@/lib/groundedContext";
@@ -70,6 +72,7 @@ import { canDictate, startDictation } from "@/lib/dictation";
 import { completeBrowserChat, hasReadyBrowserEngine, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
+import { ChromeOnlyNotice } from "./ChromeOnlyNotice";
 
 function stampReply(messages: ChatMsg[], extra: Pick<ChatMsg, "waitMs" | "backendMs" | "engine">): ChatMsg[] {
   return messages.map((m, i, arr) =>
@@ -374,7 +377,7 @@ export function LocalChat() {
       return;
     }
     if (engine === "browser" && gpu === false) {
-      setProgress("Use Chrome or Edge with WebGPU, or switch the engine to Ollama on this computer.");
+      setProgress("Open this in Google Chrome only (WebGPU), or switch the engine to Ollama on this computer.");
       return;
     }
     const before = snapshotStats(threads, memory, files);
@@ -599,6 +602,26 @@ export function LocalChat() {
         return;
       }
     }
+    // Offline / light model: interview Qs from the zip tree (don't dump the raw extract).
+    if (
+      named.length &&
+      wantsInterviewQuestions(asked) &&
+      (lightModel || !networkOnline() || !hasReadyBrowserEngine())
+    ) {
+      const qs = extractiveInterviewQuestions(named);
+      if (qs) {
+        const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
+        const working: Thread = {
+          ...thread,
+          title: thread.messages.length ? thread.title : titleFrom(asked),
+          updatedAt: Date.now(),
+          messages: [...history, { role: "assistant", content: qs, engine: ollamaOn ? "host" : "browser" }],
+        };
+        setInput("");
+        await persist(working);
+        return;
+      }
+    }
     if (named.length && wantsFileOverview(asked) && lightModel && !wantsDiagram(asked)) {
       const brief = extractiveFileOverview(named);
       if (brief) {
@@ -624,7 +647,7 @@ export function LocalChat() {
         : Math.max(BROWSER_DOC_BUDGET, 3500),
     );
     if (!ollamaOn && gpu === false) {
-      setProgress("Use Chrome or Edge with WebGPU, or start Ollama on this computer.");
+      setProgress("Open this in Google Chrome only (WebGPU), or start Ollama on this computer.");
       return;
     }
     if (threadFiles.length && !docs) {
@@ -907,6 +930,10 @@ export function LocalChat() {
           </div>
         </header>
 
+        <OfflineBanner stayLabel="Keep using this chat" />
+
+        <ChromeOnlyNotice compact />
+
         {/1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
           <div className="light-model-note" role="note">
             <p>
@@ -919,7 +946,6 @@ export function LocalChat() {
         ) : null}
 
         <div ref={logRef} className="chat-log">
-          <OfflineBanner stayLabel="Keep using this chat" />
           <div className="mobile-only">
             <LocalEngines status={status} />
             <LocalDataCard stats={stats} origin={origin} last={last} host={hostStore} />
@@ -933,8 +959,8 @@ export function LocalChat() {
               </p>
               {gpu === false && engine === "browser" && (
                 <p className="warn">
-                  This browser cannot run the in-page model. Use Chrome or Edge, or start Ollama on
-                  this computer.
+                  This browser cannot run the in-page model. Open this in Google Chrome only, or start
+                  Ollama on this computer.
                 </p>
               )}
             </div>

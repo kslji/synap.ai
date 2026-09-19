@@ -11,6 +11,7 @@ import { AuthDialog } from "./AuthDialog";
 import { LocalSetupDialog } from "./LocalSetupDialog";
 import { OfflineBanner } from "./OfflineBanner";
 import { BrandMark } from "./BrandMark";
+import { ChromeOnlyNotice } from "./ChromeOnlyNotice";
 import { LandingTypeCycle } from "./TypeCopy";
 
 const HEADLINE = "Surf your files locally. Synap data instantly.";
@@ -66,6 +67,7 @@ export function HomeLanding() {
           stayLabel="Chat in this window"
           onStay={() => router.push("/chat")}
         />
+        <ChromeOnlyNotice />
         <LandingTypeCycle
           headline={HEADLINE}
           lede={LEDE}

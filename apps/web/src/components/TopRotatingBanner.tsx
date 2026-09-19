@@ -10,6 +10,10 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   {
+    text: "Open this in Google Chrome only — Surf’s in-browser model is built for Chrome.",
+    action: { label: "Get Chrome", href: "https://www.google.com/chrome/", external: true },
+  },
+  {
     text: "Upcoming: connect cloud models via OpenRouter - create an account when it ships.",
     action: { label: "OpenRouter", href: "https://openrouter.ai", external: true },
   },

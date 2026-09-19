@@ -134,7 +134,9 @@ function extractCompanyExperience(blob: string, query: string, cite: string): st
       }) || "";
   }
   if (!needle) return null;
-  const needleRe = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\+$/, "\\+?"), "i");
+  const esc = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\+$/, "\\+?");
+  // Word-ish boundary so “Park” does not match inside “PySpark”.
+  const needleRe = new RegExp(`(?:^|[^A-Za-z0-9])(${esc})(?![A-Za-z0-9])`, "i");
   const lines = blob.split(/\r?\n/);
   let hitIdx = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -151,7 +153,7 @@ function extractCompanyExperience(blob: string, query: string, cite: string): st
     const cand = lines[j].replace(/\s+/g, " ").trim();
     if (
       /(engineer|developer|sde|manager|analyst|architect|intern|consultant)/i.test(cand) ||
-      new RegExp(`,\\s*${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(cand)
+      new RegExp(`,\\s*${esc}`, "i").test(cand)
     ) {
       hitIdx = j;
       break;

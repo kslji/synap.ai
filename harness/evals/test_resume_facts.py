@@ -59,9 +59,18 @@ def yaml_heuristic_would_fire(raw: str) -> bool:
 
 def extract_park(blob: str) -> str | None:
     lines = blob.splitlines()
-    hit = next((i for i, ln in enumerate(lines) if re.search(r"Park\+?", ln, re.I) and re.search(r"engineer|developer|sde|,", ln, re.I)), None)
+    # Avoid matching Park inside PySpark
+    park_re = re.compile(r"(^|[^A-Za-z0-9])Park\+?(?![A-Za-z0-9])", re.I)
+    hit = next(
+        (
+            i
+            for i, ln in enumerate(lines)
+            if park_re.search(ln) and re.search(r"engineer|developer|sde|,", ln, re.I)
+        ),
+        None,
+    )
     if hit is None:
-        hit = next((i for i, ln in enumerate(lines) if re.search(r"Park\+?", ln, re.I)), None)
+        hit = next((i for i, ln in enumerate(lines) if park_re.search(ln)), None)
     if hit is None:
         return None
     window = "\n".join(lines[max(0, hit - 1) : hit + 6])

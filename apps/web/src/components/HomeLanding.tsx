@@ -28,7 +28,6 @@ export function HomeLanding() {
   const router = useRouter();
   const [setupOpen, setSetupOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
-  const [pending, setPending] = useState<null | (() => void)>(null);
 
   async function gated(fn: () => void) {
     if (!networkOnline()) {
@@ -40,7 +39,7 @@ export function HomeLanding() {
       fn();
       return;
     }
-    setPending(() => fn);
+    // Login only — stay on landing after OTP; user clicks the feature themselves.
     setAuthOpen(true);
   }
 
@@ -113,8 +112,6 @@ export function HomeLanding() {
         onClose={() => setAuthOpen(false)}
         onAuthed={() => {
           setAuthOpen(false);
-          pending?.();
-          setPending(null);
         }}
       />
     </div>

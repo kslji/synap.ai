@@ -74,7 +74,6 @@ import { canDictate, startDictation } from "@/lib/dictation";
 import { completeBrowserChat, hasReadyBrowserEngine, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
-import { ChromeOnlyNotice } from "./ChromeOnlyNotice";
 
 function stampReply(messages: ChatMsg[], extra: Pick<ChatMsg, "waitMs" | "backendMs" | "engine">): ChatMsg[] {
   return messages.map((m, i, arr) =>
@@ -952,8 +951,6 @@ export function LocalChat() {
         </header>
 
         <OfflineBanner stayLabel="Continue offline chat" onProgress={setProgress} />
-
-        <ChromeOnlyNotice compact />
 
         {/1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
           <div className="light-model-note" role="note">

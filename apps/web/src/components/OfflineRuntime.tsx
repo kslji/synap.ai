@@ -18,6 +18,8 @@ const WARM = [
   "/LOCAL-SETUP.bat",
   "/system.md",
   "/web-llm.js",
+  "/pdf.mjs",
+  "/pdf.worker.mjs",
 ];
 
 /** Save the website on this device (YouTube-style) so refresh still works with Wi-Fi off. */

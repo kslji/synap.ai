@@ -1529,6 +1529,51 @@
       }
       return out;
     }
+    let pdfLib = null;
+    async function loadPdfLib() {
+      if (!pdfLib) {
+        const lib = await import("./pdf.mjs");
+        lib.GlobalWorkerOptions.workerSrc = "./pdf.worker.mjs";
+        pdfLib = lib;
+      }
+      return pdfLib;
+    }
+    /** Real text layer via pdf.js, shipped in this folder so it works with Wi-Fi off. */
+    async function extractPdfText(name, buf) {
+      try {
+        const lib = await loadPdfLib();
+        const doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)), isEvalSupported: false, useSystemFonts: true }).promise;
+        const pages = [];
+        for (let n = 1; n <= doc.numPages; n++) {
+          const page = await doc.getPage(n);
+          const content = await page.getTextContent();
+          const lines = [];
+          let line = "";
+          let lastY = null;
+          for (const item of content.items) {
+            const y = item.transform ? item.transform[5] : null;
+            if (typeof y === "number" && lastY !== null && Math.abs(y - lastY) > 2.5) {
+              if (line.trim()) lines.push(line.replace(/\s+/g, " ").trim());
+              line = "";
+            }
+            line += typeof item.str === "string" ? item.str : "";
+            if (item.hasEOL) {
+              if (line.trim()) lines.push(line.replace(/\s+/g, " ").trim());
+              line = "";
+            }
+            if (typeof y === "number") lastY = y;
+          }
+          if (line.trim()) lines.push(line.replace(/\s+/g, " ").trim());
+          if (lines.length) pages.push(doc.numPages > 1 ? "[page " + n + "]\n" + lines.join("\n") : lines.join("\n"));
+        }
+        if (doc.destroy) await doc.destroy();
+        const text = pages.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+        if ((text.match(/[A-Za-z]/g) || []).length >= 40) return text;
+        return 'PDF "' + name + '" has no text layer (it looks like a scan). Attach a text-based PDF, .docx, or .txt so answers can quote it.';
+      } catch (err) {
+        return 'PDF "' + name + '" could not be read on this device (' + (err instanceof Error ? err.message : String(err)) + '). Keep pdf.mjs and pdf.worker.mjs next to this page.';
+      }
+    }
     async function readAttach(file) {
       try {
         if (file.type && file.type.startsWith("image/") && file.type !== "image/svg+xml") {
@@ -1544,6 +1589,7 @@
         const buf = await file.arrayBuffer();
         const lower = file.name.toLowerCase();
         if (lower.endsWith(".zip") || file.type === "application/zip") return extractZip(file.name, buf);
+        if (lower.endsWith(".pdf") || file.type === "application/pdf") return extractPdfText(file.name, buf);
         const raw = new TextDecoder().decode(buf);
         const sample = raw.slice(0, 12000);
         const printable = sample.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
@@ -1695,12 +1741,12 @@
     }
     async function downloadZip() {
       const files = [];
-      const names = ["local-agent.html", "LOCAL-SETUP.sh", "LOCAL-SETUP.bat", "system.md", "web-llm.js"];
+      const names = ["local-agent.html", "LOCAL-SETUP.sh", "LOCAL-SETUP.bat", "system.md", "web-llm.js", "pdf.mjs", "pdf.worker.mjs"];
       for (const name of names) {
         try {
           const r = await fetch("./" + name, { cache: "no-store" });
           if (!r.ok) continue;
-          files.push(name.endsWith(".js")
+          files.push(/\.(js|mjs)$/.test(name)
             ? { name: "local-ai/" + name, body: new Uint8Array(await r.arrayBuffer()) }
             : { name: "local-ai/" + name, body: await r.text() });
         } catch { /* missing in this folder */ }

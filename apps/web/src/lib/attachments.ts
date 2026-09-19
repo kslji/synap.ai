@@ -1,3 +1,5 @@
+import { extractPdfText } from "./pdfText";
+
 export type StoredAttachment = {
   id: string;
   threadId: string;
@@ -34,17 +36,33 @@ export async function unpackZipIfNeeded(file: StoredAttachment): Promise<StoredA
   return { ...file, text };
 }
 
+/** A PDF ingested before pdf.js shipped, or one that only yielded metadata. */
+function pdfTextIsWeak(text: string): boolean {
+  const t = String(text || "");
+  if (!t.trim()) return true;
+  if (looksLikeBinaryJunk(t)) return true;
+  if (/no readable text layer|stored locally|stored on this chat/i.test(t)) return true;
+  return (t.match(/[A-Za-z]/g) || []).length < 240;
+}
+
 export async function refreshPdfText(file: StoredAttachment): Promise<StoredAttachment> {
   const pdf = /\.pdf$/i.test(file.name) || file.mime.includes("pdf");
   if (!pdf || !file.bytes || file.bytes.byteLength < 8) return file;
-  if (file.text && !looksLikeBinaryJunk(file.text)) return file;
-  const extracted = readablePlainText(await extractPdf(file.bytes));
-  return {
-    ...file,
-    text:
-      extracted ||
-      `PDF "${file.name}" is stored on this chat. No readable text layer was found (it may be scanned images).`,
-  };
+  if (!pdfTextIsWeak(file.text)) return file;
+  return { ...file, text: await pdfToText(file.name, file.bytes) };
+}
+
+/** pdf.js first (real text layer), then the stream scanner, then an honest note. */
+async function pdfToText(name: string, bytes: ArrayBuffer): Promise<string> {
+  try {
+    const { text, scanned } = await extractPdfText(bytes);
+    if (!scanned && text.trim()) return text;
+  } catch {
+    /* fall through to the scanner below */
+  }
+  const scraped = readablePlainText(await extractPdf(bytes));
+  if (scraped) return scraped;
+  return `PDF "${name}" is stored on this chat, but it has no text layer (it looks like a scan or an exported image). Attach a text-based PDF, a .docx, or a .txt copy so answers can quote it.`;
 }
 
 export async function ingestFile(file: File, threadId: string): Promise<StoredAttachment> {
@@ -109,8 +127,7 @@ async function extractText(file: File, bytes: ArrayBuffer, mime: string): Promis
     return extractZipProject(file.name, bytes);
   }
   if (mime === "application/pdf" || name.endsWith(".pdf")) {
-    const extracted = readablePlainText(await extractPdf(bytes));
-    return extracted || `PDF "${file.name}" stored locally. No readable text layer was found (it may be scanned images).`;
+    return pdfToText(file.name, bytes);
   }
   if (name.endsWith(".docx") || mime.includes("wordprocessingml")) {
     const xml = await zipFileText(bytes, "word/document.xml");

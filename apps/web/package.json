@@ -5,8 +5,9 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "vendor-llm": "cp node_modules/@mlc-ai/web-llm/lib/index.js public/web-llm.js",
-    "predev": "npm run vendor-llm",
-    "prebuild": "npm run vendor-llm && node scripts/fetch-mlc-wasm.mjs",
+    "vendor-pdfjs": "node scripts/vendor-pdfjs.mjs",
+    "predev": "npm run vendor-llm && npm run vendor-pdfjs",
+    "prebuild": "npm run vendor-llm && npm run vendor-pdfjs && node scripts/fetch-mlc-wasm.mjs",
     "build": "next build",
     "postbuild": "node scripts/write-sw-precache.mjs",
     "start": "npx --yes serve out -p 3000"
@@ -16,6 +17,7 @@
     "livekit-client": "^2.15.7",
     "lucide-react": "^0.544.0",
     "next": "^15.5.4",
+    "pdfjs-dist": "^4.10.38",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

@@ -36,6 +36,7 @@ import {
   OLLAMA_DOC_BUDGET,
   groundedSystem,
   retrieveFileContext,
+  thinAttachmentReply,
   trimTurns,
   fitBrowserPrompt,
   offlineFileBrief,
@@ -519,8 +520,22 @@ export function LocalChat() {
         pdfNote = `PDF conversion failed: ${err instanceof Error ? err.message : String(err)}. Still brief the attached files.`;
       }
     }
+    const named = hydrated.map((f) => ({ name: f.name, text: f.text || "" }));
+    const thin = thinAttachmentReply(named);
+    if (thin) {
+      const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
+      const working: Thread = {
+        ...thread,
+        title: thread.messages.length ? thread.title : titleFrom(asked),
+        updatedAt: Date.now(),
+        messages: [...history, { role: "assistant", content: thin, engine: "browser" }],
+      };
+      setInput("");
+      await persist(working);
+      return;
+    }
     const docs = retrieveFileContext(
-      hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
+      named,
       asked,
       ollamaOn ? OLLAMA_DOC_BUDGET : Math.max(BROWSER_DOC_BUDGET, 3500),
     );

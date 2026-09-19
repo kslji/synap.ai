@@ -114,7 +114,11 @@ https://www.google.com/chrome/
 Do not double-click local-agent.html in Finder. Always start with the command above.
 Your chats stay on this computer. Nothing is sent to ChatGPT or Claude.
 
-This folder only has the chat page and the start scripts. Account, email, and voice code stay on the website — they are not part of this download.
+Keep every file in this folder together. local-agent.html reads PDFs with pdf.mjs and
+pdf.worker.mjs, and runs the in-browser model from web-llm.js. Moving the HTML out on its
+own means PDFs stop being readable.
+
+Account, email, and voice code stay on the website — they are not part of this download.
 `;
 
 type Packed = { kind: "text"; body: string } | { kind: "bin"; body: Uint8Array };
@@ -125,6 +129,8 @@ const PACK_PATHS = [
   "/LOCAL-SETUP.bat",
   "/system.md",
   "/web-llm.js",
+  "/pdf.mjs",
+  "/pdf.worker.mjs",
 ] as const;
 
 const memoryPack = new Map<string, Packed>();
@@ -135,7 +141,7 @@ async function readPackFile(path: string): Promise<Packed | null> {
   try {
     const res = await fetch(path, { cache: "force-cache" });
     if (!res.ok) return null;
-    const packed: Packed = path.endsWith(".js")
+    const packed: Packed = /\.(js|mjs)$/.test(path)
       ? { kind: "bin", body: new Uint8Array(await res.arrayBuffer()) }
       : { kind: "text", body: await res.text() };
     memoryPack.set(path, packed);
@@ -165,7 +171,7 @@ export async function downloadOnThisDevice(): Promise<void> {
     { name: "local-ai/LOCAL-SETUP.bat", body: setupBat.body },
     { name: "local-ai/README.txt", body: README },
   ];
-  for (const name of ["system.md", "web-llm.js"] as const) {
+  for (const name of ["system.md", "web-llm.js", "pdf.mjs", "pdf.worker.mjs"] as const) {
     const extra = await readPackFile(`/${name}`);
     if (!extra) continue;
     files.push({ name: `local-ai/${name}`, body: extra.body });

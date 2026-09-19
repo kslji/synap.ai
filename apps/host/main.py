@@ -63,9 +63,29 @@ _SYSTEM_PROMPT: str | None = None
 _FILE_GROUND = (
     "Attached files follow. Infer what they actually are from the filename and text. "
     "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. "
-    "Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. "
+    "Do not invent folders, tests, READMEs, jobs, meetings, people, or a next-step unless they appear below. "
+    "If the text is only a filename or a could-not-read note, say you could not read the file. Do not invent a story. "
     "If a line says you cannot see pixels, do not describe the image.\n\n"
 )
+
+_THIN_FILE = re.compile(
+    r"no readable text|no text layer|cannot see the pixels|stored locally"
+    r"|looks binary so no text|could not be read",
+    re.I,
+)
+_THIN_REPLY = (
+    "I could not read enough text from this file to summarize it honestly. "
+    "If it is a scanned or image-only PDF, attach a Word / Google Doc export or a text-based PDF."
+)
+
+
+def _file_ctx_too_thin(file_ctx: str) -> bool:
+    body = re.sub(r"^(OVERRIDE:|Attached files follow\.).*?(?:\n\n|$)", "", file_ctx, flags=re.S)
+    body = re.sub(r"^### .+$", "", body, flags=re.M)
+    letters = len(re.findall(r"[A-Za-z]", body))
+    if _THIN_FILE.search(file_ctx) and letters < 240:
+        return True
+    return letters < 90
 
 
 def load_system_prompt() -> str:
@@ -583,6 +603,7 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
     sources = sources[:8]
 
     ground = ""
+    canned = ""
     if file_ctx:
         interview = bool(
             re.search(
@@ -592,7 +613,9 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
             )
         )
         already = file_ctx.lstrip().startswith(("OVERRIDE:", "Attached files follow."))
-        if already:
+        if _file_ctx_too_thin(file_ctx):
+            canned = _THIN_REPLY
+        elif already:
             ground = file_ctx[:18000]
         elif interview:
             ground = (
@@ -652,18 +675,22 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
             "user_message_id": user_msg["id"],
         }
         yield f"data: {json.dumps(meta)}\n\n"
-        try:
-            async for raw in stream_chat(model, ollama_messages, engine):
-                chunk = json.loads(raw)
-                piece = (chunk.get("message") or {}).get("content") or ""
-                if piece:
-                    assistant += piece
-                    yield f"data: {json.dumps({'type': 'delta', 'content': piece})}\n\n"
-                if chunk.get("done"):
-                    break
-        except httpx.HTTPError as exc:
-            error = str(exc)
-            yield f"data: {json.dumps({'type': 'error', 'detail': error})}\n\n"
+        if canned:
+            assistant = canned
+            yield f"data: {json.dumps({'type': 'delta', 'content': canned})}\n\n"
+        else:
+            try:
+                async for raw in stream_chat(model, ollama_messages, engine):
+                    chunk = json.loads(raw)
+                    piece = (chunk.get("message") or {}).get("content") or ""
+                    if piece:
+                        assistant += piece
+                        yield f"data: {json.dumps({'type': 'delta', 'content': piece})}\n\n"
+                    if chunk.get("done"):
+                        break
+            except httpx.HTTPError as exc:
+                error = str(exc)
+                yield f"data: {json.dumps({'type': 'error', 'detail': error})}\n\n"
 
         if assistant:
             saved = add_message(conversation_id, "assistant", assistant)

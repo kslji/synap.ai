@@ -26,15 +26,35 @@ export function wantsSavedSummary(q: string): boolean {
   );
 }
 
-export function chunkText(text: string, size = 480, overlap = 70): string[] {
-  const t = String(text || "").replace(/\s+/g, " ").trim();
+/**
+ * Chunk on real line and paragraph boundaries so a section header stays with its
+ * body. Flattening every newline used to cut "TECHNICAL SKILLS" away from the list.
+ */
+export function chunkText(text: string, size = 700, overlap = 90): string[] {
+  const t = String(text || "").replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
   if (!t) return [];
+  const lines = t.split("\n").map((l) => l.trim());
   const chunks: string[] = [];
-  const step = Math.max(80, size - overlap);
-  for (let i = 0; i < t.length; i += step) {
-    chunks.push(t.slice(i, i + size));
-    if (i + size >= t.length) break;
+  let buf = "";
+  const flush = () => {
+    if (!buf.trim()) return;
+    chunks.push(buf.trim());
+    const tail = buf.slice(-overlap);
+    buf = overlap && tail.trim() ? `${tail.trim()}\n` : "";
+  };
+  for (const line of lines) {
+    if (!line) continue;
+    if (buf.length + line.length + 1 > size) flush();
+    if (line.length > size) {
+      for (let i = 0; i < line.length; i += size) {
+        chunks.push(line.slice(i, i + size));
+      }
+      buf = "";
+      continue;
+    }
+    buf += `${line}\n`;
   }
+  if (buf.trim()) chunks.push(buf.trim());
   return chunks.slice(0, 60);
 }
 
@@ -78,8 +98,28 @@ const FILE_GROUND =
   "Attached files follow. Infer what they actually are from the filename and text " +
   "(any personal or work document, photo note, spreadsheet, PDF, or code). " +
   "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. " +
-  "Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. " +
+  "Do not invent folders, tests, READMEs, jobs, meetings, people, or a next-step unless they appear below. " +
+  "If the text is only a filename or a 'could not read' note, say you could not read the file. Do not invent a story. " +
   "If a line says you cannot see pixels, do not describe the image.\n\n";
+
+const STUB =
+  /no readable text|no text layer|cannot see the pixels|stored locally|looks binary so no text|could not be read/i;
+
+export function thinAttachmentReply(files: NamedDoc[]): string | null {
+  const usable = files.filter((f) => String(f.text || "").trim());
+  if (!usable.length) {
+    return "This file is on the chat, but I could not read any text from it. If it is a scanned or image-only PDF, attach a Word / Google Doc export or a text-based PDF.";
+  }
+  const body = usable.map((f) => String(f.text || "")).join("\n");
+  const letters = (body.match(/[A-Za-z]/g) || []).length;
+  if (STUB.test(body) && letters < 240) {
+    return "I could not read enough text from this PDF (it may be a scan or LinkedIn print-out). Attach a text-based résumé (Word or Print-to-PDF from Docs), then ask again.";
+  }
+  if (letters < 90) {
+    return "I only got a few words from this file, not enough to summarize it honestly. Attach a text-based copy so I am not guessing.";
+  }
+  return null;
+}
 
 export function retrieveFileContext(files: NamedDoc[], query: string, budget: number): string {
   const usable = files.filter((f) => (f.text || "").trim());

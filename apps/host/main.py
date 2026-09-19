@@ -637,7 +637,19 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
             ground = (
                 "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. "
                 "Write only numbered interview Q&A grounded in whatever these files actually are. "
+                "Number items 1, 2, 3 in order (never repeat 1). Do not put a blank line between each item. "
                 "Do not force a project or folder template. Keep each answer to 1-2 short sentences.\n\n"
+                + file_ctx[:file_cap]
+            )
+        elif re.search(
+            r"\b(mermaid|flowchart|diagram|visuali[sz]e|architecture)\b",
+            question,
+            re.I,
+        ):
+            ground = (
+                "OVERRIDE: The user asked for an ARCHITECTURE / FLOW DIAGRAM. "
+                "Reply with a short intro and a fenced mermaid flowchart TB using real folder names from the files. "
+                "Do not dump only a file tree list.\n\n"
                 + file_ctx[:file_cap]
             )
         elif re.search(

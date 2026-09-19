@@ -73,7 +73,9 @@ function prose(block: string): ReactNode {
       list = list || [];
       list.push(ol[2]);
     } else if (!line.trim()) {
-      flush();
+      // Keep ul/ol open across blank lines so "1.\n\n1." becomes one list (1, 2, 3…),
+      // not four separate lists that all show "1."
+      continue;
     } else {
       flush();
       nodes.push(<p key={nodes.length}>{inline(line)}</p>);

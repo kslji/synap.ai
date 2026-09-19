@@ -46,6 +46,7 @@ export function wantsSavedSummary(q: string): boolean {
 export function wantsFileOverview(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
+  if (wantsDiagram(q)) return false;
   if (
     /\b(summar(y|ise|ize)?|overview|brief(?:ing)?|recap)\b/.test(t) ||
     /\bwhat(?:'s| is| does)\s+(this|it)\b/.test(t) ||
@@ -54,12 +55,80 @@ export function wantsFileOverview(q: string): boolean {
     (/\b(include[sd]?|consist|contain)\b/.test(t) && /\b(this|file|attachment|zip|doc)\b/.test(t)) ||
     /\bwhat is this\b/.test(t) ||
     /\bwalk (me )?through\b/.test(t) ||
-    /\b(folder (tree|structure)|mermaid|diagram|visuali[sz]e)\b/.test(t) ||
     /\bexplain (the |this )?(project|repo|zip|file)\b/.test(t)
   ) {
     return true;
   }
   return false;
+}
+
+/** User asked for a flowchart / architecture diagram (not a text dump). */
+export function wantsDiagram(q: string): boolean {
+  const t = q.trim().toLowerCase();
+  if (!t) return false;
+  return (
+    /\b(mermaid|flowchart|diagram|visuali[sz]e|architecture\s+(diagram|map|chart)|draw\s+(a\s+)?(flow|diagram|chart))\b/.test(
+      t,
+    ) || /\bflowchart\s+(tb|td|lr|rl|bt)\b/.test(t)
+  );
+}
+
+/**
+ * Build a Mermaid flowchart from zip file-tree lines so light models still show a diagram.
+ */
+export function architectureFlowFromFiles(files: NamedDoc[]): string | null {
+  const blob = files.map((f) => String(f.text || "")).join("\n");
+  const paths: string[] = [];
+  for (const line of blob.split(/\r?\n/)) {
+    const t = line.trim().replace(/^\d+\.\s*/, "").replace(/^[-*]\s*/, "");
+    if (!t || t.length > 180) continue;
+    if (/^file tree/i.test(t)) continue;
+    if (!/[\\/]/.test(t) && !t.endsWith("/")) continue;
+    if (/^(https?:|mailto:)/i.test(t)) continue;
+    const norm = t.replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!/[A-Za-z0-9._-]+/.test(norm)) continue;
+    paths.push(norm.replace(/\/+$/, ""));
+  }
+  if (paths.length < 2) return null;
+  const roots = new Map<string, Set<string>>();
+  for (const p of paths) {
+    const parts = p.split("/").filter(Boolean);
+    if (!parts.length) continue;
+    const root = parts[0];
+    const child = parts[1];
+    if (!roots.has(root)) roots.set(root, new Set());
+    if (child) roots.get(root)!.add(child);
+  }
+  const entries = [...roots.entries()].sort((a, b) => b[1].size - a[1].size);
+  if (!entries.length) return null;
+  const [root, kids] = entries[0];
+  const id = (s: string) =>
+    "N" +
+    s
+      .replace(/[^A-Za-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 28);
+  const lines = [`flowchart TB`, `  ${id(root)}["${root}"]`];
+  const childList = [...kids].slice(0, 10);
+  if (!childList.length) {
+    for (const p of paths.slice(0, 8)) {
+      const parts = p.split("/").filter(Boolean);
+      if (parts.length < 2) continue;
+      childList.push(parts[1]);
+      if (childList.length >= 8) break;
+    }
+  }
+  const seen = new Set<string>();
+  for (const c of childList) {
+    if (seen.has(c)) continue;
+    seen.add(c);
+    lines.push(`  ${id(c)}["${c}"]`);
+    lines.push(`  ${id(root)} --> ${id(c)}`);
+  }
+  if (lines.length < 4) return null;
+  return (
+    `Architecture from the attached file tree:\n\n\`\`\`mermaid\n${lines.join("\n")}\n\`\`\``
+  );
 }
 
 /** Light models often paraphrase the system prompt instead of the file — detect that. */
@@ -289,7 +358,17 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
     return (
       "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. " +
       "Write only numbered interview Q&A grounded in whatever these files actually are. " +
+      "Number items 1, 2, 3 in order (never repeat 1). Keep one blank line only after the intro, not between each item. " +
       "Do not force a project or folder template.\n\n" +
+      heads().slice(0, budget)
+    );
+  }
+  if (wantsDiagram(query)) {
+    return (
+      "OVERRIDE: The user asked for an ARCHITECTURE / FLOW DIAGRAM. " +
+      "Reply with a short intro, then a fenced mermaid block using flowchart TB and real folder or module names from the files below. " +
+      "Example shape:\n```mermaid\nflowchart TB\n  root[project] --> a[folder_a]\n  root --> b[folder_b]\n```\n" +
+      "Do not dump the raw file tree as the whole answer.\n\n" +
       heads().slice(0, budget)
     );
   }

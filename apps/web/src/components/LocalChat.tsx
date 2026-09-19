@@ -36,6 +36,7 @@ import {
   OLLAMA_DOC_BUDGET,
   OLLAMA_LIGHT_DOC_BUDGET,
   extractiveFileOverview,
+  architectureFlowFromFiles,
   groundedSystem,
   isLightModelTag,
   isMetaAgentNoise,
@@ -45,6 +46,7 @@ import {
   fitBrowserPrompt,
   offlineFileBrief,
   wantsFileOverview,
+  wantsDiagram,
   wantsFileConvert,
   FILE_CONVERT_UNSUPPORTED,
   wantsSavedSummary,
@@ -582,7 +584,22 @@ export function LocalChat() {
     const modelTag = status?.active_model || status?.default_model || "";
     const lightModel =
       isLightModelTag(modelTag) || (!status?.local_llm?.backend && !status?.ollama);
-    if (named.length && wantsFileOverview(asked) && lightModel) {
+    if (named.length && wantsDiagram(asked)) {
+      const diagram = architectureFlowFromFiles(named);
+      if (diagram) {
+        const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
+        const working: Thread = {
+          ...thread,
+          title: thread.messages.length ? thread.title : titleFrom(asked),
+          updatedAt: Date.now(),
+          messages: [...history, { role: "assistant", content: diagram, engine: ollamaOn ? "host" : "browser" }],
+        };
+        setInput("");
+        await persist(working);
+        return;
+      }
+    }
+    if (named.length && wantsFileOverview(asked) && lightModel && !wantsDiagram(asked)) {
       const brief = extractiveFileOverview(named);
       if (brief) {
         const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];

@@ -16,7 +16,14 @@ export const OLLAMA_MEMORY_BUDGET = 1200;
 export function wantsSavedSummary(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
-  if (/\b(zip|file|project|code|repo|folder|readme)\b/.test(t) && !/\b(saved|chat|memory)\b/.test(t)) {
+  // Attachment / “what does this include” → file overview, not the Save-summary memory note.
+  if (
+    /\b(zip|file|project|code|repo|folder|readme|attachment|attached|include[sd]?|consist)\b/.test(t) &&
+    !/\b(saved|chat|memory)\b/.test(t)
+  ) {
+    return false;
+  }
+  if (/\b(this|it)\b/.test(t) && /\b(summar|include|consist|about|contain)\b/.test(t) && !/\b(saved|chat|memory)\b/.test(t)) {
     return false;
   }
   return (
@@ -25,6 +32,63 @@ export function wantsSavedSummary(q: string): boolean {
     /^summary\??$/.test(t)
   );
 }
+
+/** User wants what’s inside the attached file(s), not chat memory or agent instructions. */
+export function wantsFileOverview(q: string): boolean {
+  const t = q.trim().toLowerCase();
+  if (!t) return false;
+  if (
+    /\b(summar(y|ise|ize)?|overview|brief(?:ing)?|recap)\b/.test(t) ||
+    /\bwhat(?:'s| is| does)\s+(this|it)\b/.test(t) ||
+    /\bwhat\s+(does\s+)?this\s+include/.test(t) ||
+    /\b(tell me|explain|describe)\s+(what\s+)?(this|the\s+file|the\s+attachment)\b/.test(t) ||
+    (/\b(include[sd]?|consist|contain)\b/.test(t) && /\b(this|file|attachment|zip|doc)\b/.test(t)) ||
+    /\bwhat is this\b/.test(t) ||
+    /\bwalk (me )?through\b/.test(t) ||
+    /\b(folder (tree|structure)|mermaid|diagram|visuali[sz]e)\b/.test(t) ||
+    /\bexplain (the |this )?(project|repo|zip|file)\b/.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Light models often paraphrase the system prompt instead of the file — detect that. */
+export function isMetaAgentNoise(text: string): boolean {
+  const t = String(text || "").toLowerCase();
+  return (
+    /document agent/.test(t) ||
+    /based on the provided text, the summary includes/.test(t) ||
+    /system context/.test(t) ||
+    /list of attached files/.test(t) ||
+    /agent'?s? (job|role) (description|and responsibilities)/.test(t) ||
+    /these instructions/.test(t) ||
+    /conversation structure/.test(t) ||
+    /folder listing/.test(t) && /agent/.test(t)
+  );
+}
+
+/** Honest file summary without the LLM (used for 1B / when the model goes meta). */
+export function extractiveFileOverview(files: NamedDoc[], maxPerFile = 3200): string {
+  const usable = files.filter((f) => String(f.text || "").trim());
+  if (!usable.length) return "";
+  const parts = usable.map((f) => {
+    const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
+    const body = raw.slice(0, maxPerFile);
+    return `**${f.name}**\n${body}${raw.length > maxPerFile ? "\n…" : ""}`;
+  });
+  return (
+    `Here is what the attached file${usable.length > 1 ? "s contain" : " contains"} ` +
+    `(taken from the file text on this chat — not from earlier messages or agent instructions):\n\n` +
+    parts.join("\n\n")
+  );
+}
+
+const OVERVIEW_OVERRIDE =
+  "OVERRIDE: The user wants a SUMMARY of the ATTACHED FILE contents only. " +
+  "Name each file and summarize what is inside it using quotes, headings, paths, and numbers from the text below. " +
+  "Do NOT describe your role, job, instructions, the chat UI, system context, conversation structure, or a generic document-agent briefing. " +
+  "If you cannot quote real phrases from the files below, say you could not read them.\n\n";
 
 /**
  * Chunk on real line and paragraph boundaries so a section header stays with its
@@ -185,10 +249,6 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   if (!usable.length) return "";
   const heads = () =>
     usable.map((f) => `### ${f.name}\n${f.text.slice(0, Math.min(budget, 18000))}`).join("\n\n");
-  const wantsOverview =
-    /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|walk (me )?through|brief me|what(?:'s| is) (in )?this)\b/i.test(
-      query,
-    );
   if (wantsInterviewQuestions(query)) {
     return (
       "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. " +
@@ -197,8 +257,8 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
       heads().slice(0, budget)
     );
   }
-  if (wantsOverview) {
-    return FILE_GROUND + heads().slice(0, budget);
+  if (wantsFileOverview(query)) {
+    return OVERVIEW_OVERRIDE + heads().slice(0, budget);
   }
   const ranked: Array<{ name: string; text: string; s: number; i: number }> = [];
   for (const f of usable) {
@@ -329,6 +389,7 @@ export function groundedSystem(memory: string, extra: string, memoryBudget: numb
     "You are a document agent on this device. Infer what was attached from the text, then answer the user's ask. " +
     "Stay accurate. Prefer attached-file excerpts, then recent chat, then retained memory. " +
     "Do not invent names, jobs, folders, or facts that are not in that context. " +
+    "When the user asks for a summary of “this” or what something includes, and files are attached, summarize those files only — never summarize your role, these instructions, or the chat structure. " +
     "Interview questions: numbered Q&A from the files. Images: you cannot see pixels unless the note says otherwise. " +
     "Do not mention Moss, Ollama, WebGPU, or this product unless the user or files do. " +
     "Use retained memory silently. Never reprint it. Never output headings like User Memory Note, Open Tasks, or Retained Information unless the user asked to see the saved summary." +

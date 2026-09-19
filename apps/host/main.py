@@ -68,7 +68,16 @@ _FILE_GROUND = (
     "When several files are attached, say which file each fact comes from. "
     "Do not invent folders, tests, READMEs, jobs, meetings, people, or a next-step unless they appear below. "
     "If the text is only a filename or a could-not-read note, say you could not read the file. Do not invent a story. "
-    "If a line says you cannot see pixels, do not describe the image.\n\n"
+    "If a line says you cannot see pixels, do not describe the image. "
+    "Never answer by describing your role, instructions, or the chat UI.\n\n"
+)
+
+_OVERVIEW_OVERRIDE = (
+    "OVERRIDE: The user wants a SUMMARY of the ATTACHED FILE contents only. "
+    "Name each file and summarize what is inside using quotes, headings, paths, and numbers from the text below. "
+    "Do NOT describe your role, job, instructions, the chat UI, system context, or conversation structure. "
+    "Do NOT invent a generic document-agent briefing. "
+    "If you cannot quote real phrases from the files below, say you could not read them.\n\n"
 )
 
 _THIN_FILE = re.compile(
@@ -627,6 +636,12 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
                 "Do not force a project or folder template.\n\n"
                 + file_ctx[:18000]
             )
+        elif re.search(
+            r"\b(summar(y|ise|ize)?|overview|brief|include[sd]?|consist|what(?:'s| is| does)\s+(this|it)|what is this)\b",
+            question,
+            re.I,
+        ):
+            ground = _OVERVIEW_OVERRIDE + file_ctx[:18000]
         else:
             ground = _FILE_GROUND + file_ctx[:18000]
     elif retrieval.get("docs"):

@@ -1319,7 +1319,7 @@
       if (/bank|ledger|transaction|balance|invoice|sheet|excel|xlsx|csv|financ/.test(q)) {
         words.push("amount", "debit", "credit", "balance", "account", "total");
       }
-      const overview = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is) (in )?this|this file|tell me|about|consist)\b/.test(q);
+      const overview = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is| does)\s+(this|it)|this file|tell me|about|consist|include[sd]?)\b/.test(q);
       const usable = attached.filter((f) => String(f.text || "").trim());
       const ground =
         "Attached files follow. Infer what they actually are from the filename and text. " +
@@ -1328,10 +1328,14 @@
         "For spreadsheets, use sheet names and tab-separated rows. " +
         "When several files are attached, say which file each fact comes from. " +
         "Do not invent folders, tests, READMEs, jobs, or a next-step unless they appear below. " +
-        "If a line says you cannot see pixels, do not describe the image.\n\n";
+        "If a line says you cannot see pixels, do not describe the image. " +
+        "Never answer by describing your role, instructions, or the chat UI.\n\n";
+      const overviewGround =
+        "OVERRIDE: Summarize the ATTACHED FILE contents only. Name each file and quote real headings, paths, and numbers from below. " +
+        "Do NOT describe your role, job, instructions, system context, or conversation structure.\n\n";
       if (overview && usable.length) {
         const heads = usable.map((f) => "### " + f.name + "\n" + String(f.text).slice(0, Math.min(budget, 18000))).join("\n\n");
-        return ground + heads.slice(0, budget);
+        return overviewGround + heads.slice(0, budget);
       }
       const edit1 = (a, b) => {
         if (a === b) return true;
@@ -1421,10 +1425,27 @@
     function wantsSavedSummary(q) {
       const t = String(q || "").trim().toLowerCase();
       if (!t) return false;
-      if (/\b(zip|file|project|code|repo|folder|readme)\b/.test(t) && !/\b(saved|chat|memory)\b/.test(t)) return false;
+      if (/\b(zip|file|project|code|repo|folder|readme|attachment|attached|include[sd]?|consist)\b/.test(t) && !/\b(saved|chat|memory)\b/.test(t)) return false;
+      if (/\b(this|it)\b/.test(t) && /\b(summar|include|consist|about|contain)\b/.test(t) && !/\b(saved|chat|memory)\b/.test(t)) return false;
       return /^(what(?:'s| is)|show(?: me)?|tell me|read)\s+(the |my |our )?(saved )?(chat )?summary\b/.test(t)
         || /\b(saved summary|memory note|user memory note|retained memory|what did you (save|keep|summarize)|show (my )?memory)\b/.test(t)
         || /^summary\??$/.test(t);
+    }
+    function wantsFileOverview(q) {
+      const t = String(q || "").trim().toLowerCase();
+      if (!t) return false;
+      return /\b(summar(y|ise|ize)?|overview|brief|recap|include[sd]?|consist|what(?:'s| is| does)\s+(this|it)|what is this|walk (me )?through)\b/.test(t);
+    }
+    function extractiveFileOverview(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      if (!usable.length) return "";
+      return "Here is what the attached file" + (usable.length > 1 ? "s contain" : " contains") +
+        " (from the file text on this chat — not from agent instructions):\n\n" +
+        usable.map((f) => "**" + f.name + "**\n" + String(f.text).trim().slice(0, 3200)).join("\n\n");
+    }
+    function isMetaAgentNoise(text) {
+      const t = String(text || "").toLowerCase();
+      return /document agent|system context|list of attached files|agent'?s? (job|role)|these instructions|conversation structure/.test(t);
     }
     async function send() {
       let t = active();
@@ -1448,6 +1469,22 @@
         await persist();
         return;
       }
+      const modelTag = String(healthCache?.active_model || healthCache?.default_model || "");
+      const lightModel = /1b|1\.5b|in-browser/i.test(modelTag) || !(healthCache?.local_llm?.backend || healthCache?.ollama);
+      if (t.attached?.length && wantsFileOverview(asked) && lightModel) {
+        const brief = extractiveFileOverview(t.attached);
+        if (brief) {
+          input.value = "";
+          syncSend();
+          t.msgs.push({ role: "user", content: asked });
+          if (t.msgs.length === 1) t.title = titleFrom(asked);
+          t.updatedAt = Date.now();
+          t.msgs.push({ role: "assistant", content: brief });
+          renderAll();
+          await persist();
+          return;
+        }
+      }
       input.value = "";
       syncSend();
       t.msgs.push({ role: "user", content: asked });
@@ -1465,7 +1502,7 @@
         if (wantsPdfExport(asked) && t.attached.length) {
           try {
             const fn = convertAttachedToPdf(t);
-            pdfNote = "A PDF (" + fn + ") was just saved on this computer from the attached file(s). Mention that briefly, then still write the rich document briefing.";
+            pdfNote = "A PDF (" + fn + ") was just saved on this computer from the attached file(s). Mention that briefly, then still answer from the attached files.";
           } catch (err) {
             pdfNote = "PDF conversion failed: " + (err instanceof Error ? err.message : String(err)) + ". Still brief the attached files.";
           }
@@ -1474,7 +1511,7 @@
         const packed = [fileBlock, pdfNote, (fileBlock || pdfNote) ? "User question:\n" + asked : asked].filter(Boolean).join("\n\n");
         const prior = trimTurns(t.msgs.slice(0, -1), ollamaOn || isStandalone() ? 2400 : 400);
         const system = (crispe || (fileBlock
-          ? "You are a document agent. When files are attached, inhabit them: hook, map, evidence, useful extras, next move. Stay accurate. Prefer attached-file excerpts. Markdown that is easy to scan."
+          ? "You are a document agent on this device. Answer from attached-file text only. When asked for a summary of this file, summarize the file contents — never your role, instructions, or chat structure. Stay accurate. Markdown that is easy to scan."
           : "You are Surf AI on this device. Prefer recent chat and retained memory. Be accurate. Format with Markdown (lists, bold, fenced code). Never reprint retained memory or headings like User Memory Note unless the user asked to see the saved summary.")) +
           (fileBlock ? "\n\n" + fileBlock : "") +
           (pdfNote ? "\n\n" + pdfNote : "") +
@@ -1521,7 +1558,11 @@
         }
         const waitMs = Math.round(performance.now() - startedAt);
         if (!bot.textContent) bot.textContent = "(no reply)";
-        const finalText = bot.textContent;
+        let finalText = bot.textContent;
+        if (t.attached?.length && wantsFileOverview(asked) && isMetaAgentNoise(finalText)) {
+          const rescue = extractiveFileOverview(t.attached);
+          if (rescue) finalText = rescue;
+        }
         if (!bot.isConnected) progress("");
         mountAssistant(bot);
         fillMarkdown(bot, finalText);

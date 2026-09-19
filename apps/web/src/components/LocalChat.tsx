@@ -34,12 +34,15 @@ import {
   BROWSER_MEMORY_BUDGET,
   BROWSER_TURN_BUDGET,
   OLLAMA_DOC_BUDGET,
+  extractiveFileOverview,
   groundedSystem,
+  isMetaAgentNoise,
   retrieveFileContext,
   thinAttachmentReply,
   trimTurns,
   fitBrowserPrompt,
   offlineFileBrief,
+  wantsFileOverview,
   wantsPdfExport,
   wantsSavedSummary,
 } from "@/lib/groundedContext";
@@ -534,6 +537,26 @@ export function LocalChat() {
       await persist(working);
       return;
     }
+    // llama3.2:1b often summarizes the system prompt instead of the file — give an extractive brief.
+    const modelTag = status?.active_model || status?.default_model || "";
+    const lightModel =
+      /1b|1\.5b|in-browser/i.test(modelTag) ||
+      (!status?.local_llm?.backend && !status?.ollama);
+    if (named.length && wantsFileOverview(asked) && lightModel) {
+      const brief = extractiveFileOverview(named);
+      if (brief) {
+        const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
+        const working: Thread = {
+          ...thread,
+          title: thread.messages.length ? thread.title : titleFrom(asked),
+          updatedAt: Date.now(),
+          messages: [...history, { role: "assistant", content: brief, engine: ollamaOn ? "host" : "browser" }],
+        };
+        setInput("");
+        await persist(working);
+        return;
+      }
+    }
     const docs = retrieveFileContext(
       named,
       asked,
@@ -582,11 +605,26 @@ export function LocalChat() {
       const finish = (extra: Pick<ChatMsg, "waitMs" | "backendMs" | "engine">, conversation_id?: string) => {
         setActive((cur) => {
           if (!cur || cur.id !== working.id) return cur;
+          const last = cur.messages[cur.messages.length - 1];
+          let messages = stampReply(cur.messages, extra);
+          if (
+            named.length &&
+            wantsFileOverview(asked) &&
+            last?.role === "assistant" &&
+            isMetaAgentNoise(last.content)
+          ) {
+            const rescue = extractiveFileOverview(named);
+            if (rescue) {
+              messages = messages.map((m, i, arr) =>
+                i === arr.length - 1 && m.role === "assistant" ? { ...m, content: rescue, ...extra } : m,
+              );
+            }
+          }
           const done = {
             ...cur,
             hostConversationId: conversation_id || cur.hostConversationId,
             updatedAt: Date.now(),
-            messages: stampReply(cur.messages, extra),
+            messages,
           };
           void persist(done);
           return done;

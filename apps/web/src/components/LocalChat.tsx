@@ -653,8 +653,14 @@ export function LocalChat() {
         return;
       }
     }
-    // Purpose-first overview for any file type — works offline and with light models (no raw dump).
-    if (named.length && wantsFileOverview(asked) && !wantsDiagram(asked) && (lightModel || !networkOnline())) {
+    // Purpose-first overview when the model is light OR truly offline with no local Ollama.
+    // Local Ollama still works without internet — do not force the extractive stub then.
+    if (
+      named.length &&
+      wantsFileOverview(asked) &&
+      !wantsDiagram(asked) &&
+      (lightModel || (!networkOnline() && !ollamaOn))
+    ) {
       const brief = extractiveFileOverview(named);
       if (brief) {
         const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
@@ -664,7 +670,7 @@ export function LocalChat() {
           updatedAt: Date.now(),
           messages: [
             ...history,
-            { role: "assistant", content: brief, engine: ollamaOn && networkOnline() ? "host" : "browser" },
+            { role: "assistant", content: brief, engine: ollamaOn ? "host" : "browser" },
           ],
         };
         setInput("");

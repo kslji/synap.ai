@@ -862,6 +862,98 @@ function explainMarkdownOrProse(name: string, raw: string): string {
 }
 
 /**
+ * Rich offline summary for unpacked zip / project trees.
+ * Lists real folders and key files — never the empty “folders exist to separate code” stub.
+ */
+export function explainZipProject(name: string, raw: string): string {
+  const paths = pathsFromFiles([{ name, text: raw }]);
+  const root =
+    paths.map((p) => p.split("/")[0]).find((r) => r && !/\./.test(r)) ||
+    paths[0]?.split("/")[0] ||
+    name.replace(/\.zip$/i, "");
+
+  const topFolders = new Map<string, number>();
+  const topFiles: string[] = [];
+  for (const p of paths) {
+    const parts = p.split("/").filter(Boolean);
+    if (!parts.length) continue;
+    if (parts.length === 1 && /\.[A-Za-z0-9]+$/.test(parts[0])) {
+      topFiles.push(parts[0]);
+      continue;
+    }
+    if (parts[0] === root && parts.length >= 2) {
+      const second = parts[1];
+      if (/\.[A-Za-z0-9]+$/.test(second) && parts.length === 2) {
+        topFiles.push(`${root}/${second}`);
+      } else {
+        topFolders.set(second, (topFolders.get(second) || 0) + 1);
+      }
+    } else if (parts[0] !== root) {
+      topFolders.set(parts[0], (topFolders.get(parts[0]) || 0) + 1);
+    }
+  }
+
+  const folderList = [...topFolders.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([folder, n]) => `\`${folder}/\`` + (n > 1 ? ` (${n} paths)` : ""));
+
+  const keyNames = paths.filter((p) =>
+    /(?:^|\/)(readme(?:\.\w+)?|package\.json|pyproject\.toml|cargo\.toml|go\.mod|dockerfile|makefile|requirements\.txt|setup\.py|main\.(py|ts|js|go)|app\.(py|ts|js|tsx)|index\.(ts|tsx|js|jsx)|start\.(sh|command|bat)|local-agent\.html)$/i.test(
+      p,
+    ),
+  );
+  const uniqKeys = [...new Set(keyNames)].slice(0, 10);
+
+  // Pull short excerpts from --- path --- blocks when present
+  const excerpts: string[] = [];
+  const blockRe = /---\s+([^\n]+)\s+---\n([\s\S]*?)(?=\n---\s+[^\n]+\s+---|\n*$)/g;
+  let bm: RegExpExecArray | null;
+  while ((bm = blockRe.exec(raw)) && excerpts.length < 4) {
+    const path = bm[1].trim();
+    const body = bm[2].trim().replace(/\s+/g, " ").slice(0, 140);
+    if (!body || body.length < 20) continue;
+    if (/^(extracted zip|file tree)/i.test(path)) continue;
+    excerpts.push(`\`${path}\`: “${body}${body.length >= 140 ? "…" : ""}”`);
+  }
+
+  const lines: string[] = [
+    `**[${name}]** is an unpacked project zip` + (root ? ` (root \`${root}\`)` : "") + `.`,
+    `- **What it is:** a code/project archive — the file tree and excerpts below are the contents, not a dump of every byte.`,
+  ];
+  if (folderList.length) {
+    lines.push(`- **Top folders:** ${folderList.join(", ")}.`);
+  }
+  if (topFiles.length) {
+    lines.push(
+      `- **Top-level files:** ${[...new Set(topFiles)]
+        .slice(0, 8)
+        .map((f) => `\`${f}\``)
+        .join(", ")}.`,
+    );
+  }
+  if (uniqKeys.length) {
+    lines.push(`- **Key entry files:** ${uniqKeys.map((p) => `\`${p}\``).join(", ")}.`);
+  }
+  if (paths.length) {
+    lines.push(
+      `- **Sample paths (${Math.min(paths.length, 12)} of ${paths.length}):** ${paths
+        .slice(0, 12)
+        .map((p) => `\`${p}\``)
+        .join(", ")}.`,
+    );
+  } else {
+    lines.push(`- The attachment says it is a zip extract, but no file paths were parsed — re-attach the zip.`);
+  }
+  if (excerpts.length) {
+    lines.push(`- **From file excerpts:**`);
+    for (const e of excerpts) lines.push(`  - ${e}`);
+  }
+  lines.push(`Ask about one folder or file (e.g. what \`src\` does) for a deeper walkthrough.`);
+  return lines.join("\n");
+}
+
+/**
  * Universal explainer for any attachment text — works offline.
  * Never dumps the raw file; teaches what it is and why parts exist.
  */
@@ -870,20 +962,8 @@ function explainOneFile(f: NamedDoc): string {
   if (!raw) return `**[${f.name}]** — no readable text in this attachment.`;
 
   // Zip / project tree
-  if (/Extracted zip|File tree/i.test(raw)) {
-    const paths = pathsFromFiles([f]).slice(0, 12);
-    const root = paths[0]?.split("/")[0] || f.name;
-    return (
-      `This is an unpacked project archive **[${f.name}]** (root \`${root}\`).\n` +
-      `- The tree lists folders so you can see how the code is organized.\n` +
-      (paths.length
-        ? `- Notable paths: ${paths
-            .slice(0, 8)
-            .map((p) => `\`${p}\``)
-            .join(", ")}.\n`
-        : "") +
-      `- Those folders exist to separate app code, tests, scripts, and results — not to be pasted back as the answer.`
-    );
+  if (/Extracted zip|File tree/i.test(raw) || /\.zip$/i.test(f.name)) {
+    return explainZipProject(f.name, raw);
   }
 
   if (/\.json$/i.test(f.name) || raw.trimStart().startsWith("{") || raw.trimStart().startsWith("[")) {

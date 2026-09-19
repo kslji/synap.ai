@@ -10,6 +10,7 @@ else
 fi
 "$PY" harness/evals/test_guardrails.py
 "$PY" harness/evals/test_moss.py
+"$PY" harness/evals/test_reply_repair.py
 "$PY" harness/evals/test_standalone.py
 "$PY" harness/evals/test_convert.py
 "$PY" harness/evals/gate.py

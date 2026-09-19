@@ -703,6 +703,20 @@ function explainReceiptOrInvoice(name: string, raw: string): string | null {
   return lines.join("\n");
 }
 
+/** Soft fingerprint so near-copies of the same fact collapse together. */
+function softFactKey(text: string, tokenCap = 10): string {
+  return text
+    .toLowerCase()
+    .replace(/\$[\d.]+/g, "$")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, tokenCap)
+    .join(" ");
+}
+
 /** Collapse near-duplicate bullets tiny models often emit. */
 export function collapseDuplicateBullets(text: string): string {
   const lines = String(text || "").split("\n");
@@ -715,19 +729,71 @@ export function collapseDuplicateBullets(text: string): string {
       out.push(line);
       continue;
     }
-    const body = bullet[2]
-      .toLowerCase()
-      .replace(/\$[\d.]+/g, "$")
-      .replace(/[^a-z0-9\s]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    // Soft key: first ~10 significant tokens so "1 year $5.88" ≈ "1 year"
-    const key = body.split(" ").filter(Boolean).slice(0, 10).join(" ");
+    const key = softFactKey(bullet[2], 10);
     if (key.length > 12 && seen.has(key)) continue;
     if (key.length > 12) seen.add(key);
     out.push(line);
   }
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Collapse near-duplicate plain sentences / paragraphs (non-bullet loops). */
+export function collapseDuplicateSentences(text: string): string {
+  const parts = String(text || "")
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 3) return String(text || "").trim();
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const key = softFactKey(p, 12);
+    if (key.length > 16 && seen.has(key)) continue;
+    if (key.length > 16) seen.add(key);
+    out.push(p);
+  }
+  // Keep original line structure when we did not find sentence loops.
+  if (out.length >= parts.length - 1) return String(text || "").trim();
+  return out.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/** Cap remaining bullets after soft-dedupe (second fixed iteration). */
+function hardCapBullets(text: string, max = 8): string {
+  const lines = String(text || "").split("\n");
+  const out: string[] = [];
+  let bullets = 0;
+  for (const line of lines) {
+    if (/^\s*([-•*]|\d+[.)])\s+/.test(line)) {
+      if (bullets >= max) continue;
+      bullets += 1;
+    }
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Fixed pipeline for light-model loop / pad replies (any file type).
+ * Pass 1: soft-dedupe bullets + sentences.
+ * Pass 2: if still looped and overview ask + files → extractive rescue.
+ * Pass 3: hard-cap to 8 unique bullets.
+ */
+export function repairLoopedReply(
+  text: string,
+  opts?: {
+    files?: NamedDoc[];
+    preferExtractiveOverview?: boolean;
+  },
+): string {
+  let out = collapseDuplicateBullets(String(text || ""));
+  out = collapseDuplicateSentences(out);
+  if (!looksLikeLoopedSummary(out)) return out;
+
+  if (opts?.preferExtractiveOverview && opts.files?.length) {
+    const rescue = extractiveFileOverview(opts.files);
+    if (rescue) return rescue;
+  }
+  return hardCapBullets(collapseDuplicateBullets(out), 8);
 }
 
 function explainMarkdownOrProse(name: string, raw: string): string {
@@ -882,6 +948,7 @@ const OVERVIEW_OVERRIDE =
   "Explain what this file is for and why key fields, scripts, sections, or symbols are present — like a teacher. " +
   "Use short bullets. Cite [filename]. Do NOT paste JSON, code, or the whole document. " +
   "List each unique fact or line item ONCE — never repeat the same bullet with slight wording changes. " +
+  "Prefer at most 8 short bullets. " +
   "Do NOT describe your role or the chat UI.\n\n";
 
 const FILE_GROUND =

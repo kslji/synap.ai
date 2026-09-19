@@ -36,14 +36,13 @@ import {
   OLLAMA_DOC_BUDGET,
   OLLAMA_LIGHT_DOC_BUDGET,
   extractiveFileOverview,
-  collapseDuplicateBullets,
+  repairLoopedReply,
   extractiveFactAnswer,
   extractiveInterviewQuestions,
   architectureFlowFromFiles,
   groundedSystem,
   isLightModelTag,
   isMetaAgentNoise,
-  looksLikeLoopedSummary,
   retrieveFileContext,
   thinAttachmentReply,
   trimTurns,
@@ -733,14 +732,13 @@ export function LocalChat() {
           let messages = stampReply(cur.messages, extra);
           if (last?.role === "assistant" && last.content) {
             let content = last.content;
-            if (lightModel || wantsFileOverview(asked)) {
-              content = collapseDuplicateBullets(content);
-            }
-            if (
-              named.length &&
-              wantsFileOverview(asked) &&
-              (isMetaAgentNoise(content) || looksLikeLoopedSummary(content))
-            ) {
+            // Guideline + fixed iterations: always repair light-model / overview loops (any file type).
+            if (lightModel || wantsFileOverview(asked) || !networkOnline()) {
+              content = repairLoopedReply(content, {
+                files: named,
+                preferExtractiveOverview: Boolean(named.length && wantsFileOverview(asked)),
+              });
+            } else if (named.length && isMetaAgentNoise(content)) {
               const rescue = extractiveFileOverview(named);
               if (rescue) content = rescue;
             }

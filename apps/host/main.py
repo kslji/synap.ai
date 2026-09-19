@@ -75,6 +75,8 @@ _FILE_GROUND = (
 _OVERVIEW_OVERRIDE = (
     "OVERRIDE: The user wants a SUMMARY of the ATTACHED FILE contents only. "
     "Name each file and summarize what is inside using quotes, headings, paths, and numbers from the text below. "
+    "List each unique fact or line item ONCE — never repeat the same bullet with slight wording changes. "
+    "Prefer at most 8 short bullets. "
     "Do NOT describe your role, job, instructions, the chat UI, system context, or conversation structure. "
     "Do NOT invent a generic document-agent briefing. "
     "If you cannot quote real phrases from the files below, say you could not read them.\n\n"

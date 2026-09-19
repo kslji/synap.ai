@@ -844,21 +844,10 @@ export function LocalChat() {
           <div className="light-model-note" role="note">
             <p>
               This light model (<strong>{/in-browser/i.test(engineLabel) ? "llama3.2:1b in the browser" : engineLabel}</strong>)
-              keeps answers short. For fuller, more descriptive replies, download the zip and run Surf
-              on a computer (Mac, Windows, or Linux). Phones cannot run the setup command — use chat
-              in this browser on mobile.
+              keeps answers short. For fuller, more descriptive replies, use{" "}
+              <strong>Download zip</strong> above and run Surf on a computer (Mac, Windows, or Linux).
+              Phones cannot run the setup command — use chat in this browser on mobile.
             </p>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() =>
-                void needProfile().then((ok) => {
-                  if (ok) void downloadOnThisDevice();
-                })
-              }
-            >
-              Download zip
-            </button>
           </div>
         ) : null}
 

@@ -487,10 +487,7 @@ button.secondary,
 }
 
 .light-model-note {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  display: block;
   flex-shrink: 0;
   padding: 10px 18px;
   border-bottom: 1px solid var(--line);
@@ -507,12 +504,6 @@ button.secondary,
 .light-model-note strong {
   color: var(--text);
   font-weight: 600;
-}
-
-.light-model-note .ghost {
-  flex-shrink: 0;
-  padding: 8px 12px;
-  font-size: 12px;
 }
 
 .data-help .warn-line {

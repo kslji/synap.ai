@@ -38,10 +38,10 @@
     .thread-open { flex: 1; text-align: left; background: transparent; color: var(--text); border: 0; padding: 8px 10px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .icon { background: transparent; border: 0; color: var(--muted); padding: 6px; display: inline-flex; align-items: center; justify-content: center; }
     .chat-main { display: flex; flex-direction: column; min-height: 100vh; }
-    .light-model-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: #121a16; }
+    .light-model-note { display: block; padding: 10px 18px; border-bottom: 1px solid var(--line); background: #121a16; }
     .light-model-note[hidden] { display: none !important; }
     .light-model-note p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
-    .light-model-note .ghost { flex-shrink: 0; padding: 8px 12px; font-size: 12px; }
+    .light-model-note strong { color: var(--text); font-weight: 600; }
     .data-help .warn-line { color: var(--warn); }
     .chat-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line); gap: 12px; }
     .head-title { font-weight: 600; }
@@ -143,7 +143,6 @@
     }
     html.standalone #sign-out,
     html.standalone #dl-zip,
-    html.standalone #light-dl,
     html.standalone #auth-scrim { display: none !important; }
   </style>
 </head>
@@ -183,8 +182,7 @@
         </div>
       </header>
       <div class="light-model-note" id="light-note" hidden>
-        <p>This light model keeps answers short. For fuller replies, download the zip and run Surf on a computer (Mac, Windows, or Linux). Phones cannot run the setup command — use chat in this browser on mobile.</p>
-        <button type="button" class="ghost" id="light-dl">Download zip</button>
+        <p>This light model keeps answers short. For fuller replies, use <strong>Download zip</strong> above and run Surf on a computer (Mac, Windows, or Linux). Phones cannot run the setup command — use chat in this browser on mobile.</p>
       </div>
       <div class="chat-log" id="log"></div>
       <div class="composer">
@@ -2049,8 +2047,6 @@
     document.getElementById("new").onclick = () => startNew();
     document.getElementById("new-side").onclick = () => startNew();
     document.getElementById("dl-zip").onclick = () => void downloadZip();
-    const lightDl = document.getElementById("light-dl");
-    if (lightDl) lightDl.onclick = () => void downloadZip();
     document.getElementById("summarize").onclick = () => compact();
     document.getElementById("summarize-side").onclick = () => compact();
     document.getElementById("erase").onclick = () => wipe();

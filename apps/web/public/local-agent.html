@@ -1056,20 +1056,12 @@
       const backend = localKind === "lmstudio" ? "LM Studio" : localKind === "llamacpp" ? "llama.cpp" : localKind === "ollama" || h?.ollama ? "Ollama" : "local model";
       const model = h?.active_model || h?.default_model || "in-browser model";
       const light = /1b|1\.5b|in-browser/i.test(String(model)) || !local;
-      // RAM comes from the host process (sysctl / Linux pages), not the browser tab.
-      let ramHostLocal = true;
-      try {
-        const host = new URL(HOST).hostname;
-        ramHostLocal = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-      } catch { /* keep local */ }
-      const ramLabel = ramHostLocal ? "This computer’s RAM" : "Server running the model — RAM";
       const lightHint = isStandalone()
         ? "Light model: answers stay short. Pull a larger Ollama model on this computer for fuller replies."
         : "Light model: answers stay short. Download the zip on a computer for fuller replies. Phones use this browser only — no Terminal setup command.";
       const html =
         `<li class="${moss ? "ok" : ""}">${mossLine}</li>` +
         `<li class="${local ? "ok" : ""}">${local ? ("Writing answers with: " + backend + " (" + model + ")") : "Writing answers with: the small model in this browser (or start Ollama)"}</li>` +
-        (local && h?.runtime?.ram_gb != null ? `<li>${ramLabel}: about ${h.runtime.ram_gb} GB</li>` : "") +
         (light ? `<li class="warn-line">${lightHint}</li>` : "");
       document.getElementById("engine-dots").innerHTML = html;
       modeEl.textContent = model;

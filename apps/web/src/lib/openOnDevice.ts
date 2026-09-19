@@ -117,9 +117,6 @@ https://www.google.com/chrome/
 Do not double-click local-agent.html in Finder. Always start with the command above.
 Your chats stay on this computer. Nothing is sent to ChatGPT or Claude.
 
-RAM shown in “What’s running” comes from the Surf host / this machine’s OS
-(not from Chrome guessing your phone or laptop memory).
-
 Keep every file in this folder together. local-agent.html needs:
   icon.svg / favicon.png / apple-icon.png  (browser tab logo)
   pdf.js / pdf.worker.js                   (PDF text)

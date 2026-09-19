@@ -802,6 +802,28 @@ export function LocalChat() {
           </div>
         </header>
 
+        {/1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
+          <div className="light-model-note" role="note">
+            <p>
+              This light model (<strong>{/in-browser/i.test(engineLabel) ? "llama3.2:1b in the browser" : engineLabel}</strong>)
+              keeps answers short. For fuller, more descriptive replies, download the zip and run Surf
+              on a computer (Mac, Windows, or Linux). Phones cannot run the setup command — use chat
+              in this browser on mobile.
+            </p>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() =>
+                void needProfile().then((ok) => {
+                  if (ok) void downloadOnThisDevice();
+                })
+              }
+            >
+              Download zip
+            </button>
+          </div>
+        ) : null}
+
         <div ref={logRef} className="chat-log">
           <OfflineBanner stayLabel="Keep using this chat" />
           <div className="mobile-only">
@@ -813,8 +835,7 @@ export function LocalChat() {
             <div className="empty">
               <h1>Ask anything</h1>
               <p className="muted">
-                Type a question, clip files, or pick a folder. We only read what you attach. Answers
-                come from your private ai model. Wi-Fi is optional.
+                Attach files or ask a question. Answers stay on your device.
               </p>
               {gpu === false && engine === "browser" && (
                 <p className="warn">

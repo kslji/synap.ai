@@ -38,6 +38,11 @@
     .thread-open { flex: 1; text-align: left; background: transparent; color: var(--text); border: 0; padding: 8px 10px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .icon { background: transparent; border: 0; color: var(--muted); padding: 6px; display: inline-flex; align-items: center; justify-content: center; }
     .chat-main { display: flex; flex-direction: column; min-height: 100vh; }
+    .light-model-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: #121a16; }
+    .light-model-note[hidden] { display: none !important; }
+    .light-model-note p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
+    .light-model-note .ghost { flex-shrink: 0; padding: 8px 12px; font-size: 12px; }
+    .data-help .warn-line { color: var(--warn); }
     .chat-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line); gap: 12px; }
     .head-title { font-weight: 600; }
     .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -138,6 +143,7 @@
     }
     html.standalone #sign-out,
     html.standalone #dl-zip,
+    html.standalone #light-dl,
     html.standalone #auth-scrim { display: none !important; }
   </style>
 </head>
@@ -176,6 +182,10 @@
           <button type="button" class="ghost" id="sign-out">Sign out</button>
         </div>
       </header>
+      <div class="light-model-note" id="light-note" hidden>
+        <p>This light model keeps answers short. For fuller replies, download the zip and run Surf on a computer (Mac, Windows, or Linux). Phones cannot run the setup command — use chat in this browser on mobile.</p>
+        <button type="button" class="ghost" id="light-dl">Download zip</button>
+      </div>
       <div class="chat-log" id="log"></div>
       <div class="composer">
         <div class="composer-wrap">
@@ -1047,12 +1057,32 @@
       const local = !!(localKind || h?.ollama) && !!h?.platform?.instance;
       const backend = localKind === "lmstudio" ? "LM Studio" : localKind === "llamacpp" ? "llama.cpp" : localKind === "ollama" || h?.ollama ? "Ollama" : "local model";
       const model = h?.active_model || h?.default_model || "in-browser model";
+      const light = /1b|1\.5b|in-browser/i.test(String(model)) || !local;
+      // RAM comes from the host process (sysctl / Linux pages), not the browser tab.
+      let ramHostLocal = true;
+      try {
+        const host = new URL(HOST).hostname;
+        ramHostLocal = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+      } catch { /* keep local */ }
+      const ramLabel = ramHostLocal ? "This computer’s RAM" : "Server running the model — RAM";
+      const lightHint = isStandalone()
+        ? "Light model: answers stay short. Pull a larger Ollama model on this computer for fuller replies."
+        : "Light model: answers stay short. Download the zip on a computer for fuller replies. Phones use this browser only — no Terminal setup command.";
       const html =
         `<li class="${moss ? "ok" : ""}">${mossLine}</li>` +
         `<li class="${local ? "ok" : ""}">${local ? ("Writing answers with: " + backend + " (" + model + ")") : "Writing answers with: the small model in this browser (or start Ollama)"}</li>` +
-        (local && h?.runtime?.ram_gb != null ? `<li>This computer’s RAM: about ${h.runtime.ram_gb} GB</li>` : "");
+        (local && h?.runtime?.ram_gb != null ? `<li>${ramLabel}: about ${h.runtime.ram_gb} GB</li>` : "") +
+        (light ? `<li class="warn-line">${lightHint}</li>` : "");
       document.getElementById("engine-dots").innerHTML = html;
       modeEl.textContent = model;
+      const lightNote = document.getElementById("light-note");
+      if (lightNote) {
+        lightNote.hidden = !light;
+        const p = lightNote.querySelector("p");
+        if (p && isStandalone()) {
+          p.textContent = "This light model keeps answers short. For fuller replies, install a larger Ollama model on this computer (for example llama3.2:3b).";
+        }
+      }
       const so = document.getElementById("sign-out");
       if (so) so.hidden = isStandalone();
     }
@@ -1978,6 +2008,8 @@
     document.getElementById("new").onclick = () => startNew();
     document.getElementById("new-side").onclick = () => startNew();
     document.getElementById("dl-zip").onclick = () => void downloadZip();
+    const lightDl = document.getElementById("light-dl");
+    if (lightDl) lightDl.onclick = () => void downloadZip();
     document.getElementById("summarize").onclick = () => compact();
     document.getElementById("summarize-side").onclick = () => compact();
     document.getElementById("erase").onclick = () => wipe();

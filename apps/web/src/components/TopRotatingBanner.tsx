@@ -10,11 +10,11 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   {
-    text: "Upcoming: connect cloud models via OpenRouter — create an account when it ships.",
+    text: "Upcoming: connect cloud models via OpenRouter - create an account when it ships.",
     action: { label: "OpenRouter", href: "https://openrouter.ai", external: true },
   },
   {
-    text: "Upcoming: use your own LLM API endpoint — no OpenRouter account required.",
+    text: "Upcoming: use your own LLM API endpoint - no OpenRouter account required.",
   },
   {
     text: "For the best AI experience today, download the local zip and run Surf on your device.",
@@ -23,7 +23,7 @@ const SLIDES: Slide[] = [
     text: "We do not store your chats. Anything saved stays in your private browser on this device.",
   },
   {
-    text: "With the downloaded zip, chats stay on your PC — no external calls, whether you are online or offline.",
+    text: "With the downloaded zip, chats stay on your PC - no external calls, whether you are online or offline.",
   },
 ];
 

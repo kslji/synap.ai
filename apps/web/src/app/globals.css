@@ -8,6 +8,7 @@
   --warn: #e2b657;
   --danger: #e07a6a;
   --font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --top-banner-h: 44px;
 }
 
 * {
@@ -39,6 +40,7 @@ a {
 }
 
 .top-rotate-banner {
+  --top-banner-h: 44px;
   position: sticky;
   top: 0;
   z-index: 40;
@@ -46,8 +48,9 @@ a {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  min-height: 44px;
-  padding: 10px 16px;
+  min-height: var(--top-banner-h);
+  height: auto;
+  padding: 8px 16px;
   background: linear-gradient(90deg, #122019 0%, #1a2c24 50%, #122019 100%);
   border-bottom: 1px solid #2e4339;
   box-shadow: 0 1px 0 rgba(125, 206, 160, 0.08);
@@ -366,21 +369,28 @@ button.secondary,
 .chat-shell {
   display: grid;
   grid-template-columns: 260px 1fr;
-  min-height: 100vh;
+  height: calc(100dvh - var(--top-banner-h, 44px));
+  max-height: calc(100dvh - var(--top-banner-h, 44px));
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-side {
   background: var(--bg-2);
   border-right: 1px solid var(--line);
-  padding: 18px 14px;
+  padding: 14px 12px;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  overflow: auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  gap: 8px;
 }
 
 .thread-list {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 22vh;
   overflow: auto;
 }
 
@@ -423,15 +433,18 @@ button.secondary,
 .chat-main {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .chat-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 22px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .head-title {
@@ -445,8 +458,9 @@ button.secondary,
 
 .chat-log {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  padding: 28px 22px 12px;
+  padding: 20px 22px 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -454,20 +468,64 @@ button.secondary,
 
 .empty {
   margin: auto;
-  max-width: 520px;
+  max-width: 480px;
   text-align: center;
+  padding: 0 12px;
 }
 
 .empty h1 {
-  font-size: 32px;
+  font-size: 28px;
   letter-spacing: -0.04em;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
   font-weight: 600;
 }
 
-.warn {
-  color: var(--warn);
+.empty .muted {
+  margin: 0;
   font-size: 14px;
+  line-height: 1.45;
+}
+
+.light-model-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #121a16;
+}
+
+.light-model-note p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.light-model-note strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.light-model-note .ghost {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.data-help .warn-line {
+  color: var(--warn);
+  list-style: disc;
+}
+
+@media (max-width: 720px) {
+  .light-model-note {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 10px 14px;
+  }
 }
 
 .bubble {
@@ -953,8 +1011,49 @@ button.secondary,
 
 .memory-panel {
   border-top: 1px solid var(--line);
-  padding-top: 12px;
-  margin-top: 8px;
+  padding-top: 10px;
+  margin-top: 4px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.data-card {
+  background: #101614;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+
+.data-card .tiny.muted {
+  margin: 0;
+}
+
+.data-help {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.data-card-note {
+  margin: 6px 0 0 !important;
+  line-height: 1.35;
+}
+
+.memory-panel .ghost.wide,
+.memory-panel .danger.wide {
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.chat-side .primary.wide {
+  margin: 8px 0 4px;
+  padding: 10px 14px;
+  font-size: 14px;
 }
 
 .memory-preview {
@@ -998,29 +1097,13 @@ button.secondary,
   margin: 8px 0 0;
 }
 
-.data-card {
-  background: #101614;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px;
-  margin-bottom: 8px;
+.data-help .ok {
+  color: var(--accent);
 }
 
 .data-line {
   font-size: 13px;
   margin: 4px 0 6px;
-}
-
-.data-help {
-  margin: 8px 0 0;
-  padding-left: 16px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.data-help .ok {
-  color: var(--accent);
 }
 
 .data-change {
@@ -1032,8 +1115,9 @@ button.secondary,
 
 .engine-panel {
   border-top: 1px solid var(--line);
-  padding-top: 12px;
-  margin-top: 8px;
+  padding-top: 8px;
+  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .engine-toggle {
@@ -1263,6 +1347,8 @@ button.linkish {
 @media (max-width: 560px) {
   .chat-shell {
     grid-template-columns: 1fr;
+    height: calc(100dvh - var(--top-banner-h, 44px));
+    max-height: calc(100dvh - var(--top-banner-h, 44px));
   }
   .chat-side {
     display: none;

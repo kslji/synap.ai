@@ -28,9 +28,8 @@ export function FeedbackInbox({ refreshKey = 0 }: { refreshKey?: number }) {
   return (
     <div className="data-card fb-inbox">
       <div className="tiny muted">Human feedback</div>
-      <p className="tiny muted" style={{ margin: "6px 0 0" }}>
-        Human feedback will be received on our backend and we will check what the problem is and
-        fix that as soon as possible.
+      <p className="tiny muted data-card-note">
+        Feedback goes to our backend so we can fix issues quickly.
       </p>
       {items.length > 0 && (
         <ul className="fb-list">

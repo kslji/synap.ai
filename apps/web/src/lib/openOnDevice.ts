@@ -99,6 +99,9 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 const README = `Surf AI — use this on your computer
 
+Phones and tablets: do not use this zip. There is no Terminal setup on mobile.
+Use Chat in the website browser instead. This folder is for Mac, Windows, or Linux.
+
 1. Double-click the zip to unpack it, then open the local-ai folder.
 2. Open Terminal (Mac: Command + Space, type Terminal) or Command Prompt (Windows).
    Paste this one line and press Return:
@@ -113,6 +116,9 @@ https://www.google.com/chrome/
 
 Do not double-click local-agent.html in Finder. Always start with the command above.
 Your chats stay on this computer. Nothing is sent to ChatGPT or Claude.
+
+RAM shown in “What’s running” comes from the Surf host / this machine’s OS
+(not from Chrome guessing your phone or laptop memory).
 
 Keep every file in this folder together. local-agent.html needs:
   icon.svg / favicon.png / apple-icon.png  (browser tab logo)

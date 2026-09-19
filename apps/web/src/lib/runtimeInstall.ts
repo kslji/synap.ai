@@ -1,9 +1,21 @@
 export type OsKind = "mac" | "win" | "linux";
 
+/** Phones/tablets: no Terminal for LOCAL-SETUP — use in-browser chat instead. */
+export function isMobileBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/Android|iPhone|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true;
+  if (/iPad/i.test(ua)) return true;
+  // iPadOS 13+ can report as Mac; treat touch Macs as mobile for setup.
+  if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) return true;
+  return false;
+}
+
 export function detectOs(): OsKind {
   if (typeof navigator === "undefined") return "mac";
   if (/Win/i.test(navigator.userAgent)) return "win";
-  if (/Linux/i.test(navigator.userAgent)) return "linux";
+  // Android UA contains "Linux" — only treat as desktop Linux when not mobile.
+  if (/Linux/i.test(navigator.userAgent) && !isMobileBrowser()) return "linux";
   return "mac";
 }
 

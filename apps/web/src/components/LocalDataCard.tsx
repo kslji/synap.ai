@@ -37,9 +37,8 @@ export function LocalDataCard({
         {origin?.quota != null && <li>Space Chrome allows this site: {formatBytes(origin.quota)}</li>}
         {stats.memoryBytes > 0 && <li>Saved summary kept for later chats: {formatBytes(stats.memoryBytes)}</li>}
       </ul>
-      <p className="tiny muted" style={{ marginTop: 8 }}>
-        Save summary deletes chat text and keeps a short note so the assistant still has context. Delete data
-        removes chats, files, and that note from this browser.
+      <p className="tiny muted data-card-note">
+        Save summary keeps a short note. Delete data clears chats and files here.
       </p>
       {last && last.kind === "summarize" && (
         <div className="data-change">

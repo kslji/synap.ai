@@ -127,7 +127,6 @@ export function LocalChat() {
   const [status, setStatus] = useState<Health | null>(null);
   const [lkStatus, setLkStatus] = useState("");
   const [files, setFiles] = useState<StoredAttachment[]>([]);
-  const [attachOpen, setAttachOpen] = useState(false);
   const [fbTick, setFbTick] = useState(0);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -977,7 +976,7 @@ export function LocalChat() {
               This light model (<strong>{/in-browser/i.test(engineLabel) ? "llama3.2:1b in the browser" : engineLabel}</strong>)
               keeps answers short. For fuller, more descriptive replies, use{" "}
               <strong>Download zip</strong> above and run Surf on a computer (Mac, Windows, or Linux).
-              Phones cannot run the setup command — use chat in this browser on mobile.
+              Phones cannot run the setup command , use chat in this browser on mobile.
             </p>
           </div>
         ) : null}
@@ -1065,7 +1064,14 @@ export function LocalChat() {
                 )}
                 {lastAssistant && turnMeta?.sources && turnMeta.sources.length > 0 && (
                   <div className="tiny muted cite">
-                    Used {turnMeta.sources.map((s) => s.title).filter(Boolean).join(", ")}
+                    Used{" "}
+                    {[
+                      ...new Set(
+                        turnMeta.sources
+                          .map((s) => s.title)
+                          .filter((t): t is string => Boolean(t && String(t).trim())),
+                      ),
+                    ].join(", ")}
                     {turnMeta.moss?.time_taken_ms
                       ? ` · Moss ${turnMeta.moss.time_taken_ms} ms`
                       : ""}
@@ -1114,26 +1120,13 @@ export function LocalChat() {
                 <button
                   type="button"
                   className="icon"
-                  aria-label="Attach"
+                  aria-label="Attach files or a folder"
                   title="Attach files or a folder"
                   disabled={busy}
-                  onClick={() => setAttachOpen((v) => !v)}
+                  onClick={() => void addFromFilesOrFolder()}
                 >
                   <Paperclip size={16} />
                 </button>
-                {attachOpen && (
-                  <div className="attach-menu">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAttachOpen(false);
-                        void addFromFilesOrFolder();
-                      }}
-                    >
-                      Files or folder
-                    </button>
-                  </div>
-                )}
               </div>
               <textarea
                 value={input}

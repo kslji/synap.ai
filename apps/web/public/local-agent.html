@@ -196,12 +196,9 @@
           <div class="composer-box">
             <input id="pick" type="file" hidden multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.tsv,.pptx,.txt,.md,.json,.zip,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/csv" />
             <div class="attach-one">
-              <button class="icon" id="attach" type="button" aria-label="Attach" title="Attach files or a folder">
+              <button class="icon" id="attach" type="button" aria-label="Attach files or a folder" title="Attach files or a folder">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
               </button>
-              <div class="attach-menu" id="attach-menu">
-                <button type="button" id="pick-files-or-folder">Files or folder</button>
-              </div>
             </div>
             <textarea id="input" rows="1" placeholder="Message…"></textarea>
             <button type="button" class="icon" id="mic" aria-label="Dictate" disabled>
@@ -2359,12 +2356,40 @@
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
     });
-    const attachMenu = document.getElementById("attach-menu");
-    document.getElementById("attach").onclick = (e) => {
+    const attachBtn = document.getElementById("attach");
+    async function pickFilesOrFolder() {
+      if (window.showOpenFilePicker) {
+        try {
+          const handles = await window.showOpenFilePicker({ multiple: true });
+          const files = await Promise.all(handles.map((h) => h.getFile()));
+          await attachChosenFiles(files);
+          return;
+        } catch (e) {
+          if (e && e.name === "AbortError") return;
+        }
+      }
+      if (window.showDirectoryPicker) {
+        try {
+          const dir = await window.showDirectoryPicker();
+          await walkPickedFolder(dir);
+          return;
+        } catch (e) {
+          if (e && e.name === "AbortError") return;
+          modeEl.textContent = String(e.message || e);
+          return;
+        }
+      }
+      document.getElementById("pick").click();
+    }
+    attachBtn.onclick = (e) => {
       e.stopPropagation();
-      attachMenu.classList.toggle("open");
+      void pickFilesOrFolder();
     };
-    document.addEventListener("click", () => attachMenu.classList.remove("open"));
+    document.getElementById("pick").onchange = async (e) => {
+      const list = e.target.files;
+      if (list?.length) await attachChosenFiles(list);
+      e.target.value = "";
+    };
     async function walkPickedFolder(dir) {
       async function walk(handleDir, prefix, depth) {
         const t = active();
@@ -2408,35 +2433,6 @@
         modeEl.textContent = `Attached files. Skipped ${skipped} image(s) — image upload is off for now.`;
       }
     }
-    document.getElementById("pick-files-or-folder").onclick = async () => {
-      attachMenu.classList.remove("open");
-      if (window.showOpenFilePicker) {
-        try {
-          const handles = await window.showOpenFilePicker({ multiple: true });
-          const files = await Promise.all(handles.map((h) => h.getFile()));
-          await attachChosenFiles(files);
-          return;
-        } catch (e) {
-          if (e && e.name === "AbortError") return;
-        }
-      }
-      if (window.showDirectoryPicker) {
-        try {
-          const dir = await window.showDirectoryPicker();
-          await walkPickedFolder(dir);
-          return;
-        } catch (e) {
-          if (e && e.name === "AbortError") return;
-          modeEl.textContent = String(e.message || e);
-          return;
-        }
-      }
-      document.getElementById("pick").click();
-    };
-    document.getElementById("pick").onchange = async (e) => {
-      await attachChosenFiles(e.target.files || []);
-      e.target.value = "";
-    };
     const main = document.getElementById("chat-main");
     main.addEventListener("dragover", (e) => e.preventDefault());
     main.addEventListener("drop", async (e) => {

@@ -601,16 +601,30 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
     history = clipped
 
     sources: list[dict] = []
+    seen_titles: set[str] = set()
     for line in file_ctx.splitlines():
         if line.startswith("### "):
-            sources.append({"title": line[4:].strip()[:120], "kind": "file"})
+            title = line[4:].strip()[:120]
+            key = title.lower()
+            if not title or key in seen_titles:
+                continue
+            seen_titles.add(key)
+            sources.append({"title": title, "kind": "file"})
     if not file_ctx:
         for d in retrieval.get("docs") or []:
             if str(d.get("id", "")).startswith("seed-"):
                 continue
+            title = str(d.get("id") or "note")[:80]
+            # Prefer human filename when Moss ids look like file-Resume.pdf
+            if title.startswith("file-"):
+                title = title[5:]
+            key = title.lower()
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
             sources.append(
                 {
-                    "title": str(d.get("id") or "note")[:80],
+                    "title": title,
                     "kind": "moss",
                     "snippet": str(d.get("text") or "")[:160],
                 }

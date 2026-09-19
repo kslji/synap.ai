@@ -143,11 +143,15 @@ const PACK_PATHS = [
 
 const memoryPack = new Map<string, Packed>();
 
-async function readPackFile(path: string): Promise<Packed | null> {
-  const hit = memoryPack.get(path);
-  if (hit) return hit;
+async function readPackFile(path: string, bustCache = false): Promise<Packed | null> {
+  if (!bustCache) {
+    const hit = memoryPack.get(path);
+    if (hit) return hit;
+  } else {
+    memoryPack.delete(path);
+  }
   try {
-    const res = await fetch(path, { cache: "force-cache" });
+    const res = await fetch(path, { cache: bustCache ? "no-store" : "force-cache" });
     if (!res.ok) return null;
     const packed: Packed = /\.(js|mjs|png|svg)$/i.test(path) || path.endsWith("apple-icon.png")
       ? { kind: "bin", body: new Uint8Array(await res.arrayBuffer()) }
@@ -165,16 +169,22 @@ export async function prefetchLocalPack(): Promise<void> {
 }
 
 export async function downloadOnThisDevice(): Promise<void> {
-  const html = await readPackFile("/local-agent.html");
-  const setupSh = await readPackFile("/LOCAL-SETUP.sh");
-  const setupBat = await readPackFile("/LOCAL-SETUP.bat");
+  // Always re-fetch HTML/setup so the zip never ships a stale "Upload image" menu.
+  const html = await readPackFile("/local-agent.html", true);
+  const setupSh = await readPackFile("/LOCAL-SETUP.sh", true);
+  const setupBat = await readPackFile("/LOCAL-SETUP.bat", true);
   if (!html || html.kind !== "text" || !setupSh || setupSh.kind !== "text" || !setupBat || setupBat.kind !== "text") {
     throw new Error(
       "The local zip is not in this tab yet. Stay here — do not close the window. Download once while online, or keep chatting in this window.",
     );
   }
+  // Hard guard: never ship an image-upload control in the offline pack.
+  const htmlBody = html.body
+    .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
+    .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
+    .replace(/>\s*Upload image\s*</gi, "><");
   const files: Array<{ name: string; body: string | Uint8Array; unixMode?: number }> = [
-    { name: "local-ai/local-agent.html", body: html.body },
+    { name: "local-ai/local-agent.html", body: htmlBody },
     { name: "local-ai/LOCAL-SETUP.sh", body: setupSh.body, unixMode: 0o100755 },
     { name: "local-ai/LOCAL-SETUP.bat", body: setupBat.body },
     { name: "local-ai/README.txt", body: README },

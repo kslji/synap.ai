@@ -237,6 +237,23 @@ a.brand:hover {
   margin: 0 auto;
 }
 
+.landing-foot {
+  padding: 18px 28px 28px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+
+.landing-foot a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.landing-foot a:hover {
+  text-decoration: underline;
+}
+
 .landing-hero .memory-banner {
   margin: 0 0 24px;
   width: 100%;

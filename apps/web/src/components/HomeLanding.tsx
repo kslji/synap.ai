@@ -94,6 +94,16 @@ export function HomeLanding() {
           }
         />
       </main>
+      <footer className="landing-foot">
+        Builder —{" "}
+        <a
+          href="https://www.linkedin.com/in/kabir-singh-lamba-datawizard/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Kabir Singh Lamba
+        </a>
+      </footer>
       <LocalSetupDialog open={setupOpen} onClose={() => setSetupOpen(false)} />
       <AuthDialog
         open={authOpen}

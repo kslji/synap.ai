@@ -162,7 +162,7 @@ const FILE_GROUND =
   "If a line says you cannot see pixels, do not describe the image.\n\n";
 
 const STUB =
-  /no readable text|no text layer|cannot see the pixels|stored locally|looks binary so no text|could not be read/i;
+  /no readable text|no text layer|cannot see the pixels|stored locally|looks binary so no text|could not be read|PDF engine failed/i;
 
 export function thinAttachmentReply(files: NamedDoc[]): string | null {
   const usable = files.filter((f) => String(f.text || "").trim());

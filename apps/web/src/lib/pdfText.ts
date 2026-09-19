@@ -1,7 +1,7 @@
 /**
- * Real PDF text extraction with pdf.js, vendored into /pdf.mjs so it also works
- * offline and inside the downloaded zip. The hand-rolled stream scanner used
- * before returned nothing for most real-world PDFs, which made the model guess.
+ * Real PDF text extraction with pdf.js.
+ * Loaded from /pdf.js (application/javascript) — not .mjs — because production
+ * nginx often serves .mjs as octet-stream and the browser then blocks the import.
  */
 
 type PdfItem = { str?: string; transform?: number[]; hasEOL?: boolean };
@@ -14,12 +14,12 @@ type PdfLib = {
 
 let libPromise: Promise<PdfLib> | null = null;
 
-/** `base` lets the single-file offline agent load "./pdf.mjs" next to itself. */
+/** `base` lets the offline agent load "./pdf.js" next to itself. */
 export function loadPdfLib(base = "/"): Promise<PdfLib> {
   if (!libPromise) {
     libPromise = (async () => {
-      const lib = (await import(/* webpackIgnore: true */ `${base}pdf.mjs`)) as unknown as PdfLib;
-      lib.GlobalWorkerOptions.workerSrc = `${base}pdf.worker.mjs`;
+      const lib = (await import(/* webpackIgnore: true */ `${base}pdf.js`)) as unknown as PdfLib;
+      lib.GlobalWorkerOptions.workerSrc = `${base}pdf.worker.js`;
       return lib;
     })().catch((err) => {
       libPromise = null;
@@ -29,7 +29,6 @@ export function loadPdfLib(base = "/"): Promise<PdfLib> {
   return libPromise;
 }
 
-/** Same Y within this many units counts as the same visual line. */
 const LINE_TOLERANCE = 2.5;
 
 function pageLines(items: PdfItem[]): string[] {

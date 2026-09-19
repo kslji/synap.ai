@@ -210,6 +210,14 @@ server {
 }
 ```
 
+PDF text uses `/pdf.js` and `/pdf.worker.js` (`.js`, not `.mjs`) so nginx serves `application/javascript`. If you still host any `.mjs` files, add:
+
+```nginx
+types { application/javascript mjs; }
+```
+
+inside the server block (or extend `/etc/nginx/mime.types`).
+
 ```bash
 sudo ln -sf /etc/nginx/sites-available/synap.surf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx

@@ -116,7 +116,7 @@ Your chats stay on this computer. Nothing is sent to ChatGPT or Claude.
 
 Keep every file in this folder together. local-agent.html needs:
   icon.svg / favicon.png / apple-icon.png  (browser tab logo)
-  pdf.mjs / pdf.worker.mjs                 (PDF text)
+  pdf.js / pdf.worker.js                   (PDF text)
   web-llm.js                               (in-browser model helper)
 Moving the HTML out alone breaks the logo and PDF reading.
 
@@ -131,8 +131,8 @@ const PACK_PATHS = [
   "/LOCAL-SETUP.bat",
   "/system.md",
   "/web-llm.js",
-  "/pdf.mjs",
-  "/pdf.worker.mjs",
+  "/pdf.js",
+  "/pdf.worker.js",
   "/icon.svg",
   "/favicon.png",
   "/apple-icon.png",
@@ -176,7 +176,7 @@ export async function downloadOnThisDevice(): Promise<void> {
     { name: "local-ai/LOCAL-SETUP.bat", body: setupBat.body },
     { name: "local-ai/README.txt", body: README },
   ];
-  for (const name of ["system.md", "web-llm.js", "pdf.mjs", "pdf.worker.mjs", "icon.svg", "favicon.png", "apple-icon.png"] as const) {
+  for (const name of ["system.md", "web-llm.js", "pdf.js", "pdf.worker.js", "icon.svg", "favicon.png", "apple-icon.png"] as const) {
     const extra = await readPackFile(`/${name}`);
     if (!extra) continue;
     files.push({ name: `local-ai/${name}`, body: extra.body });

@@ -1593,8 +1593,8 @@
     let pdfLib = null;
     async function loadPdfLib() {
       if (!pdfLib) {
-        const lib = await import("./pdf.mjs");
-        lib.GlobalWorkerOptions.workerSrc = "./pdf.worker.mjs";
+        const lib = await import("./pdf.js");
+        lib.GlobalWorkerOptions.workerSrc = "./pdf.worker.js";
         pdfLib = lib;
       }
       return pdfLib;
@@ -1632,7 +1632,7 @@
         if ((text.match(/[A-Za-z]/g) || []).length >= 40) return text;
         return 'PDF "' + name + '" has no text layer (it looks like a scan). Attach a text-based PDF, .docx, or .txt so answers can quote it.';
       } catch (err) {
-        return 'PDF "' + name + '" could not be read on this device (' + (err instanceof Error ? err.message : String(err)) + '). Keep pdf.mjs and pdf.worker.mjs next to this page.';
+        return 'PDF "' + name + '" could not be read on this device (' + (err instanceof Error ? err.message : String(err)) + '). Keep pdf.js and pdf.worker.js next to this page.';
       }
     }
     function stripXmlOffice(xml) {
@@ -1956,7 +1956,7 @@
     }
     async function downloadZip() {
       const files = [];
-      const names = ["local-agent.html", "LOCAL-SETUP.sh", "LOCAL-SETUP.bat", "system.md", "web-llm.js", "pdf.mjs", "pdf.worker.mjs", "icon.svg", "favicon.png", "apple-icon.png"];
+      const names = ["local-agent.html", "LOCAL-SETUP.sh", "LOCAL-SETUP.bat", "system.md", "web-llm.js", "pdf.js", "pdf.worker.js", "icon.svg", "favicon.png", "apple-icon.png"];
       for (const name of names) {
         try {
           const r = await fetch("./" + name, { cache: "no-store" });

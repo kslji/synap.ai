@@ -58,11 +58,16 @@ async function pdfToText(name: string, bytes: ArrayBuffer): Promise<string> {
   try {
     const { text, scanned } = await extractPdfText(bytes);
     if (!scanned && text.trim()) return text;
-  } catch {
-    /* fall through to the scanner below */
+    if (text.trim() && (text.match(/[A-Za-z]/g) || []).length >= 90) return text;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    // Common when /pdf.js is missing or served with the wrong MIME type.
+    if (/Failed to fetch|MIME|module script|octet-stream|404/i.test(detail)) {
+      return `PDF "${name}" could not be read (PDF engine failed to load on this site). Rebuild the web app so pdf.js and pdf.worker.js are deployed.`;
+    }
   }
   const scraped = readablePlainText(await extractPdf(bytes));
-  if (scraped) return scraped;
+  if (scraped && (scraped.match(/[A-Za-z]/g) || []).length >= 90) return scraped;
   return `PDF "${name}" is stored on this chat, but it has no text layer (it looks like a scan or an exported image). Attach a text-based PDF, a .docx, or a .txt copy so answers can quote it.`;
 }
 

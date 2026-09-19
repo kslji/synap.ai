@@ -591,11 +591,13 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
     conversation_id = req.conversation_id or create_conversation()["id"]
     user_msg = add_message(conversation_id, "user", question)
     history = get_messages(conversation_id)
+    light = bool(re.search(r"1b|1\.5b|2b", (model or settings.default_model), re.I))
     if file_ctx:
-        history = history[-8:]
+        history = history[-4:] if light else history[-8:]
     clipped: list[dict] = []
+    turn_cap = 600 if light else 1500
     for m in history:
-        clipped.append({"role": m["role"], "content": str(m["content"])[:1500]})
+        clipped.append({"role": m["role"], "content": str(m["content"])[:turn_cap]})
     history = clipped
 
     sources: list[dict] = []
@@ -617,6 +619,7 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
 
     ground = ""
     canned = ""
+    file_cap = 2800 if light else 18000
     if file_ctx:
         interview = bool(
             re.search(
@@ -629,22 +632,22 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
         if _file_ctx_too_thin(file_ctx):
             canned = _THIN_REPLY
         elif already:
-            ground = file_ctx[:18000]
+            ground = file_ctx[:file_cap]
         elif interview:
             ground = (
                 "OVERRIDE: The user asked for INTERVIEW QUESTIONS about these files. "
                 "Write only numbered interview Q&A grounded in whatever these files actually are. "
-                "Do not force a project or folder template.\n\n"
-                + file_ctx[:18000]
+                "Do not force a project or folder template. Keep each answer to 1-2 short sentences.\n\n"
+                + file_ctx[:file_cap]
             )
         elif re.search(
             r"\b(summar(y|ise|ize)?|overview|brief|include[sd]?|consist|what(?:'s| is| does)\s+(this|it)|what is this)\b",
             question,
             re.I,
         ):
-            ground = _OVERVIEW_OVERRIDE + file_ctx[:18000]
+            ground = _OVERVIEW_OVERRIDE + file_ctx[:file_cap]
         else:
-            ground = _FILE_GROUND + file_ctx[:18000]
+            ground = _FILE_GROUND + file_ctx[:file_cap]
     elif retrieval.get("docs"):
         lines = []
         for d in retrieval["docs"][:6]:

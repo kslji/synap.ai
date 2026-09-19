@@ -12,6 +12,15 @@ export const BROWSER_PROMPT_CHARS = 6000;
 export const OLLAMA_DOC_BUDGET = 18000;
 export const OLLAMA_TURN_BUDGET = 2400;
 export const OLLAMA_MEMORY_BUDGET = 1200;
+/**
+ * llama3.2:1b / similar light tags use num_ctx ≈ 4096. Packing a huge file
+ * leaves almost no room for the reply, so answers stop mid-word.
+ */
+export const OLLAMA_LIGHT_DOC_BUDGET = 2800;
+
+export function isLightModelTag(model: string | null | undefined): boolean {
+  return /1b|1\.5b|2b|in-browser/i.test(String(model || ""));
+}
 
 export function wantsSavedSummary(q: string): boolean {
   const t = q.trim().toLowerCase();
@@ -69,19 +78,30 @@ export function isMetaAgentNoise(text: string): boolean {
 }
 
 /** Honest file summary without the LLM (used for 1B / when the model goes meta). */
-export function extractiveFileOverview(files: NamedDoc[], maxPerFile = 3200): string {
+export function extractiveFileOverview(files: NamedDoc[], maxPerFile = 2400): string {
   const usable = files.filter((f) => String(f.text || "").trim());
   if (!usable.length) return "";
   const parts = usable.map((f) => {
     const raw = String(f.text || "").replace(/\r\n/g, "\n").trim();
-    const body = raw.slice(0, maxPerFile);
-    return `**${f.name}**\n${body}${raw.length > maxPerFile ? "\n…" : ""}`;
+    const body = clipAtBoundary(raw, maxPerFile);
+    return `**${f.name}**\n${body}${raw.length > body.length ? "\n…" : ""}`;
   });
   return (
     `Here is what the attached file${usable.length > 1 ? "s contain" : " contains"} ` +
     `(taken from the file text on this chat — not from earlier messages or agent instructions):\n\n` +
     parts.join("\n\n")
   );
+}
+
+/** Prefer cutting on a newline / sentence so tables and words are not sliced mid-token. */
+function clipAtBoundary(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const slice = text.slice(0, max);
+  const nl = Math.max(slice.lastIndexOf("\n\n"), slice.lastIndexOf("\n"));
+  if (nl > max * 0.55) return slice.slice(0, nl).trimEnd();
+  const sp = slice.lastIndexOf(" ");
+  if (sp > max * 0.55) return slice.slice(0, sp).trimEnd();
+  return slice.trimEnd();
 }
 
 const OVERVIEW_OVERRIDE =

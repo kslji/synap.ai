@@ -107,6 +107,7 @@ def pick_local_model(installed: list[str]) -> str:
 def ollama_options(model: str | None = None) -> dict[str, Any]:
     low = (model or settings.default_model).lower()
     light = "1b" in low or "1.5b" in low or "2b" in low
+    # Leave headroom for the reply. Overfilling num_ctx makes Ollama stop mid-word.
     ctx = min(settings.num_ctx, 4096) if light else settings.num_ctx
     opts: dict[str, Any] = {
         "num_ctx": ctx,
@@ -118,6 +119,9 @@ def ollama_options(model: str | None = None) -> dict[str, Any]:
         # Small models invent less when temperature is low and answers stay short.
         opts["temperature"] = 0.2
         opts["top_p"] = 0.9
+        opts["num_predict"] = 512
+    else:
+        opts["num_predict"] = 1024
     return opts
 
 

@@ -45,7 +45,7 @@ async function completeOnce(
     messages: messages as { role: "system" | "user" | "assistant"; content: string }[],
     stream: true,
     // 1B models need room for a short structured answer from a resume / sheet.
-    max_tokens: 420,
+    max_tokens: 640,
   });
   for await (const chunk of stream) {
     if (signal?.aborted) throw new DOMException("Stopped", "AbortError");

@@ -34,8 +34,10 @@ import {
   BROWSER_MEMORY_BUDGET,
   BROWSER_TURN_BUDGET,
   OLLAMA_DOC_BUDGET,
+  OLLAMA_LIGHT_DOC_BUDGET,
   extractiveFileOverview,
   groundedSystem,
+  isLightModelTag,
   isMetaAgentNoise,
   retrieveFileContext,
   thinAttachmentReply,
@@ -579,8 +581,7 @@ export function LocalChat() {
     // llama3.2:1b often summarizes the system prompt instead of the file — give an extractive brief.
     const modelTag = status?.active_model || status?.default_model || "";
     const lightModel =
-      /1b|1\.5b|in-browser/i.test(modelTag) ||
-      (!status?.local_llm?.backend && !status?.ollama);
+      isLightModelTag(modelTag) || (!status?.local_llm?.backend && !status?.ollama);
     if (named.length && wantsFileOverview(asked) && lightModel) {
       const brief = extractiveFileOverview(named);
       if (brief) {
@@ -599,7 +600,11 @@ export function LocalChat() {
     const docs = retrieveFileContext(
       named,
       asked,
-      ollamaOn ? OLLAMA_DOC_BUDGET : Math.max(BROWSER_DOC_BUDGET, 3500),
+      ollamaOn
+        ? lightModel
+          ? OLLAMA_LIGHT_DOC_BUDGET
+          : OLLAMA_DOC_BUDGET
+        : Math.max(BROWSER_DOC_BUDGET, 3500),
     );
     if (!ollamaOn && gpu === false) {
       setProgress("Use Chrome or Edge with WebGPU, or start Ollama on this computer.");

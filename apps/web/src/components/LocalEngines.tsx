@@ -15,6 +15,7 @@ function backendLabel(status: Health | null): string {
 export function LocalEngines({ status }: { status: Health | null }) {
   const local = !!(status?.local_llm?.backend || status?.ollama) && !!status?.platform?.instance;
   const moss = !!status?.moss?.enabled;
+  const mossSdk = !!status?.moss?.sdk || status?.moss?.backend === "moss";
   const model = status?.active_model || status?.default_model || "in-browser model";
 
   return (
@@ -23,8 +24,10 @@ export function LocalEngines({ status }: { status: Health | null }) {
       <ul className="data-help">
         <li className={moss ? "ok" : ""}>
           {moss
-            ? `Finding text in your files: on (${status?.moss?.docs ?? 0} pieces ready)`
-            : "Finding text in your files: off (start the local host to turn this on)"}
+            ? mossSdk
+              ? `Moss search: on (${status?.moss?.docs ?? 0} pieces · SDK)`
+              : `Moss search: keyword fallback (${status?.moss?.docs ?? 0} pieces — .env keys load Moss SDK)`
+            : "Moss search: off (start the local host)"}
         </li>
         <li className={local ? "ok" : ""}>
           {local

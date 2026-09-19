@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Moss must retrieve user files only — never product README / seed notes."""
+"""Moss must retrieve user files only — never product README / seed notes.
+
+Also verifies primary/secondary flow:
+  1) Moss SDK when credentials + client work
+  2) Keyword fallback when SDK fails, creds missing, or local_only (offline)
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,8 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 HERE = Path(__file__).resolve().parent
 HOST_DIR = HERE.parents[1] / "apps" / "host"
@@ -32,6 +38,96 @@ def _load_corpus(runtime: MossRuntime) -> None:
 
 def _blob(hits: dict) -> str:
     return " ".join(str(d.get("text") or "") for d in hits.get("docs") or [])
+
+
+def _check_primary_secondary_flow(rows: list[dict]) -> None:
+    """Moss SDK primary → keyword secondary when creds fail / offline."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        with patch("moss_runtime.current_dir", return_value=root):
+            runtime = MossRuntime()
+            runtime.add(
+                "file-harbor",
+                "Harbor ferry leaves at 06:40 from Pier 4. Tickets at the booth.",
+            )
+
+            # No credentials → secondary keyword only
+            with patch("moss_runtime.load_creds", return_value=("", "")):
+                runtime._bind_sdk()
+                rows.append(
+                    {
+                        "id": "moss-flow-no-creds-binds-keyword",
+                        "ok": runtime._client is None and runtime.backend == "keyword-fallback",
+                        "detail": f"backend={runtime.backend} client={runtime._client}",
+                    }
+                )
+                hits = asyncio.run(runtime.query("harbor ferry pier", local_only=False))
+                rows.append(
+                    {
+                        "id": "moss-flow-no-creds-uses-keyword",
+                        "ok": hits.get("backend") == "moss-local-session-fallback"
+                        and "Pier 4" in _blob(hits),
+                        "detail": f"backend={hits.get('backend')} blob={_blob(hits)[:120]!r}",
+                    }
+                )
+
+            # Creds present + mock Moss SDK success → primary backend "moss"
+            mock_doc = SimpleNamespace(
+                id="file-harbor",
+                text="Harbor ferry leaves at 06:40 from Pier 4.",
+                score=0.99,
+            )
+            mock_session = MagicMock()
+            mock_session.load_from_disk = AsyncMock()
+            mock_session.save_to_disk = AsyncMock()
+            mock_session.add_docs = AsyncMock()
+            mock_session.query = AsyncMock(return_value=SimpleNamespace(docs=[mock_doc]))
+            mock_client = MagicMock()
+            mock_client.session = AsyncMock(return_value=mock_session)
+
+            runtime._client = mock_client
+            runtime.backend = "moss"
+            hits = asyncio.run(runtime.query("when does the ferry leave", local_only=False))
+            rows.append(
+                {
+                    "id": "moss-flow-sdk-primary",
+                    "ok": hits.get("backend") == "moss"
+                    and mock_session.query.await_count >= 1
+                    and "Pier 4" in _blob(hits),
+                    "detail": f"backend={hits.get('backend')} ms={hits.get('time_taken_ms')} "
+                    f"calls={mock_session.query.await_count}",
+                }
+            )
+
+            # SDK raises (creds exhausted / auth) → secondary keyword, still grounded
+            boom_client = MagicMock()
+            boom_client.session = AsyncMock(side_effect=RuntimeError("creds exhausted"))
+            runtime._client = boom_client
+            runtime.backend = "moss"
+            hits = asyncio.run(runtime.query("ferry pier harbor", local_only=False))
+            rows.append(
+                {
+                    "id": "moss-flow-sdk-fail-falls-to-keyword",
+                    "ok": hits.get("backend") == "moss-local-session-fallback"
+                    and "Pier 4" in _blob(hits),
+                    "detail": f"backend={hits.get('backend')} blob={_blob(hits)[:120]!r}",
+                }
+            )
+
+            # Offline / local_only → never call SDK even if client is bound
+            skip_client = MagicMock()
+            skip_client.session = AsyncMock(return_value=mock_session)
+            runtime._client = skip_client
+            hits = asyncio.run(runtime.query("ferry pier", local_only=True))
+            rows.append(
+                {
+                    "id": "moss-flow-offline-skips-sdk",
+                    "ok": hits.get("backend") == "moss-local-session-fallback"
+                    and skip_client.session.await_count == 0
+                    and "Pier 4" in _blob(hits),
+                    "detail": f"backend={hits.get('backend')} sdk_calls={skip_client.session.await_count}",
+                }
+            )
 
 
 def run_checks() -> list[dict]:
@@ -114,6 +210,8 @@ def run_checks() -> list[dict]:
                     ok = ok_hit and ok_not and not leak
                     detail = f"leak={leak} blob={blob[:180]!r}"
                 rows.append({"id": f"moss:{case['id']}", "ok": ok, "detail": detail})
+
+    _check_primary_secondary_flow(rows)
 
     for row in rows:
         print(("PASS" if row["ok"] else "FAIL"), row["id"], row["detail"][:160])

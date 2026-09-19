@@ -813,7 +813,8 @@ export function LocalChat() {
             content: payload,
             conversation_id: working.hostConversationId,
             voice_input: listening,
-            offline: true,
+            // Online → Moss SDK first; offline → host uses local keyword fallback.
+            offline: !networkOnline(),
             signal: abortRef.current?.signal,
             onMeta: (m) => setTurnMeta(m),
             onDelta: paint,

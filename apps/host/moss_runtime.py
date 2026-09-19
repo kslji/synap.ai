@@ -1,5 +1,7 @@
 """On-device Moss retrieval. Indexes are never push_index()'d to Moss Cloud.
 
+Primary: Moss SDK semantic search when project credentials are present.
+Secondary: local keyword overlap when creds are missing, exhausted, or Moss errors.
 User documents only. Product README / marketing seed notes are never stored or returned.
 """
 
@@ -128,45 +130,63 @@ class MossRuntime:
             out.append(rec)
         return out
 
-    async def query(self, text: str, top_k: int = 4, local_only: bool = False) -> dict:
-        t0 = time.perf_counter()
-        if self._client is not None and not local_only:
+    async def _query_moss_sdk(self, text: str, top_k: int, t0: float) -> dict | None:
+        """Primary path: Moss semantic search. Returns None to trigger secondary fallback."""
+        if self._client is None:
+            return None
+        try:
+            session = await self._client.session(settings.moss_index)
+            root = current_dir()
+            if root is None:
+                return None
+            cache = root / "moss_session"
+            cache.mkdir(parents=True, exist_ok=True)
             try:
-                session = await self._client.session(settings.moss_index)
-                root = current_dir()
-                if root is None:
-                    return self._keyword(text, top_k, t0)
-                cache = root / "moss_session"
-                cache.mkdir(parents=True, exist_ok=True)
-                try:
-                    await session.load_from_disk(str(cache))
-                except Exception:
-                    pass
-                await session.add_docs([{"id": d["id"], "text": d["text"]} for d in self._docs])
-                raw = await session.query(text)
-                try:
-                    await session.save_to_disk(str(cache))
-                except Exception:
-                    pass
-                ms = (time.perf_counter() - t0) * 1000
-                docs = []
-                for d in getattr(raw, "docs", []) or []:
-                    docs.append(
-                        {
-                            "id": getattr(d, "id", None),
-                            "text": getattr(d, "text", str(d)),
-                            "score": getattr(d, "score", None),
-                        }
-                    )
-                if not docs and isinstance(raw, dict):
-                    docs = raw.get("docs") or []
-                return {
-                    "backend": "moss",
-                    "time_taken_ms": round(ms, 3),
-                    "docs": self._filter_hits(docs)[:top_k],
-                }
+                await session.load_from_disk(str(cache))
             except Exception:
                 pass
+            await session.add_docs([{"id": d["id"], "text": d["text"]} for d in self._docs])
+            raw = await session.query(text)
+            try:
+                await session.save_to_disk(str(cache))
+            except Exception:
+                pass
+            ms = (time.perf_counter() - t0) * 1000
+            docs = []
+            for d in getattr(raw, "docs", []) or []:
+                docs.append(
+                    {
+                        "id": getattr(d, "id", None),
+                        "text": getattr(d, "text", str(d)),
+                        "score": getattr(d, "score", None),
+                    }
+                )
+            if not docs and isinstance(raw, dict):
+                docs = raw.get("docs") or []
+            self.backend = "moss"
+            return {
+                "backend": "moss",
+                "time_taken_ms": round(ms, 3),
+                "docs": self._filter_hits(docs)[:top_k],
+            }
+        except Exception:
+            # Creds exhausted, network/auth failure, or SDK error → caller uses keyword.
+            return None
+
+    async def query(self, text: str, top_k: int = 4, local_only: bool = False) -> dict:
+        t0 = time.perf_counter()
+        # Re-read .env / instance creds each query so keys added later take effect.
+        if self._client is None:
+            self._bind_sdk()
+
+        # Primary: Moss SDK whenever credentials are bound and we are allowed to use them.
+        # local_only (browser offline) skips the SDK and uses secondary keyword search.
+        if not local_only:
+            hit = await self._query_moss_sdk(text, top_k, t0)
+            if hit is not None:
+                return hit
+
+        # Secondary: local keyword overlap (no Moss / offline / creds failed).
         return self._keyword(text, top_k, t0)
 
     def _keyword(self, text: str, top_k: int, t0: float) -> dict:
@@ -203,7 +223,7 @@ class MossRuntime:
                     shutil.rmtree(cache, ignore_errors=True)
                 except OSError:
                     pass
-        return {"ok": True, "docs": 0, "backend": self.backend}
+        return {"docs": 0, "backend": self.backend}
 
 
 runtime = MossRuntime()

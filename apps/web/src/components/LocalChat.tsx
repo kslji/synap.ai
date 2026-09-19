@@ -36,12 +36,14 @@ import {
   OLLAMA_DOC_BUDGET,
   OLLAMA_LIGHT_DOC_BUDGET,
   extractiveFileOverview,
+  collapseDuplicateBullets,
   extractiveFactAnswer,
   extractiveInterviewQuestions,
   architectureFlowFromFiles,
   groundedSystem,
   isLightModelTag,
   isMetaAgentNoise,
+  looksLikeLoopedSummary,
   retrieveFileContext,
   thinAttachmentReply,
   trimTurns,
@@ -729,16 +731,22 @@ export function LocalChat() {
           if (!cur || cur.id !== working.id) return cur;
           const last = cur.messages[cur.messages.length - 1];
           let messages = stampReply(cur.messages, extra);
-          if (
-            named.length &&
-            wantsFileOverview(asked) &&
-            last?.role === "assistant" &&
-            isMetaAgentNoise(last.content)
-          ) {
-            const rescue = extractiveFileOverview(named);
-            if (rescue) {
+          if (last?.role === "assistant" && last.content) {
+            let content = last.content;
+            if (lightModel || wantsFileOverview(asked)) {
+              content = collapseDuplicateBullets(content);
+            }
+            if (
+              named.length &&
+              wantsFileOverview(asked) &&
+              (isMetaAgentNoise(content) || looksLikeLoopedSummary(content))
+            ) {
+              const rescue = extractiveFileOverview(named);
+              if (rescue) content = rescue;
+            }
+            if (content !== last.content) {
               messages = messages.map((m, i, arr) =>
-                i === arr.length - 1 && m.role === "assistant" ? { ...m, content: rescue, ...extra } : m,
+                i === arr.length - 1 && m.role === "assistant" ? { ...m, content, ...extra } : m,
               );
             }
           }

@@ -311,6 +311,33 @@ export function isMetaAgentNoise(text: string): boolean {
   );
 }
 
+/** Tiny models sometimes emit the same bullet 4–10 times with tiny wording changes. */
+export function looksLikeLoopedSummary(text: string): boolean {
+  const bullets = String(text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^([-•*]|\d+[.)])\s+/.test(l))
+    .map((l) =>
+      l
+        .replace(/^([-•*]|\d+[.)])\s+/, "")
+        .toLowerCase()
+        .replace(/\$[\d.]+/g, "$")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .slice(0, 8)
+        .join(" "),
+    )
+    .filter((k) => k.length > 10);
+  if (bullets.length < 4) return false;
+  const counts = new Map<string, number>();
+  for (const k of bullets) counts.set(k, (counts.get(k) || 0) + 1);
+  const max = Math.max(...counts.values());
+  // Same soft-key appears 3+ times, or unique keys are < half of bullets.
+  return max >= 3 || counts.size <= Math.ceil(bullets.length / 2);
+}
+
 /** Prefer cutting on a newline / sentence so tables and words are not sliced mid-token. */
 function clipAtBoundary(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -616,6 +643,93 @@ function explainPptxOrSlides(name: string, raw: string): string | null {
   );
 }
 
+/** Receipt / order PDF — list each purchase once (tiny models love to loop line items). */
+function explainReceiptOrInvoice(name: string, raw: string): string | null {
+  if (!/receipt|invoice|order\s*#|namecheap|sub\s*total|transaction\s*id/i.test(raw + " " + name)) return null;
+  if (!/purchase|register|qty|subtotal|total|duration|price/i.test(raw)) return null;
+
+  const order =
+    raw.match(/Order\s*(?:Number|#)\s*[:#]?\s*([A-Za-z0-9-]+)/i)?.[1] ||
+    raw.match(/Order\s*#\s*([A-Za-z0-9-]+)/i)?.[1] ||
+    "";
+  const date = raw.match(/Order\s*Date\s*:\s*([^\n]+)/i)?.[1]?.trim() || "";
+  const total =
+    raw.match(/\bTOTAL\s*\$?\s*([\d.,]+)/i)?.[1] ||
+    raw.match(/Final\s*Cost\s*:\s*\$?\s*([\d.,]+)/i)?.[1] ||
+    "";
+  const user = raw.match(/User\s*Name\s*:\s*([^\n]+)/i)?.[1]?.trim() || "";
+
+  const itemLines = [
+    ...raw.matchAll(
+      /^(?:PURCHASE|REGISTER|RENEW|TRANSFER)\s+([^\n]+?)(?:\s+(\d+)\s+(?:\d+\s+)?(?:year|month|day)s?\s+\$[\d.]+)?/gim,
+    ),
+  ];
+  const items: string[] = [];
+  const seen = new Set<string>();
+  for (const m of itemLines) {
+    const label = `${m[0]}`.replace(/\s+/g, " ").trim().slice(0, 120);
+    const key = label.toLowerCase().replace(/\$[\d.]+/g, "").replace(/\s+/g, " ");
+    if (seen.has(key) || key.length < 8) continue;
+    seen.add(key);
+    items.push(label);
+  }
+  // Fallback: lines that start with PURCHASE / REGISTER
+  if (!items.length) {
+    for (const ln of raw.split(/\r?\n/)) {
+      const t = ln.replace(/\s+/g, " ").trim();
+      if (!/^(PURCHASE|REGISTER|RENEW)\b/i.test(t)) continue;
+      const key = t.toLowerCase().replace(/\$[\d.]+/g, "").slice(0, 80);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(t.slice(0, 120));
+    }
+  }
+
+  const lines = [
+    `This is a **purchase receipt / order confirmation** **[${name}]**.`,
+    `- **Purpose:** proof of what was bought, when, and for how much — not a product manual.`,
+  ];
+  if (order) lines.push(`- **Order #** ${order}${date ? ` · **Date** ${date}` : ""}.`);
+  if (user) lines.push(`- **Account** ${user}.`);
+  if (items.length) {
+    lines.push(`- **Line items** (${items.length} unique — listed once):`);
+    for (const it of items.slice(0, 10)) lines.push(`  - ${it}`);
+  }
+  if (total) lines.push(`- **Total** $${total.replace(/^\$/, "")}.`);
+  if (/FAILED|trial limit/i.test(raw)) {
+    lines.push(`- **Note:** at least one line shows a **failed / trial-limit** attempt (not a successful charge for that row).`);
+  }
+  lines.push(`Ask for one item (e.g. the domain or SSL) if you want that row explained.`);
+  return lines.join("\n");
+}
+
+/** Collapse near-duplicate bullets tiny models often emit. */
+export function collapseDuplicateBullets(text: string): string {
+  const lines = String(text || "").split("\n");
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const t = line.trim();
+    const bullet = t.match(/^([-•*]|\d+[.)])\s+(.*)$/);
+    if (!bullet) {
+      out.push(line);
+      continue;
+    }
+    const body = bullet[2]
+      .toLowerCase()
+      .replace(/\$[\d.]+/g, "$")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    // Soft key: first ~10 significant tokens so "1 year $5.88" ≈ "1 year"
+    const key = body.split(" ").filter(Boolean).slice(0, 10).join(" ");
+    if (key.length > 12 && seen.has(key)) continue;
+    if (key.length > 12) seen.add(key);
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function explainMarkdownOrProse(name: string, raw: string): string {
   const headings = [...raw.matchAll(/^#{1,3}\s+(.+)$/gm)].map((m) => m[1].trim()).slice(0, 10);
   const labeled = [...raw.matchAll(/^([A-Za-z][A-Za-z0-9 /&-]{1,40})\s*[:|\-|–]\s*(.+)$/gm)]
@@ -711,6 +825,9 @@ function explainOneFile(f: NamedDoc): string {
     if (explained) return explained;
   }
 
+  const receipt = explainReceiptOrInvoice(f.name, raw);
+  if (receipt) return receipt;
+
   if (/\.(csv|tsv)$/i.test(f.name) || (raw.includes("\n") && raw.split("\n")[0].split(/,|\t/).length >= 3)) {
     const csv = explainCsv(f.name, raw);
     if (csv) return csv;
@@ -757,13 +874,14 @@ export function extractiveFileOverview(files: NamedDoc[], _maxPerFile = 2400): s
   void _maxPerFile;
   const usable = files.filter((f) => String(f.text || "").trim());
   if (!usable.length) return "";
-  return usable.map(explainOneFile).join("\n\n");
+  return collapseDuplicateBullets(usable.map(explainOneFile).join("\n\n"));
 }
 
 const OVERVIEW_OVERRIDE =
   "OVERRIDE: The user wants UNDERSTANDING, not a file dump. " +
   "Explain what this file is for and why key fields, scripts, sections, or symbols are present — like a teacher. " +
   "Use short bullets. Cite [filename]. Do NOT paste JSON, code, or the whole document. " +
+  "List each unique fact or line item ONCE — never repeat the same bullet with slight wording changes. " +
   "Do NOT describe your role or the chat UI.\n\n";
 
 const FILE_GROUND =

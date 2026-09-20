@@ -72,7 +72,7 @@ import {
 } from "@/lib/groundedContext";
 import { canUseFilePicker, filesFromDataTransfer, pickFilesOrFolder } from "@/lib/deviceFolder";
 import { downloadOnThisDevice } from "@/lib/openOnDevice";
-import { fetchHostStorage, getToken, health, indexMoss, parseApiError, searchMoss, streamChat, eraseHostData, createLocalInstance, type Health } from "@/lib/api";
+import { fetchHostStorage, health, indexMoss, parseApiError, searchMoss, streamChat, eraseHostData, createLocalInstance, type Health } from "@/lib/api";
 import { fetchProfile, clearAccount, type UserProfile } from "@/lib/account";
 import { isAbortError, looksLikeNetworkFailure, networkOnline } from "@/lib/net";
 import { AuthDialog } from "./AuthDialog";

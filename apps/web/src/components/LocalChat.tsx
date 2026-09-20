@@ -86,7 +86,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
-import { completeBrowserChat, hasReadyBrowserEngine, isBrowserModelProgress, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
+import { completeBrowserChat, isBrowserModelProgress, streamBrowserChat, webGpuOk } from "@/lib/webllm";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
 
@@ -200,46 +200,24 @@ export function LocalChat() {
     setDictateOk(canDictate());
     void load();
     void refreshHost();
-    // Prefetch WebLLM only when the host is not already answering with Ollama.
-    let warmCancelled = false;
-    const silentWarm = () => {
-      if (warmCancelled) return;
-      void health()
-        .then((h) => {
-          if (warmCancelled) return;
-          if (h?.local_llm?.backend || h?.ollama) return;
-          warmBrowserEngine(() => undefined);
-        })
-        .catch(() => {
-          if (!warmCancelled) warmBrowserEngine(() => undefined);
-        });
-    };
-    const idleId =
-      typeof requestIdleCallback === "function"
-        ? requestIdleCallback(silentWarm, { timeout: 2500 })
-        : window.setTimeout(silentWarm, 400);
-    const usedIdle = typeof requestIdleCallback === "function";
+    // Do NOT prefetch WebLLM on load — CreateMLCEngine freezes the tab while
+    // downloading/compiling ~700MB. Load only on the first in-browser reply.
     void fetchProfile().then((me) => setProfile(me));
     const onNet = () => {
       const up = networkOnline();
       setNetOn(up);
       if (up) {
-        silentWarm();
         void fetchProfile().then((me) => setProfile(me));
         return;
       }
       setAuthOpen(false);
-      silentWarm();
     };
     setNetOn(networkOnline());
     window.addEventListener("online", onNet);
     window.addEventListener("offline", onNet);
     const t = setInterval(() => void refreshHost(), 8000);
     return () => {
-      warmCancelled = true;
       clearInterval(t);
-      if (usedIdle) cancelIdleCallback(idleId as number);
-      else clearTimeout(idleId);
       window.removeEventListener("online", onNet);
       window.removeEventListener("offline", onNet);
     };

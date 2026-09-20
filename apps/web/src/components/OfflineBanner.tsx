@@ -4,7 +4,6 @@ import { Download, MessageSquare, WifiOff, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { downloadOnThisDevice, prefetchLocalPack } from "@/lib/openOnDevice";
 import { networkOnline } from "@/lib/net";
-import { warmBrowserEngine, webGpuOk } from "@/lib/webllm";
 
 /**
  * Offline chooser: slim status under the chat header (not a huge card in the thread).
@@ -14,7 +13,6 @@ export function OfflineBanner({
   extra,
   stayLabel = "Continue offline chat",
   onStay,
-  onProgress,
 }: {
   extra?: string;
   stayLabel?: string;
@@ -27,7 +25,6 @@ export function OfflineBanner({
   const [dismissed, setDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
-  const [loadingModel, setLoadingModel] = useState(false);
 
   useEffect(() => {
     void prefetchLocalPack();
@@ -38,7 +35,6 @@ export function OfflineBanner({
         setStaying(false);
         setDismissed(false);
         setNote("");
-        setLoadingModel(false);
       }
     };
     const sw = () => setSaved(!!navigator.serviceWorker?.controller);
@@ -72,18 +68,7 @@ export function OfflineBanner({
   function chooseStay() {
     setStaying(true);
     onStay?.();
-    if (webGpuOk()) {
-      setLoadingModel(true);
-      setNote("Starting the on-device model…");
-      warmBrowserEngine((s) => {
-        onProgress?.(s);
-        if (s) setNote("Starting the on-device model…");
-        else {
-          setLoadingModel(false);
-          setNote("");
-        }
-      });
-    }
+    setNote("");
   }
 
   // After continue: slim strip under the chat header — not a big popup in the messages.
@@ -93,11 +78,9 @@ export function OfflineBanner({
       <div className="offline-strip" role="status">
         <WifiOff size={14} aria-hidden />
         <span className="offline-strip-text">
-          {loadingModel
-            ? "Offline · starting on-device model…"
-            : saved
-              ? "You’re offline — chat stays on this device."
-              : "You’re offline — ask about files already on this chat."}
+          {saved
+            ? "You’re offline — chat stays on this device."
+            : "You’re offline — ask about files already on this chat."}
           {extra ? ` ${extra}` : ""}
         </span>
         <button type="button" className="ghost tiny-btn" disabled={busy} onClick={() => void saveZip()}>

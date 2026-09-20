@@ -200,20 +200,23 @@ export function LocalChat() {
     setDictateOk(canDictate());
     void load();
     void refreshHost();
-    warmBrowserEngine(setProgress);
-    void fetchProfile().then((me) => {
-      setProfile(me);
-      if (!me && networkOnline()) setAuthOpen(true);
-    });
+    // Defer WebLLM warm so the composer stays responsive on first paint.
+    let warmCancelled = false;
+    const warm = () => {
+      if (!warmCancelled) warmBrowserEngine(setProgress);
+    };
+    const idleId =
+      typeof requestIdleCallback === "function"
+        ? requestIdleCallback(warm, { timeout: 2500 })
+        : window.setTimeout(warm, 400);
+    const usedIdle = typeof requestIdleCallback === "function";
+    void fetchProfile().then((me) => setProfile(me));
     const onNet = () => {
       const up = networkOnline();
       setNetOn(up);
       if (up) {
         warmBrowserEngine(setProgress);
-        void fetchProfile().then((me) => {
-          setProfile(me);
-          if (!me) setAuthOpen(true);
-        });
+        void fetchProfile().then((me) => setProfile(me));
         return;
       }
       setAuthOpen(false);
@@ -224,7 +227,10 @@ export function LocalChat() {
     window.addEventListener("offline", onNet);
     const t = setInterval(() => void refreshHost(), 8000);
     return () => {
+      warmCancelled = true;
       clearInterval(t);
+      if (usedIdle) cancelIdleCallback(idleId as number);
+      else clearTimeout(idleId);
       window.removeEventListener("online", onNet);
       window.removeEventListener("offline", onNet);
     };
@@ -258,7 +264,6 @@ export function LocalChat() {
   }
 
   async function addFiles(list: FileList | File[]) {
-    if (!(await needProfile())) return;
     const incoming = [...list];
     if (!incoming.length) return;
     const isImage = (f: File) =>
@@ -346,7 +351,6 @@ export function LocalChat() {
   }
 
   async function startNew() {
-    if (!(await needProfile())) return;
     const t = newThread();
     await persist(t);
   }
@@ -396,7 +400,6 @@ export function LocalChat() {
   }
 
   async function compact() {
-    if (!(await needProfile())) return;
     if (busy) stopReply();
     const packed = packThreads(threads);
     if (!packed) {
@@ -522,7 +525,6 @@ export function LocalChat() {
   }
 
   async function wipe() {
-    if (!(await needProfile())) return;
     if (busy) stopReply();
     if (!wipeArmed) {
       setWipeArmed(true);
@@ -580,7 +582,6 @@ export function LocalChat() {
   }
 
   async function send(preset?: string, fromThread?: Thread) {
-    if (!(await needProfile())) return;
     const content = (preset ?? input).trim();
     let thread = fromThread || active;
     if (!thread) thread = newThread();
@@ -1102,17 +1103,22 @@ export function LocalChat() {
             <button type="button" className="ghost" disabled={busy} onClick={() => void wipe()}>
               {wipeArmed ? "Confirm delete" : "Delete data"}
             </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                clearAccount();
-                setProfile(null);
-                setAuthOpen(true);
-              }}
-            >
-              Sign out
-            </button>
+            {profile?.email_verified ? (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  clearAccount();
+                  setProfile(null);
+                }}
+              >
+                Sign out
+              </button>
+            ) : (
+              <button type="button" className="ghost" onClick={() => setAuthOpen(true)}>
+                Sign in
+              </button>
+            )}
           </div>
         </header>
 
@@ -1260,6 +1266,7 @@ export function LocalChat() {
           )}
           <div className="composer-wrap">
             <AttachmentBar files={threadFiles} onRemove={(id) => void dropFile(id)} />
+            {progress && !busy ? <div className="composer-status" role="status">{progress}</div> : null}
             <div className="composer-box">
               <input
                 ref={fileRef}
@@ -1287,7 +1294,10 @@ export function LocalChat() {
                 value={input}
                 rows={1}
                 placeholder={threadFiles.length ? "Ask about the attached files…" : "Message…"}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  if (progress && !busy) setProgress("");
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();

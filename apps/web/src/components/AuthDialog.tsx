@@ -180,6 +180,11 @@ export function AuthDialog({
                   ? "Send reset code"
                   : "Save password and sign in"}
         </button>
+        {allowSkip ? (
+          <button type="button" className="ghost wide" disabled={busy} onClick={onClose}>
+            Continue without signing in
+          </button>
+        ) : null}
         {(mode === "verify" || mode === "reset") && (
           <button
             type="button"

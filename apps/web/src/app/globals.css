@@ -1110,6 +1110,18 @@ button.secondary,
 
 .composer {
   padding: 12px 22px 24px;
+  flex-shrink: 0;
+}
+
+.composer-status {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #d4b896;
+  background: #1a1610;
+  border: 1px solid #5a4630;
+  border-radius: 10px;
 }
 
 .composer-wrap {

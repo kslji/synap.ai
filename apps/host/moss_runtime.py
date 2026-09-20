@@ -114,9 +114,15 @@ class MossRuntime:
         return str(meta.get("owner") or "").strip()
 
     def _docs_for(self, owner: str | None) -> list[dict]:
-        """Per-user slice of the host index. Unowned legacy docs are never shared across users."""
-        if not owner:
+        """Per-user slice of the host index. Unowned legacy docs are never shared across users.
+
+        owner=None → full corpus (unit tests / local-only tooling).
+        owner="" → empty (never dump everyone else's docs on a shared host).
+        """
+        if owner is None:
             return list(self._docs)
+        if not str(owner).strip():
+            return []
         return [d for d in self._docs if self._owner_of(d) == owner]
 
     def add(self, doc_id: str, text: str, metadata: dict | None = None, owner: str | None = None) -> None:

@@ -319,12 +319,7 @@ export function LocalChat() {
       if (images.length) bits.push(`Skipped ${images.length} image(s) — image upload is off for now.`);
       if (mossed) bits.push(`Moss indexed ${mossed}.`);
       else if (storedOk.length) {
-        // File text is already on this chat for grounded answers; Moss index is optional.
-        bits.push(
-          getToken()
-            ? "Ask about the file here — Moss index skipped (host unreachable or Moss off)."
-            : "Ask about the file here — sign in if you want Moss to index it on the host.",
-        );
+        bits.push("File is on this chat. Moss index skipped (host unreachable).");
       }
       if (failed.length) bits.push(`Skipped ${failed.length}: ${failed.slice(0, 3).join("; ")}`);
       setProgress(bits.join(" "));
@@ -516,7 +511,7 @@ export function LocalChat() {
       setProgress(
         `Kept a ${(latest?.text.length || note.length)}-character note for this batch.${fileBit} Chats and files cleared from this browser.`,
       );
-      if (getToken()) await eraseHostData();
+      await eraseHostData();
       void health().then((h) => setStatus(h)).catch(() => undefined);
     } catch (err) {
       if (isAbortError(err)) {
@@ -542,7 +537,7 @@ export function LocalChat() {
     const before = snapshotStats(threads, memory, files);
     try {
       await wipeBrowserStore();
-      if (getToken()) await eraseHostData();
+      await eraseHostData();
       // Re-verify IndexedDB is empty (deleteDatabase can be blocked by open tabs).
       const leftoverThreads = await listThreads().catch(() => [] as Thread[]);
       const leftoverFiles = await listAttachments().catch(() => [] as StoredAttachment[]);
@@ -576,8 +571,7 @@ export function LocalChat() {
         !(await getMemory());
       setProgress(
         verifiedEmpty
-          ? `Erased ${before.messages} messages and ${before.fileCount} file(s) from this browser` +
-              (getToken() ? " (and cleared Moss / host chat history)." : ".")
+          ? `Erased ${before.messages} messages and ${before.fileCount} file(s) from this browser (and cleared this browser’s Moss / host chat slice).`
           : "Tried to erase browser data — close other Surf tabs and click Delete again if anything remains.",
       );
       void health().then((h) => setStatus(h)).catch(() => undefined);
@@ -811,8 +805,8 @@ export function LocalChat() {
           : "Generating…",
     );
     try {
-      // Only index into this signed-in user's Moss slice (host tags owner from JWT).
-      if (docs && ollamaOn && getToken()) {
+      // Index into this browser's Moss slice (device JWT or email JWT — host tags owner from sub).
+      if (docs && ollamaOn) {
         for (const f of threadFiles) {
           if (f.text) void indexMoss(`${f.name}\n${f.text.slice(0, 4000)}`, `file-${f.name}`.slice(0, 80));
         }
@@ -957,8 +951,8 @@ export function LocalChat() {
         }
       };
       let usedHost = false;
-      let skipMoss = !getToken();
-      if (ollamaOn && getToken()) {
+      let skipMoss = false;
+      if (ollamaOn) {
         try {
           const payload = [fileGround, fileGround ? `User question:\n${asked}` : asked]
             .filter(Boolean)
@@ -1016,7 +1010,7 @@ export function LocalChat() {
         ...working,
         messages: stampReply(setAssistant(working.messages, detail), {
           waitMs,
-          engine: ollamaOn && getToken() ? "host" : "browser",
+          engine: ollamaOn ? "host" : "browser",
         }),
         updatedAt: Date.now(),
       };

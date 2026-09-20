@@ -107,7 +107,13 @@ export async function fetchProfile(): Promise<UserProfile | null> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
-    clearAccount();
+    // Guest/device JWTs cannot call /me — keep them so Moss indexing still works.
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1] || "")) as { scope?: string };
+      if (payload.scope === "user") clearAccount();
+    } catch {
+      /* ignore */
+    }
     return null;
   }
   return res.json() as Promise<UserProfile>;

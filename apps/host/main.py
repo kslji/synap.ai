@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from auth import mint_token, mint_user_token, require_user
+from auth import mint_token, mint_user_token, require_session, require_user
 from config import settings
 from guardrails import sanitize_user_text
 import instances
@@ -522,10 +522,10 @@ def storage_prune(_: dict = Depends(require_user)):
 
 
 @app.post("/v1/storage/erase")
-def storage_erase(session: dict = Depends(require_user)):
-    """Clear host chat history + this user's Moss slice when they delete browser data."""
+def storage_erase(session: dict = Depends(require_session)):
+    """Clear host chat history + this session's Moss slice when they delete browser data."""
     cleared = clear_chat_data()
-    moss.clear(owner=str(session.get("sub") or ""))
+    moss.clear(owner=str(session.get("sub") or "").strip())
     audit.append("storage.erase", cleared)
     return {"ok": True, **cleared, "moss_docs": moss.docs}
 
@@ -542,35 +542,40 @@ async def convert_pdf_endpoint(_: dict = Depends(require_user)):
 
 
 @app.post("/v1/memory")
-async def add_memory(note: NoteReq, session: dict = Depends(require_user)):
+async def add_memory(note: NoteReq, session: dict = Depends(require_session)):
     doc_id = note.id or str(uuid.uuid4())
-    owner = str(session.get("sub") or "")
+    owner = str(session.get("sub") or "").strip()
+    if not owner:
+        raise HTTPException(status_code=401, detail="Missing session subject")
     moss.add(doc_id, note.text, owner=owner)
     return {"id": doc_id, "docs": moss.docs}
 
 
 @app.get("/v1/memory/search")
-async def search_memory(q: str, session: dict = Depends(require_user)):
-    return await moss.query(q, owner=str(session.get("sub") or ""))
+async def search_memory(q: str, session: dict = Depends(require_session)):
+    owner = str(session.get("sub") or "").strip()
+    if not owner:
+        raise HTTPException(status_code=401, detail="Missing session subject")
+    return await moss.query(q, owner=owner)
 
 
 @app.get("/v1/conversations")
-def conversations(_: dict = Depends(require_user)):
+def conversations(_: dict = Depends(require_session)):
     return {"conversations": list_conversations()}
 
 
 @app.post("/v1/conversations")
-def new_conversation(_: dict = Depends(require_user)):
+def new_conversation(_: dict = Depends(require_session)):
     return create_conversation()
 
 
 @app.get("/v1/conversations/{conversation_id}/messages")
-def messages(conversation_id: str, _: dict = Depends(require_user)):
+def messages(conversation_id: str, _: dict = Depends(require_session)):
     return {"messages": get_messages(conversation_id)}
 
 
 @app.post("/v1/chat")
-async def chat(req: ChatRequest, request: Request, session: dict = Depends(require_user)):
+async def chat(req: ChatRequest, request: Request, session: dict = Depends(require_session)):
     rate_limit(request, f"chat:{session['sub']}")
     if instances.current() is None:
         raise instances.NoInstanceError()
@@ -590,13 +595,13 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
         file_ctx, question = cleaned.rsplit("User question:", 1)
         question = question.strip() or cleaned
         file_ctx = file_ctx.strip()
-    owner = str(session.get("sub") or "")
+    owner = str(session.get("sub") or "").strip()
     retrieval: dict = {"docs": [], "backend": "skipped", "time_taken_ms": 0}
     if file_ctx:
         # Attached files are the corpus. Do not mix in host Moss docs (or other users').
         pass
     else:
-        # Shared demo hosts keep one Moss file — always scope hits to this signed-in user.
+        # Shared demo hosts keep one Moss file — always scope hits to this session subject.
         retrieval = await moss.query(question, local_only=req.offline, owner=owner)
 
     engine = await detect_engine()

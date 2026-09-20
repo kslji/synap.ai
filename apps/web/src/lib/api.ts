@@ -1,4 +1,4 @@
-import { HOST, TOKEN_KEY } from "./config";
+import { CLIENT_KEY, HOST, TOKEN_KEY } from "./config";
 
 async function fetchTimed(url: string, init: RequestInit = {}, ms = 4000): Promise<Response> {
   const ctrl = new AbortController();
@@ -14,13 +14,40 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-export async function ensureSession(): Promise<string> {
-  const existing = getToken();
-  if (!existing) throw new Error("Sign in with your email profile first.");
-  return existing;
+/** Stable per-browser id used as Moss owner when email sign-in is skipped. */
+export function deviceClientId(): string {
+  let id = localStorage.getItem(CLIENT_KEY);
+  if (!id || id.length < 8) {
+    id = `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, "").slice(0, 32);
+    localStorage.setItem(CLIENT_KEY, id);
+  }
+  return id.slice(0, 80);
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+/** Mint or refresh a loopback JWT so Moss index/search works without email sign-in. */
+export async function mintDeviceSession(): Promise<string> {
+  const res = await fetchTimed(
+    `${HOST}/v1/auth/session`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: deviceClientId() }),
+    },
+    4000,
+  );
+  if (!res.ok) throw new Error(parseApiError(await res.text()));
+  const data = (await res.json()) as { token: string };
+  localStorage.setItem(TOKEN_KEY, data.token);
+  return data.token;
+}
+
+export async function ensureSession(): Promise<string> {
+  const existing = getToken();
+  if (existing) return existing;
+  return mintDeviceSession();
+}
+
+export async function api<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   const token = await ensureSession();
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
@@ -31,7 +58,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetchTimed(`${HOST}${path}`, { ...init, headers }, timeoutMs);
   if (res.status === 401) {
     localStorage.removeItem(TOKEN_KEY);
-    throw new Error("Sign in with your email profile first.");
+    if (!retried) {
+      try {
+        await mintDeviceSession();
+        return api(path, init, true);
+      } catch {
+        /* fall through */
+      }
+    }
+    throw new Error("Could not open a local host session for Moss.");
   }
   if (!res.ok) throw new Error(parseApiError(await res.text()));
   return res.json() as Promise<T>;

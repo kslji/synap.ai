@@ -1542,6 +1542,30 @@
       cleaned = cleaned.replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[redacted]");
       return cleaned;
     }
+    /** Soften typos / rough grammar so intent matches what the user meant. */
+    function normalizeUserAsk(raw) {
+      let t = String(raw || "").trim();
+      if (!t) return t;
+      const fixes = [
+        [/\bwhta\b/gi, "what"], [/\bwht\b/gi, "what"], [/\bwaht\b/gi, "what"], [/\bwat\b/gi, "what"],
+        [/\bresumae?\b/gi, "resume"], [/\bcv\b/gi, "resume"],
+        [/\binterveiw(er|ing|s)?\b/gi, "interview$1"], [/\binterviewr\b/gi, "interviewer"],
+        [/\bintervier\b/gi, "interviewer"], [/\bquestons?\b/gi, "questions"], [/\bquesitons?\b/gi, "questions"],
+        [/\babot\b/gi, "about"], [/\babt\b/gi, "about"], [/\bbased of\b/gi, "based on"], [/\bbase on\b/gi, "based on"],
+      ];
+      for (const [re, to] of fixes) t = t.replace(re, to);
+      t = t.replace(/\b(could|would|should|might|can)\s+(an?\s+\w+)\s+\1\b/gi, "$1 $2");
+      return t.replace(/\s+/g, " ").trim();
+    }
+    function wantsInterviewQuestions(q) {
+      const t = normalizeUserAsk(q).toLowerCase();
+      if (!t) return false;
+      if (/\binterview questions?\b/.test(t)) return true;
+      if (/\bquestions?\b/.test(t) && /\binterview(er|ing|s)?\b/.test(t)) return true;
+      if (/\bquestions?\b/.test(t) && /\b(resume|cv|curriculum)\b/.test(t)) return true;
+      if (/\bquestions?\b/.test(t) && /\b(could|would|might|should)\b/.test(t) && /\bask\b/.test(t)) return true;
+      return false;
+    }
     function trimTurns(list, budget) {
       const out = [];
       let used = 0;
@@ -2067,7 +2091,7 @@
       }
       const text = input.value.trim();
       if (!text && !t.attached.length) return;
-      const asked = sanitizeUserText(text || "Answer using the attached files on this chat.");
+      const asked = normalizeUserAsk(sanitizeUserText(text || "Answer using the attached files on this chat."));
       if (wantsSavedSummary(asked)) {
         input.value = "";
         syncSend();

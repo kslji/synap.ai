@@ -61,7 +61,8 @@ import vault
 _SYSTEM_PROMPT: str | None = None
 
 _FILE_GROUND = (
-    "Attached files follow. Infer what they actually are from the filename and text. "
+    "TURN CONTEXT: Attached file text follows. Prefer it for file questions; cite filenames. "
+    "Infer what they actually are from the filename and text. "
     "Answer the user's question from this text only. Quote real names, dates, numbers, and filenames. "
     "Read typos generously (e.g. 'specilised' means specialized/skills). "
     "For spreadsheets, use sheet names and tab-separated rows. "
@@ -70,6 +71,14 @@ _FILE_GROUND = (
     "If the text is only a filename or a could-not-read note, say you could not read the file. Do not invent a story. "
     "If a line says you cannot see pixels, do not describe the image. "
     "Never answer by describing your role, instructions, or the chat UI.\n\n"
+)
+
+_GENERAL_TURN = (
+    "TURN CONTEXT: No files are attached on this turn. "
+    "Answer as a general helpful assistant. The user does not need to upload anything, "
+    "train you, or complete a special setup for this question. "
+    "Use the conversation so far if present. Be clear and concise. "
+    "Markdown is fine when it helps.\n\n"
 )
 
 _OVERVIEW_OVERRIDE = (
@@ -513,10 +522,10 @@ def storage_prune(_: dict = Depends(require_user)):
 
 
 @app.post("/v1/storage/erase")
-def storage_erase(_: dict = Depends(require_user)):
-    """Clear host chat history + Moss index when the user deletes browser data."""
+def storage_erase(session: dict = Depends(require_user)):
+    """Clear host chat history + this user's Moss slice when they delete browser data."""
     cleared = clear_chat_data()
-    moss.clear()
+    moss.clear(owner=str(session.get("sub") or ""))
     audit.append("storage.erase", cleared)
     return {"ok": True, **cleared, "moss_docs": moss.docs}
 
@@ -533,15 +542,16 @@ async def convert_pdf_endpoint(_: dict = Depends(require_user)):
 
 
 @app.post("/v1/memory")
-async def add_memory(note: NoteReq, _: dict = Depends(require_user)):
+async def add_memory(note: NoteReq, session: dict = Depends(require_user)):
     doc_id = note.id or str(uuid.uuid4())
-    moss.add(doc_id, note.text)
+    owner = str(session.get("sub") or "")
+    moss.add(doc_id, note.text, owner=owner)
     return {"id": doc_id, "docs": moss.docs}
 
 
 @app.get("/v1/memory/search")
-async def search_memory(q: str, _: dict = Depends(require_user)):
-    return await moss.query(q)
+async def search_memory(q: str, session: dict = Depends(require_user)):
+    return await moss.query(q, owner=str(session.get("sub") or ""))
 
 
 @app.get("/v1/conversations")
@@ -580,12 +590,14 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
         file_ctx, question = cleaned.rsplit("User question:", 1)
         question = question.strip() or cleaned
         file_ctx = file_ctx.strip()
+    owner = str(session.get("sub") or "")
     retrieval: dict = {"docs": [], "backend": "skipped", "time_taken_ms": 0}
     if file_ctx:
-        # Attached files are the corpus. Do not mix in product seed docs or old chat turns.
+        # Attached files are the corpus. Do not mix in host Moss docs (or other users').
         pass
     else:
-        retrieval = await moss.query(question, local_only=req.offline)
+        # Shared demo hosts keep one Moss file — always scope hits to this signed-in user.
+        retrieval = await moss.query(question, local_only=req.offline, owner=owner)
 
     engine = await detect_engine()
     installed = list(engine.get("models") or [])
@@ -684,9 +696,16 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
             lines.append(f"- [{d.get('id', 'note')}] {d.get('text', '')[:800]}")
         if lines:
             ground = (
-                "On-device Moss hits "
-                f"({retrieval.get('time_taken_ms')} ms, {retrieval.get('backend')}):\n" + "\n".join(lines)
+                _GENERAL_TURN
+                + "Optional on-device Moss hits "
+                f"({retrieval.get('time_taken_ms')} ms, {retrieval.get('backend')}) — use only if relevant:\n"
+                + "\n".join(lines)
             )
+        else:
+            ground = _GENERAL_TURN
+    else:
+        # First-time / general questions: inject turn cue so the model does not wait for files.
+        ground = _GENERAL_TURN
 
     # System prompt is identical every turn so Ollama can prefix-cache it.
     ollama_messages = [{"role": "system", "content": load_system_prompt()}]

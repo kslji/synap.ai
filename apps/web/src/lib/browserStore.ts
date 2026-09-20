@@ -24,7 +24,20 @@ const THREADS = "threads";
 const MEMORY = "memory";
 const ATTACHMENTS = "attachments";
 
-export type Memory = { summary: string; updatedAt: number };
+export type MemoryBatch = {
+  id: string;
+  createdAt: number;
+  /** Plain facts for this batch only — never merged with older batches when created. */
+  text: string;
+  chatTitles: string[];
+  /** Files attached to the chats that were summarized in THIS batch. */
+  fileNames: string[];
+};
+
+export type Memory = {
+  updatedAt: number;
+  batches: MemoryBatch[];
+};
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -56,6 +69,70 @@ async function set(key: string, value: unknown): Promise<void> {
     tx.onerror = () => reject(tx.error);
   });
   db.close();
+}
+
+function normalizeMemory(raw: unknown): Memory | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as { summary?: string; updatedAt?: number; batches?: MemoryBatch[] };
+  if (Array.isArray(row.batches) && row.batches.length) {
+    return {
+      updatedAt: row.updatedAt || Date.now(),
+      batches: row.batches
+        .filter((b) => b && typeof b.text === "string" && b.text.trim())
+        .map((b) => ({
+          id: b.id || crypto.randomUUID(),
+          createdAt: b.createdAt || row.updatedAt || Date.now(),
+          text: String(b.text).trim(),
+          chatTitles: Array.isArray(b.chatTitles) ? b.chatTitles.map(String) : [],
+          fileNames: Array.isArray(b.fileNames) ? b.fileNames.map(String) : [],
+        })),
+    };
+  }
+  // Legacy single-string memory → one batch (no invented file list).
+  if (typeof row.summary === "string" && row.summary.trim()) {
+    return {
+      updatedAt: row.updatedAt || Date.now(),
+      batches: [
+        {
+          id: crypto.randomUUID(),
+          createdAt: row.updatedAt || Date.now(),
+          text: row.summary.trim(),
+          chatTitles: [],
+          fileNames: [],
+        },
+      ],
+    };
+  }
+  return null;
+}
+
+/** Flatten batches for prompts — each note stays a separate labeled block. */
+export function memoryPromptText(memory: Memory | null, budget: number): string {
+  if (!memory?.batches.length) return "";
+  const blocks = memory.batches.map((b, i) => {
+    const files = b.fileNames.length ? ` (files this note: ${b.fileNames.join(", ")})` : "";
+    return `Memory note ${i + 1}${files}:\n${b.text}`;
+  });
+  return blocks.join("\n\n---\n\n").slice(0, budget);
+}
+
+/** User-facing: each saved summary separate, with only that note’s files. */
+export function memoryDisplayText(memory: Memory | null): string {
+  if (!memory?.batches.length) return "";
+  return memory.batches
+    .map((b, i) => {
+      const files = b.fileNames.length
+        ? `\nFiles in this note: ${b.fileNames.join(", ")}`
+        : "\nFiles in this note: (none recorded)";
+      const chats = b.chatTitles.length ? `\nChats: ${b.chatTitles.join("; ")}` : "";
+      return `Summary ${i + 1}${chats}${files}\n${b.text}`;
+    })
+    .join("\n\n——\n\n");
+}
+
+export function memoryCharCount(memory: Memory | null): number {
+  if (!memory?.batches.length) return 0;
+  return memory.batches.reduce((n, b) => n + b.text.length, 0);
 }
 
 export async function listThreads(): Promise<Thread[]> {
@@ -122,13 +199,39 @@ export async function reassignAttachments(fromIds: string[], toThreadId: string)
 }
 
 export async function getMemory(): Promise<Memory | null> {
-  return (await get<Memory>(MEMORY)) || null;
+  return normalizeMemory(await get<unknown>(MEMORY));
 }
 
+export async function appendMemoryBatch(input: {
+  text: string;
+  chatTitles: string[];
+  fileNames: string[];
+}): Promise<Memory> {
+  const text = input.text.trim();
+  if (!text) throw new Error("Empty summary.");
+  const prev = (await getMemory()) || { updatedAt: Date.now(), batches: [] };
+  const batch: MemoryBatch = {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    text: text.slice(0, 4000),
+    chatTitles: [...new Set(input.chatTitles.map((t) => t.trim()).filter(Boolean))].slice(0, 40),
+    fileNames: [...new Set(input.fileNames.map((t) => t.trim()).filter(Boolean))].slice(0, 80),
+  };
+  const next: Memory = {
+    updatedAt: Date.now(),
+    batches: [...prev.batches, batch].slice(-20),
+  };
+  await set(MEMORY, next);
+  return next;
+}
+
+/** @deprecated Prefer appendMemoryBatch. */
 export async function saveMemory(summary: string): Promise<Memory> {
-  const rec: Memory = { summary: summary.trim(), updatedAt: Date.now() };
-  await set(MEMORY, rec);
-  return rec;
+  return appendMemoryBatch({ text: summary, chatTitles: [], fileNames: [] });
+}
+
+export async function clearMemory(): Promise<void> {
+  await set(MEMORY, null);
 }
 
 export function packThreads(threads: Thread[], limit = 8000): string {
@@ -143,9 +246,27 @@ export function packThreads(threads: Thread[], limit = 8000): string {
   return parts.join("\n\n").slice(0, limit);
 }
 
+/** Titles of chats that actually have messages (for a summarize batch). */
+export function packThreadTitles(threads: Thread[]): string[] {
+  return threads
+    .filter((t) => t.messages.some((m) => m.content.trim()))
+    .map((t) => t.title.trim() || "Untitled")
+    .slice(0, 40);
+}
+
+/**
+ * Strict erase of chats, files, and saved summaries in this browser.
+ * Does not delete the on-device model cache (Cache Storage / WebLLM).
+ */
 export async function wipeBrowserStore(): Promise<void> {
+  try {
+    await set(THREADS, []);
+    await set(ATTACHMENTS, []);
+    await set(MEMORY, null);
+  } catch {
+    /* DB may already be gone or locked */
+  }
   await dropDb(DB);
-  await dropDb("local-ai-cache");
 }
 
 export async function clearAllAttachments(): Promise<void> {
@@ -192,12 +313,13 @@ export function snapshotStats(
 ): DataSnapshot {
   const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value ?? null)).length;
   const messages = threads.reduce((n, t) => n + t.messages.filter((m) => m.content.trim()).length, 0);
+  const chars = memoryCharCount(memory);
   return {
     chats: threads.filter((t) => t.messages.some((m) => m.content.trim())).length,
     messages,
     chatBytes: threads.length ? bytes(threads) : 0,
-    memoryBytes: memory?.summary ? bytes(memory) : 0,
-    memoryChars: memory?.summary.length ?? 0,
+    memoryBytes: chars ? bytes(memory) : 0,
+    memoryChars: chars,
     fileCount: files.length,
     fileBytes: files.reduce((n, f) => n + (f.size || 0), 0),
   };

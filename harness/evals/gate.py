@@ -20,6 +20,8 @@ from test_reply_repair import run_checks as reply_repair_checks  # noqa: E402
 from test_resume_facts import run_checks as resume_facts_checks  # noqa: E402
 from test_standalone import run_checks as standalone_checks  # noqa: E402
 from test_convert import run_checks as convert_checks  # noqa: E402
+from test_chat_markdown import run_checks as chat_markdown_checks  # noqa: E402
+from test_general_chat import run_checks as general_chat_checks  # noqa: E402
 
 REPORT = Path(__file__).with_name("last-report.json")
 LOOPBACK = ("127.0.0.1", "localhost")
@@ -44,6 +46,8 @@ def main() -> int:
     rows.extend(resume_facts_checks())
     rows.extend(standalone_checks())
     rows.extend(convert_checks())
+    rows.extend(chat_markdown_checks())
+    rows.extend(general_chat_checks())
 
     try:
         health = get_json("/health")

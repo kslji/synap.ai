@@ -12,8 +12,11 @@ import {
   newThread,
   originStorage,
   packThreads,
+  packThreadTitles,
+  appendMemoryBatch,
+  memoryPromptText,
+  memoryDisplayText,
   saveAttachment,
-  saveMemory,
   saveThread,
   snapshotStats,
   titleFrom,
@@ -97,7 +100,7 @@ function setAssistant(all: ChatMsg[], content: string): ChatMsg[] {
 }
 
 function systemPrompt(memory: Memory | null, extra: string, memoryBudget = BROWSER_MEMORY_BUDGET): string {
-  return groundedSystem(memory?.summary || "", extra, memoryBudget);
+  return groundedSystem(memoryPromptText(memory, memoryBudget), extra, memoryBudget);
 }
 
 function formatMossHits(hit: { docs?: Array<{ text?: string }>; time_taken_ms?: number; backend?: string } | null): string {
@@ -386,19 +389,37 @@ export function LocalChat() {
     if (!(await needProfile())) return;
     if (busy) stopReply();
     const packed = packThreads(threads);
-    if (!packed && !memory?.summary) {
-      setProgress("Nothing to summarize yet.");
+    if (!packed) {
+      setProgress("Nothing new to summarize — start a chat first.");
       return;
     }
     if (engine === "browser" && gpu === false) {
       setProgress("Open this in Google Chrome only (WebGPU), or switch the engine to Ollama on this computer.");
       return;
     }
+    const batchTitles = packThreadTitles(threads);
+    const batchThreadIds = new Set(
+      threads.filter((t) => t.messages.some((m) => m.content.trim())).map((t) => t.id),
+    );
+    const batchFileNames = [
+      ...new Set(
+        files.filter((f) => batchThreadIds.has(f.threadId)).map((f) => f.name.trim()).filter(Boolean),
+      ),
+    ];
     const before = snapshotStats(threads, memory, files);
     const summarizeAbort = new AbortController();
     abortRef.current = summarizeAbort;
     setBusy(true);
-    setProgress("Summarizing chats on this device…");
+    setTurnMeta(null);
+    setProgress("Summarizing this batch of chats on this device…");
+    const fileLine = batchFileNames.length
+      ? `Files attached to these chats only:\n${batchFileNames.map((n) => `- ${n}`).join("\n")}`
+      : "Files attached to these chats only: (none)";
+    const summarizeBrief =
+      "Write a short plain paragraph (max 120 words) of facts from THIS batch of chats only. " +
+      "Do not mention files that are not listed below. Do not recall older summaries. " +
+      "No headings. Reply with the paragraph only.";
+    const summarizeBody = [fileLine, `Chats to fold in:\n${packed}`].join("\n\n");
     try {
       let summary = "";
       const browserSummary = () =>
@@ -406,17 +427,11 @@ export function LocalChat() {
           [
             {
               role: "system",
-              content:
-                "Write a short plain paragraph (max 120 words) of facts from these chats. No headings. Reply with the paragraph only.",
+              content: summarizeBrief,
             },
             {
               role: "user",
-              content: [
-                memory?.summary ? `Existing retained memory:\n${memory.summary}` : "",
-                packed ? `Chats to fold in:\n${packed}` : "",
-              ]
-                .filter(Boolean)
-                .join("\n\n"),
+              content: summarizeBody,
             },
           ],
           setProgress,
@@ -424,12 +439,10 @@ export function LocalChat() {
       if (engine === "ollama" && (status?.local_llm?.backend || status?.ollama) && status.platform?.instance) {
         try {
           const { conversation_id } = await streamChat({
-            content:
-              "Write a short plain paragraph (max 120 words) of facts from these chats. No headings. Do not use User Memory Note, Open Tasks, or Retained Information. Reply with the paragraph only.\n\n" +
-              (memory?.summary ? `Existing retained memory:\n${memory.summary}\n\n` : "") +
-              (packed ? `Chats to fold in:\n${packed}` : ""),
+            content: `${summarizeBrief}\n\n${summarizeBody}`,
             signal: summarizeAbort.signal,
-            onMeta: (m) => setTurnMeta(m),
+            // Ignore Moss meta — summarize must not show “Used …” from the host index.
+            onMeta: () => undefined,
             onDelta: (t) => {
               if (summarizeAbort.signal.aborted) return;
               summary += t;
@@ -453,23 +466,36 @@ export function LocalChat() {
         .trim()
         .slice(0, 4000);
       if (!note) throw new Error("The model returned an empty summary.");
-      const saved = await saveMemory(note);
+      // Append a NEW batch — never fold older notes / older files into this text.
+      const saved = await appendMemoryBatch({
+        text: note,
+        chatTitles: batchTitles,
+        fileNames: batchFileNames,
+      });
       const fresh = newThread();
       fresh.title = "Memory kept";
       await replaceThreads([fresh]);
-      // Drop file chips so old attachments do not come back into the next chat.
       await clearAllAttachments();
       setMemory(saved);
       setThreads([fresh]);
       setActive(fresh);
       setFiles([]);
+      setTurnMeta(null);
       const after = snapshotStats([fresh], saved, []);
-      setLast({ kind: "summarize", before, after });
+      setLast({
+        kind: "summarize",
+        before,
+        after,
+        batch: { fileNames: batchFileNames, chatTitles: batchTitles },
+      });
       setOrigin(await originStorage());
+      const latest = saved.batches[saved.batches.length - 1];
+      const fileBit = batchFileNames.length
+        ? ` Files in this summary: ${batchFileNames.join(", ")}.`
+        : " No files in this summary.";
       setProgress(
-        `Kept a ${after.memoryChars}-character summary. Chat text and files were cleared from this browser.`,
+        `Kept a ${(latest?.text.length || note.length)}-character note for this batch.${fileBit} Chats and files cleared from this browser.`,
       );
-      // Drop host conversation history so Ollama does not replay old turns.
       if (getToken()) await eraseHostData();
       void health().then((h) => setStatus(h)).catch(() => undefined);
     } catch (err) {
@@ -490,7 +516,7 @@ export function LocalChat() {
     if (busy) stopReply();
     if (!wipeArmed) {
       setWipeArmed(true);
-      setProgress("Click Delete again to erase chats, files, and memory in this browser.");
+      setProgress("Click Delete again to erase all chats and files from this browser.");
       return;
     }
     setBusy(true);
@@ -498,6 +524,15 @@ export function LocalChat() {
     try {
       await wipeBrowserStore();
       if (getToken()) await eraseHostData();
+      // Re-verify IndexedDB is empty (deleteDatabase can be blocked by open tabs).
+      const leftoverThreads = await listThreads().catch(() => [] as Thread[]);
+      const leftoverFiles = await listAttachments().catch(() => [] as StoredAttachment[]);
+      const leftoverMem = await getMemory().catch(() => null);
+      if (leftoverThreads.length || leftoverFiles.length || leftoverMem) {
+        await replaceThreads([]).catch(() => undefined);
+        await clearAllAttachments().catch(() => undefined);
+        await wipeBrowserStore();
+      }
       const after: DataSnapshot = {
         chats: 0,
         messages: 0,
@@ -511,13 +546,20 @@ export function LocalChat() {
       setActive(null);
       setMemory(null);
       setFiles([]);
+      setInput("");
       setTurnMeta(null);
-      setWipeArmed(false);
       setLast({ kind: "erase", before, after });
+      setWipeArmed(false);
       setOrigin(await originStorage());
+      const verifiedEmpty =
+        (await listThreads()).length === 0 &&
+        (await listAttachments()).length === 0 &&
+        !(await getMemory());
       setProgress(
-        `Erased ${before.messages} messages, files, and memory from this browser` +
-          (getToken() ? " (and cleared Moss / host chat history)." : "."),
+        verifiedEmpty
+          ? `Erased ${before.messages} messages and ${before.fileCount} file(s) from this browser` +
+              (getToken() ? " (and cleared Moss / host chat history)." : ".")
+          : "Tried to erase browser data — close other Surf tabs and click Delete again if anything remains.",
       );
       void health().then((h) => setStatus(h)).catch(() => undefined);
     } catch (err) {
@@ -539,7 +581,7 @@ export function LocalChat() {
       sanitizeUserText(content || "Answer using the attached files on this chat.").text,
     );
     if (wantsSavedSummary(asked)) {
-      const note = memory?.summary?.trim();
+      const note = memoryDisplayText(memory);
       const reply = note
         ? note
         : "There is no saved summary yet. Use Save summary to keep one.";
@@ -687,6 +729,13 @@ export function LocalChat() {
           : OLLAMA_DOC_BUDGET
         : Math.max(BROWSER_DOC_BUDGET, 3500),
     );
+    // If attachments exist, always send ### headers so the host skips Moss (never cite
+    // another account's host-index PDF on a shared demo). Names alone still ground the cite.
+    const fileGround =
+      docs ||
+      (threadFiles.length
+        ? threadFiles.map((f) => `### ${f.name}`).join("\n\n")
+        : "");
     if (!ollamaOn && gpu === false) {
       setProgress("Open this in Google Chrome only (WebGPU), or start Ollama on this computer.");
       return;
@@ -717,6 +766,7 @@ export function LocalChat() {
           : "Generating…",
     );
     try {
+      // Only index into this signed-in user's Moss slice (host tags owner from JWT).
       if (docs && ollamaOn && getToken()) {
         for (const f of threadFiles) {
           if (f.text) void indexMoss(`${f.name}\n${f.text.slice(0, 4000)}`, `file-${f.name}`.slice(0, 80));
@@ -778,9 +828,11 @@ export function LocalChat() {
             return;
           }
         }
-        const extra = [docs, !docs && !skipMoss ? formatMossHits(await searchMoss(asked)) : ""]
-          .filter(Boolean)
-          .join("\n\n");
+        // Never pull host Moss when this chat already has attachments — shared demo index
+        // must not mix another user's files into an attached-file turn.
+        const mossExtra =
+          !fileGround && !skipMoss ? formatMossHits(await searchMoss(asked)) : "";
+        const extra = [docs, mossExtra].filter(Boolean).join("\n\n");
         const prior = trimTurns(thread.messages, BROWSER_TURN_BUDGET);
         try {
           await streamBrowserChat(
@@ -797,6 +849,13 @@ export function LocalChat() {
             setProgress,
             abortRef.current?.signal,
           );
+          if (fileGround && !docs) {
+            setTurnMeta({
+              sources: threadFiles.map((f) => ({ title: f.name, kind: "file" })),
+              moss: { backend: "skipped", time_taken_ms: 0, hits: 0 },
+              model: engineLabel,
+            });
+          }
           finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
         } catch (err) {
           if (isAbortError(err)) throw err;
@@ -817,7 +876,7 @@ export function LocalChat() {
       let skipMoss = !getToken();
       if (ollamaOn && getToken()) {
         try {
-          const payload = [docs, docs ? `User question:\n${asked}` : asked]
+          const payload = [fileGround, fileGround ? `User question:\n${asked}` : asked]
             .filter(Boolean)
             .join("\n\n");
           const { conversation_id, latency_ms } = await streamChat({
@@ -825,6 +884,7 @@ export function LocalChat() {
             conversation_id: working.hostConversationId,
             voice_input: listening,
             // Online → Moss SDK first; offline → host uses local keyword fallback.
+            // When fileGround is set, host skips Moss entirely (attached files only).
             offline: !networkOnline(),
             signal: abortRef.current?.signal,
             onMeta: (m) => setTurnMeta(m),
@@ -988,7 +1048,7 @@ export function LocalChat() {
               This light model (<strong>{/in-browser/i.test(engineLabel) ? "llama3.2:1b in the browser" : engineLabel}</strong>)
               keeps answers short. For fuller, more descriptive replies, use{" "}
               <strong>Download zip</strong> above and run Surf on a computer (Mac, Windows, or Linux).
-              Phones cannot run the setup command , use chat in this browser on mobile.
+              Phones cannot run the setup command.
             </p>
           </div>
         ) : null}
@@ -1003,7 +1063,7 @@ export function LocalChat() {
             <div className="empty">
               <h1>Ask anything</h1>
               <p className="muted">
-                Attach files or ask a question. Answers stay on your device.
+                Ask anything — general questions work with no files. Attach documents when you want answers grounded in them.
               </p>
               {gpu === false && engine === "browser" && (
                 <p className="warn">
@@ -1058,7 +1118,11 @@ export function LocalChat() {
                 ) : (
                   <>
                     <div className={`bubble ${m.role}`}>
-                      {m.role === "assistant" ? <MarkdownBody text={m.content} /> : m.content}
+                      {m.role === "assistant" ? (
+                        <MarkdownBody text={m.content} streaming={Boolean(busy && lastAssistant)} />
+                      ) : (
+                        m.content
+                      )}
                     </div>
                     {m.role === "user" && !busy && (
                       <button
@@ -1084,7 +1148,10 @@ export function LocalChat() {
                           .filter((t): t is string => Boolean(t && String(t).trim())),
                       ),
                     ].join(", ")}
-                    {turnMeta.moss?.time_taken_ms
+                    {turnMeta.moss?.backend &&
+                    turnMeta.moss.backend !== "skipped" &&
+                    (turnMeta.moss.hits ?? 0) > 0 &&
+                    turnMeta.moss.time_taken_ms
                       ? ` · Moss ${turnMeta.moss.time_taken_ms} ms`
                       : ""}
                     {turnMeta.model ? ` · ${turnMeta.model}` : ""}

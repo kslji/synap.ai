@@ -54,12 +54,30 @@
     .bubble.user { align-self: flex-end; background: #1d2a24; }
     .bubble.assistant { align-self: flex-start; background: var(--bg-2); border: 1px solid var(--line); white-space: normal; }
     .md-body p { margin: 0 0 .65em; }
-    .md-body p:last-child, .md-body ul:last-child, .md-body ol:last-child, .md-body pre:last-child { margin-bottom: 0; }
-    .md-body h3, .md-body h4 { margin: 0 0 .45em; font-size: 15px; }
-    .md-body ul, .md-body ol { margin: 0 0 .65em; padding-left: 1.2em; }
-    .md-body code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .05em .35em; }
-    .md-pre { margin: 0 0 .75em; padding: 10px 12px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
-    .md-pre code { border: 0; padding: 0; background: transparent; white-space: pre; }
+    .md-body p:last-child, .md-body ul:last-child, .md-body ol:last-child, .md-body pre:last-child, .md-body .md-code:last-child, .md-body .md-table-wrap:last-child { margin-bottom: 0; }
+    .md-body h3, .md-body h4, .md-body h5 { margin: .85em 0 .4em; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; }
+    .md-body h3:first-child, .md-body h4:first-child, .md-body h5:first-child { margin-top: 0; }
+    .md-body ul, .md-body ol { margin: 0 0 .65em; padding-left: 1.35em; }
+    .md-body li { margin: .2em 0; }
+    .md-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .md-body code, .md-inline-code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .05em .35em; }
+    .md-file-ref { display: inline-flex; font-family: ui-monospace, Menlo, monospace; font-size: .86em; color: #b7d4c4; background: #152019; border: 1px solid #2e4a3c; border-radius: 6px; padding: .05em .4em; }
+    .md-quote { margin: 0 0 .75em; padding: .35em 0 .35em .9em; border-left: 3px solid #3d6b54; color: var(--muted); }
+    .md-hr { border: 0; border-top: 1px solid var(--line); margin: .9em 0; }
+    .md-table-wrap { margin: 0 0 .85em; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
+    .md-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .md-table th, .md-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .md-table th { background: #121a16; font-weight: 600; }
+    .md-table tr:last-child td { border-bottom: 0; }
+    .md-code { margin: 0 0 .85em; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg); }
+    .md-code-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: #121a16; border-bottom: 1px solid var(--line); }
+    .md-code-lang { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    .md-code-copy { border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+    .md-code-copy:hover { color: var(--text); background: rgba(255,255,255,.04); }
+    .md-pre { margin: 0; padding: 10px 12px; overflow: auto; background: transparent; border: 0; border-radius: 0; max-height: min(420px, 55vh); }
+    .md-pre code { border: 0; padding: 0; background: transparent; white-space: pre; font-size: 12.5px; line-height: 1.55; color: #d7e4dc; }
+    .md-tok-key { color: #9ecbff; } .md-tok-str { color: #b8e0a8; } .md-tok-num { color: #f0c674; }
+    .md-tok-kw { color: #d7a6ff; } .md-tok-cmt { color: #6b7c72; font-style: italic; } .md-tok-punct { color: #8aa396; }
     .flow-map { margin: 0 0 .9em; padding: 14px; overflow: auto; background: linear-gradient(180deg, #121a17, #0e1412); border: 1px solid var(--line); border-radius: 16px; }
     .flow-map.flow-lr, .flow-stage { display: flex; align-items: stretch; gap: 8px; }
     .flow-map.flow-tb { display: flex; flex-direction: column; gap: 4px; }
@@ -182,7 +200,7 @@
         </div>
       </header>
       <div class="light-model-note" id="light-note" hidden>
-        <p>This light model keeps answers short. For fuller replies, use <strong>Download zip</strong> above and run Surf on a computer (Mac, Windows, or Linux). Phones cannot run the setup command — use chat in this browser on mobile.</p>
+        <p>This light model keeps answers short. For fuller replies, use <strong>Download zip</strong> above and run Surf on a computer (Mac, Windows, or Linux). Phones cannot run the setup command .</p>
       </div>
       <div class="chat-log" id="log"></div>
       <div class="composer">
@@ -239,7 +257,7 @@
       return !!(h && (h.local_llm?.backend || h.ollama) && h.platform?.instance);
     }
     if (isStandalone()) document.documentElement.classList.add("standalone");
-    const EMPTY = `<div class="empty" id="empty"><h1>Ask anything</h1><p class="muted">Type a question, clip files, or pick a folder. We only read what you attach. Answers
+    const EMPTY = `<div class="empty" id="empty"><h1>Ask anything</h1><p class="muted">General questions work with no files. Attach documents when you want answers grounded in them. Answers
                 come from your private ai model. Wi-Fi is optional.</p></div>`;
     const logEl = document.getElementById("log");
     const input = document.getElementById("input");
@@ -252,7 +270,7 @@
     let engine = null;
     let clientId = localStorage.getItem("local.ai.client") || crypto.randomUUID();
     localStorage.setItem("local.ai.client", clientId);
-    let memory = "";
+    let memoryBatches = [];
     let wipeArmed = false;
     let threads = [];
     let activeId = null;
@@ -456,7 +474,7 @@
       return new TextEncoder().encode(JSON.stringify(v ?? null)).length;
     }
     async function persist() {
-      await kvSet("state", { threads, activeId, memory, fbInbox });
+      await kvSet("state", { threads, activeId, memoryBatches, fbInbox });
       paintStats();
       renderThreads();
     }
@@ -466,15 +484,21 @@
       const chatB = threads.reduce((n, t) => n + sizeOf(t.msgs), 0);
       const files = threads.reduce((n, t) => n + (t.attached?.length || 0), 0);
       const fileB = threads.reduce((n, t) => n + (t.attached || []).reduce((m, f) => m + (f.size || sizeOf(f.text || "")), 0), 0);
-      const memB = memory ? sizeOf(memory) : 0;
+      const memB = memoryBatches.length ? sizeOf(memoryBatches) : 0;
+      const lastBatch = memoryBatches[memoryBatches.length - 1];
+      const lastFiles =
+        lastBatch && lastBatch.fileNames && lastBatch.fileNames.length
+          ? `<div class="data-change" style="margin-top:8px">Latest summary files: ${lastBatch.fileNames.join(", ")}</div>`
+          : "";
       card.innerHTML =
         `<div class="tiny muted">What's saved in this browser</div>` +
         `<ul class="data-help" id="data-help-live">` +
         `<li>Chats: ${threads.length} · messages: ${msgs}${files ? " · files: " + files : ""}</li>` +
         `<li>Size of your chats and files: ${bytes(chatB + memB + fileB)}</li>` +
-        (memB > 0 ? `<li>Saved summary kept for later chats: ${bytes(memB)}</li>` : "") +
+        (memB > 0 ? `<li>Saved summaries: ${memoryBatches.length} separate note${memoryBatches.length === 1 ? "" : "s"} (${bytes(memB)})</li>` : "") +
         `</ul>` +
-        `<p class="tiny muted" style="margin-top:8px">Save summary deletes chat text and keeps a short note so the assistant still has context. Delete data removes chats, files, and that note from this browser.</p>`;
+        `<p class="tiny muted" style="margin-top:8px">Save summary keeps a short note for this batch only — older notes stay separate. Delete removes chats and files from this browser.</p>` +
+        lastFiles;
       navigator.storage?.estimate?.().then((o) => {
         const ul = document.getElementById("data-help-live");
         if (!o || !ul) return;
@@ -696,56 +720,171 @@
     function escapeText(s) {
       return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     }
+    function prepareMd(src, streaming) {
+      let s = String(src || "").replace(/\r\n/g, "\n");
+      if (!streaming) {
+        const t = s.trim();
+        if (!/^```/.test(t) && /^[\[{]/.test(t) && /[\]}]$/.test(t)) {
+          try { s = "```json\n" + JSON.stringify(JSON.parse(t), null, 2) + "\n```"; } catch { /* keep */ }
+        }
+      }
+      if (((s.match(/```/g) || []).length) % 2 === 1) s += "\n```";
+      return s;
+    }
+    function highlightJsonHtml(code) {
+      return escapeText(code)
+        .replace(/("(?:\\.|[^"\\])*")(\s*:)?/g, (_, str, colon) =>
+          colon ? `<span class="md-tok-key">${str}</span><span class="md-tok-punct">:</span>` : `<span class="md-tok-str">${str}</span>`)
+        .replace(/\b(true|false|null)\b/g, '<span class="md-tok-kw">$1</span>')
+        .replace(/(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, '<span class="md-tok-num">$1</span>');
+    }
+    function codeBlockHtml(lang, body) {
+      let label = (lang || "").trim();
+      let code = body.replace(/\n$/, "");
+      if ((!label || label === "json") && /^[\[{]/.test(code.trim())) {
+        try {
+          code = JSON.stringify(JSON.parse(code.trim()), null, 2);
+          label = "json";
+        } catch { /* keep */ }
+      }
+      const inner = label === "json" ? highlightJsonHtml(code) : escapeText(code);
+      const id = "c" + Math.random().toString(36).slice(2, 9);
+      return `<div class="md-code" data-code-id="${id}"><div class="md-code-bar"><span class="md-code-lang">${escapeText(label || "code")}</span>` +
+        `<button type="button" class="md-code-copy" data-copy="${id}">Copy</button></div>` +
+        `<pre class="md-pre"><code id="${id}">${inner}</code></pre></div>`;
+    }
     function inlineMd(s) {
       return escapeText(s)
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+        .replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+        .replace(/(https?:\/\/[^\s)<]+)/g, '<a href="$1" target="_blank" rel="noreferrer">$1</a>')
+        .replace(/\[([^\]\n]{1,120}\.[a-z0-9]{1,12})\]/gi, '<span class="md-file-ref">$1</span>');
     }
-    function mdToHtml(src) {
-      return String(src || "").split(/```/).map((part, i) => {
-        if (i % 2 === 1) {
+    function parseTableLines(lines, start) {
+      const header = lines[start];
+      const sep = lines[start + 1];
+      if (!header || !sep || !/\|/.test(header) || !/^\s*\|?[\s:|-]+\|[\s:|-]*\|?\s*$/.test(sep)) return null;
+      const split = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+      const headers = split(header);
+      if (headers.length < 2) return null;
+      const rows = [];
+      let i = start + 2;
+      while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim()) {
+        rows.push(split(lines[i]));
+        i++;
+      }
+      return { headers, rows, end: i };
+    }
+    function proseHtml(part) {
+      const lines = part.split("\n");
+      const out = [];
+      let list = null;
+      const flush = () => {
+        if (!list) return;
+        out.push(`<${list.kind}>` + list.items.join("") + `</${list.kind}>`);
+        list = null;
+      };
+      let i = 0;
+      while (i < lines.length) {
+        const table = parseTableLines(lines, i);
+        if (table) {
+          flush();
+          out.push(
+            '<div class="md-table-wrap"><table class="md-table"><thead><tr>' +
+              table.headers.map((h) => `<th>${inlineMd(h)}</th>`).join("") +
+              "</tr></thead><tbody>" +
+              table.rows.map((r) => "<tr>" + table.headers.map((_, ci) => `<td>${inlineMd(r[ci] || "")}</td>`).join("") + "</tr>").join("") +
+              "</tbody></table></div>",
+          );
+          i = table.end;
+          continue;
+        }
+        const line = lines[i];
+        const h = /^(#{1,4})\s+(.+)$/.exec(line);
+        const ul = /^[-*]\s+(.+)$/.exec(line);
+        const ol = /^\d+\.\s+(.+)$/.exec(line);
+        const quote = /^>\s?(.*)$/.exec(line);
+        const hr = /^(?:---|___|\*\*\*)\s*$/.exec(line);
+        if (h) {
+          flush();
+          out.push(`<h4>${inlineMd(h[2])}</h4>`);
+        } else if (hr) {
+          flush();
+          out.push('<hr class="md-hr" />');
+        } else if (quote) {
+          flush();
+          const quoted = [quote[1]];
+          let j = i + 1;
+          while (j < lines.length) {
+            const q = /^>\s?(.*)$/.exec(lines[j]);
+            if (!q) break;
+            quoted.push(q[1]);
+            j++;
+          }
+          out.push('<blockquote class="md-quote">' + quoted.map((q) => `<p>${inlineMd(q)}</p>`).join("") + "</blockquote>");
+          i = j;
+          continue;
+        } else if (ul) {
+          if (!list || list.kind !== "ul") { flush(); list = { kind: "ul", items: [] }; }
+          list.items.push(`<li>${inlineMd(ul[1])}</li>`);
+        } else if (ol) {
+          if (!list || list.kind !== "ol") { flush(); list = { kind: "ol", items: [] }; }
+          list.items.push(`<li>${inlineMd(ol[1])}</li>`);
+        } else if (!line.trim()) {
+          /* skip */
+        } else {
+          flush();
+          const para = [line];
+          let j = i + 1;
+          while (j < lines.length) {
+            const n = lines[j];
+            if (!n.trim() || /^(#{1,4})\s+/.test(n) || /^[-*]\s+/.test(n) || /^\d+\.\s+/.test(n) || /^>\s?/.test(n) || /^(?:---|___|\*\*\*)\s*$/.test(n) || parseTableLines(lines, j)) break;
+            para.push(n);
+            j++;
+          }
+          out.push(`<p>${inlineMd(para.join(" "))}</p>`);
+          i = j;
+          continue;
+        }
+        i++;
+      }
+      flush();
+      return out.join("");
+    }
+    function mdToHtml(src, streaming) {
+      return prepareMd(src, streaming).split(/```/).map((part, idx) => {
+        if (idx % 2 === 1) {
           const nl = part.indexOf("\n");
           const lang = (nl === -1 ? "" : part.slice(0, nl)).trim().toLowerCase();
           const body = nl === -1 ? part : part.slice(nl + 1);
           if (lang === "mermaid" || /^(flowchart|graph)\s+(LR|RL|TB|BT|TD)\b/i.test(body.trim())) {
             return mermaidHtml(body);
           }
-          const code = escapeText(body).replace(/\n$/, "");
-          return `<pre class="md-pre"><code>${code}</code></pre>`;
+          return codeBlockHtml(lang, body);
         }
-        return (() => {
-          const lines = part.split("\n");
-          const out = [];
-          let list = null;
-          const flush = () => {
-            if (!list) return;
-            out.push(`<${list.kind}>` + list.items.join("") + `</${list.kind}>`);
-            list = null;
-          };
-          for (const line of lines) {
-            const h = /^(#{1,3})\s+(.+)$/.exec(line);
-            const ul = /^[-*]\s+(.+)$/.exec(line);
-            const ol = /^\d+\.\s+(.+)$/.exec(line);
-            if (h) {
-              flush();
-              out.push(`<h4>${inlineMd(h[2])}</h4>`);
-            } else if (ul) {
-              if (!list || list.kind !== "ul") { flush(); list = { kind: "ul", items: [] }; }
-              list.items.push(`<li>${inlineMd(ul[1])}</li>`);
-            } else if (ol) {
-              if (!list || list.kind !== "ol") { flush(); list = { kind: "ol", items: [] }; }
-              list.items.push(`<li>${inlineMd(ol[1])}</li>`);
-            } else if (!line.trim()) {
-              continue;
-            } else {
-              flush();
-              out.push(`<p>${inlineMd(line)}</p>`);
-            }
-          }
-          flush();
-          return out.join("");
-        })();
+        return proseHtml(part);
       }).join("");
+    }
+    function bindCodeCopy(root) {
+      root.querySelectorAll(".md-code-copy").forEach((btn) => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute("data-copy");
+          const el = id && document.getElementById(id);
+          if (!el) return;
+          try {
+            await navigator.clipboard.writeText(el.innerText);
+            btn.textContent = "Copied";
+            setTimeout(() => { btn.textContent = "Copy"; }, 1400);
+          } catch { /* ignore */ }
+        };
+      });
+    }
+    function fillMarkdown(el, text, streaming) {
+      el.classList.add("md-body");
+      el.innerHTML = mdToHtml(text, streaming);
+      bindCodeCopy(el);
     }
     function mermaidHtml(src) {
       const graph = parseSimpleMermaid(src);
@@ -775,7 +914,8 @@
       const text = String(src || "").replace(/\r/g, "").trim();
       const first = (text.split("\n")[0] || "").trim();
       const header = /^(?:flowchart|graph)\s+(LR|RL|TB|BT|TD)\b/i.exec(first);
-      if (!header && !/-->/.test(text)) return null;
+      // Avoid /-->/ — JS-in-HTML treats "-->" as an end-comment and reports "Expression expected".
+      if (!header && !text.includes("-->")) return null;
       const dir = header && /LR|RL/i.test(header[1]) ? "LR" : "TB";
       const nodes = {};
       const edges = [];
@@ -825,10 +965,6 @@
         }
       }
       return layers;
-    }
-    function fillMarkdown(el, text) {
-      el.classList.add("md-body");
-      el.innerHTML = mdToHtml(text);
     }
     function formatWait(ms) {
       if (!Number.isFinite(ms) || ms < 0) return "";
@@ -1938,7 +2074,7 @@
         t.msgs.push({ role: "user", content: asked });
         if (t.msgs.length === 1) t.title = titleFrom(asked);
         t.updatedAt = Date.now();
-        const reply = (memory && String(memory).trim()) || "There is no saved summary yet. Use Save summary to keep one.";
+        const reply = memoryDisplayText() || "There is no saved summary yet. Use Save summary to keep one.";
         t.msgs.push({ role: "assistant", content: reply });
         renderAll();
         await persist();
@@ -1990,16 +2126,20 @@
         const packed = [fileBlock, fileBlock ? "User question:\n" + asked : asked].filter(Boolean).join("\n\n");
         const prior = trimTurns(t.msgs.slice(0, -1), ollamaOn || isStandalone() ? 2400 : 400);
         const system = (crispe || (fileBlock
-          ? "You are a document agent on this device. Answer from attached-file text only. When asked for a summary of this file, summarize the file contents — never your role, instructions, or chat structure. Stay accurate. Markdown that is easy to scan. If the user asks to convert file formats, say conversion is not supported."
-          : "You are Surf AI on this device. Prefer recent chat and retained memory. Be accurate. Format with Markdown (lists, bold, fenced code). Never reprint retained memory or headings like User Memory Note unless the user asked to see the saved summary. If the user asks to convert file formats, say conversion is not supported.")) +
-          (fileBlock ? "\n\n" + fileBlock : "") +
-          (memory ? "\n\nRetained memory:\n" + memory.slice(0, ollamaOn || isStandalone() ? 1200 : 400) : "");
+          ? "You are Surf AI on this device — a careful document colleague for attached sources. Answer from attached-file text for file questions; cite filenames. When asked for a summary of this file, summarize the file contents — never your role. Stay accurate. Markdown that is easy to scan. File conversion is not supported."
+          : "You are Surf AI on this device — a helpful local assistant. First-time users may ask general questions with no files and no training step. Answer clearly. Markdown is fine. Prefer recent chat and retained memory when present. Never reprint retained memory unless asked. File conversion is not supported.")) +
+          (fileBlock
+            ? "\n\nTURN CONTEXT: Attached file text follows. Prefer it for file questions; cite [filename].\n\n" + fileBlock
+            : "\n\nTURN CONTEXT: No files are attached on this turn. Answer as a general helpful assistant. The user does not need to upload anything or train you.") +
+          (memoryPromptText(ollamaOn || isStandalone() ? 1200 : 400) ? "\n\nRetained memory notes (each separate):\n" + memoryPromptText(ollamaOn || isStandalone() ? 1200 : 400) : "");
+        let streamBuf = "";
         const onDelta = (piece) => {
           if (!bot.isConnected) {
             progress("");
             mountAssistant(bot);
           }
-          bot.textContent += piece;
+          streamBuf += piece;
+          fillMarkdown(bot, streamBuf, true);
           logEl.scrollTop = logEl.scrollHeight;
         };
         const startedAt = performance.now();
@@ -2035,8 +2175,8 @@
           );
         }
         const waitMs = Math.round(performance.now() - startedAt);
-        if (!bot.textContent) bot.textContent = "(no reply)";
-        let finalText = bot.textContent;
+        let finalText = streamBuf || bot.textContent || "";
+        if (!finalText.trim()) finalText = "(no reply)";
         const modelTagNow = String(healthCache?.active_model || healthCache?.default_model || "");
         const lightNow = /1b|1\.5b|in-browser/i.test(modelTagNow);
         if (t.attached?.length && wantsFileOverview(asked) && isMetaAgentNoise(finalText)) {
@@ -2048,7 +2188,7 @@
         }
         if (!bot.isConnected) progress("");
         mountAssistant(bot);
-        fillMarkdown(bot, finalText);
+        fillMarkdown(bot, finalText, false);
         paintCite(bot, t.lastCite);
         const rec = {
           role: "assistant",
@@ -2405,12 +2545,31 @@
       await persist();
     }
     async function compact() {
-      const packed = threads.flatMap((th) => th.msgs.map((m) => m.role + ": " + m.content)).join("\n").slice(0, 10000);
-      if (!packed && !memory) return;
-      progress("Summarizing chats on this device…");
-      const ask = "Write a short plain paragraph (max 120 words) of facts from these chats. No headings. Do not use User Memory Note, Open Tasks, or Retained Information. Reply with the paragraph only.\n\n" +
-        (memory ? "Existing retained memory:\n" + memory + "\n\n" : "") +
-        (packed ? "Chats to fold in:\n" + packed : "");
+      const withMsgs = threads.filter((th) => (th.msgs || []).some((m) => m.content));
+      const packed = withMsgs
+        .map((th) => "# " + (th.title || "Chat") + "\n" + th.msgs.map((m) => m.role + ": " + m.content).join("\n"))
+        .join("\n\n")
+        .slice(0, 10000);
+      if (!packed) {
+        progress("Nothing new to summarize — start a chat first.");
+        return;
+      }
+      const batchTitles = withMsgs.map((th) => th.title || "Untitled").slice(0, 40);
+      const batchFileNames = [
+        ...new Set(
+          withMsgs.flatMap((th) => (th.attached || []).map((f) => f.name).filter(Boolean)),
+        ),
+      ].slice(0, 80);
+      progress("Summarizing this batch of chats on this device…");
+      const fileLine = batchFileNames.length
+        ? "Files attached to these chats only:\n" + batchFileNames.map((n) => "- " + n).join("\n")
+        : "Files attached to these chats only: (none)";
+      const ask =
+        "Write a short plain paragraph (max 120 words) of facts from THIS batch of chats only. " +
+        "Do not mention files that are not listed below. Do not recall older summaries. No headings. Reply with the paragraph only.\n\n" +
+        fileLine +
+        "\n\nChats to fold in:\n" +
+        packed;
       let summary = "";
       try {
         const h = await hostHealth();
@@ -2422,7 +2581,7 @@
           } catch {
             if ("gpu" in navigator) {
               await browserChat(
-                [{ role: "system", content: "Write a short factual summary." }, { role: "user", content: ask }],
+                [{ role: "system", content: "Write a short factual summary of this batch only." }, { role: "user", content: ask }],
                 (piece) => { summary += piece; },
                 progress,
               );
@@ -2430,7 +2589,7 @@
           }
         } else if ("gpu" in navigator) {
           await browserChat(
-            [{ role: "system", content: "Write a short factual summary." }, { role: "user", content: ask }],
+            [{ role: "system", content: "Write a short factual summary of this batch only." }, { role: "user", content: ask }],
             (piece) => { summary += piece; },
             progress,
           );
@@ -2438,14 +2597,27 @@
       } catch {
         summary = packed.slice(0, 600);
       }
-      memory = (summary || packed).trim().slice(0, 4000);
-      const kept = threads.flatMap((th) => th.attached || []);
+      const note = (summary || packed).trim().slice(0, 4000);
+      memoryBatches = [
+        ...memoryBatches,
+        {
+          id: crypto.randomUUID(),
+          createdAt: Date.now(),
+          text: note,
+          chatTitles: batchTitles,
+          fileNames: batchFileNames,
+        },
+      ].slice(-20);
       const fresh = newThread();
       fresh.title = "Memory kept";
-      fresh.attached = kept.slice(0, 40);
+      fresh.attached = [];
       threads = [fresh];
       activeId = fresh.id;
-      progress("");
+      progress(
+        batchFileNames.length
+          ? "Saved this batch. Files in this summary: " + batchFileNames.join(", ")
+          : "Saved this batch. No files in this summary.",
+      );
       renderAll();
       await persist();
     }
@@ -2454,16 +2626,53 @@
         wipeArmed = true;
         document.getElementById("erase").textContent = "Confirm delete";
         document.getElementById("erase-side").textContent = "Click again to delete everything";
+        progress("Click Delete again to erase all chats and files from this browser.");
         return;
       }
+      threads = [];
+      memoryBatches = [];
+      activeId = null;
+      fbInbox = [];
+      await kvSet("state", { threads: [], activeId: null, memoryBatches: [], fbInbox: [] }).catch(() => {});
       await new Promise((resolve) => {
         const req = indexedDB.deleteDatabase(DB);
         req.onsuccess = () => resolve();
         req.onerror = () => resolve();
         req.onblocked = () => resolve();
       });
-      localStorage.removeItem("local.ai.jwt");
-      location.reload();
+      const t = newThread();
+      threads = [t];
+      activeId = t.id;
+      wipeArmed = false;
+      document.getElementById("erase").textContent = "Delete data";
+      document.getElementById("erase-side").textContent = "Delete all chats and files";
+      progress("Erased chats and files from this browser.");
+      renderAll();
+      await persist();
+    }
+
+    function memoryPromptText(budget) {
+      if (!memoryBatches.length) return "";
+      return memoryBatches
+        .map((b, i) => {
+          const files = b.fileNames && b.fileNames.length ? " (files this note: " + b.fileNames.join(", ") + ")" : "";
+          return "Memory note " + (i + 1) + files + ":\n" + b.text;
+        })
+        .join("\n\n---\n\n")
+        .slice(0, budget || 1200);
+    }
+    function memoryDisplayText() {
+      if (!memoryBatches.length) return "";
+      return memoryBatches
+        .map((b, i) => {
+          const files =
+            b.fileNames && b.fileNames.length
+              ? "\nFiles in this note: " + b.fileNames.join(", ")
+              : "\nFiles in this note: (none recorded)";
+          const chats = b.chatTitles && b.chatTitles.length ? "\nChats: " + b.chatTitles.join("; ") : "";
+          return "Summary " + (i + 1) + chats + files + "\n" + b.text;
+        })
+        .join("\n\n——\n\n");
     }
 
     function crc32(data) {
@@ -2658,7 +2867,21 @@
     if (saved?.threads?.length) {
       threads = saved.threads;
       activeId = saved.activeId || threads[0].id;
-      memory = saved.memory || "";
+      if (Array.isArray(saved.memoryBatches) && saved.memoryBatches.length) {
+        memoryBatches = saved.memoryBatches;
+      } else if (saved.memory) {
+        memoryBatches = [
+          {
+            id: crypto.randomUUID(),
+            createdAt: Date.now(),
+            text: String(saved.memory),
+            chatTitles: [],
+            fileNames: [],
+          },
+        ];
+      } else {
+        memoryBatches = [];
+      }
       fbInbox = Array.isArray(saved.fbInbox) ? saved.fbInbox : [];
     } else if (saved?.msgs) {
       const t = newThread();
@@ -2668,7 +2891,9 @@
       t.title = titleFrom(t.msgs[0]?.content || "Chat");
       threads = [t];
       activeId = t.id;
-      memory = saved.memory || "";
+      memoryBatches = saved.memory
+        ? [{ id: crypto.randomUUID(), createdAt: Date.now(), text: String(saved.memory), chatTitles: [], fileNames: [] }]
+        : [];
     } else {
       const t = newThread();
       threads = [t];

@@ -211,6 +211,48 @@ def run_checks() -> list[dict]:
                     detail = f"leak={leak} blob={blob[:180]!r}"
                 rows.append({"id": f"moss:{case['id']}", "ok": ok, "detail": detail})
 
+            # Per-user isolation on a shared host index (demo synap.surf case).
+            runtime._docs = []
+            runtime._persist()
+            runtime.add(
+                "file-PAPER 2 10K T1.pdf",
+                "Academic paper about 10K T1 measurements and figures.",
+                owner="user-alice",
+            )
+            runtime.add(
+                "file-hr_contacts.json",
+                "Alok Baghel Head Of Talent Management Recro alok.singh@recro.io",
+                owner="user-bob",
+            )
+            alice = asyncio.run(runtime.query("paper 10K T1", local_only=True, owner="user-alice"))
+            bob = asyncio.run(runtime.query("talent management contacts", local_only=True, owner="user-bob"))
+            alice_blob = _blob(alice)
+            bob_blob = _blob(bob)
+            rows.append(
+                {
+                    "id": "moss-owner-alice-sees-own-pdf",
+                    "ok": "10K T1" in alice_blob and "Alok" not in alice_blob,
+                    "detail": alice_blob[:160],
+                }
+            )
+            rows.append(
+                {
+                    "id": "moss-owner-bob-sees-own-json",
+                    "ok": "Alok" in bob_blob and "10K T1" not in bob_blob,
+                    "detail": bob_blob[:160],
+                }
+            )
+            cross = asyncio.run(
+                runtime.query("paper OR contacts OR talent", local_only=True, owner="user-carol")
+            )
+            rows.append(
+                {
+                    "id": "moss-owner-empty-for-third-user",
+                    "ok": len(cross.get("docs") or []) == 0,
+                    "detail": f"hits={len(cross.get('docs') or [])}",
+                }
+            )
+
     _check_primary_secondary_flow(rows)
 
     for row in rows:

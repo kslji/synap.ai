@@ -1711,18 +1711,61 @@ export function fitBrowserPrompt(
   return pack().filter((m) => m.content.trim());
 }
 
-export function groundedSystem(memory: string, extra: string, memoryBudget: number): string {
-  const mem = memory.trim()
-    ? `\n\nRetained memory from older chats on this device:\n${memory.trim().slice(0, memoryBudget)}`
-    : "";
+/**
+ * Turn-level context injection (no fine-tuning / no per-task training).
+ * Right approach for Surf: steer the base model with this turn’s facts only.
+ * - General chat: inject an explicit “no files needed” cue so first-time asks work.
+ * - File chat: inject attachments as the source of truth.
+ * - Memory / Moss: optional extras, never required to start.
+ */
+export function generalTurnCue(): string {
   return (
-    "You are a human-like expert assistant for the documents attached on this device. " +
-    "Infer the user’s real intent even when spelling is wrong. " +
-    "For explain / what is this / briefly: teach why fields, scripts, and sections exist — never paste the raw file. " +
-    "One fact → one short line with [filename]. " +
-    "Do not invent facts missing from CONTEXT. Never summarize your role. " +
-    "Do not mention product internals unless asked. Use retained memory silently." +
-    mem +
-    (extra ? `\n\n${extra}` : "")
+    "TURN CONTEXT: No files are attached on this turn. " +
+    "Answer as a general helpful assistant. The user does not need to upload anything or train you. " +
+    "Use the conversation so far if present. Be clear and concise."
   );
+}
+
+export function fileTurnCue(): string {
+  return (
+    "TURN CONTEXT: Attached file text follows. Prefer it for file questions; cite [filename]. " +
+    "Do not invent facts missing from the attachments."
+  );
+}
+
+function extraLooksLikeFiles(extra: string): boolean {
+  return /\b(### |Attached files|Attached local files|OVERRIDE:|File tree|Extracted zip|TURN CONTEXT: Attached file)\b/i.test(
+    extra,
+  );
+}
+
+export function groundedSystem(memory: string, extra: string, memoryBudget: number): string {
+  const hasFiles = extraLooksLikeFiles(extra);
+  const base = hasFiles
+    ? "You are Surf AI on this device — a careful document colleague for the attached sources. " +
+      "Infer the user’s real intent even when spelling is wrong. " +
+      "For explain / what is this / briefly: teach why fields, scripts, and sections exist — never paste the raw file. " +
+      "One fact → one short line with [filename]. Do not invent facts missing from CONTEXT. " +
+      "Never summarize your role. Do not mention product internals unless asked."
+    : "You are Surf AI on this device — a helpful local assistant. " +
+      "First-time users may ask general questions with no files and no prior setup. " +
+      "Answer clearly; use Markdown when it helps. " +
+      "When attachments or retrieval CONTEXT appear later, prefer those sources. " +
+      "Never summarize your role. Do not mention product internals unless asked. " +
+      "Do not demand uploads before answering.";
+
+  const parts: string[] = [base];
+  if (hasFiles) {
+    if (!/TURN CONTEXT: Attached file/i.test(extra)) parts.push(fileTurnCue());
+  } else {
+    parts.push(generalTurnCue());
+  }
+  if (extra.trim()) parts.push(extra.trim());
+  if (memory.trim()) {
+    parts.push(
+      "Retained memory notes from older chats on this device (each note is separate; do not mix their files):\n" +
+        memory.trim().slice(0, memoryBudget),
+    );
+  }
+  return parts.join("\n\n");
 }

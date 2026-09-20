@@ -3,6 +3,8 @@
 Primary: Moss SDK semantic search when project credentials are present.
 Secondary: local keyword overlap when creds are missing, exhausted, or Moss errors.
 User documents only. Product README / marketing seed notes are never stored or returned.
+On shared demo hosts, every doc is tagged with the signed-in user id so accounts never
+retrieve each other's files.
 """
 
 from __future__ import annotations
@@ -107,14 +109,36 @@ class MossRuntime:
     def docs(self) -> int:
         return len(self._docs)
 
-    def add(self, doc_id: str, text: str, metadata: dict | None = None) -> None:
-        rec = {"id": doc_id, "text": text, "metadata": metadata or {}}
+    def _owner_of(self, doc: dict) -> str:
+        meta = doc.get("metadata") if isinstance(doc.get("metadata"), dict) else {}
+        return str(meta.get("owner") or "").strip()
+
+    def _docs_for(self, owner: str | None) -> list[dict]:
+        """Per-user slice of the host index. Unowned legacy docs are never shared across users."""
+        if not owner:
+            return list(self._docs)
+        return [d for d in self._docs if self._owner_of(d) == owner]
+
+    def add(self, doc_id: str, text: str, metadata: dict | None = None, owner: str | None = None) -> None:
+        meta = dict(metadata or {})
+        if owner:
+            meta["owner"] = owner
+        rec = {"id": doc_id, "text": text, "metadata": meta}
         if is_product_leak(rec):
             return
-        self._docs = [d for d in self._docs if d["id"] != doc_id] + [rec]
+        # Same doc id can exist for different owners on a shared demo host.
+        def same_slot(d: dict) -> bool:
+            if d.get("id") != doc_id:
+                return False
+            if owner:
+                return self._owner_of(d) == owner
+            return not self._owner_of(d)
+
+        self._docs = [d for d in self._docs if not same_slot(d)] + [rec]
         self._persist()
 
-    def _filter_hits(self, docs: list) -> list[dict]:
+    def _filter_hits(self, docs: list, owner: str | None = None) -> list[dict]:
+        owned_ids = {d["id"] for d in self._docs_for(owner)} if owner else None
         out: list[dict] = []
         for d in docs or []:
             if isinstance(d, dict):
@@ -127,25 +151,37 @@ class MossRuntime:
                 }
             if not rec.get("text") or is_product_leak(rec):
                 continue
+            # SDK may return ids from a shared session — keep only this user's corpus.
+            if owned_ids is not None and rec.get("id") not in owned_ids:
+                continue
             out.append(rec)
         return out
 
-    async def _query_moss_sdk(self, text: str, top_k: int, t0: float) -> dict | None:
+    async def _query_moss_sdk(self, text: str, top_k: int, t0: float, owner: str | None = None) -> dict | None:
         """Primary path: Moss semantic search. Returns None to trigger secondary fallback."""
         if self._client is None:
             return None
+        corpus = self._docs_for(owner)
+        if not corpus:
+            return {
+                "backend": "moss",
+                "time_taken_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "docs": [],
+            }
         try:
             session = await self._client.session(settings.moss_index)
             root = current_dir()
             if root is None:
                 return None
-            cache = root / "moss_session"
+            # Per-user session cache so one account never loads another's embeddings from disk.
+            cache_name = f"moss_session_{owner}" if owner else "moss_session"
+            cache = root / cache_name
             cache.mkdir(parents=True, exist_ok=True)
             try:
                 await session.load_from_disk(str(cache))
             except Exception:
                 pass
-            await session.add_docs([{"id": d["id"], "text": d["text"]} for d in self._docs])
+            await session.add_docs([{"id": d["id"], "text": d["text"]} for d in corpus])
             raw = await session.query(text)
             try:
                 await session.save_to_disk(str(cache))
@@ -167,13 +203,15 @@ class MossRuntime:
             return {
                 "backend": "moss",
                 "time_taken_ms": round(ms, 3),
-                "docs": self._filter_hits(docs)[:top_k],
+                "docs": self._filter_hits(docs, owner=owner)[:top_k],
             }
         except Exception:
             # Creds exhausted, network/auth failure, or SDK error → caller uses keyword.
             return None
 
-    async def query(self, text: str, top_k: int = 4, local_only: bool = False) -> dict:
+    async def query(
+        self, text: str, top_k: int = 4, local_only: bool = False, owner: str | None = None
+    ) -> dict:
         t0 = time.perf_counter()
         # Re-read .env / instance creds each query so keys added later take effect.
         if self._client is None:
@@ -182,17 +220,17 @@ class MossRuntime:
         # Primary: Moss SDK whenever credentials are bound and we are allowed to use them.
         # local_only (browser offline) skips the SDK and uses secondary keyword search.
         if not local_only:
-            hit = await self._query_moss_sdk(text, top_k, t0)
+            hit = await self._query_moss_sdk(text, top_k, t0, owner=owner)
             if hit is not None:
                 return hit
 
         # Secondary: local keyword overlap (no Moss / offline / creds failed).
-        return self._keyword(text, top_k, t0)
+        return self._keyword(text, top_k, t0, owner=owner)
 
-    def _keyword(self, text: str, top_k: int, t0: float) -> dict:
+    def _keyword(self, text: str, top_k: int, t0: float, owner: str | None = None) -> dict:
         q = {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 2}
         scored = []
-        for d in self._docs:
+        for d in self._docs_for(owner):
             if is_product_leak(d):
                 continue
             words = set(re.findall(r"[a-z0-9]+", d["text"].lower()))
@@ -202,28 +240,38 @@ class MossRuntime:
             if overlap:
                 scored.append({**d, "score": round(overlap / math.sqrt(len(words)), 4)})
         scored.sort(key=lambda x: x["score"], reverse=True)
-        docs = self._filter_hits(scored)[:top_k]
+        docs = self._filter_hits(scored, owner=owner)[:top_k]
         return {
             "backend": "moss-local-session-fallback",
             "time_taken_ms": round((time.perf_counter() - t0) * 1000, 3),
             "docs": docs,
         }
 
-    def clear(self) -> dict:
-        """Drop the on-device Moss/keyword index (user asked to erase data)."""
-        self._docs = []
+    def clear(self, owner: str | None = None) -> dict:
+        """Drop Moss/keyword docs. With owner, only that user's slice (shared demo host)."""
+        if owner:
+            self._docs = [d for d in self._docs if self._owner_of(d) != owner]
+        else:
+            self._docs = []
         self._persist()
         root = current_dir()
         if root is not None:
-            cache = root / "moss_session"
-            if cache.exists():
-                try:
-                    import shutil
+            import shutil
 
-                    shutil.rmtree(cache, ignore_errors=True)
-                except OSError:
-                    pass
-        return {"docs": 0, "backend": self.backend}
+            if owner:
+                cache = root / f"moss_session_{owner}"
+                if cache.exists():
+                    try:
+                        shutil.rmtree(cache, ignore_errors=True)
+                    except OSError:
+                        pass
+            else:
+                for path in root.glob("moss_session*"):
+                    try:
+                        shutil.rmtree(path, ignore_errors=True)
+                    except OSError:
+                        pass
+        return {"docs": len(self._docs_for(owner)) if owner else 0, "backend": self.backend}
 
 
 runtime = MossRuntime()

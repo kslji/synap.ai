@@ -47,6 +47,11 @@ import {
   isLightModelTag,
   isMetaAgentNoise,
   isOverRefusal,
+  needsDocumentFirstRedirect,
+  documentFirstRedirect,
+  wantsOpenAdviceWithoutSource,
+  isShortAffirmation,
+  looksLikeSoftHedgeRefusal,
   overRefusalRetryHint,
   stripRefusalContamination,
   retrieveFileContext,
@@ -601,6 +606,30 @@ export function LocalChat() {
       return;
     }
     const ollamaOn = !!(status?.local_llm?.backend || status?.ollama) && !!status.platform?.instance;
+    const priorAssistant = [...thread.messages].reverse().find((m) => m.role === "assistant")?.content || "";
+    // Surf is document-local: open advice / soft-hedge loops → ask for a file or pasted source.
+    if (
+      !threadFiles.length &&
+      (wantsOpenAdviceWithoutSource(asked) ||
+        (isShortAffirmation(asked) && looksLikeSoftHedgeRefusal(priorAssistant)))
+    ) {
+      const reply = documentFirstRedirect(
+        isShortAffirmation(asked) ? undefined : asked.replace(/[?!.]+$/g, "").trim(),
+      );
+      const working: Thread = {
+        ...thread,
+        title: thread.messages.length ? thread.title : titleFrom(asked),
+        updatedAt: Date.now(),
+        messages: [
+          ...thread.messages,
+          { role: "user", content: asked },
+          { role: "assistant", content: reply, engine: ollamaOn ? "host" : "browser" },
+        ],
+      };
+      setInput("");
+      await persist(working);
+      return;
+    }
     const hydrated: StoredAttachment[] = [];
     for (const f of threadFiles) {
       const next = await unpackZipIfNeeded(f);
@@ -806,11 +835,17 @@ export function LocalChat() {
               const rescue = extractiveFileOverview(named);
               if (rescue) content = rescue;
             }
-            // Tiny models reuse a prior violence refusal on the next benign ask.
-            if (isOverRefusal(content, asked)) {
-              content =
-                "Happy to help with that — it’s a normal question, not something illegal. " +
-                "Share a bit more about your goal (skills, timeline, or what you’ve tried) and I’ll give practical next steps.";
+            // Tiny models soft-hedge (“cannot provide financial advice… would that help?”) or over-refuse.
+            // Surf’s answer: ask for a document/link text to summarize — don’t invent advice.
+            if (
+              needsDocumentFirstRedirect(content, asked, {
+                hasFiles: named.length > 0,
+                priorAssistant,
+              })
+            ) {
+              content = documentFirstRedirect(asked.replace(/[?!.]+$/g, "").trim());
+            } else if (isOverRefusal(content, asked)) {
+              content = documentFirstRedirect(asked.replace(/[?!.]+$/g, "").trim());
             }
             if (content !== last.content) {
               messages = messages.map((m, i, arr) =>

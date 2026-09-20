@@ -500,16 +500,82 @@ export function isOverRefusal(reply: string, ask: string): boolean {
   return looksLikeSafetyRefusal(reply) && !looksLikeHarmfulAsk(ask);
 }
 
+/** Soft hedge: refuses to answer but never delivers tips (common on 1B finance asks). */
+export function looksLikeSoftHedgeRefusal(text: string): boolean {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  const low = t.toLowerCase();
+  const hedges =
+    /i cannot provide (financial|legal|medical|investment|tax) advice/i.test(low) ||
+    /i can'?t provide (financial|legal|medical|investment|tax) advice/i.test(low) ||
+    (/not (a|an) (financial|legal|medical) (advisor|advice)/i.test(low) && /cannot|can'?t|won't/i.test(low));
+  const offersButEmpty =
+    /offer some general tips|would that help/i.test(low) && !/^[\s\S]{0,120}(\n\s*[-*•]|\n\s*\d+[.)])/m.test(t);
+  return hedges || (offersButEmpty && /cannot|can'?t|but i can/i.test(low));
+}
+
+export function isShortAffirmation(q: string): boolean {
+  return /^(yes|yeah|yep|yup|sure|ok|okay|please|go ahead|do it|y|yes please)\.?$/i.test(q.trim());
+}
+
+/** Open advice asks that need a user-supplied source on this local-first product. */
+export function wantsOpenAdviceWithoutSource(q: string): boolean {
+  const t = q.trim().toLowerCase();
+  if (!t || looksLikeHarmfulAsk(t) || asksAboutAttachedFiles(t)) return false;
+  return (
+    /\b(millionaire|get rich|make money|earn money|passive income)\b/.test(t) ||
+    /\b(invest|investment|stocks?|crypto|bitcoin|mutual funds?|financial (advice|plan|freedom))\b/.test(t) ||
+    /\bhow (can|do) i (become|get|be)\b.{0,40}\b(rich|wealthy|millionaire)\b/.test(t) ||
+    /\b(legal advice|medical advice|diagnose|prescribe)\b/.test(t)
+  );
+}
+
+/**
+ * Surf is document-local: when the light model has no source, ask for a file/link
+ * instead of looping empty hedges or inventing advice.
+ */
+export function documentFirstRedirect(topicHint?: string): string {
+  const topic = topicHint ? topicHint.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  return (
+    "Surf is built to answer from **documents on this device** (and optional local Moss notes) — " +
+    "not as a general advisor with private cloud knowledge.\n\n" +
+    (topic ? `For “${topic}”, I don’t have a trusted source attached yet.\n\n` : "") +
+    "To get useful tips I can stand behind:\n" +
+    "1. **Attach** a PDF, article export, notes, or checklist (paperclip), **or**\n" +
+    "2. **Paste** the article / guide text (or a clear excerpt) here — I’ll **summarize it** and pull practical tips **only from that source**.\n\n" +
+    "If you have a link, paste the page text or a saved PDF of it (this local agent does not fetch the live web by itself)."
+  );
+}
+
+export function needsDocumentFirstRedirect(
+  reply: string,
+  ask: string,
+  opts: { hasFiles: boolean; priorAssistant?: string },
+): boolean {
+  if (opts.hasFiles || looksLikeHarmfulAsk(ask)) return false;
+  if (isOverRefusal(reply, ask) || looksLikeSoftHedgeRefusal(reply)) return true;
+  if (isShortAffirmation(ask) && opts.priorAssistant && looksLikeSoftHedgeRefusal(opts.priorAssistant)) {
+    return true;
+  }
+  // Empty “would that help?” with no tips delivered.
+  if (/would that help\??\s*$/i.test(reply.trim()) && !/(\n\s*[-*•]|\n\s*\d+[.)])/.test(reply)) {
+    return true;
+  }
+  return false;
+}
+
 /** Drop prior assistant refusals from history so they don’t contaminate the next ask. */
 export function stripRefusalContamination(turns: Turn[], currentAsk: string): Turn[] {
   if (looksLikeHarmfulAsk(currentAsk)) return turns;
   const out: Turn[] = [];
   for (let i = 0; i < turns.length; i++) {
     const m = turns[i];
-    if (m.role === "assistant" && looksLikeSafetyRefusal(m.content)) {
+    const soft =
+      m.role === "assistant" &&
+      (looksLikeSafetyRefusal(m.content) || looksLikeSoftHedgeRefusal(m.content));
+    if (soft) {
       const prev = turns[i - 1];
       if (prev?.role === "user" && looksLikeHarmfulAsk(prev.content)) {
-        // Keep the real refusal paired with the harmful ask (or drop both — drop both for safety of tiny ctx).
         if (out.length && out[out.length - 1].role === "user") out.pop();
         continue;
       }
@@ -523,7 +589,9 @@ export function stripRefusalContamination(turns: Turn[], currentAsk: string): Tu
 export function overRefusalRetryHint(ask: string): string {
   return (
     `The user asked a normal, non-violent question: "${ask.slice(0, 200)}". ` +
-    "Answer helpfully and specifically. Do NOT refuse. Do NOT mention illegal or violent activities " +
+    "If you lack a user-attached document for advice topics (money, legal, medical), " +
+    "ask them to attach a PDF/notes or paste article text so you can summarize grounded tips. " +
+    "Do NOT refuse ordinary questions. Do NOT mention illegal or violent activities " +
     "unless the user literally asked for them. Short Markdown is fine."
   );
 }

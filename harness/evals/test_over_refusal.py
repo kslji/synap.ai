@@ -28,19 +28,26 @@ def run_checks() -> list[dict]:
         "isOverRefusal",
         "stripRefusalContamination",
         "overRefusalRetryHint",
+        "looksLikeSoftHedgeRefusal",
+        "documentFirstRedirect",
+        "needsDocumentFirstRedirect",
+        "wantsOpenAdviceWithoutSource",
     ):
         check(f"exports-{sym}", f"export function {sym}" in src, sym, rows)
 
     check(
         "chat-wires-over-refusal",
-        "isOverRefusal" in chat and "stripRefusalContamination" in chat and "overRefusalRetryHint" in chat,
+        "isOverRefusal" in chat
+        and "stripRefusalContamination" in chat
+        and "documentFirstRedirect" in chat
+        and "needsDocumentFirstRedirect" in chat,
         "LocalChat",
         rows,
     )
     check(
-        "chat-retries-over-refusal",
-        "Rephrasing a clearer answer" in chat,
-        "retry UX",
+        "redirect-asks-for-document",
+        "Attach" in src and "paste" in src.lower() and "summarize" in src.lower(),
+        "document-first copy",
         rows,
     )
 

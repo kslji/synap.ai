@@ -82,7 +82,11 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
   if (!enginePromise) {
     enginePromise = CreateMLCEngine(BROWSER_MODEL, {
       appConfig: mlcAppConfig(),
-      initProgressCallback: (p: { text: string }) => onProgress(p.text),
+      initProgressCallback: (p: { text: string }) => {
+        const t = p.text || "";
+        if (isBrowserModelProgress(t)) onProgress("Downloading the in-browser model (first visit only)…");
+        else onProgress(t);
+      },
     })
       .then((engine) => {
         engineReady = true;
@@ -97,12 +101,21 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
   return enginePromise;
 }
 
+/** True for raw WebLLM/MLC download lines — never show these in the chat composer. */
+export function isBrowserModelProgress(s: string): boolean {
+  return /Fetching param cache|Loading model from cache|cache\[\d|It can take a while when we first visit|webgpu\.wasm|Start to fetch|Finish loading on WebGPU/i.test(
+    s,
+  );
+}
+
 /** Warm WebLLM from Cache Storage — online downloads; offline loads prior Chrome cache. */
 export function warmBrowserEngine(onProgress: (s: string) => void): void {
   if (!webGpuOk()) return;
   void ensureBrowserEngine((s) => {
-    if (!networkOnline() && s) onProgress("Starting on-device model…");
-    else onProgress(s);
+    // Background warm: keep UI quiet. Callers that need status pass a filter themselves.
+    if (!s) onProgress("");
+    else if (!networkOnline()) onProgress("Starting on-device model…");
+    else if (!isBrowserModelProgress(s)) onProgress(s);
   })
     .then(() => onProgress(""))
     .catch(() => undefined);

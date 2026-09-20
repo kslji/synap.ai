@@ -86,7 +86,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
-import { completeBrowserChat, hasReadyBrowserEngine, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
+import { completeBrowserChat, hasReadyBrowserEngine, isBrowserModelProgress, streamBrowserChat, warmBrowserEngine, webGpuOk } from "@/lib/webllm";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
 
@@ -200,27 +200,36 @@ export function LocalChat() {
     setDictateOk(canDictate());
     void load();
     void refreshHost();
-    // Defer WebLLM warm so the composer stays responsive on first paint.
+    // Prefetch WebLLM only when the host is not already answering with Ollama.
     let warmCancelled = false;
-    const warm = () => {
-      if (!warmCancelled) warmBrowserEngine(setProgress);
+    const silentWarm = () => {
+      if (warmCancelled) return;
+      void health()
+        .then((h) => {
+          if (warmCancelled) return;
+          if (h?.local_llm?.backend || h?.ollama) return;
+          warmBrowserEngine(() => undefined);
+        })
+        .catch(() => {
+          if (!warmCancelled) warmBrowserEngine(() => undefined);
+        });
     };
     const idleId =
       typeof requestIdleCallback === "function"
-        ? requestIdleCallback(warm, { timeout: 2500 })
-        : window.setTimeout(warm, 400);
+        ? requestIdleCallback(silentWarm, { timeout: 2500 })
+        : window.setTimeout(silentWarm, 400);
     const usedIdle = typeof requestIdleCallback === "function";
     void fetchProfile().then((me) => setProfile(me));
     const onNet = () => {
       const up = networkOnline();
       setNetOn(up);
       if (up) {
-        warmBrowserEngine(setProgress);
+        silentWarm();
         void fetchProfile().then((me) => setProfile(me));
         return;
       }
       setAuthOpen(false);
-      warmBrowserEngine(setProgress);
+      silentWarm();
     };
     setNetOn(networkOnline());
     window.addEventListener("online", onNet);
@@ -1267,7 +1276,9 @@ export function LocalChat() {
           )}
           <div className="composer-wrap">
             <AttachmentBar files={threadFiles} onRemove={(id) => void dropFile(id)} />
-            {progress && !busy ? <div className="composer-status" role="status">{progress}</div> : null}
+            {progress && !busy && !isBrowserModelProgress(progress) ? (
+              <div className="composer-status" role="status">{progress}</div>
+            ) : null}
             <div className="composer-box">
               <input
                 ref={fileRef}

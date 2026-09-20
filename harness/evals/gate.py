@@ -23,6 +23,7 @@ from test_convert import run_checks as convert_checks  # noqa: E402
 from test_chat_markdown import run_checks as chat_markdown_checks  # noqa: E402
 from test_general_chat import run_checks as general_chat_checks  # noqa: E402
 from test_over_refusal import run_checks as over_refusal_checks  # noqa: E402
+from test_fuzzy_intent import run_checks as fuzzy_intent_checks  # noqa: E402
 
 REPORT = Path(__file__).with_name("last-report.json")
 LOOPBACK = ("127.0.0.1", "localhost")
@@ -50,6 +51,7 @@ def main() -> int:
     rows.extend(chat_markdown_checks())
     rows.extend(general_chat_checks())
     rows.extend(over_refusal_checks())
+    rows.extend(fuzzy_intent_checks())
 
     try:
         health = get_json("/health")

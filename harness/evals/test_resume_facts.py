@@ -98,8 +98,11 @@ def run_checks() -> list[dict]:
     rows.append(
         {
             "id": "interview-detector-covers-interviewer",
-            "ok": "interview(er|ing|s)?" in src and "extractiveResumeInterviewQuestions" in src and "looksLikeResumeDoc" in src,
-            "detail": "interviewer + resume interview extractors present",
+            "ok": "fuzzyHasIntentWord" in src
+            and "extractiveResumeInterviewQuestions" in src
+            and "looksLikeResumeDoc" in src
+            and "interviewer" in src,
+            "detail": "fuzzy interviewer + resume interview extractors present",
         }
     )
     ask = "what question could an interviewer could ask based on this resume ?"

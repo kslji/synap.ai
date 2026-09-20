@@ -1480,6 +1480,40 @@ function editDistance1(a: string, b: string): boolean {
   return true;
 }
 
+/** Word tokens for fuzzy intent matching. */
+function askTokens(t: string): string[] {
+  return t
+    .toLowerCase()
+    .split(/[^a-z0-9+]+/)
+    .filter((w) => w.length > 0);
+}
+
+/**
+ * True if haystack contains target or a near-miss (typo / stem).
+ * Lets “interviewer”, “interveiw”, “queston” still fire the right intent.
+ */
+export function fuzzyHasIntentWord(haystack: string, target: string): boolean {
+  const needle = target.toLowerCase();
+  const hay = haystack.toLowerCase();
+  if (!needle) return false;
+  if (new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(hay)) return true;
+  const words = askTokens(hay);
+  for (const w of words) {
+    if (w === needle) return true;
+    // stems: interview ↔ interviewer / interviewing
+    if (needle.length >= 5 && w.length >= 5) {
+      const a = needle.slice(0, 6);
+      const b = w.slice(0, 6);
+      if (a === b || editDistance1(a, b)) return true;
+    }
+    if (w.length >= 4 && needle.length >= 4 && editDistance1(w, needle)) return true;
+    if (w.length >= 5 && needle.length >= 5 && (w.startsWith(needle.slice(0, 5)) || needle.startsWith(w.slice(0, 5)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Expand common typos / near-synonyms so “specilised” still finds skills sections. */
 function queryTerms(query: string): string[] {
   const base = query
@@ -1555,13 +1589,24 @@ export const FILE_CONVERT_UNSUPPORTED =
   "File conversion is not supported right now. Surf can read attached PDF, Word, Excel, and similar files for questions, but it does not convert between formats (for example PDF ↔ Word or Excel → PDF).";
 
 export function wantsInterviewQuestions(q: string): boolean {
-  const t = q.trim().toLowerCase();
+  const t = normalizeUserAsk(q).toLowerCase();
   if (!t) return false;
+  const hasQ =
+    fuzzyHasIntentWord(t, "question") ||
+    fuzzyHasIntentWord(t, "questions") ||
+    /\b(q&a|q\/a|\bqs\b)\b/.test(t);
+  const hasIv =
+    fuzzyHasIntentWord(t, "interview") ||
+    fuzzyHasIntentWord(t, "interviewer") ||
+    fuzzyHasIntentWord(t, "interviewing");
+  const hasResume =
+    fuzzyHasIntentWord(t, "resume") || fuzzyHasIntentWord(t, "curriculum") || /\bcv\b/.test(t);
   if (/\binterview questions?\b/.test(t)) return true;
-  // "interviewer" / "interviewing" as well as "interview"
-  if (/\bquestions?\b/.test(t) && /\binterview(er|ing|s)?\b/.test(t)) return true;
-  if (/\bquestions?\b/.test(t) && /\b(resume|cv|curriculum)\b/.test(t)) return true;
-  if (/\bquestions?\b/.test(t) && /\b(could|would|might|should)\b/.test(t) && /\bask\b/.test(t)) return true;
+  if (hasQ && hasIv) return true;
+  if (hasQ && hasResume) return true;
+  // “what could they ask / questions to ask me”
+  if (hasQ && /\b(could|would|might|should|can|to)\b/.test(t) && /\bask\b/.test(t)) return true;
+  if (hasIv && /\b(prep|prepare|practice|mock|drill)\b/.test(t)) return true;
   return /\b(prep(are)? me for (an )?interview|ask me (interview )?questions)\b/.test(t);
 }
 
@@ -1571,7 +1616,7 @@ const STUB =
 const IMAGE_STUB = /^Image\s+"/i;
 const NO_VISION = /cannot see the pixels/i;
 
-/** Fix common typos and rough phrasing so intent detectors still fire. */
+/** Fix typos, rough grammar, and near-misses so intent detectors see what the user meant. */
 export function normalizeUserAsk(raw: string): string {
   let t = String(raw || "").trim();
   if (!t) return t;
@@ -1582,27 +1627,49 @@ export function normalizeUserAsk(raw: string): string {
     [/\bwhta\b/gi, "what"],
     [/\bwht\b/gi, "what"],
     [/\bwaht\b/gi, "what"],
+    [/\bwat\b/gi, "what"],
+    [/\bwot\b/gi, "what"],
     [/\bimgae\b/gi, "image"],
     [/\bimg\b/gi, "image"],
     [/\b(pciture|pictuer|picure)\b/gi, "picture"],
     [/\bscrenshot\b/gi, "screenshot"],
     [/\bscreenshit\b/gi, "screenshot"],
     [/\bresumae?\b/gi, "resume"],
+    [/\bresum\b/gi, "resume"],
     [/\bcv\b/gi, "resume"],
-    [/\binterveiw\b/gi, "interview"],
+    [/\binterveiw(er|ing|s)?\b/gi, "interview$1"],
     [/\binterviewr\b/gi, "interviewer"],
+    [/\bintervier\b/gi, "interviewer"],
+    [/\bintervewer\b/gi, "interviewer"],
+    [/\binterviwer\b/gi, "interviewer"],
     [/\bquestons?\b/gi, "questions"],
+    [/\bquesitons?\b/gi, "questions"],
+    [/\bqustions?\b/gi, "questions"],
+    [/\bquesion(s)?\b/gi, "question$1"],
     [/\bdiagramm?\b/gi, "diagram"],
     [/\bvisuali[sz]eing\b/gi, "visualizing"],
     [/\babot\b/gi, "about"],
     [/\babotu\b/gi, "about"],
+    [/\babt\b/gi, "about"],
+    [/\bbout\b/gi, "about"],
     [/\bexplian\b/gi, "explain"],
     [/\bsummari[sz]e?\b/gi, "summarize"],
     [/\bsumary\b/gi, "summary"],
     [/\bbreifly\b/gi, "briefly"],
     [/\bbreif\b/gi, "brief"],
+    [/\bbased of\b/gi, "based on"],
+    [/\bbase on\b/gi, "based on"],
+    [/\bbased from\b/gi, "based on"],
+    [/\bacording to\b/gi, "according to"],
+    [/\bpls\b/gi, "please"],
+    [/\bplz\b/gi, "please"],
+    [/\bu\b/gi, "you"],
+    [/\bur\b/gi, "your"],
   ];
   for (const [re, to] of fixes) t = t.replace(re, to);
+  // Broken doubles: "could an interviewer could ask" → "could an interviewer ask"
+  t = t.replace(/\b(could|would|should|might|can)\s+(an?\s+\w+)\s+\1\b/gi, "$1 $2");
+  t = t.replace(/\b(could|would|should|might|can)\s+\1\b/gi, "$1");
   // "what is about" / "tell about" → insert "this"
   t = t.replace(/\bwhat (is|are) about\b/gi, "what $1 this about");
   t = t.replace(/\btell(?: me)? about\b/gi, "tell me about this");
@@ -1676,9 +1743,17 @@ export function isCasualGeneralAsk(q: string): boolean {
 
 /** True when the user is clearly asking about attachments / this document. */
 export function asksAboutAttachedFiles(q: string): boolean {
-  const t = q.trim().toLowerCase();
+  const t = normalizeUserAsk(q).toLowerCase();
   if (!t) return false;
-  if (wantsFileOverview(t) || wantsShortFact(t) || wantsDiagram(t) || wantsFileConvert(t)) return true;
+  if (
+    wantsFileOverview(t) ||
+    wantsShortFact(t) ||
+    wantsDiagram(t) ||
+    wantsFileConvert(t) ||
+    wantsInterviewQuestions(t)
+  ) {
+    return true;
+  }
   if (
     /\b(this|the|my|our)\s+(file|pdf|doc|document|image|picture|screenshot|photo|zip|resume|cv|sheet|spreadsheet|attachment)\b/.test(
       t,
@@ -1687,6 +1762,9 @@ export function asksAboutAttachedFiles(q: string): boolean {
     return true;
   }
   if (/\b(attach(?:ed|ment)?|uploaded|in the file|from the file|in this (pdf|doc|image))\b/.test(t)) {
+    return true;
+  }
+  if (fuzzyHasIntentWord(t, "resume") || fuzzyHasIntentWord(t, "document") || fuzzyHasIntentWord(t, "attachment")) {
     return true;
   }
   return false;
@@ -1989,13 +2067,14 @@ export function generalTurnCue(): string {
   return (
     "TURN CONTEXT: No files are attached on this turn. " +
     "Answer as a general helpful assistant. The user does not need to upload anything or train you. " +
-    "Use the conversation so far if present. Be clear and concise."
+    "Infer what they mean even if spelling or grammar is rough. Use the conversation so far if present. Be clear and concise."
   );
 }
 
 export function fileTurnCue(): string {
   return (
     "TURN CONTEXT: Attached file text follows. Prefer it for file questions; cite [filename]. " +
+    "Infer the user’s real intent even when wording is messy or misspelled. " +
     "Do not invent facts missing from the attachments."
   );
 }

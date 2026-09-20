@@ -656,7 +656,9 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
     if file_ctx:
         interview = bool(
             re.search(
-                r"\binterview questions?\b|\bquestions?\b.*\binterview\b|\binterview\b.*\bquestions?\b",
+                r"\binterview(er|ing|s)?\b.*\bquestions?\b|\bquestions?\b.*\binterview(er|ing|s)?\b|"
+                r"\bquestions?\b.*\b(resume|cv)\b|\b(resume|cv)\b.*\bquestions?\b|"
+                r"\bquestions?\b.*\b(could|would|might|should)\b.*\bask\b",
                 question,
                 re.I,
             )

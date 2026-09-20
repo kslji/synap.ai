@@ -1,8 +1,21 @@
 "use client";
 
-import { CreateMLCEngine, prebuiltAppConfig, type MLCEngine } from "@mlc-ai/web-llm";
 import { BROWSER_PROMPT_CHARS, fitBrowserPrompt, isModelNoise } from "./groundedContext";
 import { networkOnline } from "./net";
+
+/** Minimal engine surface so we can lazy-load @mlc-ai/web-llm (keeps /chat from freezing on open). */
+type MLCEngine = {
+  resetChat: () => Promise<void>;
+  chat: {
+    completions: {
+      create: (opts: {
+        messages: { role: "system" | "user" | "assistant"; content: string }[];
+        stream: true;
+        max_tokens: number;
+      }) => Promise<AsyncIterable<{ choices: Array<{ delta?: { content?: string } }> }>>;
+    };
+  };
+};
 
 let enginePromise: Promise<MLCEngine> | null = null;
 let engineReady = false;
@@ -22,7 +35,13 @@ function overflow(err: unknown): boolean {
   return isModelNoise(err instanceof Error ? err.message : String(err));
 }
 
-function mlcAppConfig() {
+async function loadMlc() {
+  // Dynamic import: static import of @mlc-ai/web-llm freezes the tab on first /chat paint.
+  return import("@mlc-ai/web-llm");
+}
+
+async function mlcAppConfig() {
+  const { prebuiltAppConfig } = await loadMlc();
   const origin = typeof location !== "undefined" ? location.origin : "";
   const wasm = origin ? `${origin}${LOCAL_WASM}` : "";
   return {
@@ -80,30 +99,34 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
     return Promise.reject(new Error("WebGPU is not available in this browser. Open this in Google Chrome only."));
   }
   if (!enginePromise) {
-    enginePromise = CreateMLCEngine(BROWSER_MODEL, {
-      appConfig: mlcAppConfig(),
-      initProgressCallback: (p: { text: string }) => {
-        const t = p.text || "";
-        if (isBrowserModelProgress(t)) onProgress("Downloading the in-browser model (first visit only)…");
-        else onProgress(t);
-      },
-    })
-      .then((engine) => {
-        engineReady = true;
-        return engine;
-      })
-      .catch((err) => {
-        enginePromise = null;
-        engineReady = false;
-        throw engineError(err);
+    enginePromise = (async () => {
+      onProgress("Loading the in-browser model…");
+      // Yield so the chat UI can paint before the heavy WASM/GPU work starts.
+      await new Promise<void>((r) => setTimeout(r, 50));
+      const { CreateMLCEngine } = await loadMlc();
+      const appConfig = await mlcAppConfig();
+      const engine = await CreateMLCEngine(BROWSER_MODEL, {
+        appConfig,
+        initProgressCallback: (p: { text: string }) => {
+          const t = p.text || "";
+          if (isBrowserModelProgress(t)) onProgress("Downloading the in-browser model (first visit only)…");
+          else onProgress(t);
+        },
       });
+      engineReady = true;
+      return engine as unknown as MLCEngine;
+    })().catch((err) => {
+      enginePromise = null;
+      engineReady = false;
+      throw engineError(err);
+    });
   }
   return enginePromise;
 }
 
 /** True for raw WebLLM/MLC download lines — never show these in the chat composer. */
 export function isBrowserModelProgress(s: string): boolean {
-  return /Fetching param cache|Loading model from cache|cache\[\d|It can take a while when we first visit|webgpu\.wasm|Start to fetch|Finish loading on WebGPU/i.test(
+  return /Fetching param cache|Loading model from cache|cache\[\d|It can take a while when we first visit|webgpu\.wasm|Start to fetch|Finish loading on WebGPU|Loading the in-browser model/i.test(
     s,
   );
 }
@@ -112,7 +135,6 @@ export function isBrowserModelProgress(s: string): boolean {
 export function warmBrowserEngine(onProgress: (s: string) => void): void {
   if (!webGpuOk()) return;
   void ensureBrowserEngine((s) => {
-    // Background warm: keep UI quiet. Callers that need status pass a filter themselves.
     if (!s) onProgress("");
     else if (!networkOnline()) onProgress("Starting on-device model…");
     else if (!isBrowserModelProgress(s)) onProgress(s);

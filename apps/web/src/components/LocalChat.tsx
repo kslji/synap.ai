@@ -1107,7 +1107,7 @@ export function LocalChat() {
           </div>
         </header>
 
-        <OfflineBanner stayLabel="Continue offline chat" onProgress={setProgress} />
+        <OfflineBanner stayLabel="Continue offline chat" />
 
         {/1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
           <div className="light-model-note" role="note">

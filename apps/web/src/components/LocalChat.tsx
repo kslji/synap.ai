@@ -318,7 +318,14 @@ export function LocalChat() {
       const bits = [`Attached ${storedOk.length} file(s) to this chat.`];
       if (images.length) bits.push(`Skipped ${images.length} image(s) — image upload is off for now.`);
       if (mossed) bits.push(`Moss indexed ${mossed}.`);
-      else if (storedOk.length) bits.push("Start the local host so Moss can index them.");
+      else if (storedOk.length) {
+        // File text is already on this chat for grounded answers; Moss index is optional.
+        bits.push(
+          getToken()
+            ? "Ask about the file here — Moss index skipped (host unreachable or Moss off)."
+            : "Ask about the file here — sign in if you want Moss to index it on the host.",
+        );
+      }
       if (failed.length) bits.push(`Skipped ${failed.length}: ${failed.slice(0, 3).join("; ")}`);
       setProgress(bits.join(" "));
     } finally {

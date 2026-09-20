@@ -456,7 +456,75 @@ export function isMetaAgentNoise(text: string): boolean {
     /agent'?s? (job|role) (description|and responsibilities)/.test(t) ||
     /these instructions/.test(t) ||
     /conversation structure/.test(t) ||
-    /folder listing/.test(t) && /agent/.test(t)
+    (/folder listing/.test(t) && /agent/.test(t))
+  );
+}
+
+/** Model emitted a safety refusal template. */
+export function looksLikeSafetyRefusal(text: string): boolean {
+  const t = String(text || "").toLowerCase();
+  if (!t.trim()) return false;
+  return (
+    /i can'?t (provide|help|assist|offer).{0,80}(illegal|harmful|violent|dangerous|unethical)/i.test(t) ||
+    /i cannot (provide|help|assist|offer).{0,80}(illegal|harmful|violent|dangerous)/i.test(t) ||
+    /won'?t (help|assist|provide).{0,60}(harm|violence|illegal|crime)/i.test(t) ||
+    (/violent acts against/.test(t) && /(can'?t|cannot|won't|will not)/.test(t))
+  );
+}
+
+/** User ask is clearly requesting violent / serious illegal harm. */
+export function looksLikeHarmfulAsk(q: string): boolean {
+  const t = q.trim().toLowerCase();
+  if (!t) return false;
+  if (
+    /\b(kill|murder|assassinate|strangle|stab|shoot)\b.{0,40}\b(someone|somebody|him|her|them|people|person)\b/.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(hit|run over|ram)\b.{0,30}\b(someone|somebody|him|her|them|people)\b.{0,20}\b(car|truck|vehicle)\b/.test(t)) {
+    return true;
+  }
+  if (/\b(with (a |the )?(car|truck|vehicle))\b.{0,20}\b(hit|kill|hurt)\b/.test(t)) return true;
+  if (/\b(how (can|do) i )?(make|build|create)\b.{0,20}\b(bomb|explosive|poison)\b/.test(t)) return true;
+  if (/\b(hurt|harm|attack|assault)\b.{0,20}\b(someone|somebody|people|him|her|them)\b/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Tiny instruct models often reuse a prior refusal on the next benign turn
+ * (“how can I be a millionaire?” → same violent-crime refusal).
+ */
+export function isOverRefusal(reply: string, ask: string): boolean {
+  return looksLikeSafetyRefusal(reply) && !looksLikeHarmfulAsk(ask);
+}
+
+/** Drop prior assistant refusals from history so they don’t contaminate the next ask. */
+export function stripRefusalContamination(turns: Turn[], currentAsk: string): Turn[] {
+  if (looksLikeHarmfulAsk(currentAsk)) return turns;
+  const out: Turn[] = [];
+  for (let i = 0; i < turns.length; i++) {
+    const m = turns[i];
+    if (m.role === "assistant" && looksLikeSafetyRefusal(m.content)) {
+      const prev = turns[i - 1];
+      if (prev?.role === "user" && looksLikeHarmfulAsk(prev.content)) {
+        // Keep the real refusal paired with the harmful ask (or drop both — drop both for safety of tiny ctx).
+        if (out.length && out[out.length - 1].role === "user") out.pop();
+        continue;
+      }
+      continue;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
+export function overRefusalRetryHint(ask: string): string {
+  return (
+    `The user asked a normal, non-violent question: "${ask.slice(0, 200)}". ` +
+    "Answer helpfully and specifically. Do NOT refuse. Do NOT mention illegal or violent activities " +
+    "unless the user literally asked for them. Short Markdown is fine."
   );
 }
 
@@ -1795,6 +1863,8 @@ export function groundedSystem(memory: string, extra: string, memoryBudget: numb
     : "You are Surf AI on this device — a helpful local assistant. " +
       "First-time users may ask general questions with no files and no prior setup. " +
       "Answer clearly; use Markdown when it helps. " +
+      "Refuse only clear violent or seriously illegal harm requests — never refuse ordinary questions " +
+      "(money, career, emotions, how-to for legal tasks) and never reuse an earlier refusal on a new ask. " +
       "When attachments or retrieval CONTEXT appear later, prefer those sources. " +
       "Never summarize your role. Do not mention product internals unless asked. " +
       "Do not demand uploads before answering.";

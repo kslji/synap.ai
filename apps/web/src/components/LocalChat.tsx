@@ -46,6 +46,9 @@ import {
   groundedSystem,
   isLightModelTag,
   isMetaAgentNoise,
+  isOverRefusal,
+  overRefusalRetryHint,
+  stripRefusalContamination,
   retrieveFileContext,
   thinAttachmentReply,
   asksAboutAttachedFiles,
@@ -803,6 +806,12 @@ export function LocalChat() {
               const rescue = extractiveFileOverview(named);
               if (rescue) content = rescue;
             }
+            // Tiny models reuse a prior violence refusal on the next benign ask.
+            if (isOverRefusal(content, asked)) {
+              content =
+                "Happy to help with that — it’s a normal question, not something illegal. " +
+                "Share a bit more about your goal (skills, timeline, or what you’ve tried) and I’ll give practical next steps.";
+            }
             if (content !== last.content) {
               messages = messages.map((m, i, arr) =>
                 i === arr.length - 1 && m.role === "assistant" ? { ...m, content, ...extra } : m,
@@ -838,22 +847,49 @@ export function LocalChat() {
         const mossExtra =
           !fileGround && !skipMoss ? formatMossHits(await searchMoss(asked)) : "";
         const extra = [docs, mossExtra].filter(Boolean).join("\n\n");
-        const prior = trimTurns(thread.messages, BROWSER_TURN_BUDGET);
+        const prior = trimTurns(
+          stripRefusalContamination(
+            thread.messages.map((m) => ({ role: m.role, content: m.content })),
+            asked,
+          ),
+          BROWSER_TURN_BUDGET,
+        );
+        const userAsk = docs
+          ? wantsShortFact(asked)
+            ? `${asked}\n\n(Answer as a human expert in one short line from the attached text. Cite [filename]. Do not paste the file.)`
+            : `${asked}\n\n(Explain what this file is for and why key fields/scripts/sections exist. Teach briefly. Cite [filename]. Do NOT paste the raw file or JSON.)`
+          : asked;
+        let buf = "";
+        const paintBuf = (t: string) => {
+          buf += t;
+          paint(t);
+        };
         try {
           await streamBrowserChat(
-            fitBrowserPrompt(
-              systemPrompt(memory, extra, BROWSER_MEMORY_BUDGET),
-              prior,
-              docs
-                ? wantsShortFact(asked)
-                  ? `${asked}\n\n(Answer as a human expert in one short line from the attached text. Cite [filename]. Do not paste the file.)`
-                  : `${asked}\n\n(Explain what this file is for and why key fields/scripts/sections exist. Teach briefly. Cite [filename]. Do NOT paste the raw file or JSON.)`
-                : asked,
-            ),
-            paint,
+            fitBrowserPrompt(systemPrompt(memory, extra, BROWSER_MEMORY_BUDGET), prior, userAsk),
+            paintBuf,
             setProgress,
             abortRef.current?.signal,
           );
+          // One retry if the 1B model copied a prior harm refusal onto a benign ask.
+          if (isOverRefusal(buf, asked) && !docs) {
+            buf = "";
+            setActive((cur) => {
+              if (!cur || cur.id !== working.id) return cur;
+              return { ...cur, messages: setAssistant(cur.messages, "") };
+            });
+            setProgress("Rephrasing a clearer answer…");
+            await streamBrowserChat(
+              fitBrowserPrompt(
+                systemPrompt(memory, "", BROWSER_MEMORY_BUDGET) + "\n\n" + overRefusalRetryHint(asked),
+                [],
+                asked,
+              ),
+              paintBuf,
+              setProgress,
+              abortRef.current?.signal,
+            );
+          }
           if (fileGround && !docs) {
             setTurnMeta({
               sources: threadFiles.map((f) => ({ title: f.name, kind: "file" })),

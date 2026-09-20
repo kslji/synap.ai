@@ -48,6 +48,8 @@ import {
   isMetaAgentNoise,
   retrieveFileContext,
   thinAttachmentReply,
+  asksAboutAttachedFiles,
+  isCasualGeneralAsk,
   trimTurns,
   fitBrowserPrompt,
   offlineFileBrief,
@@ -628,7 +630,7 @@ export function LocalChat() {
       return;
     }
     const named = hydrated.map((f) => ({ name: f.name, text: f.text || "" }));
-    const thin = thinAttachmentReply(named, asked);
+    const thin = named.length ? thinAttachmentReply(named, asked) : null;
     if (thin) {
       const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
       const working: Thread = {
@@ -720,27 +722,30 @@ export function LocalChat() {
         return;
       }
     }
-    const docs = retrieveFileContext(
-      named,
-      asked,
-      ollamaOn
-        ? lightModel
-          ? OLLAMA_LIGHT_DOC_BUDGET
-          : OLLAMA_DOC_BUDGET
-        : Math.max(BROWSER_DOC_BUDGET, 3500),
-    );
-    // If attachments exist, always send ### headers so the host skips Moss (never cite
-    // another account's host-index PDF on a shared demo). Names alone still ground the cite.
+    const docs =
+      named.length && !isCasualGeneralAsk(asked)
+        ? retrieveFileContext(
+            named,
+            asked,
+            ollamaOn
+              ? lightModel
+                ? OLLAMA_LIGHT_DOC_BUDGET
+                : OLLAMA_DOC_BUDGET
+              : Math.max(BROWSER_DOC_BUDGET, 3500),
+          )
+        : "";
+    // Name-only stubs only when the user is asking about files — otherwise greetings hit the
+    // host “thin file” canned reply. Usable docs still skip Moss via fileGround.
     const fileGround =
       docs ||
-      (threadFiles.length
+      (threadFiles.length && asksAboutAttachedFiles(asked)
         ? threadFiles.map((f) => `### ${f.name}`).join("\n\n")
         : "");
     if (!ollamaOn && gpu === false) {
       setProgress("Open this in Google Chrome only (WebGPU), or start Ollama on this computer.");
       return;
     }
-    if (threadFiles.length && !docs) {
+    if (threadFiles.length && !docs && asksAboutAttachedFiles(asked)) {
       setProgress("Those files are on this chat but no text could be read from them.");
     }
     const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];

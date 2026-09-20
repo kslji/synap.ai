@@ -88,6 +88,21 @@ def run_checks() -> list[dict]:
         "removed exclusive file lock",
         rows,
     )
+    grounded_full = GROUNDED.read_text(encoding="utf-8")
+    # thinAttachmentReply must not fire on empty file list / casual asks
+    thin_fn = grounded_full[grounded_full.find("export function thinAttachmentReply") : grounded_full.find("export function retrieveFileContext")]
+    check(
+        "thin-reply-skips-no-files",
+        "if (!files.length) return null" in thin_fn,
+        "no-files guard",
+        rows,
+    )
+    check(
+        "thin-reply-skips-casual",
+        "asksAboutAttachedFiles" in thin_fn and "isCasualGeneralAsk" in grounded_full,
+        "casual / file-ask guards",
+        rows,
+    )
     return rows
 
 

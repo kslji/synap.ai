@@ -1437,13 +1437,53 @@ export function imageExpertReply(files: NamedDoc[], query: string): string {
   );
 }
 
+/** Greetings / small talk — must not trigger file-unread stubs or force file context. */
+export function isCasualGeneralAsk(q: string): boolean {
+  const t = q.trim().toLowerCase().replace(/[!?.]+$/g, "").trim();
+  if (!t || asksAboutAttachedFiles(t)) return false;
+  if (/^(hey|hi|hello|yo|sup|hiya|hola)\b/.test(t)) return true;
+  if (
+    /^(how are you|how'?s it going|what'?s up|wassup|good (morning|afternoon|evening)|thanks|thank you|ok|okay|bye|goodbye)\b/.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** True when the user is clearly asking about attachments / this document. */
+export function asksAboutAttachedFiles(q: string): boolean {
+  const t = q.trim().toLowerCase();
+  if (!t) return false;
+  if (wantsFileOverview(t) || wantsShortFact(t) || wantsDiagram(t) || wantsFileConvert(t)) return true;
+  if (
+    /\b(this|the|my|our)\s+(file|pdf|doc|document|image|picture|screenshot|photo|zip|resume|cv|sheet|spreadsheet|attachment)\b/.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(attach(?:ed|ment)?|uploaded|in the file|from the file|in this (pdf|doc|image))\b/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
 export function thinAttachmentReply(files: NamedDoc[], query = ""): string | null {
+  // No attachments → never a “could not read file” path (general chat must work).
+  if (!files.length) return null;
+
   const usable = files.filter((f) => String(f.text || "").trim());
   if (!usable.length) {
+    // Unreadable chip on the chat must not block greetings / general questions.
+    if (!asksAboutAttachedFiles(query)) return null;
     return "This file is on the chat, but I could not read any text from it. If it is an image, I cannot see pixels — try a clearer filename or paste the text you care about. If it is a scanned PDF, attach a text-based PDF or Word export.";
   }
 
   if (usable.every((f) => isImageAttachment(f))) {
+    // Image stubs: only force the image reply when the user is asking about the image/file.
+    if (!asksAboutAttachedFiles(query)) return null;
     return imageExpertReply(usable, query);
   }
 
@@ -1454,15 +1494,20 @@ export function thinAttachmentReply(files: NamedDoc[], query = ""): string | nul
 
   // Don't use image-pixel stubs as PDF résumé copy when a real image is mixed in.
   const onlyImageNoise = usable.every((f) => isImageAttachment(f) || !String(f.text || "").trim());
-  if (onlyImageNoise) return imageExpertReply(usable.filter((f) => isImageAttachment(f)), query);
+  if (onlyImageNoise) {
+    if (!asksAboutAttachedFiles(query)) return null;
+    return imageExpertReply(usable.filter((f) => isImageAttachment(f)), query);
+  }
 
   if (STUB.test(body) && letters < 240 && !usable.some((f) => isImageAttachment(f))) {
+    if (!asksAboutAttachedFiles(query)) return null;
     if (pdfLike) {
       return "I could not read enough text from this PDF (it may be a scan or image-only export). Attach a text-based PDF, Word, or Docs print-to-PDF, then ask again.";
     }
     return "I could not read enough usable text from this file. Attach a text-based copy (PDF with a text layer, Word, or plain text), or paste the part you care about.";
   }
   if (letters < 90 && !usable.some((f) => isImageAttachment(f))) {
+    if (!asksAboutAttachedFiles(query)) return null;
     return "I only got a few words from this file, not enough to answer honestly. Attach a text-based copy or paste the relevant text.";
   }
   return null;

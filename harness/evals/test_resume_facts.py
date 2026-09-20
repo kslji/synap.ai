@@ -97,6 +97,23 @@ def run_checks() -> list[dict]:
     )
     rows.append(
         {
+            "id": "interview-detector-covers-interviewer",
+            "ok": "interview(er|ing|s)?" in src and "extractiveResumeInterviewQuestions" in src and "looksLikeResumeDoc" in src,
+            "detail": "interviewer + resume interview extractors present",
+        }
+    )
+    ask = "what question could an interviewer could ask based on this resume ?"
+    rows.append(
+        {
+            "id": "interview-ask-matches-interviewer-resume",
+            "ok": bool(re.search(r"\bquestions?\b", ask, re.I))
+            and bool(re.search(r"\binterview(er|ing|s)?\b", ask, re.I))
+            and bool(re.search(r"\b(resume|cv)\b", ask, re.I)),
+            "detail": ask,
+        }
+    )
+    rows.append(
+        {
             "id": "resume-detected",
             "ok": looks_like_resume("Kabir_Singh_Lamba.pdf", RESUME),
             "detail": "pdf + professional experience",

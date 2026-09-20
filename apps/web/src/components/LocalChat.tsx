@@ -720,12 +720,9 @@ export function LocalChat() {
         return;
       }
     }
-    // Offline / light model: interview Qs from the zip tree (don't dump the raw extract).
-    if (
-      named.length &&
-      wantsInterviewQuestions(asked) &&
-      (lightModel || !networkOnline() || !hasReadyBrowserEngine())
-    ) {
+    // Interview asks: always use extractive grounding when files are attached —
+    // light models and offline stubs often miss "interviewer" / resume phrasing.
+    if (named.length && wantsInterviewQuestions(asked)) {
       const qs = extractiveInterviewQuestions(named);
       if (qs) {
         const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];

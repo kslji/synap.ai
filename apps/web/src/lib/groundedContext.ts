@@ -403,7 +403,85 @@ export function architectureFlowFromFiles(files: NamedDoc[]): string | null {
 }
 
 /** Interview Q&A from zip tree / file names when the LLM cannot run. */
+export function looksLikeResumeDoc(files: NamedDoc[]): boolean {
+  const blob = files.map((f) => `${f.name}\n${f.text || ""}`).join("\n").toLowerCase();
+  if (/\b(resume|curriculum\s+vitae|\bcv\b)\b/.test(blob)) return true;
+  const hits = [/work\s+experience/, /professional\s+experience/, /\beducation\b/, /\bskills\b/, /\bprojects?\b/].filter((re) =>
+    re.test(blob),
+  ).length;
+  return hits >= 2;
+}
+
+/** Résumé-grounded interview questions from extracted sections (not a zip tree template). */
+export function extractiveResumeInterviewQuestions(files: NamedDoc[]): string {
+  const usable = files.filter((f) => String(f.text || "").trim());
+  const raw = usable.map((f) => f.text).join("\n");
+  const cite = usable[0]?.name ? ` [${usable[0].name}]` : "";
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter((l) => l.length >= 3 && l.length < 220);
+
+  const skillsLine =
+    lines.find((l) => /^(skills|technical skills|technologies|tech stack)\b/i.test(l)) ||
+    lines.find((l) => /\b(python|javascript|typescript|java|react|sql|aws|docker)\b/i.test(l) && /[,|:|]/.test(l));
+  const education = lines.find((l) => /\b(bachelor|master|b\.?s\.?|m\.?s\.?|b\.?tech|university|college)\b/i.test(l));
+  const roleLines = lines
+    .filter((l) =>
+      /\b(engineer|developer|analyst|intern|manager|designer|scientist|consultant|founder)\b/i.test(l),
+    )
+    .slice(0, 6);
+  const companies = [
+    ...new Set(
+      lines
+        .flatMap((l) => {
+          const m = l.match(
+            /\b(?:at|@)\s+([A-Z][A-Za-z0-9&.\- ]{1,40})|\b([A-Z][A-Za-z0-9&.\- ]{1,40})\s*[—\-–|]\s*(?:software|data|product|engineer)/,
+          );
+          return m ? [String(m[1] || m[2] || "").trim()] : [];
+        })
+        .filter((c) => c.length >= 2 && !/^(experience|education|skills|projects)$/i.test(c)),
+    ),
+  ].slice(0, 4);
+  const projectish = lines
+    .filter((l) => /\b(built|developed|designed|implemented|led|created|deployed)\b/i.test(l))
+    .slice(0, 5);
+
+  const qs: string[] = [];
+  if (roleLines[0]) {
+    qs.push(`Walk me through your most recent role${cite} — starting from “${roleLines[0].slice(0, 90)}${roleLines[0].length > 90 ? "…" : ""}”. What did you own day to day?`);
+  } else {
+    qs.push(`Tell me about yourself using this résumé${cite}: what thread connects your roles and projects?`);
+  }
+  if (companies.length) {
+    qs.push(
+      `Why did you join ${companies[0]}${companies[1] ? ` (and later ${companies[1]})` : ""}? What problem were you hired to solve?`,
+    );
+  }
+  if (skillsLine) {
+    qs.push(
+      `You list skills such as “${skillsLine.replace(/^(skills|technical skills|technologies|tech stack)\s*:?\s*/i, "").slice(0, 120)}”. Pick one and go deep: a concrete bug or design trade-off you handled.`,
+    );
+  } else {
+    qs.push(`Which skill on this résumé${cite} would you defend in a technical deep-dive, and what example proves it?`);
+  }
+  if (projectish[0]) {
+    qs.push(`Expand on this bullet: “${projectish[0].slice(0, 110)}${projectish[0].length > 110 ? "…" : ""}”. What was your part vs the team’s?`);
+  }
+  if (education) {
+    qs.push(`How does “${education.slice(0, 100)}${education.length > 100 ? "…" : ""}” show up in the work you do now?`);
+  }
+  qs.push(`What’s a failure or hard trade-off on this résumé story that taught you something you’d reuse in this role?`);
+  qs.push(`If we hired you tomorrow, what from this résumé would you ship in the first 30 days?`);
+
+  const body = qs.slice(0, 7).map((q, i) => `${i + 1}. ${q}`).join("\n\n");
+  return `Interview questions a hiring manager could ask based on this résumé${cite}:\n\n${body}`;
+}
+
+/** Interview Q&A from zip tree / résumé text when the LLM cannot run. */
 export function extractiveInterviewQuestions(files: NamedDoc[]): string {
+  if (looksLikeResumeDoc(files)) return extractiveResumeInterviewQuestions(files);
+
   const paths = pathsFromFiles(files);
   const names = files.map((f) => f.name).filter(Boolean);
   const root =
@@ -1115,7 +1193,11 @@ function explainMarkdownOrProse(name: string, raw: string): string {
     `- **Purpose:** hold readable information (story, instructions, résumé, notes) so you can ask about meaning — not so I paste it back.`,
   ];
 
-  if (/linkedin|outreach|connection message|talent acquisition|recruiter/i.test(raw) && /hi[, ]/i.test(raw)) {
+  if (
+    /linkedin|outreach|connection message|talent acquisition|recruiter/i.test(raw) &&
+    /hi[, ]/i.test(raw) &&
+    !looksLikeResumeDoc([{ name, text: raw }])
+  ) {
     const names = [...raw.matchAll(/Name:\s*([^\n|]+)/gi)].map((m) => m[1].trim()).slice(0, 5);
     return (
       `This file **[${name}]** is a **LinkedIn outreach / connection-message guide**.\n` +
@@ -1476,7 +1558,10 @@ export function wantsInterviewQuestions(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
   if (/\binterview questions?\b/.test(t)) return true;
-  if (/\bquestions?\b/.test(t) && /\binterview\b/.test(t)) return true;
+  // "interviewer" / "interviewing" as well as "interview"
+  if (/\bquestions?\b/.test(t) && /\binterview(er|ing|s)?\b/.test(t)) return true;
+  if (/\bquestions?\b/.test(t) && /\b(resume|cv|curriculum)\b/.test(t)) return true;
+  if (/\bquestions?\b/.test(t) && /\b(could|would|might|should)\b/.test(t) && /\bask\b/.test(t)) return true;
   return /\b(prep(are)? me for (an )?interview|ask me (interview )?questions)\b/.test(t);
 }
 
@@ -1505,6 +1590,7 @@ export function normalizeUserAsk(raw: string): string {
     [/\bresumae?\b/gi, "resume"],
     [/\bcv\b/gi, "resume"],
     [/\binterveiw\b/gi, "interview"],
+    [/\binterviewr\b/gi, "interviewer"],
     [/\bquestons?\b/gi, "questions"],
     [/\bdiagramm?\b/gi, "diagram"],
     [/\bvisuali[sz]eing\b/gi, "visualizing"],

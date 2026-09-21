@@ -71,14 +71,13 @@ py_json() {
 }
 
 label_for() {
-  local dir title model agent folder
+  local dir title model folder
   dir="$(dirname "$1")"
   folder="$(basename "$dir")"
   title=""
   model=""
-  agent=""
   if [ -f "${dir}/agent.json" ]; then
-    title="$(py_json "$dir" "d.get('modelTitle') or d.get('title') or ''")"
+    title="$(py_json "$dir" "d.get('modelTitle') or ''")"
     model="$(py_json "$dir" "d.get('model') or ''")"
   fi
   if [ -n "$title" ] || [ -n "$model" ]; then

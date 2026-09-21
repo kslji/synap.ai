@@ -359,17 +359,37 @@ a.brand:hover {
 }
 
 .landing-hero.download-hero {
-  max-width: 640px;
+  max-width: 720px;
+  width: 100%;
   text-align: left;
-  padding: 24px 28px 56px;
+  padding: 8px 20px 16px;
   justify-content: flex-start;
-  gap: 0;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.download-shell {
+  height: calc(100dvh - var(--top-banner-h, 44px));
+  max-height: calc(100dvh - var(--top-banner-h, 44px));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.download-shell .download-top {
+  padding: 10px 20px;
+  flex-shrink: 0;
+}
+
+.download-head {
+  flex-shrink: 0;
 }
 
 .download-kicker {
-  margin: 0 0 6px;
+  margin: 0 0 2px;
   color: var(--accent);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -378,68 +398,49 @@ a.brand:hover {
 .download-brand {
   margin: 0;
   font-family: var(--display);
-  font-size: clamp(2.4rem, 8vw, 3.4rem);
+  font-size: clamp(1.75rem, 4.5vw, 2.25rem);
   font-weight: 650;
   letter-spacing: -0.03em;
-  line-height: 1.02;
-}
-
-.download-steps {
-  margin: 20px 0 0;
-  padding-left: 1.2em;
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.download-steps li + li {
-  margin-top: 12px;
-}
-
-.download-steps .cmd-box {
-  margin-top: 8px;
-}
-
-.download-steps code {
-  font-size: 0.9em;
-  color: var(--text);
+  line-height: 1.05;
 }
 
 .download-note {
-  margin-top: 16px;
+  margin: 8px 0 0;
   color: var(--accent);
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .download-section {
-  margin-top: 22px;
-  padding-top: 22px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
 }
 
 .download-section.first {
-  margin-top: 22px;
+  margin-top: 4px;
   padding-top: 0;
   border-top: none;
 }
 
-.download-section.download-cta-block {
-  margin-top: 24px;
-  padding-top: 24px;
-}
-
 .download-section h2 {
-  margin: 0 0 12px;
+  margin: 0;
   font-family: var(--display);
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   font-weight: 550;
   letter-spacing: -0.02em;
 }
 
 .selection-line {
-  margin: 0 0 12px;
+  margin: 0;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .agent-grid {
@@ -497,13 +498,14 @@ a.brand:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin: 0 0 14px;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .tier-chip {
   text-align: left;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--bg-2) 55%, transparent);
   color: var(--text);
@@ -535,20 +537,30 @@ a.brand:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+
+.model-list-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-content: start;
 }
 
 .model-card {
   width: 100%;
+  height: 100%;
   text-align: left;
-  padding: 14px 16px;
-  border-radius: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--bg-2) 55%, transparent);
   color: var(--text);
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
 }
 
 .model-card.on {
@@ -556,16 +568,61 @@ a.brand:hover {
   background: var(--accent-soft);
 }
 
+.model-card strong {
+  font-size: 13px;
+}
+
 .model-needs {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--accent);
 }
 
 .model-about {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  line-height: 1.45;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+
+.download-dock {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.download-dock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.download-dock-actions .primary {
+  flex-shrink: 0;
+}
+
+.download-dock-cmd {
+  flex: 1;
+  min-width: min(100%, 220px);
+  margin-top: 0;
+  padding: 8px 10px;
+  align-items: center;
+}
+
+.download-dock-cmd code {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 
 .cmd-box {
   margin-top: 14px;
@@ -673,9 +730,14 @@ a.brand:hover {
 
 
 @media (max-width: 560px) {
-  .agent-grid,
-  .tier-row {
+  .agent-grid {
     grid-template-columns: 1fr;
+  }
+  .model-list-grid {
+    grid-template-columns: 1fr;
+  }
+  .download-dock-actions {
+    flex-direction: column;
   }
   .cmd-box {
     flex-direction: column;

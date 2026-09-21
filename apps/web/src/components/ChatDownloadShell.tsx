@@ -18,7 +18,7 @@ import {
 } from "@/lib/localModelCatalog";
 import { captureReferralFromUrl, trackEvent } from "@/lib/admin";
 
-/** synap.surf /download — pick model, one setup command → localhost chat. */
+/** synap.surf /download — one-screen: pick model → download → copy open command. */
 export function ChatDownloadShell() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -72,9 +72,7 @@ export function ChatDownloadShell() {
       const manifest = buildManifest("ollama", tier, selected.tag);
       void trackEvent("download", `${manifest.agent}:${manifest.model}`);
       void downloadOnThisDevice({ manifest })
-        .then(() =>
-          setNote("Pack saved. Unzip it, then use the Copy button above to run the open command."),
-        )
+        .then(() => setNote("Pack saved. Unzip, then Copy → run the command."))
         .catch(() =>
           setNote("Download did not finish. Check your connection and try again."),
         )
@@ -95,9 +93,9 @@ export function ChatDownloadShell() {
   return (
     <div className="landing download-shell">
       <div className="landing-atmosphere" aria-hidden />
-      <header className="landing-top">
+      <header className="landing-top download-top">
         <Link href="/" className="brand">
-          <BrandMark size={36} />
+          <BrandMark size={28} />
           Surf AI
         </Link>
         {profile ? (
@@ -119,14 +117,13 @@ export function ChatDownloadShell() {
       </header>
 
       <main className="landing-hero download-hero">
-        <p className="download-kicker">Get local AI</p>
-        <h1 className="download-brand">Download</h1>
+        <div className="download-head">
+          <p className="download-kicker">Get local AI</p>
+          <h1 className="download-brand">Download</h1>
+        </div>
 
         <section className="download-section first" aria-labelledby="size-title">
           <h2 id="size-title">Models for 1–8 GB RAM</h2>
-          <p className="selection-line">
-            Pick your laptop size, then a model. Heavier packs stay off for now.
-          </p>
           <div className="tier-row" role="radiogroup" aria-label="Computer size">
             {RAM_TIERS.map((t) => (
               <button
@@ -142,7 +139,7 @@ export function ChatDownloadShell() {
               </button>
             ))}
           </div>
-          <ul className="model-list">
+          <ul className="model-list model-list-grid">
             {tierModels.map((m) => (
               <li key={m.id}>
                 <button
@@ -157,42 +154,32 @@ export function ChatDownloadShell() {
                   <span className="model-needs">
                     {m.download} · {m.ram}
                   </span>
-                  <span className="model-about">
-                    <strong>{m.forWho}</strong> — {m.about}
-                  </span>
+                  <span className="model-about">{m.about}</span>
                 </button>
               </li>
             ))}
           </ul>
         </section>
 
-        <section className="download-section download-cta-block" aria-labelledby="dl-title">
-          <h2 id="dl-title">Get the zip</h2>
+        <section className="download-dock" aria-label="Download pack">
           <p className="selection-line">
             {selected.title} · {selected.download}
           </p>
-          <div className="cta-row">
+          <div className="download-dock-actions">
             <button type="button" className="primary" disabled={busy} onClick={startDownload}>
               <Download size={18} />
               {busy ? "Preparing pack…" : "Download pack"}
             </button>
+            <div className="cmd-box download-dock-cmd">
+              <code title={cmd}>{cmd}</code>
+              <button type="button" className="ghost" onClick={() => void copyCmd()}>
+                {copied ? <Check size={16} /> : <Copy size={16} />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
           </div>
-          <ol className="download-steps">
-            <li>Unzip</li>
-            <li>
-              Run from any directory (lists every downloaded pack)
-              <div className="cmd-box">
-                <code>{cmd}</code>
-                <button type="button" className="ghost" onClick={() => void copyCmd()}>
-                  {copied ? <Check size={16} /> : <Copy size={16} />}
-                  {copied ? "Copied" : "Copy"}
-                </button>
-              </div>
-            </li>
-          </ol>
+          {note ? <p className="download-note">{note}</p> : null}
         </section>
-
-        {note ? <p className="download-note">{note}</p> : null}
       </main>
 
       <AuthDialog

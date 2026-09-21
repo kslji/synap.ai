@@ -362,9 +362,9 @@ a.brand:hover {
   max-width: 560px;
   width: 100%;
   text-align: left;
-  padding: 12px 20px 18px;
+  padding: 12px 20px 20px;
   justify-content: flex-start;
-  gap: 14px;
+  gap: 16px;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -555,53 +555,55 @@ a.brand:hover {
 
 .download-dock {
   flex-shrink: 0;
-  margin-top: 2px;
-  padding-top: 12px;
+  margin-top: 4px;
+  padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.download-dock-actions {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
-  align-items: center;
+  min-width: 0;
 }
 
-.download-dock-actions .primary {
-  flex-shrink: 0;
+.download-dock-btn.primary {
+  width: 100%;
+  justify-content: center;
   border-radius: 10px;
-  padding: 9px 14px;
-  font-size: 13px;
+  padding: 10px 16px;
+  font-size: 14px;
   font-weight: 600;
-  gap: 6px;
+  gap: 8px;
   line-height: 1.2;
-  height: 40px;
+  min-height: 42px;
   white-space: nowrap;
 }
 
-.download-dock-actions .primary svg {
-  width: 15px;
-  height: 15px;
+.download-dock-btn.primary svg {
+  width: 16px;
+  height: 16px;
 }
 
 .download-dock-cmd {
-  min-width: 0;
   margin-top: 0;
-  height: 40px;
-  padding: 0 8px 0 12px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 42px;
+  height: auto;
+  padding: 8px 10px 8px 12px;
   align-items: center;
   border-radius: 10px;
+  overflow: hidden;
 }
 
 .download-dock-cmd code {
+  min-width: 0;
+  flex: 1;
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  word-break: normal;
 }
 
 .download-dock-cmd .ghost {
@@ -609,18 +611,7 @@ a.brand:hover {
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 12px;
-  height: 28px;
-}
-
-@media (max-width: 560px) {
-  .download-dock-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .download-dock-actions .primary {
-    width: 100%;
-    justify-content: center;
-  }
+  min-height: 28px;
 }
 
 

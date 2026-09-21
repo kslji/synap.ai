@@ -187,21 +187,19 @@ export function ChatDownloadShell() {
           <p className="selection-line">
             Selected: <strong>{selected.title}</strong> · {selected.download}
           </p>
-          <div className="download-dock-actions">
-            <button type="button" className="primary" disabled={busy} onClick={startDownload}>
-              <Download size={18} />
-              {busy ? "Preparing pack…" : "Download pack"}
+          <button type="button" className="primary download-dock-btn" disabled={busy} onClick={startDownload}>
+            <Download size={18} />
+            {busy ? "Preparing pack…" : "Download pack"}
+          </button>
+          <div className="cmd-box download-dock-cmd">
+            <code title={cmd}>{cmd}</code>
+            <button type="button" className="ghost" onClick={() => void copyCmd()}>
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+              {copied ? "Copied" : "Copy"}
             </button>
-            <div className="cmd-box download-dock-cmd">
-              <code title={cmd}>{cmd}</code>
-              <button type="button" className="ghost" onClick={() => void copyCmd()}>
-                {copied ? <Check size={16} /> : <Copy size={16} />}
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
           </div>
           <p className="download-hint">Unzip, then paste that command from any folder.</p>
-          {note ? <p className="download-note">{note}</p> : null}
+          {note ? <p className="download-note">{note}</p> : null>
         </section>
       </main>
 

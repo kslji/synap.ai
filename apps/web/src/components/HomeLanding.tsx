@@ -12,7 +12,12 @@ import { OfflineBanner } from "./OfflineBanner";
 import { BrandMark } from "./BrandMark";
 import { LandingTypeCycle } from "./TypeCopy";
 
-const HEADLINE = "Surf your files locally.";
+const HEADLINES = [
+  "Surf your files locally. Synap data instantly.",
+  "Ride your own machine. Answers stay on this shore.",
+  "One zip. One command. Private AI on your desk.",
+  "Open the pack. Shape the agent for your platform.",
+] as const;
 const LEDE = "Private AI on the machine in front of you — download once, chat offline.";
 const POINTS = [
   "Your files stay on your desk. No cloud customs for your folders.",
@@ -71,7 +76,7 @@ export function HomeLanding() {
           onStay={() => void gated(() => router.push("/download"))}
         />
         <LandingTypeCycle
-          headline={HEADLINE}
+          headlines={HEADLINES}
           lede={LEDE}
           points={POINTS}
           holdMs={10_000}

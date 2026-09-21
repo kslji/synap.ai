@@ -42,13 +42,13 @@ async function eraseText(
 }
 
 export function LandingTypeCycle({
-  headline,
+  headlines,
   lede,
   points,
   holdMs = 10_000,
   middle,
 }: {
-  headline: string;
+  headlines: readonly string[];
   lede: string;
   points: readonly string[];
   holdMs?: number;
@@ -60,8 +60,9 @@ export function LandingTypeCycle({
   const [caret, setCaret] = useState<"h" | "l" | number | "none">("h");
 
   useEffect(() => {
+    if (!headlines.length) return;
     if (prefersReducedMotion()) {
-      setHead(headline);
+      setHead(headlines[0]);
       setBlurb(lede);
       setRows([...points]);
       setCaret("none");
@@ -69,9 +70,12 @@ export function LandingTypeCycle({
     }
     let stop = false;
     const stopped = () => stop;
+    let hi = 0;
 
     void (async () => {
       while (!stop) {
+        const headline = headlines[hi % headlines.length];
+        hi += 1;
         setCaret("h");
         await typeText(headline, setHead, 28, stopped);
         if (stop) return;
@@ -129,7 +133,7 @@ export function LandingTypeCycle({
     return () => {
       stop = true;
     };
-  }, [headline, lede, points, holdMs]);
+  }, [headlines, lede, points, holdMs]);
 
   return (
     <>

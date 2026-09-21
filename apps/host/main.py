@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from auth import mint_token, mint_user_token, require_session, require_user
+from auth import mint_admin_token, mint_token, mint_user_token, require_admin, require_session, require_user
 from config import settings
 from guardrails import sanitize_user_text
 import instances
@@ -50,14 +50,21 @@ from store import (
 )
 from platform_store import (
     add_feedback,
+    admin_stats,
+    ensure_user_referral_code,
+    get_user_by_email,
     get_user_by_id,
     init_platform_db,
+    insert_user,
     list_feedback,
     purge_ephemeral,
+    record_event,
+    set_user_verified,
     counts as platform_counts,
     db_path as platform_db_path,
 )
 import accounts
+import secrets as py_secrets
 import audit
 import mail_queue
 import vault
@@ -215,6 +222,13 @@ class FeedbackReq(BaseModel):
 class EmailAuthReq(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=8, max_length=200)
+    referral_code: str | None = Field(default=None, max_length=32)
+
+
+class TrackEventReq(BaseModel):
+    kind: Literal["model_click", "agent_click", "download"]
+    label: str = Field(min_length=1, max_length=120)
+    referral_code: str | None = Field(default=None, max_length=32)
 
 
 class OtpReq(BaseModel):
@@ -329,7 +343,7 @@ def _token_payload(user: dict) -> dict:
 @app.post("/v1/auth/register")
 def auth_register(req: EmailAuthReq, request: Request):
     rate_limit(request, f"register:{req.email.lower()}")
-    result = accounts.register(req.email, req.password)
+    result = accounts.register(req.email, req.password, referral_code=req.referral_code)
     audit.append("auth.register", {"email": result["email"]})
     return result
 
@@ -348,6 +362,59 @@ def auth_login(req: EmailAuthReq, request: Request):
     user = accounts.login(req.email, req.password)
     audit.append("auth.login", {"email": user["email"]})
     return _token_payload(user)
+
+
+@app.post("/v1/track")
+def track_event(req: TrackEventReq, request: Request):
+    """Public, rate-limited analytics (model / agent / download clicks)."""
+    rate_limit(request, f"track:{request.client.host if request.client else 'anon'}")
+    record_event(req.kind, req.label.strip(), referral_code=req.referral_code)
+    return {"ok": True}
+
+
+@app.post("/v1/admin/login")
+def admin_login(req: EmailAuthReq, request: Request):
+    rate_limit(request, f"admin-login:{req.email.lower()}")
+    email = accounts.normalize_email(req.email)
+    if not settings.admin_password or email not in settings.admin_email_set:
+        raise HTTPException(status_code=401, detail="Admin sign-in is not available.")
+    given = req.password.encode("utf-8")
+    expected = settings.admin_password.encode("utf-8")
+    if len(given) != len(expected) or not py_secrets.compare_digest(given, expected):
+        raise HTTPException(status_code=401, detail="Email or password is wrong.")
+    # Stable referral code per admin email (stored on a shadow user row if needed).
+    row = get_user_by_email(email)
+    if not row:
+        row = insert_user(email, accounts.hash_secret(py_secrets.token_urlsafe(24)))
+        set_user_verified(row["id"])
+        row = get_user_by_id(row["id"])
+    assert row
+    code = ensure_user_referral_code(row["id"])
+    record_event("admin_login", email)
+    return {
+        "token": mint_admin_token(email),
+        "token_type": "bearer",
+        "email": email,
+        "referral_code": code,
+        "referral_path": f"/download?ref={code}",
+    }
+
+
+@app.get("/v1/admin/stats")
+def admin_stats_route(_: dict = Depends(require_admin)):
+    return admin_stats()
+
+
+@app.get("/v1/admin/me")
+def admin_me(session: dict = Depends(require_admin)):
+    email = str(session["email"]).lower()
+    row = get_user_by_email(email)
+    code = ensure_user_referral_code(row["id"]) if row else ""
+    return {
+        "email": email,
+        "referral_code": code,
+        "referral_path": f"/download?ref={code}" if code else "",
+    }
 
 
 @app.post("/v1/auth/forgot")

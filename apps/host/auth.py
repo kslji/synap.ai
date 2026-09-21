@@ -43,6 +43,19 @@ def mint_user_token(user: dict) -> str:
     return mint_token(user["id"], scope="user", email=user["email"])
 
 
+def mint_admin_token(email: str) -> str:
+    return mint_token(f"admin:{email}", scope="admin", email=email)
+
+
+async def require_admin(session: dict = Depends(require_session)) -> dict:
+    if session.get("scope") != "admin" or not session.get("email"):
+        raise HTTPException(status_code=401, detail="Admin sign-in required.")
+    email = str(session["email"]).lower()
+    if email not in settings.admin_email_set:
+        raise HTTPException(status_code=403, detail="Not an admin account.")
+    return session
+
+
 def decode_token(token: str) -> dict:
     try:
         return jwt.decode(

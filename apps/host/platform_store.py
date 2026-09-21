@@ -85,10 +85,33 @@ def init_platform_db() -> None:
               flags TEXT NOT NULL,
               created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS analytics_events (
+              id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL,
+              label TEXT NOT NULL,
+              referral_code TEXT,
+              meta TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_analytics_kind
+              ON analytics_events(kind, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_analytics_label
+              ON analytics_events(kind, label);
             """
         )
+        _ensure_user_referral_columns(conn)
     _migrate_from_instance_if_needed()
 
+
+def _ensure_user_referral_columns(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "referral_code" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN referral_code TEXT")
+    if "referred_by" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN referred_by TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)"
+    )
 
 def _migrate_from_instance_if_needed() -> None:
     """One-time copy if an older instance DB still holds users/feedback."""
@@ -192,17 +215,22 @@ def get_user_by_id(user_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def insert_user(email: str, password_hash: str) -> dict:
+def insert_user(email: str, password_hash: str, referred_by: str | None = None) -> dict:
     init_platform_db()
     uid = str(uuid.uuid4())
     ts = now_iso()
+    code = _unique_referral_code()
+    ref = (referred_by or "").strip().lower()[:32] or None
     with _connect() as conn:
         conn.execute(
             """
-            INSERT INTO users (id, email, password_hash, email_verified, created_at, updated_at)
-            VALUES (?,?,?,?,?,?)
+            INSERT INTO users (
+              id, email, password_hash, email_verified, created_at, updated_at,
+              referral_code, referred_by
+            )
+            VALUES (?,?,?,?,?,?,?,?)
             """,
-            (uid, email, password_hash, 0, ts, ts),
+            (uid, email, password_hash, 0, ts, ts, code.lower(), ref),
         )
     return {
         "id": uid,
@@ -210,6 +238,152 @@ def insert_user(email: str, password_hash: str) -> dict:
         "email_verified": False,
         "created_at": ts,
         "updated_at": ts,
+        "referral_code": code,
+        "referred_by": ref,
+    }
+
+
+def _unique_referral_code() -> str:
+    for _ in range(12):
+        code = uuid.uuid4().hex[:8]
+        with _connect() as conn:
+            hit = conn.execute(
+                "SELECT 1 FROM users WHERE referral_code = ?", (code,)
+            ).fetchone()
+        if not hit:
+            return code
+    return uuid.uuid4().hex[:10]
+
+
+def ensure_user_referral_code(user_id: str) -> str:
+    init_platform_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT referral_code FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if row and row["referral_code"]:
+            return str(row["referral_code"])
+        code = _unique_referral_code()
+        conn.execute(
+            "UPDATE users SET referral_code = ?, updated_at = ? WHERE id = ?",
+            (code, now_iso(), user_id),
+        )
+        return code
+
+
+def get_user_by_referral_code(code: str) -> dict | None:
+    init_platform_db()
+    c = (code or "").strip().lower()
+    if not c:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE lower(referral_code) = ?", (c,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def record_event(kind: str, label: str, referral_code: str | None = None, meta: dict | None = None) -> None:
+    init_platform_db()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO analytics_events (id, kind, label, referral_code, meta, created_at)
+            VALUES (?,?,?,?,?,?)
+            """,
+            (
+                str(uuid.uuid4()),
+                kind[:64],
+                label[:120],
+                (referral_code or "").strip().lower()[:32] or None,
+                json.dumps(meta or {}),
+                now_iso(),
+            ),
+        )
+
+
+def admin_stats() -> dict:
+    init_platform_db()
+    with _connect() as conn:
+        total_users = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+        verified = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE email_verified = 1"
+        ).fetchone()["n"]
+        logins = conn.execute(
+            "SELECT COUNT(*) AS n FROM analytics_events WHERE kind = 'login'"
+        ).fetchone()["n"]
+        signups = conn.execute(
+            "SELECT COUNT(*) AS n FROM analytics_events WHERE kind = 'signup'"
+        ).fetchone()["n"]
+        model_rows = conn.execute(
+            """
+            SELECT label, COUNT(*) AS clicks
+            FROM analytics_events
+            WHERE kind = 'model_click'
+            GROUP BY label
+            ORDER BY clicks DESC
+            LIMIT 40
+            """
+        ).fetchall()
+        agent_rows = conn.execute(
+            """
+            SELECT label, COUNT(*) AS clicks
+            FROM analytics_events
+            WHERE kind = 'agent_click'
+            GROUP BY label
+            ORDER BY clicks DESC
+            LIMIT 20
+            """
+        ).fetchall()
+        download_rows = conn.execute(
+            """
+            SELECT label, COUNT(*) AS clicks
+            FROM analytics_events
+            WHERE kind = 'download'
+            GROUP BY label
+            ORDER BY clicks DESC
+            LIMIT 40
+            """
+        ).fetchall()
+        referral_rows = conn.execute(
+            """
+            SELECT referred_by AS code, COUNT(*) AS users
+            FROM users
+            WHERE referred_by IS NOT NULL AND referred_by != ''
+            GROUP BY referred_by
+            ORDER BY users DESC
+            LIMIT 40
+            """
+        ).fetchall()
+        recent = conn.execute(
+            """
+            SELECT email, email_verified, created_at, referred_by, referral_code
+            FROM users
+            ORDER BY created_at DESC
+            LIMIT 50
+            """
+        ).fetchall()
+    return {
+        "totals": {
+            "users": int(total_users),
+            "verified": int(verified),
+            "logins": int(logins),
+            "signups": int(signups),
+        },
+        "models": [{"label": r["label"], "clicks": int(r["clicks"])} for r in model_rows],
+        "agents": [{"label": r["label"], "clicks": int(r["clicks"])} for r in agent_rows],
+        "downloads": [{"label": r["label"], "clicks": int(r["clicks"])} for r in download_rows],
+        "referrals": [{"code": r["code"], "users": int(r["users"])} for r in referral_rows],
+        "recent_users": [
+            {
+                "email": r["email"],
+                "email_verified": bool(r["email_verified"]),
+                "created_at": r["created_at"],
+                "referred_by": r["referred_by"],
+                "referral_code": r["referral_code"],
+            }
+            for r in recent
+        ],
     }
 
 

@@ -1,6 +1,7 @@
 import { platformBase, TOKEN_KEY, isLoopbackHost } from "./config";
 import { parseApiError } from "./api";
 import { networkOnline } from "./net";
+import { getReferralCode } from "./admin";
 
 export type UserProfile = {
   id: string;
@@ -49,9 +50,11 @@ async function postAuth<T>(path: string, body: object): Promise<T> {
 }
 
 export async function registerAccount(email: string, password: string) {
+  const referral_code = getReferralCode() || undefined;
   return postAuth<{ ok: boolean; needs_verification: boolean; email: string }>("/v1/auth/register", {
     email,
     password,
+    ...(referral_code ? { referral_code } : {}),
   });
 }
 

@@ -69,10 +69,17 @@ class Settings(BaseSettings):
     local_ai_home: Path | None = None
     local_ai_data_dir: Path | None = None
     platform_data_dir: Path | None = None
+    # Admin console (comma-separated). Password only via env — never commit real values.
+    admin_emails: str = ""
+    admin_password: str = ""
 
     @property
     def origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def admin_email_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
 
 
 settings = Settings()

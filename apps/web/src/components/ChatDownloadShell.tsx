@@ -22,6 +22,7 @@ import {
   modelsForTier,
   type RamTier,
 } from "@/lib/localModelCatalog";
+import { captureReferralFromUrl, trackEvent } from "@/lib/admin";
 
 /** synap.surf /download — pick agent + model, one LOCAL-SETUP → localhost chat. */
 export function ChatDownloadShell() {
@@ -42,6 +43,7 @@ export function ChatDownloadShell() {
   const selected = tierModels.find((m) => m.id === modelId) || defaultModelForTier(tier);
 
   useEffect(() => {
+    captureReferralFromUrl();
     void prefetchLocalPack();
     void fetchProfile()
       .then((p) => setProfile(p?.email_verified ? p : null))
@@ -76,6 +78,7 @@ export function ChatDownloadShell() {
       setBusy(true);
       setNote("");
       const manifest = buildManifest(agent, tier, selected.tag);
+      void trackEvent("download", `${manifest.agent}:${manifest.model}`);
       void downloadOnThisDevice({ manifest })
         .then(() => setNote(`Ready. Unzip, then run: ${cmd}`))
         .catch(() =>
@@ -132,7 +135,10 @@ export function ChatDownloadShell() {
                 key={p.id}
                 type="button"
                 className={agent === p.id ? "agent-tile on" : "agent-tile"}
-                onClick={() => setAgent(p.id)}
+                onClick={() => {
+                  setAgent(p.id);
+                  void trackEvent("agent_click", p.id);
+                }}
               >
                 <span className="agent-tile-title">{p.title}</span>
                 <span className="agent-tile-meta">{p.license}</span>
@@ -165,7 +171,10 @@ export function ChatDownloadShell() {
                 <button
                   type="button"
                   className={selected.id === m.id ? "model-card on" : "model-card"}
-                  onClick={() => setModelId(m.id)}
+                  onClick={() => {
+                    setModelId(m.id);
+                    void trackEvent("model_click", m.tag);
+                  }}
                 >
                   <strong>{m.title}</strong>
                   <span className="model-needs">

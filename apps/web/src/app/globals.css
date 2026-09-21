@@ -525,9 +525,91 @@ a.brand:hover {
   white-space: pre-wrap;
 }
 
-.download-cta-block .primary {
-  min-width: 220px;
+.admin-hero {
+  max-width: 680px;
 }
+
+.admin-login {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 24px;
+  max-width: 360px;
+}
+
+.admin-login label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.admin-login input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+}
+
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.admin-stat {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-2) 60%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-stat strong {
+  font-size: 1.6rem;
+  font-family: var(--display);
+  font-weight: 650;
+}
+
+.admin-stat span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.admin-rank,
+.admin-users {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-rank li,
+.admin-users li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  font-size: 13px;
+}
+
+.admin-users li {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+@media (max-width: 560px) {
+  .admin-stat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 @media (max-width: 560px) {
   .agent-grid,

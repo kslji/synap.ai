@@ -14,10 +14,12 @@ from platform_store import (
     get_active_otp,
     get_user_by_email,
     get_user_by_id,
+    get_user_by_referral_code,
     insert_mail_job,
     insert_otp,
     insert_user,
     now_iso,
+    record_event,
     set_user_password,
     set_user_verified,
 )
@@ -74,10 +76,14 @@ def _issue_otp(email: str, purpose: str) -> str:
     return code
 
 
-def register(email: str, password: str) -> dict:
+def register(email: str, password: str, referral_code: str | None = None) -> dict:
     email = normalize_email(email)
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    ref = (referral_code or "").strip().lower()[:32] or None
+    if ref and not get_user_by_referral_code(ref):
+        # Unknown codes are ignored (still allow signup).
+        ref = None
     existing = get_user_by_email(email)
     if existing and existing["email_verified"]:
         raise HTTPException(status_code=409, detail="An account with that email already exists. Sign in.")
@@ -86,7 +92,7 @@ def register(email: str, password: str) -> dict:
             set_user_password(existing["id"], hash_secret(password))
     else:
         try:
-            insert_user(email, hash_secret(password))
+            insert_user(email, hash_secret(password), referred_by=ref)
         except Exception as exc:
             if "UNIQUE" in str(exc).upper():
                 raise HTTPException(status_code=409, detail="An account with that email already exists. Sign in.") from exc
@@ -94,6 +100,7 @@ def register(email: str, password: str) -> dict:
     _issue_otp(email, "verify")
     saved = get_user_by_email(email)
     assert saved
+    record_event("signup", email, referral_code=ref)
     return {"ok": True, "needs_verification": True, "email": email, "user": public_user(saved)}
 
 
@@ -120,6 +127,7 @@ def login(email: str, password: str) -> dict:
             status_code=403,
             detail="Verify your email first. Enter the 6-digit code we sent, or request a new one.",
         )
+    record_event("login", email, referral_code=user.get("referred_by"))
     return public_user(user)
 
 

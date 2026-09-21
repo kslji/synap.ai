@@ -147,7 +147,7 @@ export function ChatDownloadShell() {
           <p className="download-kicker">Get local AI</p>
           <h1 className="download-brand">Download</h1>
           <p className="download-lede">
-            Pick RAM and a model. Pack uses <strong>Moss</strong> for{" "}
+            Pick RAM and a model. <strong>Moss</strong> ={" "}
             <strong>text document retrieval</strong>, then your local model answers.
           </p>
         </div>

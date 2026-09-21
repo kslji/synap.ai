@@ -104,14 +104,48 @@ def init_platform_db() -> None:
 
 
 def _ensure_user_referral_columns(conn: sqlite3.Connection) -> None:
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-    if "referral_code" not in cols:
-        conn.execute("ALTER TABLE users ADD COLUMN referral_code TEXT")
-    if "referred_by" not in cols:
-        conn.execute("ALTER TABLE users ADD COLUMN referred_by TEXT")
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)"
-    )
+    """Add referral columns safely under multi-worker boot (ignore races)."""
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "referral_code" not in cols:
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN referral_code TEXT")
+            except sqlite3.OperationalError:
+                pass
+        if "referred_by" not in cols:
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN referred_by TEXT")
+            except sqlite3.OperationalError:
+                pass
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS analytics_events (
+                  id TEXT PRIMARY KEY,
+                  kind TEXT NOT NULL,
+                  label TEXT NOT NULL,
+                  referral_code TEXT,
+                  meta TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analytics_kind ON analytics_events(kind, created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analytics_label ON analytics_events(kind, label)"
+            )
+        except sqlite3.OperationalError:
+            pass
+    except sqlite3.Error:
+        pass
 
 def _migrate_from_instance_if_needed() -> None:
     """One-time copy if an older instance DB still holds users/feedback."""

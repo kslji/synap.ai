@@ -27,8 +27,8 @@ if ":" not in bind.rsplit("%", 1)[-1].split("]")[-1]:
 worker_class = "uvicorn.workers.UvicornWorker"
 
 _cpu = multiprocessing.cpu_count()
-# Auth is CPU + SQLite. Each async worker already multiplexes I/O, so cap workers.
-workers = int(os.getenv("WEB_CONCURRENCY", str(max(2, min(8, _cpu * 2 + 1)))))
+# Auth is CPU + SQLite. Cap workers so boot migrations don't race hard on small VMs.
+workers = int(os.getenv("WEB_CONCURRENCY", str(max(2, min(4, _cpu + 1)))))
 
 # Chat streams can outlive the default 30s Gunicorn timeout.
 timeout = int(os.getenv("GUNICORN_TIMEOUT", "180"))
@@ -40,6 +40,15 @@ max_requests_jitter = 50
 
 # Each worker must boot FastAPI itself (SQLite + lifespan). Do not preload.
 preload_app = False
-accesslog = "-"
-errorlog = "-"
+
+# Prefer a file log so worker crashes don't recurse into stderr (Python 3.13).
+_log_dir = os.getenv("GUNICORN_LOG_DIR", "").strip()
+if _log_dir:
+    os.makedirs(_log_dir, exist_ok=True)
+    accesslog = os.path.join(_log_dir, "access.log")
+    errorlog = os.path.join(_log_dir, "error.log")
+else:
+    accesslog = "-"
+    errorlog = "-"
 loglevel = os.getenv("LOG_LEVEL", "info")
+capture_output = True

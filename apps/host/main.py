@@ -140,10 +140,20 @@ def load_system_prompt() -> str:
 
 def bind_instance() -> None:
     init_platform_db()
-    init_db()
-    prune()
-    vault.lock()
-    moss.reload()
+    try:
+        init_db()
+        prune()
+    except Exception:
+        # No local instance on the marketing VPS is normal.
+        pass
+    try:
+        vault.lock()
+    except Exception:
+        pass
+    try:
+        moss.reload()
+    except Exception:
+        pass
 
 
 @asynccontextmanager

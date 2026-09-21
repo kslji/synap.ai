@@ -1,4 +1,5 @@
-import { api } from "./api";
+import { platformBase, TOKEN_KEY } from "./config";
+import { parseApiError } from "./api";
 import { networkOnline, waitForOnline } from "./net";
 
 export type FeedbackRating = "up" | "down";
@@ -42,8 +43,14 @@ function delay(ms: number): Promise<void> {
 }
 
 async function postFeedback(body: FeedbackDraft): Promise<FeedbackItem> {
-  return api<FeedbackItem>("/v1/feedback", {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) throw new Error("Sign in to send feedback.");
+  const res = await fetch(`${platformBase()}/v1/feedback`, {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({
       rating: body.rating,
       title: body.title.slice(0, 120),
@@ -52,6 +59,8 @@ async function postFeedback(body: FeedbackDraft): Promise<FeedbackItem> {
       engine: body.engine || null,
     }),
   });
+  if (!res.ok) throw new Error(parseApiError(await res.text()));
+  return res.json() as Promise<FeedbackItem>;
 }
 
 let flushing = false;
@@ -108,6 +117,12 @@ export async function deliverFeedback(body: FeedbackDraft): Promise<"sent" | "qu
 
 export async function listFeedback(limit = 40): Promise<FeedbackItem[]> {
   if (!networkOnline()) return [];
-  const data = await api<{ items: FeedbackItem[] }>(`/v1/feedback?limit=${limit}`);
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return [];
+  const res = await fetch(`${platformBase()}/v1/feedback?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(parseApiError(await res.text()));
+  const data = (await res.json()) as { items: FeedbackItem[] };
   return data.items || [];
 }

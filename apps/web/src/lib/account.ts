@@ -1,4 +1,4 @@
-import { HOST, TOKEN_KEY, isLoopbackHost } from "./config";
+import { platformBase, TOKEN_KEY, isLoopbackHost } from "./config";
 import { parseApiError } from "./api";
 import { networkOnline } from "./net";
 
@@ -27,9 +27,10 @@ export function clearAccount() {
 }
 
 async function postAuth<T>(path: string, body: object): Promise<T> {
+  const base = platformBase();
   // Local Small Cloud host works offline — only block remote auth when offline.
-  if (!networkOnline() && !isLoopbackHost(HOST)) throw new InternetOffError();
-  const res = await fetch(`${HOST}${path}`, {
+  if (!networkOnline() && !isLoopbackHost(base)) throw new InternetOffError();
+  const res = await fetch(`${base}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -104,7 +105,7 @@ export async function fetchProfile(): Promise<UserProfile | null> {
     }
     return null;
   }
-  const res = await fetch(`${HOST}/v1/auth/me`, {
+  const res = await fetch(`${platformBase()}/v1/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {

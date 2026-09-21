@@ -1411,7 +1411,15 @@ export function LocalChat() {
                   }
                 }}
               />
-              <button type="button" className="icon" onClick={toggleMic} disabled={!dictateOk || busy}>
+              <button
+                type="button"
+                className={listening ? "icon mic-on" : "icon"}
+                onClick={toggleMic}
+                disabled={!dictateOk || busy}
+                aria-pressed={listening}
+                aria-label={listening ? "Stop dictation (recording)" : "Start dictation"}
+                title={listening ? "Recording — click to stop" : "Dictate"}
+              >
                 {listening ? <MicOff size={16} /> : <Mic size={16} />}
               </button>
               {busy ? (

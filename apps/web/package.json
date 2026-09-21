@@ -10,7 +10,10 @@
     "prebuild": "npm run vendor-llm && npm run vendor-pdfjs && node scripts/fetch-mlc-wasm.mjs",
     "build": "next build",
     "postbuild": "node scripts/write-sw-precache.mjs",
-    "start": "npx --yes serve out -p 3000"
+    "start": "npx --yes serve out -p 3000",
+    "verify:packs": "node scripts/verify-packs.mjs",
+    "verify:agent": "node scripts/verify-local-agent.mjs",
+    "verify": "npm run verify:packs && npm run verify:agent"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.85",

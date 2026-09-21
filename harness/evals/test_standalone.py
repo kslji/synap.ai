@@ -79,6 +79,30 @@ def run_checks() -> list[dict]:
         "public HTML is the zip agent",
         rows,
     )
+    check(
+        "standalone-hides-light-note-banner",
+        "html.standalone #light-note" in html,
+        "CSS hides light-note on :18766",
+        rows,
+    )
+    check(
+        "standalone-summarize-and-wipe",
+        'id="summarize-side"' in html and 'id="erase-side"' in html and "async function compact()" in html and "async function wipe()" in html,
+        "sidebar summarize + delete",
+        rows,
+    )
+    check(
+        "standalone-mic-recording-ui",
+        'id="mic"' in html and "mic-on" in html and "setMicLive" in html,
+        "mic on/off states",
+        rows,
+    )
+    check(
+        "pack-harness-shipped",
+        (PUBLIC / "harness" / "check-pack.sh").is_file() and (PUBLIC / "harness" / "TESTS.md").is_file(),
+        "public/harness for downloads",
+        rows,
+    )
 
     return rows
 

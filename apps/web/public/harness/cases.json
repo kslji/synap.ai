@@ -1,0 +1,30 @@
+{
+  "pack": "self-check",
+  "manual_smoke": [
+    {
+      "id": "model-identity",
+      "ask": "Which model are you using?",
+      "expect": "Answers with this pack's modelTitle from agent.json / MODEL.txt"
+    },
+    {
+      "id": "file-ground",
+      "ask": "Attach a short .txt then: Summarize this file in one sentence.",
+      "expect": "Uses attached file; does not invent other documents"
+    },
+    {
+      "id": "summarize-batch",
+      "ask": "Click Save a short summary and delete chats",
+      "expect": "Creates a memory note and clears chat threads without errors"
+    },
+    {
+      "id": "wipe-confirm",
+      "ask": "Click Delete all chats and files twice",
+      "expect": "First click arms; second click erases local chats/files"
+    },
+    {
+      "id": "mic-recording",
+      "ask": "Click mic (Chrome)",
+      "expect": "Icon switches to muted mic with pulse while recording"
+    }
+  ]
+}

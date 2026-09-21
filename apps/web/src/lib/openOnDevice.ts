@@ -159,6 +159,11 @@ Customize for your platform:
   Edit local-agent.html (chat UI + prompts), system.md (agent instructions), and agent.json
   (model identity). Change those files, then re-run SURF-OPEN / LOCAL-SETUP — the agent is yours
   to reshape for your product, site, or workflow.
+
+Self-check (recommended before chatting):
+  Mac/Linux:  bash harness/check-pack.sh
+  Windows:    harness\\check-pack.bat
+  See harness/TESTS.md for manual smoke prompts.
 `;
 }
 
@@ -332,6 +337,13 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     const extra = await readPackFile(`/${name}`);
     if (!extra) continue;
     files.push({ name: `${root}/${name}`, body: extra.body });
+  }
+
+  for (const name of ["TESTS.md", "check-pack.sh", "check-pack.bat", "cases.json"] as const) {
+    const harness = await readPackFile(`/harness/${name}`, true);
+    if (!harness || harness.kind !== "text") continue;
+    const unixMode = name.endsWith(".sh") ? 0o100755 : undefined;
+    files.push({ name: `${root}/harness/${name}`, body: harness.body, unixMode });
   }
 
   const blob = zipStore(files);

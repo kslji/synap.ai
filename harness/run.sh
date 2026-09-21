@@ -13,6 +13,7 @@ fi
 "$PY" harness/evals/test_reply_repair.py
 "$PY" harness/evals/test_resume_facts.py
 "$PY" harness/evals/test_standalone.py
+"$PY" harness/evals/test_pack_identity.py
 "$PY" harness/evals/test_convert.py
 "$PY" harness/evals/gate.py
 "$PY" harness/evals/smoke.py

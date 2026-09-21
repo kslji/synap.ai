@@ -19,6 +19,7 @@ from test_moss import run_checks as moss_checks  # noqa: E402
 from test_reply_repair import run_checks as reply_repair_checks  # noqa: E402
 from test_resume_facts import run_checks as resume_facts_checks  # noqa: E402
 from test_standalone import run_checks as standalone_checks  # noqa: E402
+from test_pack_identity import run_checks as pack_identity_checks  # noqa: E402
 from test_convert import run_checks as convert_checks  # noqa: E402
 from test_chat_markdown import run_checks as chat_markdown_checks  # noqa: E402
 from test_general_chat import run_checks as general_chat_checks  # noqa: E402
@@ -47,6 +48,7 @@ def main() -> int:
     rows.extend(reply_repair_checks())
     rows.extend(resume_facts_checks())
     rows.extend(standalone_checks())
+    rows.extend(pack_identity_checks())
     rows.extend(convert_checks())
     rows.extend(chat_markdown_checks())
     rows.extend(general_chat_checks())

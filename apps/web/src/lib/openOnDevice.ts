@@ -154,6 +154,11 @@ Do not double-click local-agent.html — always use LOCAL-SETUP or SURF-OPEN.
 Your chats stay on this computer.
 
 Links / YouTube: this local pack cannot open the live web. Paste article text or attach a saved page.
+
+Customize for your platform:
+  Edit local-agent.html (chat UI + prompts), system.md (agent instructions), and agent.json
+  (model identity). Change those files, then re-run SURF-OPEN / LOCAL-SETUP — the agent is yours
+  to reshape for your product, site, or workflow.
 `;
 }
 

@@ -16,6 +16,10 @@ const SLIDES: Slide[] = [
     text: "Download once. Run one command. Chat offline.",
     action: { label: "Download", href: "/download" },
   },
+  {
+    text: "Edit the pack code — reshape the agent for your product or workflow.",
+    action: { label: "Download", href: "/download" },
+  },
 ];
 
 const HOLD_MS = 5500;

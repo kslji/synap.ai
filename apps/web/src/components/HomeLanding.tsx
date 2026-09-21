@@ -18,6 +18,7 @@ const POINTS = [
   "Your files stay on your desk. No cloud customs for your folders.",
   "When Wi‑Fi drops, the wave doesn’t. Keep going on this computer.",
   "One zip. One command. Local chat opens for you.",
+  "Open the pack and change the code — tune the agent for your platform.",
 ] as const;
 
 export function HomeLanding() {

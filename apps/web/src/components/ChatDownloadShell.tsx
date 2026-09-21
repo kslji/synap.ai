@@ -137,7 +137,10 @@ export function ChatDownloadShell() {
         <div className="download-head">
           <p className="download-kicker">Get local AI</p>
           <h1 className="download-brand">Download</h1>
-          <p className="download-lede">Pick your laptop RAM, choose a model, then download the pack.</p>
+          <p className="download-lede">
+            Pick your laptop RAM, choose a model, then download the pack. Unzip and edit the files
+            to customize the agent for your own product or platform.
+          </p>
         </div>
 
         <section className="download-section first" aria-labelledby="size-title">

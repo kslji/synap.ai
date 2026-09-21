@@ -1232,7 +1232,7 @@ export function LocalChat() {
                   >
                     <Download size={18} />{" "}
                     {profile?.email_verified
-                      ? "Download for your computer"
+                      ? "Download pack"
                       : "Create account to download"}
                   </button>
                   <p className="setup-empty-hint">

@@ -312,12 +312,13 @@ a.brand:hover {
 .landing-hero.download-hero {
   max-width: 640px;
   text-align: left;
-  padding: 36px 28px 72px;
+  padding: 24px 28px 56px;
   justify-content: flex-start;
+  gap: 0;
 }
 
 .download-kicker {
-  margin: 0 0 12px;
+  margin: 0 0 6px;
   color: var(--accent);
   font-size: 13px;
   font-weight: 500;
@@ -326,27 +327,27 @@ a.brand:hover {
 }
 
 .download-brand {
-  margin: 0 0 12px;
+  margin: 0;
   font-family: var(--display);
-  font-size: clamp(2.8rem, 9vw, 4rem);
+  font-size: clamp(2.4rem, 8vw, 3.4rem);
   font-weight: 650;
   letter-spacing: -0.03em;
   line-height: 1.02;
 }
 
 .download-steps {
-  margin: 28px 0 0;
-  padding-left: 1.25em;
+  margin: 20px 0 0;
+  padding-left: 1.2em;
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 .download-steps li + li {
-  margin-top: 18px;
+  margin-top: 12px;
 }
 
 .download-steps .cmd-box {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .download-steps code {
@@ -355,47 +356,47 @@ a.brand:hover {
 }
 
 .download-note {
-  margin-top: 22px;
+  margin-top: 16px;
   color: var(--accent);
   line-height: 1.5;
 }
 
 .download-section {
-  margin-top: 40px;
-  padding-top: 36px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
 
 .download-section.first {
-  margin-top: 40px;
+  margin-top: 22px;
   padding-top: 0;
   border-top: none;
 }
 
 .download-section.download-cta-block {
-  margin-top: 48px;
-  padding-top: 40px;
+  margin-top: 24px;
+  padding-top: 24px;
 }
 
 .download-section h2 {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   font-family: var(--display);
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   font-weight: 550;
   letter-spacing: -0.02em;
 }
 
 .selection-line {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   color: var(--muted);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .agent-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 10px;
 }
 
 .agent-tile {
@@ -446,8 +447,8 @@ a.brand:hover {
 .tier-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin: 0 0 20px;
+  gap: 8px;
+  margin: 0 0 14px;
 }
 
 .tier-chip {
@@ -484,7 +485,7 @@ a.brand:hover {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .model-card {

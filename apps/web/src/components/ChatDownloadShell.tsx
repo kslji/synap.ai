@@ -197,7 +197,7 @@ export function ChatDownloadShell() {
           <div className="cta-row">
             <button type="button" className="primary" disabled={busy} onClick={startDownload}>
               <Download size={18} />
-              {busy ? "Preparing pack…" : `Download ${selected.title}`}
+              {busy ? "Preparing pack…" : "Download pack"}
             </button>
           </div>
           <ol className="download-steps">

@@ -81,7 +81,7 @@ export function HomeLanding() {
                 className="primary"
                 onClick={() => void gated(() => router.push("/download"))}
               >
-                <Download size={18} /> Download for your computer
+                <Download size={18} /> Download pack
               </button>
               <button type="button" className="ghost" onClick={() => setSetupOpen(true)}>
                 Setup steps

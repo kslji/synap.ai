@@ -10,17 +10,11 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   {
-    text: "Private AI on your computer — download the zip and run LOCAL-SETUP. This website never runs your model.",
+    text: "Private AI on your computer. Chats stay on your device.",
   },
   {
-    text: "We do not store your chats. Anything saved stays in your private browser on this device.",
-  },
-  {
-    text: "With the downloaded zip, chats stay on your PC — online or offline, no cloud LLM.",
-  },
-  {
-    text: "Upcoming: connect cloud models via OpenRouter when it ships.",
-    action: { label: "OpenRouter", href: "https://openrouter.ai", external: true },
+    text: "Download once. Run one command. Chat offline.",
+    action: { label: "Download", href: "/download" },
   },
 ];
 

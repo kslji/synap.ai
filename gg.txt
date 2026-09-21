@@ -1,23 +1,30 @@
-# Deploy static shell only. AI stays on each user's machine (Local-First).
-# VPS stores accounts/OTP/feedback only — no chat transcripts / no server LLM.
-# Do NOT set NEXT_PUBLIC_HOST_URL for chat — chat uses http://127.0.0.1:18765
-# Moss keys belong in the LOCAL host .env (zip / LOCAL-SETUP), not required for marketing shell chat.
+# Deploy static shell + restart thin auth host (Local-First).
+# AI stays on each user's machine. VPS = accounts/OTP/feedback only.
+#
+# Required in ~/surf.ai/.env :
+#   HOST_BIND=127.0.0.1:18765
+#   PLATFORM_DATA_DIR=/var/lib/synap/platform
+#   CORS_ORIGINS=https://synap.surf,https://www.synap.surf
+#   ADMIN_EMAILS=...
+#   ADMIN_PASSWORD='...'
 
 cd ~/surf.ai && git pull origin main
+
+# Keep systemd unit in sync (auth host)
+sudo cp ~/surf.ai/apps/host/deploy/synap-host.service /etc/systemd/system/synap-host.service
+sudo systemctl daemon-reload
+
 cd ~/surf.ai/apps/web && npm ci
 npm run build
 rsync -a --delete out/ /var/www/synap.surf/ || (sudo rm -rf /var/www/synap.surf/* && sudo cp -a out/. /var/www/synap.surf/)
+
+mkdir -p ~/surf.ai/apps/host/logs
 sudo systemctl restart synap-host
-
-# Optional: install 24h platform purge timer (once)
-# sudo cp ~/surf.ai/apps/host/deploy/synap-purge.* /etc/systemd/system/
-# sudo systemctl daemon-reload && sudo systemctl enable --now synap-purge.timer
-# Or run manually: cd ~/surf.ai/apps/host && .venv/bin/python purge_platform.py
-#
-# Admin (/admin): add to ~/surf.ai/.env then restart synap-host:
-#   ADMIN_EMAILS=kabirsinghlambaksl@gmail.com,Kabirsinghlamba9@gmail.com
-#   ADMIN_PASSWORD=...   # set on the server only — never commit
-
+sleep 2
+sudo systemctl is-active synap-host
 curl -sS http://127.0.0.1:18765/health | head -c 200; echo
 curl -sS https://synap.surf/health | head -c 200; echo
 
+# If health fails:
+#   tail -n 80 ~/surf.ai/apps/host/logs/error.log
+#   cd ~/surf.ai/apps/host && .venv/bin/python -c "import main; print('ok')"

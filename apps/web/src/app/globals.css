@@ -8,8 +8,8 @@
   --accent-soft: rgba(111, 212, 160, 0.14);
   --warn: #e2b657;
   --danger: #e07a6a;
-  --font: "Sora", ui-sans-serif, system-ui, sans-serif;
-  --display: "Fraunces", "Sora", Georgia, serif;
+  --font: Helvetica, "Helvetica Neue", Arial, sans-serif;
+  --display: Helvetica, "Helvetica Neue", Arial, sans-serif;
   --top-banner-h: 44px;
 }
 

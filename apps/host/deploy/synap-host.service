@@ -1,0 +1,21 @@
+[Unit]
+Description=Synap FastAPI host (auth / OTP / feedback)
+After=network.target
+
+[Service]
+Type=simple
+User=prajugatmachrayt
+Group=prajugatmachrayt
+WorkingDirectory=/home/prajugatmachrayt/surf.ai/apps/host
+EnvironmentFile=-/home/prajugatmachrayt/surf.ai/.env
+Environment=WEB_CONCURRENCY=2
+Environment=GUNICORN_LOG_DIR=/home/prajugatmachrayt/surf.ai/apps/host/logs
+Environment=PLATFORM_DATA_DIR=/var/lib/synap/platform
+ExecStart=/home/prajugatmachrayt/surf.ai/apps/host/.venv/bin/gunicorn -c gunicorn.conf.py main:app
+Restart=always
+RestartSec=3
+# Give workers time to finish OTP/mail before SIGKILL
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target

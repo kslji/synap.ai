@@ -158,10 +158,20 @@ def bind_instance() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    instances.migrate_repo_data()
-    init_platform_db()
-    bind_instance()
-    # Thin VPS: drop expired OTPs / unverified signups older than 24h on boot.
+    """Boot must never kill the marketing VPS — auth/OTP must stay up."""
+    try:
+        instances.migrate_repo_data()
+    except Exception:
+        pass
+    try:
+        init_platform_db()
+    except Exception as exc:
+        # Last resort: log and continue so gunicorn does not crash-loop.
+        print(f"platform db init warning: {exc}", flush=True)
+    try:
+        bind_instance()
+    except Exception:
+        pass
     try:
         purge_ephemeral(24)
     except Exception:
@@ -170,9 +180,15 @@ async def lifespan(_: FastAPI):
         purge_stale_user_summaries(24)
     except Exception:
         pass
-    await mail_queue.start()
+    try:
+        await mail_queue.start()
+    except Exception:
+        pass
     yield
-    await mail_queue.stop()
+    try:
+        await mail_queue.stop()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="local.ai Host", version="0.3.0", lifespan=lifespan)

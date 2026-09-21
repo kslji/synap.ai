@@ -23,9 +23,15 @@ def run_checks() -> list[dict]:
     for name in (
         "guardrails.py",
         "guardrail_cases.json",
+        "custom_cases.json",
+        "CUSTOM.md",
+        "MOSS.md",
         "run-evals.py",
         "run-evals.sh",
         "run-evals.bat",
+        "run-custom.py",
+        "run-custom.sh",
+        "run-custom.bat",
     ):
         check(f"pack-evals-{name}", (HARNESS / name).is_file(), str(HARNESS / name), rows)
 
@@ -54,6 +60,18 @@ def run_checks() -> list[dict]:
         "zip-bakes-pack-evals",
         "run-evals.py" in open_on and "guardrail_cases.json" in open_on,
         "openOnDevice includes pack evals",
+        rows,
+    )
+    check(
+        "zip-bakes-custom-harness",
+        "custom_cases.json" in open_on and "run-custom.py" in open_on and "run-custom.sh" in open_on,
+        "openOnDevice includes custom harness",
+        rows,
+    )
+    check(
+        "zip-bakes-moss-note",
+        "MOSS.md" in open_on and "text document retrieval" in open_on,
+        "openOnDevice bakes Moss retrieval note",
         rows,
     )
 
@@ -102,6 +120,25 @@ def run_checks() -> list[dict]:
         )
     except Exception as exc:  # noqa: BLE001
         check("pack-run-evals-guardrails-section", False, str(exc), rows)
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(HARNESS / "run-custom.py")],
+            cwd=str(PUBLIC),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        check(
+            "pack-run-custom-harness",
+            proc.returncode == 0 and "Custom harness OK" in out,
+            f"rc={proc.returncode}",
+            rows,
+        )
+    except Exception as exc:  # noqa: BLE001
+        check("pack-run-custom-harness", False, str(exc), rows)
 
     return rows
 

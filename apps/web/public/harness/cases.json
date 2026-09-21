@@ -22,6 +22,11 @@
       "expect": "All guardrail + Moss default evals PASS"
     },
     {
+      "id": "pack-custom-harness",
+      "ask": "Edit harness/custom_cases.json then run bash harness/run-custom.sh",
+      "expect": "Starter cases PASS; TEMPLATE cases stay disabled until you customize them"
+    },
+    {
       "id": "moss-offline-paused",
       "ask": "Go offline and send a message",
       "expect": "Moss paused; local model chat still works"

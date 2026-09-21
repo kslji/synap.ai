@@ -79,6 +79,7 @@ import { isAbortError, looksLikeNetworkFailure, networkOnline } from "@/lib/net"
 import { AuthDialog } from "./AuthDialog";
 import { OfflineBanner } from "./OfflineBanner";
 import { AttachmentBar } from "./AttachmentBar";
+import { CopyReplyButton } from "./CopyReplyButton";
 import { FeedbackInbox } from "./FeedbackInbox";
 import { MessageFeedback } from "./MessageFeedback";
 import { LocalDataCard, type LastChange } from "./LocalDataCard";
@@ -125,7 +126,7 @@ function systemPrompt(memory: Memory | null, extra: string, memoryBudget = BROWS
 function formatMossHits(hit: { docs?: Array<{ text?: string }>; time_taken_ms?: number; backend?: string } | null): string {
   if (!hit?.docs?.length) return "";
   const lines = hit.docs.slice(0, 6).map((d, i) => `${i + 1}. ${(d.text || "").slice(0, 500)}`);
-  return `\n\nMoss retrieval (${hit.time_taken_ms ?? "?"} ms, ${hit.backend || "local"}):\n${lines.join("\n")}`;
+  return `\n\nMoss text-document retrieval (${hit.time_taken_ms ?? "?"} ms, ${hit.backend || "local"}):\n${lines.join("\n")}`;
 }
 
 export function LocalChat() {
@@ -1338,7 +1339,7 @@ export function LocalChat() {
                     turnMeta.moss.backend !== "skipped" &&
                     (turnMeta.moss.hits ?? 0) > 0 &&
                     turnMeta.moss.time_taken_ms
-                      ? ` · Moss ${turnMeta.moss.time_taken_ms} ms`
+                      ? ` · Moss retrieval ${turnMeta.moss.time_taken_ms} ms`
                       : ""}
                     {turnMeta.model ? ` · ${turnMeta.model}` : ""}
                   </div>
@@ -1347,11 +1348,17 @@ export function LocalChat() {
                   <div className="tiny muted msg-time">{replyTimeLabel(m)}</div>
                 )}
                 {m.role === "assistant" && m.content && (
-                  <MessageFeedback
-                    conversationId={active?.hostConversationId}
-                    engine={engine}
-                    onSent={() => setFbTick((n) => n + 1)}
-                  />
+                  <div className="reply-tools">
+                    <CopyReplyButton
+                      markdown={m.content}
+                      disabled={Boolean(busy && lastAssistant)}
+                    />
+                    <MessageFeedback
+                      conversationId={active?.hostConversationId}
+                      engine={engine}
+                      onSent={() => setFbTick((n) => n + 1)}
+                    />
+                  </div>
                 )}
               </div>
             );

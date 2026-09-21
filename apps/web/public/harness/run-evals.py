@@ -112,6 +112,7 @@ def main() -> int:
         print("Fix issues or re-download the pack from synap.surf/download.")
         return 1
     print("Default guardrails + Moss path look healthy.")
+    print("Next: customize harness/custom_cases.json and run bash harness/run-custom.sh")
     return 0
 
 

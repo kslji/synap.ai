@@ -5,7 +5,10 @@ out
 __pycache__
 *.pyc
 .env
+.env.*
+!.env.example
 .env.local
+.env.*.local
 data/
 *.db
 *.db-wal

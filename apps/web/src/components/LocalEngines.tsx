@@ -32,12 +32,12 @@ export function LocalEngines({ status }: { status: Health | null }) {
       <ul className="data-help">
         <li className={moss ? "ok" : ""}>
           {!moss
-            ? "Moss: off until you run the downloaded app"
+            ? "Moss (text document retrieval): off until local host runs"
             : !online
-              ? `Moss: offline (${status?.moss?.docs ?? 0} pieces)`
+              ? `Moss (text document retrieval): paused offline · ${status?.moss?.docs ?? 0} pieces indexed`
               : mossSdk
-                ? `Moss: on (${status?.moss?.docs ?? 0} pieces)`
-                : `Moss: keyword search (${status?.moss?.docs ?? 0} pieces)`}
+                ? `Moss (text document retrieval): on · ${status?.moss?.docs ?? 0} pieces`
+                : `Moss (text document retrieval): keyword fallback · ${status?.moss?.docs ?? 0} pieces`}
         </li>
         <li className={local ? "ok" : ""}>
           {local

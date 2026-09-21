@@ -164,11 +164,18 @@ Self-check (recommended before chatting):
   Mac/Linux:  bash harness/check-pack.sh
   Windows:    harness\\check-pack.bat
   Full evals (guardrails + Moss):  bash harness/run-evals.sh
-  See harness/TESTS.md for manual smoke prompts.
+  Your custom cases:  bash harness/run-custom.sh
+  Or from any folder (latest pack):
+    bash "$(ls -t ~/Downloads/surf-ai-*/harness/run-evals.sh 2>/dev/null | head -n 1)"
+    bash "$(ls -t ~/Downloads/surf-ai-*/harness/run-custom.sh 2>/dev/null | head -n 1)"
+  Edit harness/custom_cases.json (see harness/CUSTOM.md + TESTS.md).
 
-Moss (hackathon / retrieval):
-  Pack includes moss_bridge.py + sealed moss_vault.enc (keys are encrypted, not readable as plain text).
+Moss (hackathon / text document retrieval):
+  This pack uses Moss to retrieve text from documents you attach or index.
+  Flow: attach/index text → Moss retrieves relevant snippets (online) → local model answers.
+  Pack includes moss_bridge.py + sealed moss_vault.enc (keys encrypted, not plaintext).
   LOCAL-SETUP starts Moss only while online. Offline chat still works; Moss stays paused.
+  Invigilators: sidebar shows "Moss (text document retrieval)" and replies can cite "Moss retrieval … ms".
 `;
 }
 
@@ -346,14 +353,20 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
 
   for (const name of [
     "TESTS.md",
+    "CUSTOM.md",
+    "MOSS.md",
     "check-pack.sh",
     "check-pack.bat",
     "cases.json",
     "guardrails.py",
     "guardrail_cases.json",
+    "custom_cases.json",
     "run-evals.py",
     "run-evals.sh",
     "run-evals.bat",
+    "run-custom.py",
+    "run-custom.sh",
+    "run-custom.bat",
   ] as const) {
     const harness = await readPackFile(`/harness/${name}`, true);
     if (!harness || harness.kind !== "text") continue;

@@ -10,6 +10,7 @@ import { clearAccount, fetchProfile, type UserProfile } from "@/lib/account";
 import { networkOnline } from "@/lib/net";
 import { detectOs, isMobileBrowser } from "@/lib/runtimeInstall";
 import { assertModelCatalogIntegrity, buildManifest, oneCommand } from "@/lib/agentPacks";
+import { runCustomHarnessCommand, runEvalsCommand } from "@/lib/setupCommands";
 import {
   RAM_TIERS,
   defaultModelForTier,
@@ -29,11 +30,13 @@ export function ChatDownloadShell() {
   const [note, setNote] = useState("");
   const [tier, setTier] = useState<RamTier>("light");
   const [modelId, setModelId] = useState(defaultModelForTier("light").id);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"open" | "evals" | "custom" | null>(null);
   const [mobile, setMobile] = useState(false);
   const os = detectOs();
 
   const cmd = oneCommand(os);
+  const evalsCmd = runEvalsCommand(os);
+  const customCmd = runCustomHarnessCommand(os);
   const tierModels = modelsForTier(tier);
   const selected = tierModels.find((m) => m.id === modelId) || defaultModelForTier(tier);
 
@@ -103,11 +106,11 @@ export function ChatDownloadShell() {
     });
   }
 
-  async function copyCmd() {
+  async function copyText(text: string, which: "open" | "evals" | "custom") {
     try {
-      await navigator.clipboard.writeText(cmd);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
+      await navigator.clipboard.writeText(text);
+      setCopied(which);
+      window.setTimeout(() => setCopied(null), 1800);
     } catch {
       setNote("Could not copy — select the command and copy it yourself.");
     }
@@ -144,12 +147,18 @@ export function ChatDownloadShell() {
           <p className="download-kicker">Get local AI</p>
           <h1 className="download-brand">Download</h1>
           <p className="download-lede">
-            Pick RAM and a model, download the pack, then customize the files for your platform.
+            Pick RAM and a model. Pack uses <strong>Moss</strong> for{" "}
+            <strong>text document retrieval</strong>, then your local model answers.
           </p>
         </div>
 
         <section className="download-section first" aria-labelledby="size-title">
-          <h2 id="size-title">Your laptop</h2>
+          <div className="download-pick-row">
+            <h2 id="size-title">Your laptop</h2>
+            <h2 className="download-models-title" id="models-title">
+              Models
+            </h2>
+          </div>
           <div className="tier-seg" role="radiogroup" aria-label="Computer size">
             {RAM_TIERS.map((t) => (
               <button
@@ -166,13 +175,13 @@ export function ChatDownloadShell() {
             ))}
           </div>
 
-          <h2 className="download-models-title">Models</h2>
-          <ul className="model-list">
+          <ul className="model-list" aria-labelledby="models-title">
             {tierModels.map((m) => (
               <li key={m.id}>
                 <button
                   type="button"
                   className={selected.id === m.id ? "model-card on" : "model-card"}
+                  title={m.about}
                   onClick={() => {
                     setModelId(m.id);
                     void trackEvent("model_click", m.tag);
@@ -181,7 +190,7 @@ export function ChatDownloadShell() {
                   <span className="model-card-top">
                     <strong>{m.title}</strong>
                     <span className="model-needs">
-                      {m.download} · {m.ram}
+                      {m.download.replace(" to download", "")} · {m.ram.replace("Fits ", "")}
                     </span>
                   </span>
                   <span className="model-about">{m.about}</span>
@@ -192,30 +201,72 @@ export function ChatDownloadShell() {
         </section>
 
         <section className="download-dock" aria-label="Download pack">
-          <p className="selection-line">
-            Selected: <strong>{selected.title}</strong> · {selected.download}
-          </p>
           <button
             type="button"
             className="primary download-dock-btn"
             disabled={busy || mobile}
             onClick={startDownload}
           >
-            <Download size={18} />
-            {busy ? "Preparing pack…" : mobile ? "Open on a laptop" : "Download pack"}
+            <Download size={16} />
+            {busy
+              ? "Preparing pack…"
+              : mobile
+                ? "Open on a laptop"
+                : `Download ${selected.title}`}
           </button>
-          <div className="cmd-box download-dock-cmd">
-            <code title={cmd}>{cmd}</code>
-            <button type="button" className="ghost" onClick={() => void copyCmd()} disabled={mobile}>
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-              {copied ? "Copied" : "Copy"}
-            </button>
+          <div className="download-run-required" aria-label="Required open command">
+            <p className="download-run-label">
+              <span className="download-run-badge">Required</span>
+              Unzip, then run this in Terminal
+            </p>
+            <div className="cmd-box download-dock-cmd download-dock-cmd-required">
+              <code title={cmd}>{cmd}</code>
+              <button
+                type="button"
+                className="primary download-copy-required"
+                onClick={() => void copyText(cmd, "open")}
+                disabled={mobile}
+              >
+                {copied === "open" ? <Check size={14} /> : <Copy size={14} />}
+                {copied === "open" ? "Copied" : "Copy"}
+              </button>
+            </div>
           </div>
-          <p className="download-hint">
-            {mobile
-              ? "Phones and tablets aren’t supported — use a computer with Terminal."
-              : "Unzip, then paste that command from any folder."}
-          </p>
+          {!mobile ? (
+            <div className="download-optional" aria-label="Optional harness checks">
+              <p className="download-optional-label">Optional — verify harness</p>
+              <div className="download-optional-cmds">
+                <div className="cmd-box download-dock-cmd download-dock-cmd-optional">
+                  <span className="cmd-tag">evals</span>
+                  <code title={evalsCmd}>{evalsCmd}</code>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => void copyText(evalsCmd, "evals")}
+                  >
+                    {copied === "evals" ? <Check size={14} /> : <Copy size={14} />}
+                    {copied === "evals" ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <div className="cmd-box download-dock-cmd download-dock-cmd-optional">
+                  <span className="cmd-tag">custom</span>
+                  <code title={customCmd}>{customCmd}</code>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => void copyText(customCmd, "custom")}
+                  >
+                    {copied === "custom" ? <Check size={14} /> : <Copy size={14} />}
+                    {copied === "custom" ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="download-hint">
+              Phones and tablets aren’t supported — use a computer with Terminal.
+            </p>
+          )}
           {note ? <p className="download-note">{note}</p> : null}
         </section>
       </main>

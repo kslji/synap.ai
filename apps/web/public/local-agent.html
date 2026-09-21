@@ -138,6 +138,10 @@
     .bubble-wrap .bubble { max-width: 100%; }
     .cite { max-width: min(72%, 720px); align-self: flex-start; margin-top: 4px; }
     .msg-time { max-width: min(72%, 720px); align-self: flex-start; margin-top: 4px; }
+    .reply-tools { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+    button.copy-reply { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 2px 0; opacity: .85; }
+    button.copy-reply:hover { color: var(--text); opacity: 1; }
+    button.copy-reply:disabled { opacity: .4; cursor: default; }
     .fb-votes { display: flex; gap: 2px; }
     .fb-votes .icon.on { color: var(--accent); }
     .fb-form { display: none; flex-direction: column; gap: 6px; margin-top: 6px; }
@@ -209,7 +213,7 @@
       <div class="engine-panel">
         <div class="tiny muted">What's running</div>
         <ul class="data-help" id="engine-dots">
-          <li>Finding text in your files: off (start the local host to turn this on)</li>
+          <li>Moss (text document retrieval): off until bridge/host is on</li>
           <li>Writing answers with: the small model in this browser</li>
         </ul>
       </div>
@@ -617,7 +621,7 @@
           const wrap = document.createElement("div");
           wrap.className = "bubble-wrap assistant";
           wrap.appendChild(d);
-          wrap.appendChild(feedbackUi());
+          wrap.appendChild(replyTools());
           paintTime(wrap, m);
           logEl.appendChild(wrap);
         } else {
@@ -996,6 +1000,7 @@
     }
     function fillMarkdown(el, text, streaming) {
       el.classList.add("md-body");
+      el.dataset.md = String(text || "");
       el.innerHTML = mdToHtml(text, streaming);
       bindCodeCopy(el);
     }
@@ -1106,7 +1111,7 @@
       const c = document.createElement("div");
       c.className = "tiny muted cite";
       const names = payload.sources.map((s) => s.title).filter(Boolean).join(", ");
-      const moss = payload.moss && payload.moss.time_taken_ms != null ? " · Moss " + payload.moss.time_taken_ms + " ms" : "";
+      const moss = payload.moss && payload.moss.time_taken_ms != null ? " · Moss retrieval " + payload.moss.time_taken_ms + " ms" : "";
       const model = payload.model ? " · " + payload.model : "";
       c.textContent = "Used " + names + moss + model;
       wrap.appendChild(c);
@@ -1172,6 +1177,57 @@
       const note = "Feedback goes to our backend so we can fix issues quickly.";
       box.innerHTML =
         `<div class="tiny muted">Human feedback</div><p class="tiny muted" style="margin:6px 0 0">${note}</p>`;
+    }
+    async function copyReply(markdown, html) {
+      const plain = String(markdown || "").replace(/\s+$/, "");
+      if (!plain) return;
+      const rich = html && String(html).trim()
+        ? `<div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;font-size:14px;line-height:1.55;white-space:normal">${html}</div>`
+        : "";
+      if (rich && typeof ClipboardItem !== "undefined" && navigator.clipboard && navigator.clipboard.write) {
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              "text/plain": new Blob([plain], { type: "text/plain" }),
+              "text/html": new Blob([rich], { type: "text/html" }),
+            }),
+          ]);
+          return;
+        } catch { /* fall through */ }
+      }
+      await navigator.clipboard.writeText(plain);
+    }
+    function copyReplyButton() {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "copy-reply";
+      btn.title = "Copy reply with formatting";
+      btn.setAttribute("aria-label", "Copy reply");
+      btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16V4a2 2 0 0 1 2-2h12"/></svg><span>Copy</span>';
+      btn.onclick = async () => {
+        const wrap = btn.closest(".bubble-wrap");
+        const bubble = wrap && wrap.querySelector(".bubble.assistant");
+        const markdown = (bubble && (bubble.dataset.md || bubble.innerText)) || "";
+        const html = bubble ? bubble.innerHTML : "";
+        try {
+          await copyReply(markdown, html);
+          const label = btn.querySelector("span");
+          if (label) label.textContent = "Copied";
+          btn.setAttribute("aria-label", "Copied");
+          setTimeout(() => {
+            if (label) label.textContent = "Copy";
+            btn.setAttribute("aria-label", "Copy reply");
+          }, 1600);
+        } catch { /* ignore */ }
+      };
+      return btn;
+    }
+    function replyTools() {
+      const row = document.createElement("div");
+      row.className = "reply-tools";
+      row.appendChild(copyReplyButton());
+      row.appendChild(feedbackUi());
+      return row;
     }
     function feedbackUi() {
       const root = document.createElement("div");
@@ -1274,7 +1330,7 @@
       if (bot.parentNode) bot.parentNode.replaceChild(wrap, bot);
       else logEl.appendChild(wrap);
       wrap.appendChild(bot);
-      wrap.appendChild(feedbackUi());
+      wrap.appendChild(replyTools());
     }
     async function indexMoss(text, id) {
       if (isStandalone()) {
@@ -1330,7 +1386,7 @@
         .filter((s) => s.length > 3);
       if (!lines.length) return "";
       return (
-        "\n\nMoss retrieval (" +
+        "\n\nMoss text-document retrieval (" +
         (hit.time_taken_ms ?? "?") +
         " ms, " +
         (hit.backend || "local") +
@@ -1349,13 +1405,13 @@
         : !!h?.moss?.enabled;
       const mossLine = isStandalone()
         ? (!navigator.onLine
-          ? "Moss: paused (offline — chat still works)"
+          ? "Moss (text document retrieval): paused offline — chat still works"
           : mossEnabled
-            ? ("Moss: on (" + (h?.moss?.backend || "local") + ", " + (h?.moss?.docs ?? 0) + " pieces)")
-            : "Moss: starting or attach a file while online")
+            ? ("Moss (text document retrieval): on · " + (h?.moss?.backend || "local") + " · " + (h?.moss?.docs ?? 0) + " pieces")
+            : "Moss (text document retrieval): starting — attach a text file while online")
         : (mossEnabled
-          ? ("Finding text in your files: on (" + (h?.moss?.docs ?? 0) + " pieces ready)")
-          : "Finding text in your files: off (start the local host to turn this on)");
+          ? ("Moss (text document retrieval): on · " + (h?.moss?.docs ?? 0) + " pieces ready")
+          : "Moss (text document retrieval): off (start the local host)");
       const localKind = h?.local_llm?.backend;
       const local = !!(localKind || h?.ollama) && !!h?.platform?.instance;
       const rawModel = h?.active_model || h?.default_model || packTag || "in-browser model";

@@ -178,7 +178,7 @@
         <div class="tiny muted">What's running</div>
         <ul class="data-help" id="engine-dots">
           <li>Finding text in your files: off (start the local host to turn this on)</li>
-          <li>Writing answers with: the small model in this browser (or start Ollama)</li>
+          <li>Writing answers with: the small model in this browser</li>
         </ul>
       </div>
       <div class="memory-panel">
@@ -1216,6 +1216,9 @@
     }
     function paintEngines(h) {
       healthCache = h;
+      const pack = window.__SURF_PACK__ || null;
+      const packTitle = pack && pack.modelTitle ? String(pack.modelTitle) : "";
+      const packTag = pack && pack.model ? String(pack.model) : "";
       const attached = (active()?.attached || []).length;
       const moss = isStandalone() ? attached > 0 : !!h?.moss?.enabled;
       const mossLine = isStandalone()
@@ -1227,24 +1230,33 @@
           : "Finding text in your files: off (start the local host to turn this on)");
       const localKind = h?.local_llm?.backend;
       const local = !!(localKind || h?.ollama) && !!h?.platform?.instance;
-      const backend = localKind === "lmstudio" ? "LM Studio" : localKind === "llamacpp" ? "llama.cpp" : localKind === "ollama" || h?.ollama ? "Ollama" : "local model";
-      const model = h?.active_model || h?.default_model || "in-browser model";
-      const light = /1b|1\.5b|in-browser/i.test(String(model)) || !local;
+      const rawModel = h?.active_model || h?.default_model || packTag || "in-browser model";
+      const modelLabel = packTitle
+        ? (String(rawModel).toLowerCase().includes(packTag.toLowerCase()) || !packTag
+          ? packTitle
+          : packTitle + " · " + rawModel)
+        : rawModel;
+      const light = /1b|1\.5b|2b|in-browser/i.test(String(rawModel)) || !local;
       const lightHint = isStandalone()
-        ? "Light model: answers stay short. Pull a larger Ollama model on this computer for fuller replies."
+        ? "This pack uses a small model — answers stay short. Download a larger pack from synap.surf/download for fuller replies."
         : "Light model: answers stay short. Download the zip on a computer for fuller replies. Phones use this browser only — no Terminal setup command.";
+      const writingLine = local
+        ? ("Writing answers with: " + modelLabel)
+        : "Writing answers with: the small model in this browser";
       const html =
         `<li class="${moss ? "ok" : ""}">${mossLine}</li>` +
-        `<li class="${local ? "ok" : ""}">${local ? ("Writing answers with: " + backend + " (" + model + ")") : "Writing answers with: the small model in this browser (or start Ollama)"}</li>` +
+        `<li class="${local ? "ok" : ""}">${writingLine}</li>` +
         (light ? `<li class="warn-line">${lightHint}</li>` : "");
       document.getElementById("engine-dots").innerHTML = html;
-      modeEl.textContent = model;
+      modeEl.textContent = modelLabel;
       const lightNote = document.getElementById("light-note");
       if (lightNote) {
         lightNote.hidden = !light;
         const p = lightNote.querySelector("p");
         if (p && isStandalone()) {
-          p.textContent = "This light model keeps answers short. For fuller replies, install a larger Ollama model on this computer (for example llama3.2:3b).";
+          p.textContent = packTitle
+            ? ("This pack uses " + packTitle + ". Answers stay short on light models. For fuller replies, download a larger pack from synap.surf/download.")
+            : "This light model keeps answers short. For fuller replies, download a larger pack from synap.surf/download.";
         }
       }
       const so = document.getElementById("sign-out");
@@ -2189,9 +2201,14 @@
         const fileBlock = retrieveFiles(t, asked, (ollamaOn || isStandalone()) ? 18000 : 3500);
         const packed = [fileBlock, fileBlock ? "User question:\n" + asked : asked].filter(Boolean).join("\n\n");
         const prior = trimTurns(t.msgs.slice(0, -1), ollamaOn || isStandalone() ? 2400 : 400);
+        const pack = window.__SURF_PACK__ || null;
+        const packIdLine = pack && (pack.modelTitle || pack.model)
+          ? ("\n\nRUNTIME: This Surf pack runs local model \"" + (pack.modelTitle || pack.model) + "\"" + (pack.model ? " (tag " + pack.model + ")" : "") + ". If asked which model you are using, say that exact name. Do not claim you are a cloud GPT or that you have no model name.")
+          : "";
         const system = (crispe || (fileBlock
           ? "You are Surf AI on this device — a careful document colleague for attached sources. Answer from attached-file text for file questions; cite filenames. When asked for a summary of this file, summarize the file contents — never your role. Stay accurate. Markdown that is easy to scan. File conversion is not supported."
           : "You are Surf AI on this device — a helpful local assistant. First-time users may ask general questions with no files and no training step. Answer clearly. Markdown is fine. Prefer recent chat and retained memory when present. Never reprint retained memory unless asked. File conversion is not supported.")) +
+          packIdLine +
           (fileBlock
             ? "\n\nTURN CONTEXT: Attached file text follows. Prefer it for file questions; cite [filename].\n\n" + fileBlock
             : "\n\nTURN CONTEXT: No files are attached on this turn. Answer as a general helpful assistant. The user does not need to upload anything or train you.") +

@@ -33,7 +33,7 @@ export function ChatDownloadShell() {
   const [authNext, setAuthNext] = useState<null | (() => void)>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
-  const [agent, setAgent] = useState<AgentId>("surf");
+  const [agent, setAgent] = useState<AgentId>("ollama");
   const [tier, setTier] = useState<RamTier>("everyday");
   const [modelId, setModelId] = useState(defaultModelForTier("everyday").id);
   const [copied, setCopied] = useState(false);
@@ -230,7 +230,7 @@ export function ChatDownloadShell() {
             </li>
           </ol>
           <p className="tiny muted download-moss">
-            Same single command for Surf, GPT4All, Jan, and AnythingLLM. First run may need internet
+            Same single command for Ollama, GPT4All, Jan, and AnythingLLM. First run may need internet
             for the engine and model; afterward it works offline. Partner names keep their licenses
             (MIT / AGPL); chat always opens in your local browser.
           </p>

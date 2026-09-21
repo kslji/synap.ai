@@ -3,7 +3,7 @@
 import type { RamTier } from "./localModelCatalog";
 import { defaultModelForTier, modelByTag } from "./localModelCatalog";
 
-export type AgentId = "surf" | "gpt4all" | "jan" | "anythingllm";
+export type AgentId = "ollama" | "gpt4all" | "jan" | "anythingllm";
 
 export type AgentPack = {
   id: AgentId;
@@ -20,15 +20,15 @@ export type AgentPack = {
 
 export const AGENT_PACKS: AgentPack[] = [
   {
-    id: "surf",
-    title: "Surf + Ollama",
-    license: "Our chat · Ollama engine",
+    id: "ollama",
+    title: "Ollama",
+    license: "Ollama · local model engine",
     blurb: "Private chat in Chrome on this computer. One command installs Ollama, pulls your model, and opens localhost chat.",
     downloadHint: "Zip is small (~few MB). The AI model is a separate download (1–40 GB) chosen below.",
     opens: "Chrome → http://127.0.0.1:18766 chat",
     offlineNote: "Online once for Ollama + model. Then the same command works offline.",
-    home: "https://synap.surf",
-    zipName: "surf-local-ai.zip",
+    home: "https://ollama.com",
+    zipName: "ollama-local-ai.zip",
   },
   {
     id: "gpt4all",
@@ -36,10 +36,10 @@ export const AGENT_PACKS: AgentPack[] = [
     license: "MIT · open source",
     blurb: "Same one-command Chrome chat. Uses GPT4All’s open stack with a local model you pick by computer size.",
     downloadHint: "Zip is small. Model download depends on the card you pick (about 1–40 GB).",
-    opens: "Chrome → localhost chat (same as Surf)",
+    opens: "Chrome → localhost chat",
     offlineNote: "Online once to install + pull the model. Chat works offline afterward.",
     home: "https://www.nomic.ai/gpt4all",
-    zipName: "surf-gpt4all.zip",
+    zipName: "gpt4all-local-ai.zip",
   },
   {
     id: "jan",
@@ -50,7 +50,7 @@ export const AGENT_PACKS: AgentPack[] = [
     opens: "Chrome → localhost chat",
     offlineNote: "First run needs internet. Later runs open chat offline.",
     home: "https://jan.ai",
-    zipName: "surf-jan.zip",
+    zipName: "jan-local-ai.zip",
   },
   {
     id: "anythingllm",
@@ -61,7 +61,7 @@ export const AGENT_PACKS: AgentPack[] = [
     opens: "Chrome → localhost chat",
     offlineNote: "Online once for setup + model. Then chat and files stay on this computer offline.",
     home: "https://anythingllm.com",
-    zipName: "surf-anythingllm.zip",
+    zipName: "anythingllm-local-ai.zip",
   },
 ];
 

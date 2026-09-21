@@ -124,7 +124,7 @@ Phones/tablets: use a Mac, Windows, or Linux computer.
 Chrome opens http://127.0.0.1:18766 — start chatting.
 Leave the small window open while you chat.
 
-Same steps for Surf, GPT4All, Jan, and AnythingLLM packs.
+Same steps for Ollama, GPT4All, Jan, and AnythingLLM packs.
 Install Chrome if needed: https://www.google.com/chrome/
 
 Do not double-click local-agent.html — always use LOCAL-SETUP.
@@ -182,10 +182,10 @@ export type DownloadPackOpts = {
 /** Build a zip for the chosen agent. User only runs LOCAL-SETUP after unzip. */
 export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise<void> {
   const manifest: AgentManifest = opts.manifest || {
-    agent: "surf",
-    title: "Surf + Ollama",
-    license: "Surf",
-    home: "https://synap.surf",
+    agent: "ollama",
+    title: "Ollama",
+    license: "Ollama",
+    home: "https://ollama.com",
     model: "llama3.2:3b",
     tier: "everyday",
     created: new Date().toISOString().slice(0, 10),

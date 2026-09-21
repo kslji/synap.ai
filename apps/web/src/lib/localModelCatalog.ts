@@ -21,7 +21,7 @@ export type OllamaModelOption = {
 /** Only light / ~4 GB RAM packs are offered right now. */
 export const ENABLED_TIERS: RamTier[] = ["light"];
 
-export const RAM_TIERS: Array<{
+const ALL_RAM_TIERS: Array<{
   id: RamTier;
   label: string;
   hint: string;
@@ -30,7 +30,13 @@ export const RAM_TIERS: Array<{
   { id: "everyday", label: "Everyday laptop", hint: "About 8–16 GB RAM" },
   { id: "strong", label: "Strong laptop / desktop", hint: "About 16–32 GB RAM" },
   { id: "workstation", label: "Workstation", hint: "32 GB+ RAM (GPU helps)" },
-].filter((t) => ENABLED_TIERS.includes(t.id));
+];
+
+export const RAM_TIERS: Array<{
+  id: RamTier;
+  label: string;
+  hint: string;
+}> = ALL_RAM_TIERS.filter((t) => ENABLED_TIERS.includes(t.id));
 
 /** Full catalog — UI only shows models whose tier is in ENABLED_TIERS. */
 export const OLLAMA_MODELS: OllamaModelOption[] = [

@@ -163,6 +163,7 @@ Customize for your platform:
 Self-check (recommended before chatting):
   Mac/Linux:  bash harness/check-pack.sh
   Windows:    harness\\check-pack.bat
+  Full evals (guardrails + Moss):  bash harness/run-evals.sh
   See harness/TESTS.md for manual smoke prompts.
 
 Moss (hackathon / retrieval):
@@ -343,7 +344,17 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     files.push({ name: `${root}/${name}`, body: extra.body });
   }
 
-  for (const name of ["TESTS.md", "check-pack.sh", "check-pack.bat", "cases.json"] as const) {
+  for (const name of [
+    "TESTS.md",
+    "check-pack.sh",
+    "check-pack.bat",
+    "cases.json",
+    "guardrails.py",
+    "guardrail_cases.json",
+    "run-evals.py",
+    "run-evals.sh",
+    "run-evals.bat",
+  ] as const) {
     const harness = await readPackFile(`/harness/${name}`, true);
     if (!harness || harness.kind !== "text") continue;
     const unixMode = name.endsWith(".sh") ? 0o100755 : undefined;

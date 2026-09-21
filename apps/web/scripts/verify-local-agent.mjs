@@ -88,6 +88,24 @@ ok(
   "offline must not call Moss",
 );
 
+ok(
+  "guardrails-runtime-injection",
+  /\[blocked-instruction\]/.test(html) && /prompt_injection_pattern/.test(html),
+  "runtime blocks prompt injection",
+);
+
+ok(
+  "guardrails-runtime-secrets",
+  /\[redacted-key\]/.test(html) && /\[redacted-private-key\]/.test(html),
+  "runtime redacts API keys and PEM",
+);
+
+ok(
+  "guardrails-sanitize-attachments",
+  /sanitizeCorpusText/.test(html),
+  "attachments sanitized before Moss/model",
+);
+
 const failed = checks.filter((c) => !c.ok);
 if (failed.length) {
   console.error(`\n${failed.length} check(s) failed`);

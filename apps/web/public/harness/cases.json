@@ -24,7 +24,7 @@
     {
       "id": "mic-recording",
       "ask": "Click mic (Chrome)",
-      "expect": "Icon switches to muted mic with pulse while recording"
+      "expect": "Same mic icon highlights with pulse while recording; click again to stop"
     }
   ]
 }

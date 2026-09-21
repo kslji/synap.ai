@@ -7,7 +7,7 @@ const ChatDownloadShell = dynamic(
   () => import("@/components/ChatDownloadShell").then((m) => ({ default: m.ChatDownloadShell })),
   {
     ssr: false,
-    loading: () => <PageLoading label="Loading download…" />,
+    loading: () => <PageLoading />,
   },
 );
 

@@ -7,7 +7,7 @@ const AdminConsole = dynamic(
   () => import("@/components/AdminConsole").then((m) => ({ default: m.AdminConsole })),
   {
     ssr: false,
-    loading: () => <PageLoading label="Loading admin…" />,
+    loading: () => <PageLoading />,
   },
 );
 

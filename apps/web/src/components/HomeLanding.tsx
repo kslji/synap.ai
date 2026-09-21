@@ -14,7 +14,7 @@ import { LandingTypeCycle } from "./TypeCopy";
 
 const HEADLINES = [
   "Surf your files locally. Synap data instantly.",
-  "Ride your own machine. Answers stay on this shore.",
+  "Your private agent — work across your files and system.",
   "One zip. One command. Private AI on your desk.",
   "Open the pack. Shape the agent for your platform.",
 ] as const;

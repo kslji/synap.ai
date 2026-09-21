@@ -109,10 +109,19 @@ export function oneCommand(os: "mac" | "win" | "linux"): string {
 }
 
 /** Browser download filename — model-aware, not agent product branding. */
-export function packDownloadName(manifest: AgentManifest): string {
+export function packSlug(manifest: AgentManifest): string {
   const model = (manifest.modelTitle || manifest.model || "pack")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-  return `surf-ai-${model || "pack"}.zip`;
+  return model || "pack";
+}
+
+export function packDownloadName(manifest: AgentManifest): string {
+  return `surf-ai-${packSlug(manifest)}.zip`;
+}
+
+/** Unzipped folder name — unique per model so multiple packs can coexist. */
+export function packFolderName(manifest: AgentManifest): string {
+  return `surf-ai-${packSlug(manifest)}`;
 }

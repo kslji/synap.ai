@@ -17,6 +17,8 @@ const WARM = [
   "/local-agent.html",
   "/LOCAL-SETUP.sh",
   "/LOCAL-SETUP.bat",
+  "/SURF-OPEN.sh",
+  "/SURF-OPEN.bat",
   "/system.md",
   "/web-llm.js",
   "/pdf.js",

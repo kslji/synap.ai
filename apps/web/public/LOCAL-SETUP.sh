@@ -70,7 +70,7 @@ ensure_ollama() {
     fi
     open "${dmg}"
     echo "Finish installing Ollama (drag to Applications), open it once, then run again from any folder:"
-    echo '  bash "$(ls "$HOME"/Downloads/local-ai/LOCAL-SETUP.sh "$HOME"/Downloads/*/LOCAL-SETUP.sh 2>/dev/null | head -n 1)"'
+    echo '  bash "$(ls -t "$HOME"/Downloads/surf-ai-*/SURF-OPEN.sh 2>/dev/null | head -n 1)"'
     exit 0
   fi
   if [[ "$(uname -s)" == Linux ]]; then

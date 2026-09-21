@@ -1,5 +1,5 @@
 import type { AgentManifest } from "./agentPacks";
-import { packById, packDownloadName } from "./agentPacks";
+import { packById, packDownloadName, packFolderName } from "./agentPacks";
 
 function crc32(data: Uint8Array): number {
   let c = ~0 >>> 0;
@@ -104,27 +104,34 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 function readmeFor(manifest: AgentManifest): string {
   const pack = packById(manifest.agent);
+  const folder = packFolderName(manifest);
   return `Surf AI — one command on your computer
 
 Pack: ${pack.title} (${pack.license})
 Model baked in: ${manifest.modelTitle || manifest.model}
+Folder: ${folder}
 Download size for the model: ${manifest.download || "see website"} · ${manifest.ram || ""}
 
 The zip folder is small. The AI model downloads automatically on first LOCAL-SETUP
 (needs internet once). After that, chat works offline.
 
+You can keep many packs unzipped at once (one folder per model). SURF-OPEN lists them.
+
 Phones/tablets: use a Mac, Windows, or Linux computer.
 
-1. Unzip this folder (usually into Downloads → local-ai).
+1. Unzip into Downloads (you get ${folder}/).
 2. From ANY directory, run ONE command:
 
    Mac/Linux:
-   bash "$(ls "$HOME"/Downloads/local-ai/LOCAL-SETUP.sh "$HOME"/Downloads/*/LOCAL-SETUP.sh 2>/dev/null | head -n 1)"
+   bash "$(ls -t "$HOME"/Downloads/surf-ai-*/SURF-OPEN.sh 2>/dev/null | head -n 1)"
 
-   Windows:
-   %USERPROFILE%\\Downloads\\local-ai\\LOCAL-SETUP.bat
+   Windows (PowerShell):
+   & (Get-ChildItem $env:USERPROFILE\\Downloads\\surf-ai-*\\SURF-OPEN.bat | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 
-   Or open a terminal inside the folder and run:
+   If several packs exist, SURF-OPEN asks which model to open.
+   Tip: bash …/SURF-OPEN.sh 2   or   SURF_MODEL=${manifest.model} bash …/SURF-OPEN.sh
+
+   Or open a terminal inside ${folder} and run:
    Mac/Linux:  bash LOCAL-SETUP.sh
    Windows:    LOCAL-SETUP.bat
 
@@ -134,7 +141,7 @@ Leave the small window open while you chat.
 Same steps for Ollama, GPT4All, Jan, and AnythingLLM packs.
 Install Chrome if needed: https://www.google.com/chrome/
 
-Do not double-click local-agent.html — always use LOCAL-SETUP.
+Do not double-click local-agent.html — always use LOCAL-SETUP or SURF-OPEN.
 Your chats stay on this computer.
 `;
 }
@@ -145,6 +152,8 @@ const PACK_PATHS = [
   "/local-agent.html",
   "/LOCAL-SETUP.sh",
   "/LOCAL-SETUP.bat",
+  "/SURF-OPEN.sh",
+  "/SURF-OPEN.bat",
   "/system.md",
   "/web-llm.js",
   "/pdf.js",
@@ -200,17 +209,25 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
 
   const setupSh = await readPackFile("/LOCAL-SETUP.sh", true);
   const setupBat = await readPackFile("/LOCAL-SETUP.bat", true);
+  const openSh = await readPackFile("/SURF-OPEN.sh", true);
+  const openBat = await readPackFile("/SURF-OPEN.bat", true);
   if (!setupSh || setupSh.kind !== "text" || !setupBat || setupBat.kind !== "text") {
     throw new Error(
       "The local zip is not in this tab yet. Stay here — do not close the window. Download once while online.",
     );
   }
+  if (!openSh || openSh.kind !== "text" || !openBat || openBat.kind !== "text") {
+    throw new Error("Pack opener missing from this site. Refresh and try again.");
+  }
 
+  const root = packFolderName(manifest);
   const files: Array<{ name: string; body: string | Uint8Array; unixMode?: number }> = [
-    { name: "local-ai/LOCAL-SETUP.sh", body: setupSh.body, unixMode: 0o100755 },
-    { name: "local-ai/LOCAL-SETUP.bat", body: setupBat.body },
-    { name: "local-ai/agent.json", body: JSON.stringify(manifest, null, 2) + "\n" },
-    { name: "local-ai/README.txt", body: readmeFor(manifest) },
+    { name: `${root}/LOCAL-SETUP.sh`, body: setupSh.body, unixMode: 0o100755 },
+    { name: `${root}/LOCAL-SETUP.bat`, body: setupBat.body },
+    { name: `${root}/SURF-OPEN.sh`, body: openSh.body, unixMode: 0o100755 },
+    { name: `${root}/SURF-OPEN.bat`, body: openBat.body },
+    { name: `${root}/agent.json`, body: JSON.stringify(manifest, null, 2) + "\n" },
+    { name: `${root}/README.txt`, body: readmeFor(manifest) },
   ];
 
   // Every agent pack opens the same localhost Chrome chat.
@@ -222,7 +239,7 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
     .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
     .replace(/>\s*Upload image\s*</gi, "><");
-  files.push({ name: "local-ai/local-agent.html", body: htmlBody });
+  files.push({ name: `${root}/local-agent.html`, body: htmlBody });
   for (const name of [
     "system.md",
     "web-llm.js",
@@ -234,7 +251,7 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
   ] as const) {
     const extra = await readPackFile(`/${name}`);
     if (!extra) continue;
-    files.push({ name: `local-ai/${name}`, body: extra.body });
+    files.push({ name: `${root}/${name}`, body: extra.body });
   }
 
   const blob = zipStore(files);

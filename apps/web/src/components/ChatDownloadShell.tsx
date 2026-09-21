@@ -203,7 +203,7 @@ export function ChatDownloadShell() {
           <ol className="download-steps">
             <li>Unzip</li>
             <li>
-              Run from any directory
+              Run from any directory (lists every downloaded pack)
               <div className="cmd-box">
                 <code>{cmd}</code>
                 <button type="button" className="ghost" onClick={() => void copyCmd()}>

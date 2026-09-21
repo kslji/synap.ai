@@ -89,8 +89,9 @@ export function LocalSetupDialog({
             <h2 id="setup-title">Use Surf AI on this computer</h2>
             <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
               Open this in <strong>Google Chrome</strong> only. On the download page, pick an agent
-              and model, download the zip, unzip into Downloads, then run <strong>one</strong>{" "}
-              command from any directory — LOCAL-SETUP installs the model and opens chat.
+              and model, download the zip, unzip into Downloads (each model gets its own folder),
+              then run <strong>one</strong> command from any directory — SURF-OPEN lists your packs
+              and opens chat.
             </p>
             <ol className="setup-steps">
               <li>
@@ -114,12 +115,13 @@ export function LocalSetupDialog({
                 </button>
               </li>
               <li>
-                Find the zip in Downloads and double-click it to unpack. You should get a folder named{" "}
-                <strong>local-ai</strong>.
+                Find the zip in Downloads and double-click it to unpack. Each model becomes its own
+                folder (for example <strong>surf-ai-llama-3-2-3b</strong>) so many packs can sit
+                side by side.
               </li>
               <li>
-                {terminal} Paste this from <strong>any folder</strong> — it finds the pack and opens
-                Chrome:
+                {terminal} Paste this from <strong>any folder</strong>. If you have several packs,
+                it lists them and asks which model to open:
                 <pre className="setup-cmd">{cmd}</pre>
                 <button
                   type="button"

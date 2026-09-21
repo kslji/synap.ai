@@ -558,33 +558,63 @@ button.secondary:not(:disabled):active,
   line-height: 1.45;
 }
 
-.light-model-note {
+.light-model-note,
+.setup-callout {
   display: block;
   flex-shrink: 0;
-  padding: 10px 18px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #14201a 0%, #101814 100%);
+}
+
+.setup-callout.soft {
   background: #121a16;
 }
 
-.light-model-note p {
-  margin: 0;
+.setup-callout-title {
+  margin: 0 0 4px;
   font-size: 13px;
-  line-height: 1.4;
-  color: var(--muted);
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.01em;
 }
 
-.light-model-note strong {
+.light-model-note p,
+.setup-callout p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 52rem;
+}
+
+.light-model-note strong,
+.setup-callout strong {
   color: var(--text);
   font-weight: 600;
 }
 
-.data-help .warn-line {
-  color: var(--warn);
+.setup-empty-hint {
+  margin: 14px 0 0;
+  max-width: 28rem;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.data-help .warn-line,
+.data-help .hint-line {
+  color: var(--muted);
   list-style: disc;
 }
 
+.data-help .hint-line {
+  color: #8a9a92;
+}
+
 @media (max-width: 720px) {
-  .light-model-note {
+  .light-model-note,
+  .setup-callout {
     flex-direction: column;
     align-items: flex-start;
     padding: 10px 14px;

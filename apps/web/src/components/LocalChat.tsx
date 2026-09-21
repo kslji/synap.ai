@@ -87,7 +87,6 @@ import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
 import { isBrowserModelProgress, webGpuOk, allowInBrowserLlm, LOCAL_HOST_HINT } from "@/lib/browserCaps";
-import { LOCAL_HOST } from "@/lib/config";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
 
@@ -1166,21 +1165,20 @@ export function LocalChat() {
         <OfflineBanner stayLabel="Continue offline chat" />
 
         {browserLlmOff && !ollamaReady ? (
-          <div className="light-model-note" role="note">
+          <div className="setup-callout" role="note">
+            <p className="setup-callout-title">Run Surf on your computer</p>
             <p>
-              <strong>Local-First / Small Cloud:</strong> this website does not run your AI on our
-              server (so the tab never freezes). Use <strong>Download zip</strong> → run{" "}
-              <strong>LOCAL-SETUP</strong> so Ollama + Moss answer on{" "}
-              <strong>{LOCAL_HOST}</strong> on this computer. Attached files still get grounded
-              answers in-tab without a model.
+              This site is only the shell — AI does not run on our servers. Download the zip, run{" "}
+              <strong>LOCAL-SETUP</strong>, then refresh. You can still attach files here for grounded
+              answers without a model.
             </p>
           </div>
         ) : /1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
-          <div className="light-model-note" role="note">
+          <div className="setup-callout soft" role="note">
             <p>
-              This light model (<strong>{/in-browser/i.test(engineLabel) ? "llama3.2:1b in the browser" : engineLabel}</strong>)
-              keeps answers short. For fuller replies, start Ollama on this computer via the local host
-              at <strong>{LOCAL_HOST}</strong>.
+              Light model on (
+              <strong>{/in-browser/i.test(engineLabel) ? "browser" : engineLabel}</strong>
+              ). For fuller replies, start Ollama on your computer via LOCAL-SETUP.
             </p>
           </div>
         ) : null}
@@ -1195,14 +1193,15 @@ export function LocalChat() {
             <div className="empty">
               <h1>Ask anything</h1>
               <p className="muted">
-                Ask anything — general questions work with no files. Attach documents when you want answers grounded in them.
+                General questions work with no files. Attach documents when you want answers grounded
+                in them.
               </p>
               {browserLlmOff && engine === "browser" && !ollamaReady ? (
-                <p className="warn">{LOCAL_HOST_HINT}</p>
+                <p className="setup-empty-hint">{LOCAL_HOST_HINT}</p>
               ) : gpu === false && engine === "browser" && allowInBrowserLlm() ? (
-                <p className="warn">
-                  This browser cannot run the in-page model. Open this in Google Chrome only, or start
-                  Ollama on this computer via the local host.
+                <p className="setup-empty-hint">
+                  This browser cannot run the in-page model. Use Google Chrome, or start Ollama on
+                  your computer with LOCAL-SETUP.
                 </p>
               ) : null}
             </div>

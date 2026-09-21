@@ -2,7 +2,6 @@
 
 import type { Health } from "@/lib/api";
 import { allowInBrowserLlm } from "@/lib/browserCaps";
-import { LOCAL_HOST } from "@/lib/config";
 import { networkOnline } from "@/lib/net";
 
 export type LocalEngine = "browser" | "ollama";
@@ -24,7 +23,7 @@ export function LocalEngines({ status }: { status: Health | null }) {
   const model =
     status?.active_model ||
     status?.default_model ||
-    (browserOk ? "in-browser model" : "local host required");
+    (browserOk ? "in-browser model" : "waiting for setup");
 
   return (
     <div className="engine-panel">
@@ -32,29 +31,24 @@ export function LocalEngines({ status }: { status: Health | null }) {
       <ul className="data-help">
         <li className={moss ? "ok" : ""}>
           {!moss
-            ? `Moss: off (start local host at ${LOCAL_HOST})`
+            ? "Moss: waiting — run LOCAL-SETUP on your computer"
             : !online
-              ? `Moss: offline keyword fallback (${status?.moss?.docs ?? 0} pieces on this device)`
+              ? `Moss: offline keyword search (${status?.moss?.docs ?? 0} pieces)`
               : mossSdk
-                ? `Moss: online SDK retriever (${status?.moss?.docs ?? 0} pieces)`
-                : `Moss: keyword fallback (${status?.moss?.docs ?? 0} pieces — add .env Moss keys for SDK)`}
+                ? `Moss: online (${status?.moss?.docs ?? 0} pieces)`
+                : `Moss: keyword search (${status?.moss?.docs ?? 0} pieces)`}
         </li>
         <li className={local ? "ok" : ""}>
           {local
-            ? `Writing answers with: ${backendLabel(status)} (${model}) on this computer`
+            ? `Answers: ${backendLabel(status)} (${model}) on your computer`
             : browserOk
-              ? "Writing answers with: optional in-browser model (or start local Ollama)"
-              : `Writing answers with: local host at ${LOCAL_HOST} (Download zip → LOCAL-SETUP)`}
+              ? "Answers: in-browser model (or start Ollama locally)"
+              : "Answers: waiting — Download zip → LOCAL-SETUP"}
         </li>
         {!local && !browserOk ? (
-          <li className="warn-line">
-            Local-First: chat does not call our website server for AI. Start the Small Cloud host on
-            this machine so Ollama/Moss stay private and the tab never freezes.
-          </li>
+          <li className="hint-line">Private AI stays on your machine so this tab stays fast.</li>
         ) : /1b|1\.5b|in-browser/i.test(model) || !local ? (
-          <li className="warn-line">
-            Light path: answers stay short until Ollama is up on this computer via the local host.
-          </li>
+          <li className="hint-line">Light path — fuller answers when Ollama is running locally.</li>
         ) : null}
       </ul>
     </div>

@@ -32,7 +32,7 @@ export function isBrowserModelProgress(s: string): boolean {
 }
 
 export const BROWSER_LLM_DISABLED_HINT =
-  "Local-First: AI runs on your computer, not our website server. Use Download zip → LOCAL-SETUP (starts http://127.0.0.1:18765 + Ollama). This tab stays fast and private.";
+  "AI runs on your computer, not this website. Download the zip, run LOCAL-SETUP, then refresh.";
 
 export const LOCAL_HOST_HINT =
-  "Start the local Small Cloud host on this computer (Download zip → LOCAL-SETUP), then refresh. Chat, Moss, and Ollama stay on 127.0.0.1 — never on the marketing server.";
+  "Download the zip and run LOCAL-SETUP on your computer, then refresh this page.";

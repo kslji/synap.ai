@@ -62,7 +62,7 @@ export function OfflineBanner({
     setNote("");
     try {
       await downloadOnThisDevice();
-      setNote("Saved the zip. Unpack it and run LOCAL-SETUP on this computer.");
+      setNote("Saved the zip. Unzip it, then run the open command from Setup or /download.");
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Could not download. You can still chat here offline.");
     } finally {

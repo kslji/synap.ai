@@ -80,7 +80,9 @@ export function ChatDownloadShell() {
       const manifest = buildManifest(agent, tier, selected.tag);
       void trackEvent("download", `${manifest.agent}:${manifest.model}`);
       void downloadOnThisDevice({ manifest })
-        .then(() => setNote(`Ready. Unzip, then run: ${cmd}`))
+        .then(() =>
+          setNote("Pack saved. Unzip it, then use the Copy button above to run the open command."),
+        )
         .catch(() =>
           setNote("Download did not finish. Check your connection and try again."),
         )

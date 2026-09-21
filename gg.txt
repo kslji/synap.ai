@@ -1,9 +1,14 @@
 # Deploy static shell only. AI must stay on each user's machine (Local-First).
+# If build fails with ENOSPC, free disk first:
+#   df -h /
+#   cd ~/surf.ai/apps/web && rm -rf .next node_modules/.cache out
+#   npm cache clean --force
+#   sudo journalctl --vacuum-size=50M
+#   docker system prune -af   # only if you use docker
+
 cd ~/surf.ai && git pull origin main
 cd ~/surf.ai/apps/web && npm ci
-# Do NOT set NEXT_PUBLIC_HOST_URL=https://synap.surf — that used to send chat to the VPS.
-# Chat/Moss/Ollama always use http://127.0.0.1:18765 (Small Cloud on the user's PC).
+# Do NOT set NEXT_PUBLIC_HOST_URL=https://synap.surf — chat uses http://127.0.0.1:18765
 npm run build
 sudo rm -rf /var/www/synap.surf/* && sudo cp -a out/. /var/www/synap.surf/
-# Optional: keep synap-host for auth/feedback demos only — not required for local AI chat.
 sudo systemctl restart synap-host

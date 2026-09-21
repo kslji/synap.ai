@@ -36,8 +36,6 @@ async function loadMlc() {
   // Dynamic import: static import of @mlc-ai/web-llm freezes the tab on first /chat paint.
   return import(
     /* webpackChunkName: "webllm-engine" */
-    /* webpackPrefetch: false */
-    /* webpackPreload: false */
     "@mlc-ai/web-llm"
   );
 }

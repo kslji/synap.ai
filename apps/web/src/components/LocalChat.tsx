@@ -95,8 +95,6 @@ import { BrandMark } from "./BrandMark";
 async function browserLlm() {
   return import(
     /* webpackChunkName: "surf-webllm" */
-    /* webpackPrefetch: false */
-    /* webpackPreload: false */
     "@/lib/webllm"
   );
 }

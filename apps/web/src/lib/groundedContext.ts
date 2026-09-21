@@ -58,6 +58,9 @@ export function wantsFileOverview(q: string): boolean {
     (/\b(include[sd]?|consist|contain)\b/.test(t) && /\b(this|file|attachment|zip|doc|resume)\b/.test(t)) ||
     /\bwhat is this\b/.test(t) ||
     /\bwhat (is|are) (in )?this (resume|file|doc|document|pdf|json|code)\b/.test(t) ||
+    // "what is harbour file about" / "harbour file is about"
+    /\bwhat\s+(is|are)\s+\S[\w.+-]{1,48}\s+(file|zip|pdf|doc|document|project|repo)\b/.test(t) ||
+    /\b[\w.+-]{3,48}\s+(file|zip|pdf)\s+(is\s+)?about\b/.test(t) ||
     /\bwalk (me )?through\b/.test(t) ||
     /\bexplain (the |this )?(project|repo|zip|file|resume|code|json)\b/.test(t)
   ) {
@@ -1534,6 +1537,33 @@ function queryTerms(query: string): string[] {
   return [...new Set([...base, ...extra])];
 }
 
+function fileStemTokens(name: string): string[] {
+  const base = String(name || "").split(/[/\\]/).pop() || "";
+  const stem = base.replace(/\.[^.]+$/, "");
+  return stem
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(
+      (w) =>
+        w.length >= 3 &&
+        !/^(pdf|txt|doc|docx|zip|json|md|csv|xls|xlsx|pptx|file|the|and|for)$/.test(w),
+    );
+}
+
+/** Attachments whose basename tokens appear in the user ask (e.g. "harbour" → harbour-agent.zip). */
+export function filesNamedInAsk(files: NamedDoc[], query: string): NamedDoc[] {
+  const q = String(query || "").toLowerCase();
+  if (!q || !files.length) return [];
+  return files.filter((f) => {
+    const tokens = fileStemTokens(f.name);
+    if (!tokens.length) return false;
+    const full = (String(f.name).split(/[/\\]/).pop() || "").toLowerCase();
+    const stem = full.replace(/\.[^.]+$/, "");
+    if (stem.length >= 5 && q.includes(stem)) return true;
+    return tokens.some((t) => (t.length >= 4 ? q.includes(t) : new RegExp(`\\b${t}\\b`).test(q)));
+  });
+}
+
 function scoreChunk(chunk: string, name: string, query: string, index: number): number {
   const q = query.toLowerCase();
   const body = `${name} ${chunk}`.toLowerCase();
@@ -1542,12 +1572,14 @@ function scoreChunk(chunk: string, name: string, query: string, index: number): 
   let s = 0;
   if (index === 0) s += 12;
   if (index === 1) s += 6;
+  const named = filesNamedInAsk([{ name, text: chunk }], query).length > 0;
+  if (named) s += 80;
   if (/\b(about|summar|overview|what is this|this file|tell me|consist|explain)\b/.test(q)) {
-    if (index === 0) s += 40;
-    if (index === 1) s += 18;
+    if (index === 0) s += named ? 40 : 20;
+    if (index === 1) s += named ? 18 : 8;
   }
   for (const w of words) {
-    if (name.toLowerCase().includes(w)) s += 10;
+    if (name.toLowerCase().includes(w)) s += 18;
     if (body.includes(w)) s += 5;
     else if (w.length >= 4) {
       for (const bw of bodyWords) {
@@ -1816,11 +1848,17 @@ export function thinAttachmentReply(files: NamedDoc[], query = ""): string | nul
 export function retrieveFileContext(files: NamedDoc[], query: string, budget: number): string {
   const usable = files.filter((f) => (f.text || "").trim());
   if (!usable.length) return "";
+  const named = filesNamedInAsk(usable, query);
+  const focus = named.length ? named : usable;
+  const focusNote = named.length
+    ? `FOCUS: The user named specific file(s): ${named.map((f) => f.name).join(", ")}. Answer from those file(s) only. Do not dump unrelated attachments.\n\n`
+    : "";
   const heads = () =>
-    usable.map((f) => `### ${f.name}\n${f.text.slice(0, Math.min(budget, 18000))}`).join("\n\n");
+    focus.map((f) => `### ${f.name}\n${f.text.slice(0, Math.min(budget, 18000))}`).join("\n\n");
   if (wantsShortFact(query)) {
     const slice = Math.min(budget, 2200);
     return (
+      focusNote +
       "OVERRIDE: ONE short fact only (age, email, phone, name, title…). " +
       "Reply like a human expert in one short line. Cite [filename]. Do not paste the file. " +
       "If missing, say it is not in the file.\n\n" +
@@ -1829,6 +1867,7 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   }
   if (wantsInterviewQuestions(query)) {
     return (
+      focusNote +
       "OVERRIDE: INTERVIEW QUESTIONS as a hiring expert who read these files. " +
       "Write only numbered interview Q&A grounded in the files. Number 1, 2, 3 in order. " +
       "Do not force a project template.\n\n" +
@@ -1837,6 +1876,7 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
   }
   if (wantsDiagram(query)) {
     return (
+      focusNote +
       "OVERRIDE: ARCHITECTURE / FLOW DIAGRAM as an expert on this codebase. " +
       "Short intro, then mermaid flowchart TB with real folder or module names. " +
       "Do not dump the raw file tree as the whole answer.\n\n" +
@@ -1844,10 +1884,10 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
     );
   }
   if (wantsFileOverview(query)) {
-    return OVERVIEW_OVERRIDE + heads().slice(0, budget);
+    return focusNote + OVERVIEW_OVERRIDE + heads().slice(0, budget);
   }
   const ranked: Array<{ name: string; text: string; s: number; i: number }> = [];
-  for (const f of usable) {
+  for (const f of focus) {
     chunkText(f.text).forEach((ch, i) => {
       ranked.push({ name: f.name, text: ch, s: scoreChunk(ch, f.name, query, i), i });
     });
@@ -1867,12 +1907,12 @@ export function retrieveFileContext(files: NamedDoc[], query: string, budget: nu
     if (parts.length >= 12) break;
   }
   if (!parts.length) {
-    const head = usable
-      .map((f) => `### ${f.name}\n${f.text.slice(0, Math.floor(budget / usable.length))}`)
+    const head = focus
+      .map((f) => `### ${f.name}\n${f.text.slice(0, Math.floor(budget / focus.length))}`)
       .join("\n\n");
-    return head.slice(0, budget);
+    return focusNote + head.slice(0, budget);
   }
-  return FILE_GROUND + parts.join("\n\n");
+  return focusNote + FILE_GROUND + parts.join("\n\n");
 }
 
 /** Pull the most relevant lines for a free-form ask (offline / light-model fallback). */
@@ -1970,24 +2010,27 @@ export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offl
   const usable = files.filter((f) => (f.text || "").trim());
   if (!usable.length) return "";
   const q = query.trim() || "What is in these files?";
+  const named = filesNamedInAsk(usable, q);
+  const focus = named.length ? named : usable;
 
-  const fact = extractiveFactAnswer(usable, q);
+  const fact = extractiveFactAnswer(focus, q);
   if (fact) return fact;
 
   if (wantsDiagram(q)) {
-    const diagram = architectureFlowFromFiles(usable);
+    const diagram = architectureFlowFromFiles(focus);
     if (diagram) return diagram;
   }
   if (wantsInterviewQuestions(q)) {
-    return extractiveInterviewQuestions(usable);
+    return extractiveInterviewQuestions(focus);
   }
+
   // Overview / explain only when the user actually asked for that.
   if (wantsFileOverview(q)) {
-    const overview = extractiveFileOverview(usable);
+    const overview = extractiveFileOverview(focus);
     if (overview) return overview;
   }
 
-  const topic = extractiveTopicAnswer(usable, q);
+  const topic = extractiveTopicAnswer(focus, q);
   if (topic) return topic;
 
   return `I could not find a clear answer in the attached file for: ${q}`;

@@ -10,7 +10,7 @@ bash harness/check-pack.sh
 
 Windows: `harness\check-pack.bat`
 
-## Full evals (guardrails + Moss + identity)
+## Full evals (guardrails + Moss + identity + named-file focus)
 
 ```bash
 bash harness/run-evals.sh
@@ -25,6 +25,7 @@ This runs the same style of cases as Surf’s host harness:
 - Clean questions untouched
 - Moss sealed vault + default local search
 - Pack model identity present
+- Named-file grounding (e.g. “harbour file about” must not dump a sibling résumé)
 
 ## Your custom harness (edit freely)
 
@@ -43,6 +44,7 @@ Edit `harness/custom_cases.json` — starter cases PASS out of the box; copy the
 | `guardrails.py` | Sanitize rules (injection + secrets) |
 | `guardrail_cases.json` | Fixed Surf eval cases |
 | `custom_cases.json` | **Your** editable cases + templates |
+| `file_focus.py` / `file_focus_cases.json` | Named-file grounding (multi-attachment) |
 | `run-evals.py` / `.sh` / `.bat` | Fixed pack evals |
 | `run-custom.py` / `.sh` / `.bat` | Customizable harness runner |
 | `CUSTOM.md` | How to add / change your cases |

@@ -12,6 +12,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 
 from guardrails import sanitize_user_text  # noqa: E402
+from file_focus import run_file_focus  # noqa: E402
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -97,13 +98,14 @@ def run_identity() -> list[bool]:
 
 
 def main() -> int:
-    print("Surf pack evals (guardrails + Moss + identity)")
+    print("Surf pack evals (guardrails + Moss + identity + file-focus)")
     print("Folder:", ROOT)
     print()
     bits = []
     bits.extend(run_identity())
     bits.extend(run_guardrails())
     bits.extend(run_moss_default())
+    bits.extend(run_file_focus(check))
     passed = sum(1 for b in bits if b)
     failed = sum(1 for b in bits if not b)
     print()
@@ -111,7 +113,7 @@ def main() -> int:
     if failed:
         print("Fix issues or re-download the pack from synap.surf/download.")
         return 1
-    print("Default guardrails + Moss path look healthy.")
+    print("Default guardrails + Moss + named-file grounding look healthy.")
     print("Next: customize harness/custom_cases.json and run bash harness/run-custom.sh")
     return 0
 

@@ -1,0 +1,67 @@
+{
+  "description": "Pack self-check: named-file asks must not dump sibling attachments.",
+  "cases": [
+    {
+      "id": "harbour-not-resume",
+      "query": "what is harbour file is about . ?",
+      "files": [
+        {
+          "name": "Kabir_Singh_Lamba_Resume.pdf",
+          "text": "KABIR SINGH LAMBA\nPROFESSIONAL EXPERIENCE\nSoftware Engineer at Acme\nTECHNICAL SKILLS\nPython TypeScript"
+        },
+        {
+          "name": "harbour-agent-OP1.zip",
+          "text": "HARBOUR_AGENT_README\npurpose: local agent orchestration pack\nentry: harbour/cli.py\ncommands: start watch deploy"
+        }
+      ],
+      "expect_named": ["harbour-agent-OP1.zip"],
+      "must_contain_any": ["HARBOUR_AGENT", "harbour"],
+      "must_not_contain_any": ["KABIR SINGH", "PROFESSIONAL EXPERIENCE", "TECHNICAL SKILLS"]
+    },
+    {
+      "id": "resume-not-harbour",
+      "query": "what is the resume about?",
+      "files": [
+        {
+          "name": "Kabir_Singh_Lamba_Resume.pdf",
+          "text": "KABIR SINGH LAMBA\nPROFESSIONAL EXPERIENCE\nSoftware Engineer at Acme"
+        },
+        {
+          "name": "harbour-agent-OP1.zip",
+          "text": "HARBOUR_AGENT_README\npurpose: local agent orchestration pack"
+        }
+      ],
+      "expect_named": ["Kabir_Singh_Lamba_Resume.pdf"],
+      "must_contain_any": ["KABIR SINGH", "PROFESSIONAL EXPERIENCE"],
+      "must_not_contain_any": ["HARBOUR_AGENT", "orchestration pack"]
+    },
+    {
+      "id": "unnamed-overview-keeps-both",
+      "query": "summarize these files",
+      "files": [
+        {"name": "notes-a.txt", "text": "NOTES_A_UNIQUE alpha inventory"},
+        {"name": "notes-b.txt", "text": "NOTES_B_UNIQUE beta checklist"}
+      ],
+      "expect_named": [],
+      "must_contain_any": ["NOTES_A_UNIQUE", "NOTES_B_UNIQUE"],
+      "must_not_contain_any": []
+    },
+    {
+      "id": "invoice-name-token",
+      "query": "what does the northwind invoice say?",
+      "files": [
+        {
+          "name": "northwind-invoice.txt",
+          "text": "Invoice INV-9921 Northwind Traders total 408.50"
+        },
+        {
+          "name": "bakery-readme.md",
+          "text": "Cardamom bakery closed Monday opens 7:00"
+        }
+      ],
+      "expect_named": ["northwind-invoice.txt"],
+      "must_contain_any": ["INV-9921", "408.50"],
+      "must_not_contain_any": ["Cardamom", "closed Monday"]
+    }
+  ]
+}

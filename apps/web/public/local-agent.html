@@ -1680,6 +1680,25 @@
       downloadPdfBytes(textToPdf(docs.length === 1 ? docs[0].name : "attachments.pdf", chunks.join("\n\n")), filename);
       return filename;
     }
+    function fileStemTokens(name) {
+      const base = String(name || "").split(/[/\\]/).pop() || "";
+      const stem = base.replace(/\.[^.]+$/, "");
+      return stem
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 3 && !/^(pdf|txt|doc|docx|zip|json|md|csv|xls|xlsx|pptx|file|the|and|for)$/.test(w));
+    }
+    function filesNamedInAsk(files, query) {
+      const q = String(query || "").toLowerCase();
+      if (!q || !files?.length) return [];
+      return files.filter((f) => {
+        const tokens = fileStemTokens(f.name);
+        if (!tokens.length) return false;
+        const full = (String(f.name).split(/[/\\]/).pop() || "").toLowerCase();
+        if (full.length >= 5 && q.includes(full.replace(/\.[^.]+$/, ""))) return true;
+        return tokens.some((t) => (t.length >= 4 ? q.includes(t) : new RegExp("\\b" + t + "\\b").test(q)));
+      });
+    }
     function retrieveFiles(thread, query, budget) {
       const attached = thread?.attached || [];
       if (!attached.length) return "";
@@ -1691,8 +1710,12 @@
       if (/bank|ledger|transaction|balance|invoice|sheet|excel|xlsx|csv|financ/.test(q)) {
         words.push("amount", "debit", "credit", "balance", "account", "total");
       }
-      const overview = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is| does)\s+(this|it)|this file|tell me|about|consist|include[sd]?)\b/.test(q);
+      // Bare "about" alone used to dump EVERY attachment — when the user names a file
+      // ("harbour file about"), only that file should be in context.
+      const overviewAsk = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is| does)\s+(this|it)|this file|tell me|about|consist|include[sd]?)\b/.test(q);
       const usable = attached.filter((f) => String(f.text || "").trim());
+      const named = filesNamedInAsk(usable, query);
+      const focus = named.length ? named : usable;
       const ground =
         "Attached files follow. Infer what they actually are from the filename and text. " +
         "Answer from this text only. Quote real names, dates, numbers, and filenames. " +
@@ -1705,9 +1728,13 @@
       const overviewGround =
         "OVERRIDE: Summarize the ATTACHED FILE contents only. Name each file and quote real headings, paths, and numbers from below. " +
         "Do NOT describe your role, job, instructions, system context, or conversation structure.\n\n";
-      if (overview && usable.length) {
-        const heads = usable.map((f) => "### " + f.name + "\n" + String(f.text).slice(0, Math.min(budget, 18000))).join("\n\n");
-        return overviewGround + heads.slice(0, budget);
+      const focusNote = named.length
+        ? ("FOCUS: The user named specific file(s): " + named.map((f) => f.name).join(", ") +
+          ". Answer from those file(s) only. Do not dump unrelated attachments.\n\n")
+        : "";
+      if (overviewAsk && focus.length) {
+        const heads = focus.map((f) => "### " + f.name + "\n" + String(f.text).slice(0, Math.min(budget, 18000))).join("\n\n");
+        return focusNote + overviewGround + heads.slice(0, budget);
       }
       const edit1 = (a, b) => {
         if (a === b) return true;
@@ -1723,19 +1750,21 @@
         return true;
       };
       const ranked = [];
-      for (const f of usable) {
+      for (const f of focus) {
         const raw = String(f.text || "").replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
         const lines = raw.split("\n");
         let buf = "", n = 0;
+        const nameHit = named.some((x) => x.name === f.name);
         const flush = () => {
           if (!buf.trim()) return;
           const ch = buf.trim();
           let s = n === 0 ? 12 : (n === 1 ? 6 : 0);
-          if (overview && n === 0) s += 40;
+          if (overviewAsk && n === 0) s += 40;
+          if (nameHit) s += 80;
           const blob = (f.name + " " + ch).toLowerCase();
           const bwords = blob.split(/\W+/).filter((w) => w.length > 2);
           for (const w of words) {
-            if (f.name.toLowerCase().includes(w)) s += 10;
+            if (f.name.toLowerCase().includes(w)) s += 18;
             if (blob.includes(w)) s += 5;
             else if (w.length >= 4) {
               for (const bw of bwords) {
@@ -1770,9 +1799,9 @@
         if (parts.length >= 12) break;
       }
       if (!parts.length) {
-        return usable.map((f) => "### " + f.name + "\n" + String(f.text || "").slice(0, Math.floor(budget / Math.max(usable.length, 1)))).join("\n\n").slice(0, budget);
+        return focusNote + focus.map((f) => "### " + f.name + "\n" + String(f.text || "").slice(0, Math.floor(budget / Math.max(focus.length, 1)))).join("\n\n").slice(0, budget);
       }
-      return ground + parts.join("\n\n");
+      return focusNote + ground + parts.join("\n\n");
     }
     function sanitizeUserText(text) {
       let cleaned = String(text || "").trim();
@@ -1857,7 +1886,9 @@
     function wantsFileOverview(q) {
       const t = String(q || "").trim().toLowerCase();
       if (!t) return false;
-      return /\b(summar(y|ise|ize)?|overview|brief|recap|include[sd]?|consist|what(?:'s| is| does)\s+(this|it)|what is this|walk (me )?through|explain|tell me about|what(?:'s| is) (in|inside)|purpose)\b/.test(t);
+      return /\b(summar(y|ise|ize)?|overview|brief|recap|include[sd]?|consist|what(?:'s| is| does)\s+(this|it)|what is this|walk (me )?through|explain|tell me about|what(?:'s| is) (in|inside)|purpose)\b/.test(t)
+        || /\bwhat\s+(is|are)\s+\S[\w.+-]{1,48}\s+(file|zip|pdf|doc|document|project|repo)\b/.test(t)
+        || /\b[\w.+-]{3,48}\s+(file|zip|pdf)\s+(is\s+)?about\b/.test(t);
     }
     function humanKey(k) {
       return String(k || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
@@ -2380,7 +2411,8 @@
       const lightModel = /1b|1\.5b|in-browser/i.test(modelTag) || !ollamaLocal;
       // Local Ollama works without internet — only force extractive when light or truly no local model.
       if (t.attached?.length && wantsFileOverview(asked) && (lightModel || (!navigator.onLine && !ollamaLocal))) {
-        const brief = extractiveFileOverview(t.attached);
+        const named = filesNamedInAsk(t.attached, asked);
+        const brief = extractiveFileOverview(named.length ? named : t.attached);
         if (brief) {
           input.value = "";
           syncSend();
@@ -2488,11 +2520,14 @@
         const modelTagNow = String(healthCache?.active_model || healthCache?.default_model || "");
         const lightNow = /1b|1\.5b|in-browser/i.test(modelTagNow);
         if (t.attached?.length && wantsFileOverview(asked) && isMetaAgentNoise(finalText)) {
-          const rescue = extractiveFileOverview(t.attached);
+          const namedRescue = filesNamedInAsk(t.attached, asked);
+          const rescue = extractiveFileOverview(namedRescue.length ? namedRescue : t.attached);
           if (rescue) finalText = rescue;
         }
         if (lightNow || wantsFileOverview(asked) || !navigator.onLine) {
-          finalText = repairLoopedReply(finalText, t.attached, !!(t.attached?.length && wantsFileOverview(asked)));
+          const namedRepair = filesNamedInAsk(t.attached || [], asked);
+          const repairFiles = namedRepair.length ? namedRepair : (t.attached || []);
+          finalText = repairLoopedReply(finalText, repairFiles, !!(repairFiles.length && wantsFileOverview(asked)));
         }
         if (!bot.isConnected) progress("");
         mountAssistant(bot);

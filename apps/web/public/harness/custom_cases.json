@@ -89,6 +89,13 @@
       "expect": "Uses the attached file; does not invent other documents"
     },
     {
+      "id": "manual-named-file-focus",
+      "enabled": true,
+      "kind": "manual",
+      "ask": "Attach a resume PDF and harbour-agent-OP1.zip, then ask: what is harbour file about?",
+      "expect": "Answers from harbour-agent only — does not dump the resume text"
+    },
+    {
       "id": "TEMPLATE-manual-your-workflow",
       "enabled": false,
       "kind": "manual",

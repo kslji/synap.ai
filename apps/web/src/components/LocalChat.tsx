@@ -55,6 +55,7 @@ import {
   overRefusalRetryHint,
   stripRefusalContamination,
   retrieveFileContext,
+  filesNamedInAsk,
   thinAttachmentReply,
   asksAboutAttachedFiles,
   isCasualGeneralAsk,
@@ -694,7 +695,10 @@ export function LocalChat() {
       await persist(working);
       return;
     }
-    const named = hydrated.map((f) => ({ name: f.name, text: f.text || "" }));
+    const allAttached = hydrated.map((f) => ({ name: f.name, text: f.text || "" }));
+    // If the ask names a file (e.g. "harbour"), ground only on that attachment — not siblings.
+    const scoped = filesNamedInAsk(allAttached, asked);
+    const named = scoped.length ? scoped : allAttached;
     const thin = named.length ? thinAttachmentReply(named, asked) : null;
     if (thin) {
       const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];

@@ -18,6 +18,9 @@ Unit evals (`test_guardrails.py`, `test_moss.py`, `test_pack_identity.py`) do **
 | `evals/test_standalone.py` | Zip chat: no host auth leak, summarize/wipe/mic, light-note hidden |
 | `evals/test_pack_identity.py` | SURF-OPEN model labels, verify-packs + verify-local-agent, pack harness present |
 | `evals/test_convert.py` | txt/csv/docx/xlsx → on-device PDF |
+| `evals/test_resume_facts.py` | Résumé detection; company experience extraction |
+| `evals/test_file_focus.py` | Named-file grounding (harbour ask ≠ sibling résumé dump) |
+| `evals/file_focus_cases.json` | Multi-attachment focus cases |
 | `evals/fixtures/` | Invoice, bakery README, payroll handbook (user corpus, not product docs) |
 | `evals/retrieval_cases.json` | Grounded queries + forbidden product strings |
 | `evals/gate.py` | Host up, `platform_bytes=0`, Moss on-device, local LLM URL is loopback, plus unit checks |

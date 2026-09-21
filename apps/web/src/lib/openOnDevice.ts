@@ -361,6 +361,8 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     "guardrails.py",
     "guardrail_cases.json",
     "custom_cases.json",
+    "file_focus.py",
+    "file_focus_cases.json",
     "run-evals.py",
     "run-evals.sh",
     "run-evals.bat",

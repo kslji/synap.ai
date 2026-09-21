@@ -26,6 +26,8 @@ def run_checks() -> list[dict]:
         "custom_cases.json",
         "CUSTOM.md",
         "MOSS.md",
+        "file_focus.py",
+        "file_focus_cases.json",
         "run-evals.py",
         "run-evals.sh",
         "run-evals.bat",
@@ -60,6 +62,12 @@ def run_checks() -> list[dict]:
         "zip-bakes-pack-evals",
         "run-evals.py" in open_on and "guardrail_cases.json" in open_on,
         "openOnDevice includes pack evals",
+        rows,
+    )
+    check(
+        "zip-bakes-file-focus",
+        "file_focus.py" in open_on and "file_focus_cases.json" in open_on,
+        "openOnDevice includes named-file focus evals",
         rows,
     )
     check(

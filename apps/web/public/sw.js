@@ -1,5 +1,5 @@
 /* Surf AI — keep the site usable offline, like YouTube with saved videos. */
-const CACHE = "surf-shell-v5";
+const CACHE = "surf-shell-v6";
 const PRECACHE = [
   "/",
   "/index.html",
@@ -90,13 +90,8 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE);
-      const cached = await cache.match(req, { ignoreSearch: true });
       const hashed = url.pathname.startsWith("/_next/static/");
-      const cachedOk =
-        cached &&
-        cached.ok &&
-        !String(cached.headers.get("content-type") || "").includes("text/html");
-      if (hashed && cachedOk) return cached;
+      // Network-first for hashed JS/CSS so auth fixes deploy without sticky Failed to fetch.
       try {
         const res = await fetch(req);
         if (res && res.ok && !String(res.headers.get("content-type") || "").includes("text/html")) {
@@ -104,6 +99,11 @@ self.addEventListener("fetch", (event) => {
         }
         return res;
       } catch (err) {
+        if (hashed) {
+          const cached = await cache.match(req, { ignoreSearch: true });
+          if (cached && cached.ok) return cached;
+        }
+        const cached = await cache.match(req, { ignoreSearch: true });
         if (cached) return cached;
         if (req.mode === "navigate") {
           const page = await cachedPage(url.pathname);

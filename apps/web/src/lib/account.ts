@@ -30,11 +30,20 @@ async function postAuth<T>(path: string, body: object): Promise<T> {
   const base = platformBase();
   // Local Small Cloud host works offline — only block remote auth when offline.
   if (!networkOnline() && !isLoopbackHost(base)) throw new InternetOffError();
-  const res = await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(
+      isLoopbackHost(base)
+        ? `Cannot reach local host at ${base}. Start LOCAL-SETUP on this computer.`
+        : `Cannot reach account server at ${base}${path}. Hard-refresh (clear site data for synap.surf) and try again.`,
+    );
+  }
   if (!res.ok) throw new Error(parseApiError(await res.text()));
   return res.json() as Promise<T>;
 }

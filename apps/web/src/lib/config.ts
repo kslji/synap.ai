@@ -31,14 +31,14 @@ export function isLoopbackHost(url: string): boolean {
 }
 
 /**
- * Auth + thumbs: on synap.surf use same-origin (nginx → gunicorn).
+ * Auth + thumbs: on any public hostname use same-origin (nginx → gunicorn).
  * On localhost / zip, use the local Small Cloud host.
  */
 export function platformBase(): string {
   if (PLATFORM_HOST) return PLATFORM_HOST;
   if (typeof location !== "undefined") {
     const h = location.hostname.toLowerCase();
-    if (h === "synap.surf" || h === "www.synap.surf") {
+    if (h && h !== "localhost" && h !== "127.0.0.1" && h !== "[::1]") {
       return location.origin;
     }
   }

@@ -62,8 +62,8 @@ def run_checks() -> list[dict]:
     )
     check(
         "mic-recording-states",
-        "mic-on" in html and "mic-live" in html and "setMicLive" in html,
-        "mic on/off + animation hooks",
+        "mic-on" in html and "setMicLive" in html and 'id="mic"' in html,
+        "single mic with recording highlight",
         rows,
     )
 

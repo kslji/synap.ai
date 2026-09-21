@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, MicOff, Paperclip, Pencil, Plus, Send, Square, Trash2, Download } from "lucide-react";
+import { Mic, Paperclip, Pencil, Plus, Send, Square, Trash2, Download } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -1420,7 +1420,7 @@ export function LocalChat() {
                 aria-label={listening ? "Stop dictation (recording)" : "Start dictation"}
                 title={listening ? "Recording — click to stop" : "Dictate"}
               >
-                {listening ? <MicOff size={16} /> : <Mic size={16} />}
+                <Mic size={16} />
               </button>
               {busy ? (
                 <button type="button" className="send stop" aria-label="Stop" title="Stop" onClick={stopReply}>

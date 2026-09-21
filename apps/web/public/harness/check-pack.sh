@@ -103,10 +103,10 @@ else
   bad "delete wired" "erase-side / wipe missing"
 fi
 
-if printf '%s' "$HTML" | grep -q 'mic-on' && printf '%s' "$HTML" | grep -q 'mic-live'; then
+if printf '%s' "$HTML" | grep -q 'mic-on' && printf '%s' "$HTML" | grep -q 'setMicLive'; then
   ok "mic recording UI"
 else
-  bad "mic recording UI" "mic-on / mic-live missing"
+  bad "mic recording UI" "mic-on / setMicLive missing"
 fi
 
 if grep -q 'modelTitle' SURF-OPEN.sh && ! grep -q 'agent:-Surf' SURF-OPEN.sh; then

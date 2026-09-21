@@ -115,9 +115,16 @@ The zip folder is small. The AI model downloads automatically on first LOCAL-SET
 
 Phones/tablets: use a Mac, Windows, or Linux computer.
 
-1. Unzip this folder.
-2. Run ONE command from inside local-ai:
+1. Unzip this folder (usually into Downloads → local-ai).
+2. From ANY directory, run ONE command:
 
+   Mac/Linux:
+   bash "$(ls "$HOME"/Downloads/local-ai/LOCAL-SETUP.sh "$HOME"/Downloads/*/LOCAL-SETUP.sh 2>/dev/null | head -n 1)"
+
+   Windows:
+   %USERPROFILE%\\Downloads\\local-ai\\LOCAL-SETUP.bat
+
+   Or open a terminal inside the folder and run:
    Mac/Linux:  bash LOCAL-SETUP.sh
    Windows:    LOCAL-SETUP.bat
 

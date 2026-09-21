@@ -69,8 +69,8 @@ ensure_ollama() {
       download_to "https://ollama.com/download/Ollama.dmg" "${dmg}"
     fi
     open "${dmg}"
-    echo "Finish installing Ollama (drag to Applications), open it once, then run again:"
-    echo "  bash LOCAL-SETUP.sh"
+    echo "Finish installing Ollama (drag to Applications), open it once, then run again from any folder:"
+    echo '  bash "$(ls "$HOME"/Downloads/local-ai/LOCAL-SETUP.sh "$HOME"/Downloads/*/LOCAL-SETUP.sh 2>/dev/null | head -n 1)"'
     exit 0
   fi
   if [[ "$(uname -s)" == Linux ]]; then
@@ -173,10 +173,21 @@ open_chrome() {
     open "${URL}" || true
     return 0
   fi
-  if command -v google-chrome >/dev/null 2>&1; then google-chrome --new-window "${URL}" >/dev/null 2>&1 &; return 0; fi
-  if command -v google-chrome-stable >/dev/null 2>&1; then google-chrome-stable --new-window "${URL}" >/dev/null 2>&1 &; return 0; fi
-  if command -v chromium >/dev/null 2>&1; then chromium --new-window "${URL}" >/dev/null 2>&1 &; return 0; fi
-  if command -v xdg-open >/dev/null 2>&1; then xdg-open "${URL}" || true; fi
+  if command -v google-chrome >/dev/null 2>&1; then
+    google-chrome --new-window "${URL}" >/dev/null 2>&1 &
+    return 0
+  fi
+  if command -v google-chrome-stable >/dev/null 2>&1; then
+    google-chrome-stable --new-window "${URL}" >/dev/null 2>&1 &
+    return 0
+  fi
+  if command -v chromium >/dev/null 2>&1; then
+    chromium --new-window "${URL}" >/dev/null 2>&1 &
+    return 0
+  fi
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "${URL}" || true
+  fi
 }
 
 stop_old_page() {

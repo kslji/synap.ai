@@ -89,8 +89,8 @@ export function LocalSetupDialog({
             <h2 id="setup-title">Use Surf AI on this computer</h2>
             <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
               Open this in <strong>Google Chrome</strong> only. On the download page, pick an agent
-              (Surf, GPT4All, Jan, or AnythingLLM), download the zip, unzip, then run{" "}
-              <strong>one</strong> command — LOCAL-SETUP does the rest.
+              and model, download the zip, unzip into Downloads, then run <strong>one</strong>{" "}
+              command from any directory — LOCAL-SETUP installs the model and opens chat.
             </p>
             <ol className="setup-steps">
               <li>
@@ -118,7 +118,8 @@ export function LocalSetupDialog({
                 <strong>local-ai</strong>.
               </li>
               <li>
-                {terminal} Copy and paste this one line, then press Return. Chrome will open for you:
+                {terminal} Paste this from <strong>any folder</strong> — it finds the pack and opens
+                Chrome:
                 <pre className="setup-cmd">{cmd}</pre>
                 <button
                   type="button"

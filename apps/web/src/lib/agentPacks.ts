@@ -2,6 +2,7 @@
 
 import type { RamTier } from "./localModelCatalog";
 import { defaultModelForTier, modelByTag } from "./localModelCatalog";
+import { runSetupCommand } from "./setupCommands";
 
 export type AgentId = "ollama" | "gpt4all" | "jan" | "anythingllm";
 
@@ -104,8 +105,7 @@ export function buildManifest(
 }
 
 export function oneCommand(os: "mac" | "win" | "linux"): string {
-  if (os === "win") return "LOCAL-SETUP.bat";
-  return "bash LOCAL-SETUP.sh";
+  return runSetupCommand(os);
 }
 
 /** Browser download filename — model-aware, not agent product branding. */

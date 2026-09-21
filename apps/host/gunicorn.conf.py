@@ -20,7 +20,10 @@ from __future__ import annotations
 import multiprocessing
 import os
 
-bind = os.getenv("HOST_BIND", "127.0.0.1:18765")
+bind = os.getenv("HOST_BIND", "127.0.0.1:18765").strip()
+# .env sometimes sets HOST_BIND=127.0.0.1 and HOST_PORT=18765 separately.
+if ":" not in bind.rsplit("%", 1)[-1].split("]")[-1]:
+    bind = f"{bind}:{os.getenv('HOST_PORT', '18765').strip() or '18765'}"
 worker_class = "uvicorn.workers.UvicornWorker"
 
 _cpu = multiprocessing.cpu_count()

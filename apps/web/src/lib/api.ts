@@ -97,6 +97,12 @@ function detailLine(item: unknown): string {
 export function parseApiError(raw: string): string {
   const friendly = friendlyModelError(raw);
   if (friendly) return friendly;
+  if (/502 Bad Gateway|<\s*html[\s>]/i.test(raw)) {
+    return "Account server is down (502). On the VM: sudo systemctl restart synap-host && curl http://127.0.0.1:18765/health";
+  }
+  if (/503 Service|504 Gateway/i.test(raw)) {
+    return "Account server is not ready. Wait a few seconds and try again.";
+  }
   try {
     const j = JSON.parse(raw) as { detail?: unknown };
     if (typeof j.detail === "string") return j.detail;

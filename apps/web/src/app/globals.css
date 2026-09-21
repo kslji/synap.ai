@@ -360,16 +360,18 @@ a.brand:hover {
 
 
 
+
 .landing-hero.download-hero {
   max-width: 680px;
   width: 100%;
   text-align: left;
-  padding: 4px 22px 18px;
+  padding: 8px 24px 20px;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 14px;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .download-shell {
@@ -382,22 +384,20 @@ a.brand:hover {
 }
 
 .download-shell .download-top {
-  padding: 10px 22px;
+  padding: 12px 24px;
   flex-shrink: 0;
 }
 
 .download-head {
   flex-shrink: 0;
-  margin-bottom: 0;
 }
 
-/* Pull models up tight under the Download title block */
 .download-hero > .download-head + .download-section {
-  margin-top: -2px;
+  margin-top: 0;
 }
 
 .download-kicker {
-  margin: 0 0 4px;
+  margin: 0 0 6px;
   color: var(--accent);
   font-size: 12px;
   font-weight: 560;
@@ -405,21 +405,22 @@ a.brand:hover {
   text-transform: uppercase;
 }
 
-.download-brand {
+.landing-hero.download-hero h1.download-brand {
   margin: 0;
   font-family: var(--display);
-  font-size: clamp(2rem, 4vw, 2.55rem);
+  font-size: clamp(1.9rem, 3.6vw, 2.4rem);
   font-weight: 650;
   letter-spacing: -0.035em;
-  line-height: 1.02;
+  line-height: 1.05;
+  min-height: 0;
 }
 
 .download-lede {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
   font-size: 14px;
-  line-height: 1.4;
-  max-width: 52ch;
+  line-height: 1.45;
+  max-width: 54ch;
 }
 
 .download-lede strong {
@@ -432,17 +433,17 @@ a.brand:hover {
 }
 
 .download-note {
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   color: var(--accent);
-  font-size: 12.5px;
-  line-height: 1.3;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .download-hint {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.3;
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 .download-section {
@@ -451,7 +452,7 @@ a.brand:hover {
   border: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
@@ -462,26 +463,12 @@ a.brand:hover {
 }
 
 .download-pick-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  display: none;
 }
 
 .download-section h2,
 .download-models-title {
-  margin: 0;
-  font-family: var(--display);
-  font-size: 1.05rem;
-  font-weight: 560;
-  letter-spacing: -0.02em;
-}
-
-.download-models-title {
-  margin-top: 0;
-  color: var(--muted);
-  font-size: 0.95rem;
-  font-weight: 500;
+  display: none;
 }
 
 .selection-line {
@@ -491,27 +478,28 @@ a.brand:hover {
 .tier-seg {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0;
-  padding: 3px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.22);
+  gap: 8px;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   flex-shrink: 0;
 }
 
 .tier-seg-btn {
   text-align: left;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-2) 55%, transparent);
   color: var(--text);
   cursor: pointer;
 }
 
 .tier-seg-btn.on {
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  border-color: var(--accent);
+  box-shadow: none;
 }
 
 .tier-label {
@@ -522,10 +510,10 @@ a.brand:hover {
 
 .tier-hint {
   display: block;
-  margin-top: 3px;
-  font-size: 12px;
+  margin-top: 4px;
+  font-size: 12.5px;
   color: var(--muted);
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 .model-list {
@@ -534,7 +522,7 @@ a.brand:hover {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
@@ -572,20 +560,20 @@ a.brand:hover {
 }
 
 .model-needs {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
 }
 
 .model-about {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--muted);
   line-height: 1.4;
 }
 
 .download-shell .model-card {
-  padding: 10px 14px;
+  padding: 12px 14px;
   border-radius: 12px;
-  gap: 3px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
@@ -607,24 +595,25 @@ a.brand:hover {
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-size: 12.5px;
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--muted);
 }
 
 .download-dock {
   flex-shrink: 0;
-  margin-top: auto;
-  padding-top: 10px;
-  padding-bottom: 6px;
+  margin-top: 4px;
+  padding-top: 14px;
+  padding-bottom: 8px;
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
 .download-dock .cmd-box {
   margin-top: 0;
+  align-items: center;
 }
 
 .download-dock-btn.primary {
@@ -636,7 +625,7 @@ a.brand:hover {
   font-weight: 600;
   gap: 8px;
   line-height: 1.2;
-  min-height: 44px;
+  min-height: 46px;
   white-space: nowrap;
 }
 
@@ -650,21 +639,22 @@ a.brand:hover {
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
-  min-height: 40px;
+  min-height: 46px;
   height: auto;
-  padding: 8px 10px 8px 12px;
+  padding: 12px 14px;
   align-items: center;
   border-radius: 12px;
   overflow: hidden;
+  gap: 12px;
 }
 
 .download-run-required {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
   min-width: 0;
   margin-top: 0;
-  padding: 9px 11px;
+  padding: 14px 16px;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
   background: linear-gradient(
@@ -681,15 +671,15 @@ a.brand:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 13px;
-  line-height: 1.3;
+  font-size: 13.5px;
+  line-height: 1.35;
   color: var(--text);
 }
 
 .download-run-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
+  padding: 4px 9px;
   border-radius: 7px;
   background: var(--accent);
   color: #06140e;
@@ -700,8 +690,8 @@ a.brand:hover {
 }
 
 .download-dock-cmd-required {
-  min-height: 42px;
-  padding: 8px 10px 8px 12px;
+  min-height: 48px;
+  padding: 12px 14px;
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   background: rgba(0, 0, 0, 0.38);
 }
@@ -725,8 +715,8 @@ button.download-copy-required {
 .download-dock-cmd code {
   min-width: 0;
   flex: 1;
-  font-size: 12px;
-  line-height: 1.3;
+  font-size: 12.5px;
+  line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -736,24 +726,23 @@ button.download-copy-required {
 .download-dock-cmd .ghost {
   flex-shrink: 0;
   border-radius: 8px;
-  padding: 5px 9px;
+  padding: 7px 11px;
   font-size: 12px;
-  min-height: 28px;
+  min-height: 32px;
   gap: 4px;
 }
 
 .download-optional {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 10px;
+  margin-top: 0;
   min-width: 0;
-  opacity: 0.9;
 }
 
 .download-optional-label {
   margin: 0;
-  font-size: 12px;
+  font-size: 12.5px;
   letter-spacing: 0.02em;
   color: var(--muted);
 }
@@ -761,84 +750,50 @@ button.download-copy-required {
 .download-optional-cmds {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.download-optional-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
 }
 
 .download-dock-cmd-optional {
-  min-height: 34px;
-  padding: 6px 9px;
-  gap: 7px;
+  min-height: 46px;
+  padding: 12px 14px;
+  gap: 12px;
 }
 
 .download-dock-cmd-optional code {
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .cmd-tag {
-  flex-shrink: 0;
-  font-size: 10.5px;
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0;
+  font-size: 11px;
   font-weight: 650;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--accent);
-  opacity: 0.95;
 }
 
-/* Keep one page: shrink middle, keep type readable */
-@media (max-height: 820px) {
+@media (max-height: 800px) {
   .landing-hero.download-hero {
-    gap: 8px;
-    padding: 2px 20px 14px;
+    gap: 10px;
+    padding: 4px 20px 14px;
   }
 
   .download-brand {
-    font-size: clamp(1.75rem, 3.4vw, 2.15rem);
+    font-size: clamp(1.7rem, 3.2vw, 2.1rem);
   }
 
   .download-lede {
     font-size: 13px;
-    margin-top: 4px;
-  }
-
-  .download-hero > .download-head + .download-section {
-    margin-top: -4px;
-  }
-
-  .tier-seg-btn {
-    padding: 8px 11px;
-  }
-
-  .download-shell .model-card {
-    padding: 8px 12px;
-  }
-
-  .download-dock-btn.primary {
-    min-height: 40px;
-    padding: 10px 14px;
-  }
-}
-
-@media (max-height: 740px) {
-  .download-shell .download-top {
-    padding: 8px 18px;
-  }
-
-  .landing-hero.download-hero {
-    gap: 6px;
-    padding: 0 18px 12px;
-  }
-
-  .download-brand {
-    font-size: clamp(1.55rem, 3vw, 1.9rem);
-  }
-
-  .download-lede {
-    font-size: 12.5px;
-  }
-
-  .download-hero > .download-head + .download-section {
-    margin-top: -6px;
   }
 
   .tier-hint {
@@ -850,25 +805,36 @@ button.download-copy-required {
   }
 
   .download-dock {
-    gap: 5px;
-    padding-top: 8px;
+    gap: 10px;
+    padding-top: 10px;
   }
 
   .download-run-required {
-    padding: 8px 10px;
+    padding: 12px 14px;
+    gap: 8px;
+  }
+}
+
+@media (max-height: 700px) {
+  .landing-hero.download-hero {
+    gap: 8px;
+    padding: 2px 16px 10px;
   }
 
-  .download-dock-btn.primary {
-    min-height: 36px;
-    font-size: 14px;
+  .download-brand {
+    font-size: clamp(1.5rem, 2.8vw, 1.85rem);
   }
 
-  .download-dock-cmd-required {
-    min-height: 36px;
+  .tier-seg-btn,
+  .download-shell .model-card {
+    padding: 10px 12px;
   }
 
+  .download-dock-cmd,
+  .download-dock-cmd-required,
   .download-dock-cmd-optional {
-    min-height: 30px;
+    min-height: 40px;
+    padding: 10px 12px;
   }
 }
 

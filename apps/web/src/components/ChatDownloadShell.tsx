@@ -175,7 +175,6 @@ export function ChatDownloadShell() {
                 <button
                   type="button"
                   className={selected.id === m.id ? "model-card on" : "model-card"}
-                  title={m.about}
                   onClick={() => {
                     setModelId(m.id);
                     void trackEvent("model_click", m.tag);
@@ -230,29 +229,33 @@ export function ChatDownloadShell() {
             <div className="download-optional" aria-label="Optional harness checks">
               <p className="download-optional-label">Optional — verify harness</p>
               <div className="download-optional-cmds">
-                <div className="cmd-box download-dock-cmd download-dock-cmd-optional">
+                <div className="download-optional-row">
                   <span className="cmd-tag">evals</span>
-                  <code title={evalsCmd}>{evalsCmd}</code>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => void copyText(evalsCmd, "evals")}
-                  >
-                    {copied === "evals" ? <Check size={14} /> : <Copy size={14} />}
-                    {copied === "evals" ? "Copied" : "Copy"}
-                  </button>
+                  <div className="cmd-box download-dock-cmd download-dock-cmd-optional">
+                    <code title={evalsCmd}>{evalsCmd}</code>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => void copyText(evalsCmd, "evals")}
+                    >
+                      {copied === "evals" ? <Check size={14} /> : <Copy size={14} />}
+                      {copied === "evals" ? "Copied" : "Copy"}
+                    </button>
+                  </div>
                 </div>
-                <div className="cmd-box download-dock-cmd download-dock-cmd-optional">
+                <div className="download-optional-row">
                   <span className="cmd-tag">custom</span>
-                  <code title={customCmd}>{customCmd}</code>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => void copyText(customCmd, "custom")}
-                  >
-                    {copied === "custom" ? <Check size={14} /> : <Copy size={14} />}
-                    {copied === "custom" ? "Copied" : "Copy"}
-                  </button>
+                  <div className="cmd-box download-dock-cmd download-dock-cmd-optional">
+                    <code title={customCmd}>{customCmd}</code>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => void copyText(customCmd, "custom")}
+                    >
+                      {copied === "custom" ? <Check size={14} /> : <Copy size={14} />}
+                      {copied === "custom" ? "Copied" : "Copy"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

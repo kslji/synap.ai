@@ -12,6 +12,16 @@
       "expect": "Uses attached file; does not invent other documents"
     },
     {
+      "id": "moss-online-default",
+      "ask": "While online: attach a file, ask a question about it, confirm sidebar shows Moss: on",
+      "expect": "Moss bridge indexes/retrieves; keys stay sealed in moss_vault.enc"
+    },
+    {
+      "id": "moss-offline-paused",
+      "ask": "Go offline and send a message",
+      "expect": "Moss paused; local model chat still works"
+    },
+    {
       "id": "summarize-batch",
       "ask": "Click Save a short summary and delete chats",
       "expect": "Creates a memory note and clears chat threads without errors"

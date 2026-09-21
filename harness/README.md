@@ -13,6 +13,7 @@ Unit evals (`test_guardrails.py`, `test_moss.py`, `test_pack_identity.py`) do **
 |---|---|
 | `evals/test_guardrails.py` | Injection, SSN, API keys, AWS, GitHub tokens, PEM |
 | `evals/test_moss.py` | User-file retrieval; empty hits on unrelated queries; seed README never indexed |
+| `evals/test_moss_pack.py` | Download-pack Moss default path: sealed vault, bridge index/search, online-only setup |
 | `evals/test_standalone.py` | Zip chat: no host auth leak, summarize/wipe/mic, light-note hidden |
 | `evals/test_pack_identity.py` | SURF-OPEN model labels, verify-packs + verify-local-agent, pack harness present |
 | `evals/test_convert.py` | txt/csv/docx/xlsx → on-device PDF |

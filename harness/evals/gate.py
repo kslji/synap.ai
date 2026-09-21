@@ -16,6 +16,7 @@ sys.path.insert(0, str(HOST_DIR))
 from http_client import get_json  # noqa: E402
 from test_guardrails import run_checks as guardrail_checks  # noqa: E402
 from test_moss import run_checks as moss_checks  # noqa: E402
+from test_moss_pack import run_checks as moss_pack_checks  # noqa: E402
 from test_reply_repair import run_checks as reply_repair_checks  # noqa: E402
 from test_resume_facts import run_checks as resume_facts_checks  # noqa: E402
 from test_standalone import run_checks as standalone_checks  # noqa: E402
@@ -45,6 +46,7 @@ def main() -> int:
     rows: list[dict] = []
     rows.extend(guardrail_checks())
     rows.extend(moss_checks())
+    rows.extend(moss_pack_checks())
     rows.extend(reply_repair_checks())
     rows.extend(resume_facts_checks())
     rows.extend(standalone_checks())

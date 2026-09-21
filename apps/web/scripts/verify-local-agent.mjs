@@ -70,6 +70,24 @@ ok(
   "summarize/delete must block double-clicks",
 );
 
+ok(
+  "moss-bridge-online-only",
+  /127\.0\.0\.1:18767/.test(html) && /navigator\.onLine/.test(html) && /searchMossPack/.test(html),
+  "pack Moss uses local bridge only while online",
+);
+
+ok(
+  "moss-index-standalone-bridge",
+  /isStandalone\(\)[\s\S]{0,200}18767\/v1\/memory/.test(html),
+  "standalone indexes docs into Moss bridge",
+);
+
+ok(
+  "moss-offline-skips",
+  /if \(!navigator\.onLine\) return/.test(html) || /!navigator\.onLine/.test(html),
+  "offline must not call Moss",
+);
+
 const failed = checks.filter((c) => !c.ok);
 if (failed.length) {
   console.error(`\n${failed.length} check(s) failed`);

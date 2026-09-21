@@ -26,7 +26,19 @@ harness\check-pack.bat
 | No re-download upsell | Standalone pack must not nag synap.surf for a “larger pack” |
 | Summarize + delete wired | Sidebar buttons call `compact()` / `wipe()` |
 | Mic on/off icons | Recording state is visible |
+| Moss vault sealed | `moss_vault.enc` uses surf-seal-v1 (no plaintext keys) |
+| Moss bridge present | `moss_bridge.py` ships in the pack |
 | Ollama (optional) | If Ollama is up, this pack’s tag is listed or pullable |
+
+## Default Moss path (automated)
+
+From the repo (no download needed):
+
+```bash
+python3 harness/evals/test_moss_pack.py
+```
+
+This proves seal → unseal → index → search works by default (keyword fallback without SDK keys).
 
 ## Smoke prompts (manual)
 

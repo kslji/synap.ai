@@ -17,7 +17,7 @@ const SLIDES: Slide[] = [
     action: { label: "Download", href: "/download" },
   },
   {
-    text: "Edit the pack code — reshape the agent for your product or workflow.",
+    text: "Edit the pack code , reshape the agent for your product or workflow.",
     action: { label: "Download", href: "/download" },
   },
 ];

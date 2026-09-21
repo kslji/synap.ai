@@ -152,13 +152,7 @@ export function ChatDownloadShell() {
           </p>
         </div>
 
-        <section className="download-section first" aria-labelledby="size-title">
-          <div className="download-pick-row">
-            <h2 id="size-title">Your laptop</h2>
-            <h2 className="download-models-title" id="models-title">
-              Models
-            </h2>
-          </div>
+        <section className="download-section first" aria-label="Pick laptop size and model">
           <div className="tier-seg" role="radiogroup" aria-label="Computer size">
             {RAM_TIERS.map((t) => (
               <button
@@ -175,7 +169,7 @@ export function ChatDownloadShell() {
             ))}
           </div>
 
-          <ul className="model-list" aria-labelledby="models-title">
+          <ul className="model-list" aria-label="Models">
             {tierModels.map((m) => (
               <li key={m.id}>
                 <button

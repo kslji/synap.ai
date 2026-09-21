@@ -199,7 +199,7 @@ export function ChatDownloadShell() {
             </button>
           </div>
           <p className="download-hint">Unzip, then paste that command from any folder.</p>
-          {note ? <p className="download-note">{note}</p> : null>
+          {note ? <p className="download-note">{note}</p> : null}
         </section>
       </main>
 

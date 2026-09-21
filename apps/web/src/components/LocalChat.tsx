@@ -86,7 +86,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
-import { isBrowserModelProgress, webGpuOk } from "@/lib/browserCaps";
+import { isBrowserModelProgress, webGpuOk, allowInBrowserLlm, BROWSER_LLM_DISABLED_HINT } from "@/lib/browserCaps";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
 
@@ -405,8 +405,12 @@ export function LocalChat() {
       setProgress("Nothing new to summarize — start a chat first.");
       return;
     }
-    if (engine === "browser" && gpu === false) {
+    if (engine === "browser" && allowInBrowserLlm() && gpu === false) {
       setProgress("Open this in Google Chrome only (WebGPU), or switch the engine to Ollama on this computer.");
+      return;
+    }
+    if (engine === "browser" && !allowInBrowserLlm() && !(status?.local_llm?.backend || status?.ollama)) {
+      setProgress(BROWSER_LLM_DISABLED_HINT);
       return;
     }
     const batchTitles = packThreadTitles(threads);
@@ -771,7 +775,7 @@ export function LocalChat() {
       (threadFiles.length && asksAboutAttachedFiles(asked)
         ? threadFiles.map((f) => `### ${f.name}`).join("\n\n")
         : "");
-    if (!ollamaOn && gpu === false) {
+    if (!ollamaOn && allowInBrowserLlm() && gpu === false) {
       setProgress("Open this in Google Chrome only (WebGPU), or start Ollama on this computer.");
       return;
     }
@@ -862,6 +866,34 @@ export function LocalChat() {
         });
       };
       const runBrowser = async (skipMoss = false) => {
+        // Production hosts never load WebLLM — it freezes the tab. Prefer extractive / file briefs.
+        const useWebLlm = allowInBrowserLlm() && webGpuOk();
+        if (!useWebLlm) {
+          const brief = offlineFileBrief(
+            hydrated.map((f) => ({ name: f.name, text: f.text || "" })),
+            asked,
+            networkOnline() ? "no-model" : "offline",
+          );
+          if (brief) {
+            paint(brief);
+            finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
+            return;
+          }
+          if (!fileGround && !docs) {
+            paint(
+              `${BROWSER_LLM_DISABLED_HINT}\n\n` +
+                `Meanwhile: attach a file for grounded answers, or ask a general question after starting Ollama / opening the local zip.`,
+            );
+            finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
+            return;
+          }
+          // Attached files but no extractive hit — still refuse to load WebLLM.
+          paint(
+            `I can use the attached file text without the heavy in-browser model. Try a more specific question, or start Ollama / Download zip for fuller AI replies.`,
+          );
+          finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
+          return;
+        }
         // Prefer WebLLM from Chrome cache when offline — document expert, not a file dump.
         if (!webGpuOk()) {
           const brief = offlineFileBrief(
@@ -1025,7 +1057,12 @@ export function LocalChat() {
   const empty = msgs.length === 0;
   const threadFiles = files.filter((f) => f.threadId === (active?.id || ""));
   const stats = snapshotStats(threads, memory, files);
-  const engineLabel = status?.active_model || status?.default_model || "in-browser model";
+  const engineLabel =
+    status?.active_model ||
+    status?.default_model ||
+    (allowInBrowserLlm() ? "in-browser model" : "host / download zip");
+  const browserLlmOff = !allowInBrowserLlm();
+  const ollamaReady = !!(status?.local_llm?.backend || status?.ollama);
 
   return (
     <div className="chat-shell">
@@ -1122,7 +1159,15 @@ export function LocalChat() {
 
         <OfflineBanner stayLabel="Continue offline chat" />
 
-        {/1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
+        {browserLlmOff && !ollamaReady ? (
+          <div className="light-model-note" role="note">
+            <p>
+              <strong>Tab stays responsive:</strong> the heavy in-browser model is off on this site.
+              Start <strong>Ollama</strong> on this computer, or use <strong>Download zip</strong> for full
+              local AI. Attached files still get grounded answers without freezing the page.
+            </p>
+          </div>
+        ) : /1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
           <div className="light-model-note" role="note">
             <p>
               This light model (<strong>{/in-browser/i.test(engineLabel) ? "llama3.2:1b in the browser" : engineLabel}</strong>)
@@ -1145,12 +1190,14 @@ export function LocalChat() {
               <p className="muted">
                 Ask anything — general questions work with no files. Attach documents when you want answers grounded in them.
               </p>
-              {gpu === false && engine === "browser" && (
+              {browserLlmOff && engine === "browser" && !ollamaReady ? (
+                <p className="warn">{BROWSER_LLM_DISABLED_HINT}</p>
+              ) : gpu === false && engine === "browser" && allowInBrowserLlm() ? (
                 <p className="warn">
                   This browser cannot run the in-page model. Open this in Google Chrome only, or start
                   Ollama on this computer.
                 </p>
-              )}
+              ) : null}
             </div>
           )}
           {msgs.map((m, i) => {

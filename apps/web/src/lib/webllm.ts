@@ -1,12 +1,10 @@
 "use client";
 
 import { BROWSER_PROMPT_CHARS, fitBrowserPrompt, isModelNoise } from "./groundedContext";
-import { isBrowserModelProgress, webGpuOk } from "./browserCaps";
+import { allowInBrowserLlm, isBrowserModelProgress, webGpuOk } from "./browserCaps";
 import { networkOnline } from "./net";
 
-export { isBrowserModelProgress, webGpuOk } from "./browserCaps";
-
-/** Minimal engine surface so we can lazy-load @mlc-ai/web-llm (keeps /chat from freezing on open). */
+export { allowInBrowserLlm, isBrowserModelProgress, webGpuOk } from "./browserCaps";
 type MLCEngine = {
   resetChat: () => Promise<void>;
   chat: {
@@ -99,6 +97,13 @@ function engineError(err: unknown): Error {
 }
 
 export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<MLCEngine> {
+  if (!allowInBrowserLlm()) {
+    return Promise.reject(
+      new Error(
+        "In-browser model is disabled on this site so the tab stays responsive. Start Ollama or use Download zip.",
+      ),
+    );
+  }
   if (!webGpuOk()) {
     return Promise.reject(new Error("WebGPU is not available in this browser. Open this in Google Chrome only."));
   }
@@ -130,7 +135,7 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
 
 /** Warm WebLLM from Cache Storage — online downloads; offline loads prior Chrome cache. */
 export function warmBrowserEngine(onProgress: (s: string) => void): void {
-  if (!webGpuOk()) return;
+  if (!allowInBrowserLlm() || !webGpuOk()) return;
   void ensureBrowserEngine((s) => {
     if (!s) onProgress("");
     else if (!networkOnline()) onProgress("Starting on-device model…");

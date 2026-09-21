@@ -1,5 +1,5 @@
 /* Surf AI — keep the site usable offline, like YouTube with saved videos. */
-const CACHE = "surf-shell-v4";
+const CACHE = "surf-shell-v5";
 const PRECACHE = [
   "/",
   "/index.html",
@@ -16,10 +16,9 @@ const PRECACHE = [
   "/LOCAL-SETUP.sh",
   "/LOCAL-SETUP.bat",
   "/system.md",
-  "/web-llm.js",
-  "/mlc/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm",
   "/sw-assets.json",
 ];
+// Do NOT precache /web-llm.js or /mlc/*.wasm — they freeze installs and are unused on synap.surf.
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

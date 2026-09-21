@@ -14,7 +14,9 @@ function walk(dir) {
 const urls = walk(out)
   .filter((f) => !f.endsWith(".map"))
   .map((f) => `/${path.relative(out, f).split(path.sep).join("/")}`)
-  .filter((u) => u !== "/sw.js");
+  .filter((u) => u !== "/sw.js")
+  // Never precache the in-browser LLM — it freezes installs and production tabs.
+  .filter((u) => !u.includes("web-llm") && !u.includes("/mlc/") && !u.includes("webllm") && !u.includes("surf-webllm"));
 
 fs.writeFileSync(path.join(out, "sw-assets.json"), JSON.stringify(urls));
 console.log(`sw-assets.json: ${urls.length} files`);

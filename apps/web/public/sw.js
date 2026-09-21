@@ -1,5 +1,5 @@
 /* Surf AI — keep the site usable offline, like YouTube with saved videos. */
-const CACHE = "surf-shell-v11";
+const CACHE = "surf-shell-v12";
 const PRECACHE = [
   "/",
   "/index.html",

@@ -11,20 +11,16 @@ import { clearAccount, fetchProfile, type UserProfile } from "@/lib/account";
 import { networkOnline } from "@/lib/net";
 import { detectOs } from "@/lib/runtimeInstall";
 import {
-  COLIBRI_BLURB,
-  COLIBRI_INSTALL_UNIX,
-  COLIBRI_INSTALL_WIN,
-  COLIBRI_REPO,
-  RAM_TIERS,
-  defaultModelForTier,
-  modelsForTier,
-  ollamaInstallHint,
-  type OllamaModelOption,
-  type RamTier,
-} from "@/lib/localModelCatalog";
+  AGENT_PACKS,
+  buildManifest,
+  oneCommand,
+  packById,
+  type AgentId,
+} from "@/lib/agentPacks";
+import { RAM_TIERS, defaultModelForTier, type RamTier } from "@/lib/localModelCatalog";
 
 /**
- * synap.surf /chat — download shell only. Real chat runs from the zip on the user's machine.
+ * synap.surf /chat — pick an agent zip, download, run one LOCAL-SETUP command.
  */
 export function ChatDownloadShell() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -32,15 +28,14 @@ export function ChatDownloadShell() {
   const [authNext, setAuthNext] = useState<null | (() => void)>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [agent, setAgent] = useState<AgentId>("surf");
   const [tier, setTier] = useState<RamTier>("everyday");
-  const [modelId, setModelId] = useState(defaultModelForTier("everyday").id);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const os = detectOs();
 
-  const tierModels = modelsForTier(tier);
-  const selected: OllamaModelOption =
-    tierModels.find((m) => m.id === modelId) || defaultModelForTier(tier);
-  const colibriCmd = os === "win" ? COLIBRI_INSTALL_WIN : COLIBRI_INSTALL_UNIX;
+  const pack = packById(agent);
+  const cmd = oneCommand(os);
+  const model = agent === "surf" ? defaultModelForTier(tier) : null;
 
   useEffect(() => {
     void prefetchLocalPack();
@@ -48,10 +43,6 @@ export function ChatDownloadShell() {
       .then((p) => setProfile(p?.email_verified ? p : null))
       .catch(() => setProfile(null));
   }, []);
-
-  useEffect(() => {
-    setModelId(defaultModelForTier(tier).id);
-  }, [tier]);
 
   async function requireAccount(then: () => void) {
     try {
@@ -76,10 +67,11 @@ export function ChatDownloadShell() {
     void requireAccount(() => {
       setBusy(true);
       setNote("");
-      void downloadOnThisDevice()
+      const manifest = buildManifest(agent, tier);
+      void downloadOnThisDevice({ manifest })
         .then(() =>
           setNote(
-            "Download started. Unzip → LOCAL-SETUP → pull a model (commands below) → chat on your computer.",
+            `Downloaded ${pack.zipName}. Unzip → run only: ${cmd} — nothing else to figure out.`,
           ),
         )
         .catch(() =>
@@ -89,13 +81,13 @@ export function ChatDownloadShell() {
     });
   }
 
-  async function copyText(key: string, text: string) {
+  async function copyCmd() {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-      window.setTimeout(() => setCopied(null), 1800);
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
     } catch {
-      setNote("Could not copy. Select the command and copy it yourself.");
+      setNote("Could not copy. Type the command from the box below.");
     }
   }
 
@@ -129,118 +121,88 @@ export function ChatDownloadShell() {
         <p className="download-kicker">Private AI on your computer</p>
         <h1 className="download-brand">Surf AI</h1>
         <p className="lede">
-          This site is only the door. Download the folder, pick a model that fits your computer, and
-          chat stays on the machine in front of you.
+          Choose an agent. Download the zip. Unzip. Run <strong>one</strong> command. We install and
+          open everything for you — with or without internet after the first setup.
         </p>
 
-        <div className="cta-row">
-          <button type="button" className="primary" disabled={busy} onClick={startDownload}>
-            <Download size={18} /> {busy ? "Preparing download…" : "1 · Download Surf"}
-          </button>
-        </div>
-
-        <ol className="download-steps">
-          <li>Unzip → open the <strong>local-ai</strong> folder</li>
-          <li>
-            Run <strong>LOCAL-SETUP</strong>, then pull a model (step 2 below)
-          </li>
-          <li>Optional: Colibri as a second local agent (step 3)</li>
-        </ol>
-
-        <section className="download-section" aria-labelledby="models-title">
-          <h2 id="models-title">2 · Download a model for your computer</h2>
-          <p className="tiny muted">
-            Install{" "}
-            <a href="https://ollama.com" target="_blank" rel="noreferrer">
-              Ollama
-            </a>{" "}
-            once ({ollamaInstallHint(os)}). Pick your machine size, then copy the pull command.
-            Needs internet once; after that the model works offline.
-          </p>
-
-          <div className="tier-row" role="radiogroup" aria-label="Computer size">
-            {RAM_TIERS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="radio"
-                aria-checked={tier === t.id}
-                className={tier === t.id ? "tier-chip on" : "tier-chip"}
-                onClick={() => setTier(t.id)}
-              >
-                <span className="tier-label">{t.label}</span>
-                <span className="tier-hint">{t.hint}</span>
-              </button>
-            ))}
-          </div>
-
+        <section className="download-section" aria-labelledby="agent-title" style={{ marginTop: 20, paddingTop: 0, borderTop: "none" }}>
+          <h2 id="agent-title">1 · Choose your agent</h2>
           <ul className="model-list">
-            {tierModels.map((m) => (
-              <li key={m.id}>
+            {AGENT_PACKS.map((p) => (
+              <li key={p.id}>
                 <button
                   type="button"
-                  className={selected.id === m.id ? "model-card on" : "model-card"}
-                  onClick={() => setModelId(m.id)}
+                  className={agent === p.id ? "model-card on" : "model-card"}
+                  onClick={() => setAgent(p.id)}
                 >
-                  <strong>{m.title}</strong>
-                  <span className="model-needs">{m.needs}</span>
-                  <span className="model-about">{m.about}</span>
+                  <strong>{p.title}</strong>
+                  <span className="model-needs">{p.license}</span>
+                  <span className="model-about">{p.blurb}</span>
+                  <span className="model-about">Opens: {p.opens}. {p.offlineNote}</span>
                 </button>
               </li>
             ))}
           </ul>
-
-          <div className="cmd-box">
-            <code>{selected.pull}</code>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => void copyText("pull", selected.pull)}
-            >
-              {copied === "pull" ? <Check size={16} /> : <Copy size={16} />}
-              {copied === "pull" ? "Copied" : "Copy"}
-            </button>
-          </div>
-          <p className="tiny muted">
-            Or from the unzipped folder: <code>bash PULL-MODEL.sh {selected.tag}</code> (Windows:{" "}
-            <code>PULL-MODEL.bat {selected.tag}</code>).
-          </p>
         </section>
 
-        <section className="download-section" aria-labelledby="colibri-title">
-          <h2 id="colibri-title">3 · Optional · Colibri agent</h2>
-          <p className="tiny muted">{COLIBRI_BLURB}</p>
-          <p className="tiny muted">
-            Source:{" "}
-            <a href={COLIBRI_REPO} target="_blank" rel="noreferrer">
-              github.com/JustVugg/colibri
-            </a>
-            . One command clones and builds. Serve on port 8000; Surf’s local host will use it when
-            Ollama is not running.
-          </p>
-          <div className="cmd-box">
-            <code className="cmd-long">{colibriCmd}</code>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => void copyText("coli", colibriCmd)}
-            >
-              {copied === "coli" ? <Check size={16} /> : <Copy size={16} />}
-              {copied === "coli" ? "Copied" : "Copy"}
+        {agent === "surf" ? (
+          <section className="download-section" aria-labelledby="size-title">
+            <h2 id="size-title">2 · Your computer size (we pick the model)</h2>
+            <p className="tiny muted">
+              Baked into the zip — LOCAL-SETUP pulls it automatically. You do not run a second
+              command.
+            </p>
+            <div className="tier-row" role="radiogroup" aria-label="Computer size">
+              {RAM_TIERS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={tier === t.id}
+                  className={tier === t.id ? "tier-chip on" : "tier-chip"}
+                  onClick={() => setTier(t.id)}
+                >
+                  <span className="tier-label">{t.label}</span>
+                  <span className="tier-hint">{t.hint}</span>
+                </button>
+              ))}
+            </div>
+            {model ? (
+              <p className="tiny muted">
+                This zip will use <strong>{model.title}</strong> ({model.needs}). {model.about}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        <section className="download-section" aria-labelledby="dl-title">
+          <h2 id="dl-title">{agent === "surf" ? "3" : "2"} · Download &amp; run</h2>
+          <div className="cta-row">
+            <button type="button" className="primary" disabled={busy} onClick={startDownload}>
+              <Download size={18} />{" "}
+              {busy ? "Preparing zip…" : `Download ${pack.zipName}`}
             </button>
           </div>
-          <p className="tiny muted">
-            Zip also includes <code>INSTALL-COLIBRI.sh</code> / <code>INSTALL-COLIBRI.bat</code>.
-            Online for first clone and model download; offline afterward with the model already on
-            disk.
+          <ol className="download-steps">
+            <li>Unzip the folder</li>
+            <li>
+              Run only this:
+              <div className="cmd-box" style={{ marginTop: 10 }}>
+                <code>{cmd}</code>
+                <button type="button" className="ghost" onClick={() => void copyCmd()}>
+                  {copied ? <Check size={16} /> : <Copy size={16} />}
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </li>
+            <li>Chat opens ({pack.opens}). Leave the small window open if Surf is serving the page.</li>
+          </ol>
+          <p className="tiny muted download-moss">
+            First run may need internet to fetch the engine/model. After that, the same command works
+            offline when everything is already on disk. Partner apps keep their own licenses (MIT /
+            AGPL) — we only launch their official downloads.
           </p>
         </section>
-
-        <p className="tiny muted download-moss">
-          When you are online and Moss keys are set in your local host <code>.env</code>, Surf uses
-          Moss to find text in your files. If credits or keys fail, it switches to on-device keyword
-          search automatically.
-        </p>
 
         {note ? <p className="download-note">{note}</p> : null}
       </main>

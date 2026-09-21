@@ -88,8 +88,9 @@ export function LocalSetupDialog({
           <>
             <h2 id="setup-title">Use Surf AI on this computer</h2>
             <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-              Open this in <strong>Google Chrome</strong> only. Download the folder, then run one
-              command — Chrome opens on its own.
+              Open this in <strong>Google Chrome</strong> only. On the download page, pick an agent
+              (Surf, GPT4All, Jan, or AnythingLLM), download the zip, unzip, then run{" "}
+              <strong>one</strong> command — LOCAL-SETUP does the rest.
             </p>
             <ol className="setup-steps">
               <li>

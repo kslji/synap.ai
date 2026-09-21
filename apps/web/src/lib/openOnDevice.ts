@@ -1,3 +1,6 @@
+import type { AgentManifest } from "./agentPacks";
+import { packById } from "./agentPacks";
+
 function crc32(data: Uint8Array): number {
   let c = ~0 >>> 0;
   for (let i = 0; i < data.length; i++) {
@@ -80,14 +83,12 @@ function zipStore(files: Array<{ name: string; body: string | Uint8Array; unixMo
     u32(offset),
     u16(0),
   ]);
-  const zip = concat([...locals, centralDir, end]);
-  const copy = new ArrayBuffer(zip.byteLength);
-  new Uint8Array(copy).set(zip);
-  return new Blob([copy], { type: "application/zip" });
+  return new Blob([concat([...locals, centralDir, end])], { type: "application/zip" });
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {
-  const n = parts.reduce((s, p) => s + p.length, 0);
+  let n = 0;
+  for (const p of parts) n += p.length;
   const out = new Uint8Array(n);
   let o = 0;
   for (const p of parts) {
@@ -97,49 +98,35 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-const README = `Surf AI — use this on your computer
+function readmeFor(manifest: AgentManifest): string {
+  const pack = packById(manifest.agent);
+  const modelLine =
+    manifest.agent === "surf" && manifest.model
+      ? `\nThis zip is pre-set for model: ${manifest.model}\nLOCAL-SETUP installs Ollama if needed, pulls that model once, and opens Chrome.\n`
+      : `\nThis zip is set for ${pack.title} (${pack.license}).\nLOCAL-SETUP downloads/opens that app for you.\n`;
 
-Phones and tablets: do not use this zip. There is no Terminal setup on mobile.
-Download from synap.surf on a Mac, Windows, or Linux computer instead.
+  return `Surf AI — one command on your computer
 
-1. Double-click the zip to unpack it, then open the local-ai folder.
-2. Open Terminal (Mac: Command + Space, type Terminal) or Command Prompt (Windows).
-   Paste this one line and press Return:
+Pack: ${pack.title}
+License note: ${pack.license}
+${modelLine}
+Phones/tablets: use a Mac, Windows, or Linux computer (no Terminal on phones).
 
-     Mac/Linux:  cd ~/Downloads/local-ai && bash LOCAL-SETUP.sh
-     Windows:    cd %USERPROFILE%\\Downloads\\local-ai && LOCAL-SETUP.bat
+1. Unzip this folder.
+2. Run ONE command from inside the local-ai folder:
 
-3. Install Ollama (https://ollama.com), then pull a model that fits your RAM:
+   Mac/Linux:  bash LOCAL-SETUP.sh
+   Windows:    LOCAL-SETUP.bat
 
-     Light laptop (~8 GB):     bash PULL-MODEL.sh llama3.2:1b
-     Everyday (8–16 GB):       bash PULL-MODEL.sh llama3.2:3b
-     Strong (16–32 GB):        bash PULL-MODEL.sh llama3.1:8b
-     Workstation (32 GB+):     bash PULL-MODEL.sh qwen2.5:14b
+That is all. The script installs what this pack needs (first time online), then opens
+chat (${pack.opens}). Later runs work offline if the app/model is already on disk.
 
-   Windows: PULL-MODEL.bat llama3.2:3b
+Chrome (for Surf pack): https://www.google.com/chrome/
 
-4. Optional — Colibri agent (https://github.com/JustVugg/colibri):
-     Mac/Linux:  bash INSTALL-COLIBRI.sh
-     Windows:    INSTALL-COLIBRI.bat
-   Then download a Colibri model and run: COLI_MODEL=/path/to/model ./coli serve
-   (port 8000). Online once for clone + model; offline afterward if the model is on disk.
-
-5. Google Chrome opens Surf AI. Leave the small LOCAL-SETUP window open while you chat.
-
-Install Google Chrome first if you do not have it:
-https://www.google.com/chrome/
-
-Do not double-click local-agent.html in Finder. Always start with LOCAL-SETUP.
-Your chats stay on this computer. Nothing is sent to ChatGPT or Claude.
-
-Moss (optional): if you also run the full local host with MOSS_PROJECT_ID / MOSS_PROJECT_KEY
-in its .env and you are online, Surf uses Moss to find text in your files. If credits or keys
-fail, it falls back to on-device keyword search automatically.
-
-Keep every file in this folder together.
-
-Account and email stay on the website — they are not part of this download.
+Do not double-click local-agent.html — always use LOCAL-SETUP.
+Your chats stay on this computer.
 `;
+}
 
 type Packed = { kind: "text"; body: string } | { kind: "bin"; body: Uint8Array };
 
@@ -147,10 +134,6 @@ const PACK_PATHS = [
   "/local-agent.html",
   "/LOCAL-SETUP.sh",
   "/LOCAL-SETUP.bat",
-  "/PULL-MODEL.sh",
-  "/PULL-MODEL.bat",
-  "/INSTALL-COLIBRI.sh",
-  "/INSTALL-COLIBRI.bat",
   "/system.md",
   "/web-llm.js",
   "/pdf.js",
@@ -172,9 +155,10 @@ async function readPackFile(path: string, bustCache = false): Promise<Packed | n
   try {
     const res = await fetch(path, { cache: bustCache ? "no-store" : "force-cache" });
     if (!res.ok) return null;
-    const packed: Packed = /\.(js|mjs|png|svg)$/i.test(path) || path.endsWith("apple-icon.png")
-      ? { kind: "bin", body: new Uint8Array(await res.arrayBuffer()) }
-      : { kind: "text", body: await res.text() };
+    const packed: Packed =
+      /\.(js|mjs|png|svg)$/i.test(path) || path.endsWith("apple-icon.png")
+        ? { kind: "bin", body: new Uint8Array(await res.arrayBuffer()) }
+        : { kind: "text", body: await res.text() };
     memoryPack.set(path, packed);
     return packed;
   } catch {
@@ -187,52 +171,68 @@ export async function prefetchLocalPack(): Promise<void> {
   await Promise.all(PACK_PATHS.map((path) => readPackFile(path)));
 }
 
-export async function downloadOnThisDevice(): Promise<void> {
-  // Always re-fetch HTML/setup so the zip never ships a stale "Upload image" menu.
-  const html = await readPackFile("/local-agent.html", true);
+export type DownloadPackOpts = {
+  manifest?: AgentManifest;
+};
+
+/** Build a zip for the chosen agent. User only runs LOCAL-SETUP after unzip. */
+export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise<void> {
+  const manifest: AgentManifest = opts.manifest || {
+    agent: "surf",
+    title: "Surf + Ollama",
+    license: "Surf",
+    home: "https://synap.surf",
+    model: "llama3.2:3b",
+    tier: "everyday",
+    created: new Date().toISOString().slice(0, 10),
+  };
+  const pack = packById(manifest.agent);
+
   const setupSh = await readPackFile("/LOCAL-SETUP.sh", true);
   const setupBat = await readPackFile("/LOCAL-SETUP.bat", true);
-  const pullSh = await readPackFile("/PULL-MODEL.sh", true);
-  const pullBat = await readPackFile("/PULL-MODEL.bat", true);
-  const coliSh = await readPackFile("/INSTALL-COLIBRI.sh", true);
-  const coliBat = await readPackFile("/INSTALL-COLIBRI.bat", true);
-  if (!html || html.kind !== "text" || !setupSh || setupSh.kind !== "text" || !setupBat || setupBat.kind !== "text") {
+  if (!setupSh || setupSh.kind !== "text" || !setupBat || setupBat.kind !== "text") {
     throw new Error(
       "The local zip is not in this tab yet. Stay here — do not close the window. Download once while online.",
     );
   }
-  // Hard guard: never ship an image-upload control in the offline pack.
-  const htmlBody = html.body
-    .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
-    .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
-    .replace(/>\s*Upload image\s*</gi, "><");
+
   const files: Array<{ name: string; body: string | Uint8Array; unixMode?: number }> = [
-    { name: "local-ai/local-agent.html", body: htmlBody },
     { name: "local-ai/LOCAL-SETUP.sh", body: setupSh.body, unixMode: 0o100755 },
     { name: "local-ai/LOCAL-SETUP.bat", body: setupBat.body },
-    { name: "local-ai/README.txt", body: README },
+    { name: "local-ai/agent.json", body: JSON.stringify(manifest, null, 2) + "\n" },
+    { name: "local-ai/README.txt", body: readmeFor(manifest) },
   ];
-  if (pullSh?.kind === "text") {
-    files.push({ name: "local-ai/PULL-MODEL.sh", body: pullSh.body, unixMode: 0o100755 });
+
+  // Surf browser chat assets — desktop packs only need the launcher + agent.json.
+  if (manifest.agent === "surf") {
+    const html = await readPackFile("/local-agent.html", true);
+    if (!html || html.kind !== "text") {
+      throw new Error("Surf chat page missing from this site. Refresh and try again.");
+    }
+    const htmlBody = html.body
+      .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
+      .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
+      .replace(/>\s*Upload image\s*</gi, "><");
+    files.push({ name: "local-ai/local-agent.html", body: htmlBody });
+    for (const name of [
+      "system.md",
+      "web-llm.js",
+      "pdf.js",
+      "pdf.worker.js",
+      "icon.svg",
+      "favicon.png",
+      "apple-icon.png",
+    ] as const) {
+      const extra = await readPackFile(`/${name}`);
+      if (!extra) continue;
+      files.push({ name: `local-ai/${name}`, body: extra.body });
+    }
   }
-  if (pullBat?.kind === "text") {
-    files.push({ name: "local-ai/PULL-MODEL.bat", body: pullBat.body });
-  }
-  if (coliSh?.kind === "text") {
-    files.push({ name: "local-ai/INSTALL-COLIBRI.sh", body: coliSh.body, unixMode: 0o100755 });
-  }
-  if (coliBat?.kind === "text") {
-    files.push({ name: "local-ai/INSTALL-COLIBRI.bat", body: coliBat.body });
-  }
-  for (const name of ["system.md", "web-llm.js", "pdf.js", "pdf.worker.js", "icon.svg", "favicon.png", "apple-icon.png"] as const) {
-    const extra = await readPackFile(`/${name}`);
-    if (!extra) continue;
-    files.push({ name: `local-ai/${name}`, body: extra.body });
-  }
+
   const blob = zipStore(files);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "local-ai-on-this-device.zip";
+  a.download = pack.zipName;
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();

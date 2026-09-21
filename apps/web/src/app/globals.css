@@ -2214,6 +2214,43 @@ button.linkish:not(:disabled):active {
   color: var(--accent);
 }
 
+.device-gate-scrim {
+  z-index: 60;
+}
+
+.device-gate-panel {
+  max-width: 420px;
+}
+
+.device-gate-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 14px;
+}
+
+.device-gate-list li + li {
+  margin-top: 8px;
+}
+
+.device-gate-list strong {
+  color: var(--text);
+}
+
+.device-gate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.device-gate-actions .primary {
+  min-height: 40px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
 .composer-wrap .composer-box {
   margin: 0;
   max-width: none;

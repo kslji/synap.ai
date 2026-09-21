@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { OfflineRuntime } from "@/components/OfflineRuntime";
 import { TopRotatingBanner } from "@/components/TopRotatingBanner";
+import { DeviceSupportGate } from "@/components/DeviceSupportGate";
 
 export const metadata: Metadata = {
   title: "Surf AI",
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         <OfflineRuntime />
         <TopRotatingBanner />
+        <DeviceSupportGate />
         {children}
       </body>
     </html>

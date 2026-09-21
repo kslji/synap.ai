@@ -8,7 +8,7 @@ import { AuthDialog } from "./AuthDialog";
 import { downloadOnThisDevice, prefetchLocalPack } from "@/lib/openOnDevice";
 import { clearAccount, fetchProfile, type UserProfile } from "@/lib/account";
 import { networkOnline } from "@/lib/net";
-import { detectOs } from "@/lib/runtimeInstall";
+import { detectOs, isMobileBrowser } from "@/lib/runtimeInstall";
 import { assertModelCatalogIntegrity, buildManifest, oneCommand } from "@/lib/agentPacks";
 import {
   RAM_TIERS,
@@ -30,6 +30,7 @@ export function ChatDownloadShell() {
   const [tier, setTier] = useState<RamTier>("light");
   const [modelId, setModelId] = useState(defaultModelForTier("light").id);
   const [copied, setCopied] = useState(false);
+  const [mobile, setMobile] = useState(false);
   const os = detectOs();
 
   const cmd = oneCommand(os);
@@ -37,6 +38,7 @@ export function ChatDownloadShell() {
   const selected = tierModels.find((m) => m.id === modelId) || defaultModelForTier(tier);
 
   useEffect(() => {
+    setMobile(isMobileBrowser());
     captureReferralFromUrl();
     void prefetchLocalPack();
     void fetchProfile()
@@ -68,6 +70,10 @@ export function ChatDownloadShell() {
   }
 
   function startDownload() {
+    if (isMobileBrowser()) {
+      setNote("Use a Mac, Windows, or Linux laptop — phones and tablets can’t run Terminal setup.");
+      return;
+    }
     const lockedId = selected.id;
     const lockedTag = selected.tag;
     const lockedTier = selected.tier;
@@ -190,18 +196,27 @@ export function ChatDownloadShell() {
           <p className="selection-line">
             Selected: <strong>{selected.title}</strong> · {selected.download}
           </p>
-          <button type="button" className="primary download-dock-btn" disabled={busy} onClick={startDownload}>
+          <button
+            type="button"
+            className="primary download-dock-btn"
+            disabled={busy || mobile}
+            onClick={startDownload}
+          >
             <Download size={18} />
-            {busy ? "Preparing pack…" : "Download pack"}
+            {busy ? "Preparing pack…" : mobile ? "Open on a laptop" : "Download pack"}
           </button>
           <div className="cmd-box download-dock-cmd">
             <code title={cmd}>{cmd}</code>
-            <button type="button" className="ghost" onClick={() => void copyCmd()}>
+            <button type="button" className="ghost" onClick={() => void copyCmd()} disabled={mobile}>
               {copied ? <Check size={16} /> : <Copy size={16} />}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
-          <p className="download-hint">Unzip, then paste that command from any folder.</p>
+          <p className="download-hint">
+            {mobile
+              ? "Phones and tablets aren’t supported — use a computer with Terminal."
+              : "Unzip, then paste that command from any folder."}
+          </p>
           {note ? <p className="download-note">{note}</p> : null}
         </section>
       </main>

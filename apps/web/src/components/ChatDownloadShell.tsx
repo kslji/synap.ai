@@ -151,26 +151,25 @@ export function ChatDownloadShell() {
         </section>
 
         <section className="download-section" aria-labelledby="size-title">
-          <h2 id="size-title">Models for ~4 GB RAM</h2>
-          {RAM_TIERS.length > 1 ? (
-            <div className="tier-row" role="radiogroup" aria-label="Computer size">
-              {RAM_TIERS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={tier === t.id}
-                  className={tier === t.id ? "tier-chip on" : "tier-chip"}
-                  onClick={() => setTier(t.id)}
-                >
-                  <span className="tier-label">{t.label}</span>
-                  <span className="tier-hint">{t.hint}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="selection-line">Light laptop packs only — built to run on about 4 GB RAM.</p>
-          )}
+          <h2 id="size-title">Models for 1–8 GB RAM</h2>
+          <p className="selection-line">
+            Pick your laptop size, then a model. Heavier packs stay off for now.
+          </p>
+          <div className="tier-row" role="radiogroup" aria-label="Computer size">
+            {RAM_TIERS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={tier === t.id}
+                className={tier === t.id ? "tier-chip on" : "tier-chip"}
+                onClick={() => setTier(t.id)}
+              >
+                <span className="tier-label">{t.label}</span>
+                <span className="tier-hint">{t.hint}</span>
+              </button>
+            ))}
+          </div>
           <ul className="model-list">
             {tierModels.map((m) => (
               <li key={m.id}>
@@ -218,7 +217,6 @@ export function ChatDownloadShell() {
                 </button>
               </div>
             </li>
-            <li>Chat opens on this computer</li>
           </ol>
         </section>
 

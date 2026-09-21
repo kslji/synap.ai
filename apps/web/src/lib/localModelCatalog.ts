@@ -18,16 +18,16 @@ export type OllamaModelOption = {
   pull: string;
 };
 
-/** Only light / ~4 GB RAM packs are offered right now. */
-export const ENABLED_TIERS: RamTier[] = ["light"];
+/** Light + everyday only — laptops with about 1–8 GB RAM. */
+export const ENABLED_TIERS: RamTier[] = ["light", "everyday"];
 
 const ALL_RAM_TIERS: Array<{
   id: RamTier;
   label: string;
   hint: string;
 }> = [
-  { id: "light", label: "Light laptop", hint: "About 4 GB RAM" },
-  { id: "everyday", label: "Everyday laptop", hint: "About 8–16 GB RAM" },
+  { id: "light", label: "About 4 GB RAM", hint: "Thin / older laptops" },
+  { id: "everyday", label: "About 8 GB RAM", hint: "Typical student / work laptops" },
   { id: "strong", label: "Strong laptop / desktop", hint: "About 16–32 GB RAM" },
   { id: "workstation", label: "Workstation", hint: "32 GB+ RAM (GPU helps)" },
 ];
@@ -68,9 +68,9 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     title: "Llama 3.2 3B",
     tier: "everyday",
     download: "~2 GB to download",
-    ram: "Comfortable on 8–16 GB RAM",
+    ram: "Fits ~8 GB RAM",
     forWho: "Most professionals — email, docs, meetings",
-    about: "Recommended default. Clearer answers without needing a heavy computer.",
+    about: "Clearer answers on a typical 8 GB laptop without needing a heavy machine.",
     pull: "ollama pull llama3.2:3b",
   },
   {
@@ -79,9 +79,9 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     title: "Phi-3 Mini",
     tier: "everyday",
     download: "~2.5 GB to download",
-    ram: "Comfortable on 8–16 GB RAM",
+    ram: "Fits ~8 GB RAM",
     forWho: "Analysts and document Q&A",
-    about: "Everyday chat and file questions. Slightly larger download than 3B Llama.",
+    about: "Everyday chat and file questions on an 8 GB laptop. Slightly larger download than 3B Llama.",
     pull: "ollama pull phi3:mini",
   },
   {

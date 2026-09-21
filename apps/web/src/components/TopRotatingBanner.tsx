@@ -65,20 +65,6 @@ export function TopRotatingBanner() {
           )
         ) : null}
       </div>
-      <div className="top-rotate-dots" aria-hidden>
-        {SLIDES.map((_, di) => (
-          <button
-            key={di}
-            type="button"
-            className={`top-rotate-dot ${di === i ? "on" : ""}`}
-            aria-label={`Show message ${di + 1}`}
-            onClick={() => {
-              setPhase("in");
-              setI(di);
-            }}
-          />
-        ))}
-      </div>
     </div>
   );
 }

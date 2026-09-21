@@ -1,4 +1,5 @@
 import { CLIENT_KEY, HOST, TOKEN_KEY } from "./config";
+import { networkOnline } from "./net";
 
 /**
  * All of these calls go to HOST = http://127.0.0.1:18765 (user's Small Cloud).
@@ -189,9 +190,12 @@ export type MossHit = {
   backend?: string;
 };
 
-export async function searchMoss(q: string): Promise<MossHit | null> {
+export async function searchMoss(q: string, opts?: { offline?: boolean }): Promise<MossHit | null> {
   try {
-    return await api<MossHit>(`/v1/memory/search?q=${encodeURIComponent(q)}`);
+    const offline = opts?.offline ?? !networkOnline();
+    const qs = new URLSearchParams({ q });
+    if (offline) qs.set("local_only", "true");
+    return await api<MossHit>(`/v1/memory/search?${qs.toString()}`);
   } catch {
     return null;
   }
@@ -199,6 +203,8 @@ export async function searchMoss(q: string): Promise<MossHit | null> {
 
 export async function indexMoss(text: string, docId?: string): Promise<boolean> {
   try {
+    // Index always lands in the local Small Cloud store (owner-scoped).
+    // Online later: Moss SDK can retrieve via semantic search; offline: keyword fallback.
     await api("/v1/memory", {
       method: "POST",
       body: JSON.stringify({ text: text.slice(0, 16000), id: docId }),

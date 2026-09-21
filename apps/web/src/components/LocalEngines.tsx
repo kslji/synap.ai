@@ -3,6 +3,7 @@
 import type { Health } from "@/lib/api";
 import { allowInBrowserLlm } from "@/lib/browserCaps";
 import { LOCAL_HOST } from "@/lib/config";
+import { networkOnline } from "@/lib/net";
 
 export type LocalEngine = "browser" | "ollama";
 
@@ -19,6 +20,7 @@ export function LocalEngines({ status }: { status: Health | null }) {
   const moss = !!status?.moss?.enabled;
   const mossSdk = !!status?.moss?.sdk || status?.moss?.backend === "moss";
   const browserOk = allowInBrowserLlm();
+  const online = typeof navigator !== "undefined" ? networkOnline() : true;
   const model =
     status?.active_model ||
     status?.default_model ||
@@ -29,11 +31,13 @@ export function LocalEngines({ status }: { status: Health | null }) {
       <div className="tiny muted">What's running</div>
       <ul className="data-help">
         <li className={moss ? "ok" : ""}>
-          {moss
-            ? mossSdk
-              ? `Moss search: on (${status?.moss?.docs ?? 0} pieces · SDK)`
-              : `Moss search: keyword fallback (${status?.moss?.docs ?? 0} pieces — .env keys load Moss SDK)`
-            : `Moss search: off (start local host at ${LOCAL_HOST})`}
+          {!moss
+            ? `Moss: off (start local host at ${LOCAL_HOST})`
+            : !online
+              ? `Moss: offline keyword fallback (${status?.moss?.docs ?? 0} pieces on this device)`
+              : mossSdk
+                ? `Moss: online SDK retriever (${status?.moss?.docs ?? 0} pieces)`
+                : `Moss: keyword fallback (${status?.moss?.docs ?? 0} pieces — add .env Moss keys for SDK)`}
         </li>
         <li className={local ? "ok" : ""}>
           {local

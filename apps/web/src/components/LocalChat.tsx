@@ -315,9 +315,14 @@ export function LocalChat() {
       setFiles(await listAttachments());
       const bits = [`Attached ${storedOk.length} file(s) to this chat.`];
       if (images.length) bits.push(`Skipped ${images.length} image(s) — image upload is off for now.`);
-      if (mossed) bits.push(`Moss indexed ${mossed}.`);
-      else if (storedOk.length) {
-        bits.push("File is on this chat. Moss index skipped (host unreachable).");
+      if (mossed) {
+        bits.push(
+          networkOnline()
+            ? `Moss indexed ${mossed} (SDK retrieval when online; keyword if offline).`
+            : `Indexed ${mossed} on this device for offline keyword search.`,
+        );
+      } else if (storedOk.length) {
+        bits.push("File is on this chat. Start local host to index in Moss.");
       }
       if (failed.length) bits.push(`Skipped ${failed.length}: ${failed.slice(0, 3).join("; ")}`);
       setProgress(bits.join(" "));
@@ -911,7 +916,9 @@ export function LocalChat() {
         // Never pull host Moss when this chat already has attachments — shared demo index
         // must not mix another user's files into an attached-file turn.
         const mossExtra =
-          !fileGround && !skipMoss ? formatMossHits(await searchMoss(asked)) : "";
+          !fileGround && !skipMoss
+            ? formatMossHits(await searchMoss(asked, { offline: !networkOnline() }))
+            : "";
         const extra = [docs, mossExtra].filter(Boolean).join("\n\n");
         const prior = trimTurns(
           stripRefusalContamination(

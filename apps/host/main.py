@@ -552,11 +552,17 @@ async def add_memory(note: NoteReq, session: dict = Depends(require_session)):
 
 
 @app.get("/v1/memory/search")
-async def search_memory(q: str, session: dict = Depends(require_session)):
+async def search_memory(
+    q: str,
+    session: dict = Depends(require_session),
+    local_only: bool = Query(False, description="Skip Moss SDK; use on-device keyword fallback"),
+):
     owner = str(session.get("sub") or "").strip()
     if not owner:
         raise HTTPException(status_code=401, detail="Missing session subject")
-    return await moss.query(q, owner=owner)
+    # Online (local_only=false) → Moss SDK when .env keys exist; else keyword.
+    # Offline (local_only=true) → keyword only — no network Moss calls.
+    return await moss.query(q, local_only=local_only, owner=owner)
 
 
 @app.get("/v1/conversations")

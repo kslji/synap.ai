@@ -10,6 +10,12 @@
 
 cd ~/surf.ai && git pull origin main
 
+# Moss pack vault: seal script reads ~/surf.ai/.env (MOSS_PROJECT_ID / MOSS_PROJECT_KEY).
+# Confirm on the VPS (shows only whether set, not the secret):
+#   grep -E '^MOSS_PROJECT_(ID|KEY)=' ~/surf.ai/.env | sed 's/=.*/=***set***/'
+# Or:  cd ~/surf.ai/apps/web && npm run seal:moss
+# Expect: "sealed Moss vault → ... (credentials encrypted; not plaintext)"
+
 # Keep systemd unit in sync (auth host)
 sudo cp ~/surf.ai/apps/host/deploy/synap-host.service /etc/systemd/system/synap-host.service
 sudo systemctl daemon-reload

@@ -144,8 +144,7 @@ export function ChatDownloadShell() {
           <p className="download-kicker">Get local AI</p>
           <h1 className="download-brand">Download</h1>
           <p className="download-lede">
-            Pick your laptop RAM, choose a model, then download the pack. Unzip and edit the files
-            to customize the agent for your own product or platform.
+            Pick RAM and a model, download the pack, then customize the files for your platform.
           </p>
         </div>
 

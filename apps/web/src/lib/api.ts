@@ -1,5 +1,10 @@
 import { CLIENT_KEY, HOST, TOKEN_KEY } from "./config";
 
+/**
+ * All of these calls go to HOST = http://127.0.0.1:18765 (user's Small Cloud).
+ * They intentionally do NOT use the synap.surf VPS for chat / Moss / Ollama.
+ */
+
 async function fetchTimed(url: string, init: RequestInit = {}, ms = 4000): Promise<Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
@@ -66,7 +71,7 @@ export async function api<T>(path: string, init: RequestInit = {}, retried = fal
         /* fall through */
       }
     }
-    throw new Error("Could not open a local host session for Moss.");
+    throw new Error("Could not open a local Small Cloud session (is LOCAL-SETUP running on this computer?).");
   }
   if (!res.ok) throw new Error(parseApiError(await res.text()));
   return res.json() as Promise<T>;
@@ -174,7 +179,7 @@ export type Health = {
 
 export async function health(): Promise<Health> {
   const res = await fetchTimed(`${HOST}/v1/health`, {}, 2500);
-  if (!res.ok) throw new Error("Host unreachable");
+  if (!res.ok) throw new Error("Local host unreachable");
   return res.json();
 }
 

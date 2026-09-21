@@ -5,8 +5,9 @@ export function webGpuOk(): boolean {
 }
 
 /**
- * In-browser WebLLM freezes tabs (Page Unresponsive). Production sites must not run it.
- * Enabled only on loopback / explicit opt-in (local zip demo).
+ * In-browser WebLLM can freeze tabs. For Local-First / Small Cloud we prefer the
+ * local host + Ollama on the user's machine. WebLLM is only for true loopback demos
+ * (localhost UI), never as a substitute for calling the marketing VPS.
  */
 export function allowInBrowserLlm(): boolean {
   if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_ALLOW_BROWSER_LLM === "1") {
@@ -17,10 +18,9 @@ export function allowInBrowserLlm(): boolean {
   }
   if (typeof location === "undefined") return false;
   const h = location.hostname.toLowerCase();
+  // Local zip / Next dev — optional light WebLLM fallback (lazy-loaded, never on open).
   if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h.endsWith(".local")) return true;
-  // Shared / production hosts — keep the tab responsive for judges and users.
-  if (h === "synap.surf" || h.endsWith(".synap.surf")) return false;
-  // Other deployed hosts: default off unless opted in above.
+  // synap.surf is a static shell only — AI must use Download zip → local host (127.0.0.1:18765).
   return false;
 }
 
@@ -32,4 +32,7 @@ export function isBrowserModelProgress(s: string): boolean {
 }
 
 export const BROWSER_LLM_DISABLED_HINT =
-  "This site keeps the tab fast — the heavy in-browser model is off here. Start Ollama on this computer, or use Download zip for full local AI.";
+  "Local-First: AI runs on your computer, not our website server. Use Download zip → LOCAL-SETUP (starts http://127.0.0.1:18765 + Ollama). This tab stays fast and private.";
+
+export const LOCAL_HOST_HINT =
+  "Start the local Small Cloud host on this computer (Download zip → LOCAL-SETUP), then refresh. Chat, Moss, and Ollama stay on 127.0.0.1 — never on the marketing server.";

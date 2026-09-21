@@ -86,7 +86,8 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
-import { isBrowserModelProgress, webGpuOk, allowInBrowserLlm, BROWSER_LLM_DISABLED_HINT } from "@/lib/browserCaps";
+import { isBrowserModelProgress, webGpuOk, allowInBrowserLlm, LOCAL_HOST_HINT } from "@/lib/browserCaps";
+import { LOCAL_HOST } from "@/lib/config";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
 
@@ -410,7 +411,7 @@ export function LocalChat() {
       return;
     }
     if (engine === "browser" && !allowInBrowserLlm() && !(status?.local_llm?.backend || status?.ollama)) {
-      setProgress(BROWSER_LLM_DISABLED_HINT);
+      setProgress(LOCAL_HOST_HINT);
       return;
     }
     const batchTitles = packThreadTitles(threads);
@@ -881,8 +882,8 @@ export function LocalChat() {
           }
           if (!fileGround && !docs) {
             paint(
-              `${BROWSER_LLM_DISABLED_HINT}\n\n` +
-                `Meanwhile: attach a file for grounded answers, or ask a general question after starting Ollama / opening the local zip.`,
+              `${LOCAL_HOST_HINT}\n\n` +
+                `Meanwhile: attach a file for grounded answers on this device.`,
             );
             finish({ waitMs: Math.round(performance.now() - startedAt), engine: "browser" });
             return;
@@ -1162,18 +1163,19 @@ export function LocalChat() {
         {browserLlmOff && !ollamaReady ? (
           <div className="light-model-note" role="note">
             <p>
-              <strong>Tab stays responsive:</strong> the heavy in-browser model is off on this site.
-              Start <strong>Ollama</strong> on this computer, or use <strong>Download zip</strong> for full
-              local AI. Attached files still get grounded answers without freezing the page.
+              <strong>Local-First / Small Cloud:</strong> this website does not run your AI on our
+              server (so the tab never freezes). Use <strong>Download zip</strong> → run{" "}
+              <strong>LOCAL-SETUP</strong> so Ollama + Moss answer on{" "}
+              <strong>{LOCAL_HOST}</strong> on this computer. Attached files still get grounded
+              answers in-tab without a model.
             </p>
           </div>
         ) : /1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
           <div className="light-model-note" role="note">
             <p>
               This light model (<strong>{/in-browser/i.test(engineLabel) ? "llama3.2:1b in the browser" : engineLabel}</strong>)
-              keeps answers short. For fuller, more descriptive replies, use{" "}
-              <strong>Download zip</strong> above and run Surf on a computer (Mac, Windows, or Linux).
-              Phones cannot run the setup command.
+              keeps answers short. For fuller replies, start Ollama on this computer via the local host
+              at <strong>{LOCAL_HOST}</strong>.
             </p>
           </div>
         ) : null}
@@ -1191,11 +1193,11 @@ export function LocalChat() {
                 Ask anything — general questions work with no files. Attach documents when you want answers grounded in them.
               </p>
               {browserLlmOff && engine === "browser" && !ollamaReady ? (
-                <p className="warn">{BROWSER_LLM_DISABLED_HINT}</p>
+                <p className="warn">{LOCAL_HOST_HINT}</p>
               ) : gpu === false && engine === "browser" && allowInBrowserLlm() ? (
                 <p className="warn">
                   This browser cannot run the in-page model. Open this in Google Chrome only, or start
-                  Ollama on this computer.
+                  Ollama on this computer via the local host.
                 </p>
               ) : null}
             </div>

@@ -2,6 +2,7 @@
 
 import type { Health } from "@/lib/api";
 import { allowInBrowserLlm } from "@/lib/browserCaps";
+import { LOCAL_HOST } from "@/lib/config";
 
 export type LocalEngine = "browser" | "ollama";
 
@@ -21,7 +22,7 @@ export function LocalEngines({ status }: { status: Health | null }) {
   const model =
     status?.active_model ||
     status?.default_model ||
-    (browserOk ? "in-browser model" : "attach files / start Ollama");
+    (browserOk ? "in-browser model" : "local host required");
 
   return (
     <div className="engine-panel">
@@ -32,24 +33,23 @@ export function LocalEngines({ status }: { status: Health | null }) {
             ? mossSdk
               ? `Moss search: on (${status?.moss?.docs ?? 0} pieces · SDK)`
               : `Moss search: keyword fallback (${status?.moss?.docs ?? 0} pieces — .env keys load Moss SDK)`
-            : "Moss search: off (start the local host)"}
+            : `Moss search: off (start local host at ${LOCAL_HOST})`}
         </li>
         <li className={local ? "ok" : ""}>
           {local
-            ? `Writing answers with: ${backendLabel(status)} (${model})`
+            ? `Writing answers with: ${backendLabel(status)} (${model}) on this computer`
             : browserOk
-              ? "Writing answers with: the small model in this browser (or start Ollama)"
-              : "Writing answers with: file-grounded replies here (start Ollama or Download zip for full AI)"}
+              ? "Writing answers with: optional in-browser model (or start local Ollama)"
+              : `Writing answers with: local host at ${LOCAL_HOST} (Download zip → LOCAL-SETUP)`}
         </li>
         {!local && !browserOk ? (
           <li className="warn-line">
-            In-browser model is off on this site so the tab never freezes. Use Ollama or Download zip for
-            fuller replies; attached files still work.
+            Local-First: chat does not call our website server for AI. Start the Small Cloud host on
+            this machine so Ollama/Moss stay private and the tab never freezes.
           </li>
         ) : /1b|1\.5b|in-browser/i.test(model) || !local ? (
           <li className="warn-line">
-            Light model: answers stay short. Download the zip on a computer for fuller replies.
-            Phones use this browser only — no Terminal setup command.
+            Light path: answers stay short until Ollama is up on this computer via the local host.
           </li>
         ) : null}
       </ul>

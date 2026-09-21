@@ -1,4 +1,4 @@
-import { HOST, TOKEN_KEY } from "./config";
+import { HOST, TOKEN_KEY, isLoopbackHost } from "./config";
 import { parseApiError } from "./api";
 import { networkOnline } from "./net";
 
@@ -12,7 +12,7 @@ export type UserProfile = {
 export class InternetOffError extends Error {
   constructor() {
     super(
-      "Internet is off. Sign-in waits until you are back online. You can keep chatting with attached files.",
+      "Internet is off. Sign-in to a remote account waits until you are back online. You can keep chatting with the local host and attached files.",
     );
     this.name = "InternetOffError";
   }
@@ -27,7 +27,8 @@ export function clearAccount() {
 }
 
 async function postAuth<T>(path: string, body: object): Promise<T> {
-  if (!networkOnline()) throw new InternetOffError();
+  // Local Small Cloud host works offline — only block remote auth when offline.
+  if (!networkOnline() && !isLoopbackHost(HOST)) throw new InternetOffError();
   const res = await fetch(`${HOST}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

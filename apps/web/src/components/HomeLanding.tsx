@@ -18,7 +18,7 @@ const HEADLINES = [
   "One zip. One command. An agent buddy on your desk.",
   "Open the pack. Shape your agent buddy for your platform.",
 ] as const;
-const LEDE = "A private agent buddy on the machine in front of you — download once, chat offline.";
+const LEDE = "A private agent buddy on your machine to follow your commands download once, chat offline.";
 const POINTS = [
   "Your files stay on your desk. No cloud customs for your folders.",
   "When Wi‑Fi drops, your agent buddy doesn’t. Keep going on this computer.",

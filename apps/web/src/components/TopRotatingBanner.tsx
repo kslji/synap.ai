@@ -10,14 +10,14 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   {
-    text: "Private AI on your computer. Chats stay on your device.",
+    text: "Your private agent buddy. Chats stay on your device.",
   },
   {
     text: "Download once. Run one command. Chat offline.",
     action: { label: "Download", href: "/download" },
   },
   {
-    text: "Edit the pack code , reshape the agent for your product or workflow.",
+    text: "Edit the pack code — reshape your agent buddy for your product or workflow.",
     action: { label: "Download", href: "/download" },
   },
 ];

@@ -14,16 +14,16 @@ import { LandingTypeCycle } from "./TypeCopy";
 
 const HEADLINES = [
   "Surf your files locally. Synap data instantly.",
-  "Your private agent — work across your files and system.",
-  "One zip. One command. Private AI on your desk.",
-  "Open the pack. Shape the agent for your platform.",
+  "Your private agent buddy — work across your files and system.",
+  "One zip. One command. An agent buddy on your desk.",
+  "Open the pack. Shape your agent buddy for your platform.",
 ] as const;
-const LEDE = "Private AI on the machine in front of you — download once, chat offline.";
+const LEDE = "A private agent buddy on the machine in front of you — download once, chat offline.";
 const POINTS = [
   "Your files stay on your desk. No cloud customs for your folders.",
-  "When Wi‑Fi drops, the wave doesn’t. Keep going on this computer.",
+  "When Wi‑Fi drops, your agent buddy doesn’t. Keep going on this computer.",
   "One zip. One command. Local chat opens for you.",
-  "Open the pack and change the code — tune the agent for your platform.",
+  "Open the pack and change the code — tune your agent buddy for your platform.",
 ] as const;
 
 export function HomeLanding() {

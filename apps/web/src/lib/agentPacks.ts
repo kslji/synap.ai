@@ -85,7 +85,7 @@ export type AgentManifest = {
 
 export function buildManifest(
   agent: AgentId,
-  tier: RamTier = "everyday",
+  tier: RamTier = "light",
   modelTag?: string,
 ): AgentManifest {
   const pack = packById(agent);

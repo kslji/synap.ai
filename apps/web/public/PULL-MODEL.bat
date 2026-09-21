@@ -1,9 +1,9 @@
 @echo off
 REM Pull an Ollama model. Usage: PULL-MODEL.bat [tag]
-REM Default: llama3.2:3b
+REM Default: llama3.2:1b
 cd /d "%~dp0"
 set MODEL=%~1
-if "%MODEL%"=="" set MODEL=llama3.2:3b
+if "%MODEL%"=="" set MODEL=llama3.2:1b
 
 where ollama >nul 2>&1
 if errorlevel 1 (

@@ -12,7 +12,7 @@ CACHE="${HOME}/.surf-ai/cache"
 mkdir -p "${CACHE}"
 
 AGENT="ollama"
-MODEL="llama3.2:3b"
+MODEL="llama3.2:1b"
 TITLE="Ollama"
 if [[ -f "${HERE}/agent.json" ]]; then
   if command -v python3 >/dev/null 2>&1; then PYJ=python3
@@ -20,7 +20,7 @@ if [[ -f "${HERE}/agent.json" ]]; then
   else PYJ=""; fi
   if [[ -n "${PYJ}" ]]; then
     AGENT="$("${PYJ}" -c "import json;d=json.load(open('agent.json'));print(d.get('agent','ollama'))")"
-    MODEL="$("${PYJ}" -c "import json;d=json.load(open('agent.json'));print(d.get('model') or 'llama3.2:3b')")"
+    MODEL="$("${PYJ}" -c "import json;d=json.load(open('agent.json'));print(d.get('model') or 'llama3.2:1b')")"
     TITLE="$("${PYJ}" -c "import json;d=json.load(open('agent.json'));print(d.get('title') or 'Ollama')")"
   fi
 fi

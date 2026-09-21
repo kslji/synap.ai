@@ -7,7 +7,7 @@ set CACHE=%USERPROFILE%\.surf-ai\cache
 if not exist "%CACHE%" mkdir "%CACHE%"
 
 set AGENT=ollama
-set MODEL=llama3.2:3b
+set MODEL=llama3.2:1b
 set TITLE=Ollama
 set PORT=18766
 set URL=http://127.0.0.1:18766/local-agent.html
@@ -17,7 +17,7 @@ if exist "agent.json" (
   if not defined PY where py >nul 2>&1 && set PY=py
   if defined PY (
     for /f "usebackq delims=" %%A in (`%PY% -c "import json;d=json.load(open('agent.json'));print(d.get('agent','ollama'))"`) do set AGENT=%%A
-    for /f "usebackq delims=" %%A in (`%PY% -c "import json;d=json.load(open('agent.json'));print(d.get('model') or 'llama3.2:3b')"`) do set MODEL=%%A
+    for /f "usebackq delims=" %%A in (`%PY% -c "import json;d=json.load(open('agent.json'));print(d.get('model') or 'llama3.2:1b')"`) do set MODEL=%%A
     for /f "usebackq delims=" %%A in (`%PY% -c "import json;d=json.load(open('agent.json'));print(d.get('title') or 'Ollama')"`) do set TITLE=%%A
   )
 )

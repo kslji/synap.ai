@@ -202,8 +202,8 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     title: "Ollama",
     license: "Ollama",
     home: "https://ollama.com",
-    model: "llama3.2:3b",
-    tier: "everyday",
+    model: "llama3.2:1b",
+    tier: "light",
     created: new Date().toISOString().slice(0, 10),
   };
 

@@ -32,8 +32,8 @@ export function ChatDownloadShell() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [agent, setAgent] = useState<AgentId>("ollama");
-  const [tier, setTier] = useState<RamTier>("everyday");
-  const [modelId, setModelId] = useState(defaultModelForTier("everyday").id);
+  const [tier, setTier] = useState<RamTier>("light");
+  const [modelId, setModelId] = useState(defaultModelForTier("light").id);
   const [copied, setCopied] = useState(false);
   const os = detectOs();
 
@@ -149,22 +149,26 @@ export function ChatDownloadShell() {
         </section>
 
         <section className="download-section" aria-labelledby="size-title">
-          <h2 id="size-title">Your computer</h2>
-          <div className="tier-row" role="radiogroup" aria-label="Computer size">
-            {RAM_TIERS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="radio"
-                aria-checked={tier === t.id}
-                className={tier === t.id ? "tier-chip on" : "tier-chip"}
-                onClick={() => setTier(t.id)}
-              >
-                <span className="tier-label">{t.label}</span>
-                <span className="tier-hint">{t.hint}</span>
-              </button>
-            ))}
-          </div>
+          <h2 id="size-title">Models for ~4 GB RAM</h2>
+          {RAM_TIERS.length > 1 ? (
+            <div className="tier-row" role="radiogroup" aria-label="Computer size">
+              {RAM_TIERS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={tier === t.id}
+                  className={tier === t.id ? "tier-chip on" : "tier-chip"}
+                  onClick={() => setTier(t.id)}
+                >
+                  <span className="tier-label">{t.label}</span>
+                  <span className="tier-hint">{t.hint}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="selection-line">Light laptop packs only — built to run on about 4 GB RAM.</p>
+          )}
           <ul className="model-list">
             {tierModels.map((m) => (
               <li key={m.id}>

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Pull an Ollama model matched to this computer. Usage:
-#   bash PULL-MODEL.sh              # default llama3.2:3b
+#   bash PULL-MODEL.sh              # default llama3.2:1b
 #   bash PULL-MODEL.sh llama3.2:1b
 set -euo pipefail
-MODEL="${1:-llama3.2:3b}"
+MODEL="${1:-llama3.2:1b}"
 
 if ! command -v ollama >/dev/null 2>&1; then
   echo "Ollama is not installed yet."

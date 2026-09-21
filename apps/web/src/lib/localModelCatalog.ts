@@ -18,17 +18,21 @@ export type OllamaModelOption = {
   pull: string;
 };
 
+/** Only light / ~4 GB RAM packs are offered right now. */
+export const ENABLED_TIERS: RamTier[] = ["light"];
+
 export const RAM_TIERS: Array<{
   id: RamTier;
   label: string;
   hint: string;
 }> = [
-  { id: "light", label: "Light laptop", hint: "About 8 GB RAM or less" },
+  { id: "light", label: "Light laptop", hint: "About 4 GB RAM" },
   { id: "everyday", label: "Everyday laptop", hint: "About 8–16 GB RAM" },
   { id: "strong", label: "Strong laptop / desktop", hint: "About 16–32 GB RAM" },
   { id: "workstation", label: "Workstation", hint: "32 GB+ RAM (GPU helps)" },
-];
+].filter((t) => ENABLED_TIERS.includes(t.id));
 
+/** Full catalog — UI only shows models whose tier is in ENABLED_TIERS. */
 export const OLLAMA_MODELS: OllamaModelOption[] = [
   {
     id: "llama32-1b",
@@ -36,9 +40,9 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     title: "Llama 3.2 1B",
     tier: "light",
     download: "~1 GB to download",
-    ram: "Works on ~8 GB RAM",
+    ram: "Fits ~4 GB RAM",
     forWho: "Students and light office notes",
-    about: "Smallest pack. Quick answers for short questions; best on older or thin laptops.",
+    about: "Smallest pack. Quick answers for short questions on thin or older laptops.",
     pull: "ollama pull llama3.2:1b",
   },
   {
@@ -47,7 +51,7 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     title: "Qwen 2.5 1.5B",
     tier: "light",
     download: "~1 GB to download",
-    ram: "Works on ~8 GB RAM",
+    ram: "Fits ~4 GB RAM",
     forWho: "Light writing and quick checks",
     about: "Same light footprint as 1B. Good spare option when you want a second small model.",
     pull: "ollama pull qwen2.5:1.5b",
@@ -121,12 +125,13 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
 ];
 
 export function modelsForTier(tier: RamTier): OllamaModelOption[] {
+  if (!ENABLED_TIERS.includes(tier)) return [];
   return OLLAMA_MODELS.filter((m) => m.tier === tier);
 }
 
 export function defaultModelForTier(tier: RamTier): OllamaModelOption {
   const list = modelsForTier(tier);
-  return list[0] || OLLAMA_MODELS[2];
+  return list[0] || OLLAMA_MODELS.find((m) => m.tier === "light") || OLLAMA_MODELS[0];
 }
 
 export function modelById(id: string): OllamaModelOption | undefined {

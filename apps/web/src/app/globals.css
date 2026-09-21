@@ -529,11 +529,6 @@ a.brand:hover {
   min-width: 220px;
 }
 
-.landing-hero h1 {
-  font-family: var(--display);
-  font-weight: 650;
-}
-
 @media (max-width: 560px) {
   .agent-grid,
   .tier-row {
@@ -619,11 +614,12 @@ a.brand:hover {
 }
 
 .landing-hero h1 {
+  font-family: var(--display);
   font-size: clamp(36px, 6vw, 56px);
   letter-spacing: -0.04em;
   line-height: 1.05;
   margin: 0 0 16px;
-  font-weight: 600;
+  font-weight: 650;
   min-height: 2.2em;
 }
 

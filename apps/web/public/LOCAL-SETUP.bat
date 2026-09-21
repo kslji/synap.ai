@@ -1,6 +1,6 @@
 @echo off
-REM Surf AI — ONE command after unzip. Reads agent.json baked into this zip.
-REM   LOCAL-SETUP.bat
+REM Surf AI — ONE command for every agent pack.
+REM Reads agent.json → Ollama + model → Chrome on http://127.0.0.1:18766
 cd /d "%~dp0"
 setlocal EnableExtensions
 set CACHE=%USERPROFILE%\.surf-ai\cache
@@ -9,6 +9,8 @@ if not exist "%CACHE%" mkdir "%CACHE%"
 set AGENT=surf
 set MODEL=llama3.2:3b
 set TITLE=Surf + Ollama
+set PORT=18766
+set URL=http://127.0.0.1:18766/local-agent.html
 
 if exist "agent.json" (
   where python >nul 2>&1 && set PY=python
@@ -20,54 +22,15 @@ if exist "agent.json" (
   )
 )
 
-echo Surf AI — one-command local setup
+echo Surf AI — one-command local chat
 echo Pack: %TITLE% (%AGENT%)
+echo Model: %MODEL%
 echo Folder: %cd%
+echo Chrome will open %URL%
 echo.
 
-if /i "%AGENT%"=="gpt4all" goto GPT4ALL
-if /i "%AGENT%"=="jan" goto JAN
-if /i "%AGENT%"=="anythingllm" goto ANYTHING
-goto SURF
-
-:GPT4ALL
-echo GPT4All (MIT) — https://www.nomic.ai/gpt4all
-set DEST=%CACHE%\gpt4all-installer-win64.exe
-if not exist "%DEST%" (
-  echo Downloading GPT4All installer once...
-  powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://gpt4all.io/installers/gpt4all-installer-win64.exe' -OutFile '%DEST%'"
-)
-echo Opening installer / app...
-start "" "%DEST%"
-goto END
-
-:JAN
-echo Jan AI (AGPL-3.0) — https://jan.ai
-set DEST=%CACHE%\jan.exe
-if not exist "%DEST%" (
-  echo Downloading Jan once...
-  powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://app.jan.ai/download/latest/win-x64' -OutFile '%DEST%'"
-)
-start "" "%DEST%"
-goto END
-
-:ANYTHING
-echo AnythingLLM (MIT) — https://anythingllm.com
-set DEST=%CACHE%\AnythingLLMDesktop.exe
-if not exist "%DEST%" (
-  echo Downloading AnythingLLM Desktop once...
-  powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://cdn.anythingllm.com/latest/AnythingLLMDesktop.exe' -OutFile '%DEST%'"
-)
-start "" "%DEST%"
-goto END
-
-:SURF
-set PORT=18766
-set URL=http://127.0.0.1:18766/local-agent.html
-
 if not exist "local-agent.html" (
-  echo local-agent.html is not in this folder.
-  echo Unzip the Surf pack, then run LOCAL-SETUP.bat from the local-ai folder.
+  echo local-agent.html missing. Unzip the pack and run LOCAL-SETUP.bat from that folder.
   pause
   exit /b 1
 )
@@ -75,15 +38,13 @@ if not exist "local-agent.html" (
 where python >nul 2>&1 && set PY=python
 if not defined PY where py >nul 2>&1 && set PY=py
 if not defined PY (
-  echo Python 3 is required once to open Surf in Chrome.
-  echo Install from https://www.python.org/downloads/windows/  (tick Add to PATH)
+  echo Python 3 is required once. Install from https://www.python.org/downloads/windows/  (Add to PATH)
   pause
   exit /b 1
 )
 
 echo Python:
 %PY% --version
-echo Model baked into this zip: %MODEL%
 
 where ollama >nul 2>&1
 if errorlevel 1 (
@@ -101,13 +62,13 @@ if errorlevel 1 (
 echo Ensuring model %MODEL% is on this computer...
 ollama list 2>nul | findstr /i /c:"%MODEL%" >nul
 if errorlevel 1 (
-  echo Downloading %MODEL% once. After this, Surf works offline.
+  echo Downloading %MODEL% once. After this, chat works offline.
   ollama pull %MODEL%
 ) else (
   echo Model already present — offline OK.
 )
 
-echo Starting Surf and opening Chrome...
+echo Starting local chat and opening Chrome...
 echo Leave this window open while you chat.
 start "" %PY% -m http.server %PORT% --bind 127.0.0.1
 timeout /t 2 /nobreak >nul
@@ -115,9 +76,6 @@ start "" "chrome" "%URL%" 2>nul
 if errorlevel 1 start "" "%URL%"
 
 echo.
-echo Surf is running at %URL%
+echo Chat is at %URL%
 pause
-goto END
-
-:END
 endlocal

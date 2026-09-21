@@ -1,7 +1,7 @@
-/** Zip “packs” — user picks one, downloads, runs a single LOCAL-SETUP command. */
+/** Zip packs — every pack: one LOCAL-SETUP → Chrome chat on localhost. */
 
 import type { RamTier } from "./localModelCatalog";
-import { defaultModelForTier } from "./localModelCatalog";
+import { defaultModelForTier, modelByTag } from "./localModelCatalog";
 
 export type AgentId = "surf" | "gpt4all" | "jan" | "anythingllm";
 
@@ -10,12 +10,10 @@ export type AgentPack = {
   title: string;
   license: string;
   blurb: string;
-  /** What opens after LOCAL-SETUP */
+  /** Shown on the card — download / disk expectation for the agent itself */
+  downloadHint: string;
   opens: string;
-  /** Online needed for first install; then offline OK */
   offlineNote: string;
-  /** Surf embeds Ollama + browser chat; others launch the desktop app */
-  kind: "surf" | "desktop";
   home: string;
   zipName: string;
 };
@@ -24,44 +22,44 @@ export const AGENT_PACKS: AgentPack[] = [
   {
     id: "surf",
     title: "Surf + Ollama",
-    license: "Surf (your zip) · Ollama separate",
-    blurb: "Our local chat in Chrome. One command installs Ollama if needed, pulls your model, and opens chat.",
-    opens: "Chrome → Surf chat on this computer",
-    offlineNote: "First run needs internet for Ollama + model. After that, chat works offline.",
-    kind: "surf",
+    license: "Our chat · Ollama engine",
+    blurb: "Private chat in Chrome on this computer. One command installs Ollama, pulls your model, and opens localhost chat.",
+    downloadHint: "Zip is small (~few MB). The AI model is a separate download (1–40 GB) chosen below.",
+    opens: "Chrome → http://127.0.0.1:18766 chat",
+    offlineNote: "Online once for Ollama + model. Then the same command works offline.",
     home: "https://synap.surf",
     zipName: "surf-local-ai.zip",
   },
   {
     id: "gpt4all",
     title: "GPT4All",
-    license: "MIT",
-    blurb: "Fully open-source local LLMs for personal or commercial use. LOCAL-SETUP downloads and opens the official app.",
-    opens: "GPT4All desktop app",
-    offlineNote: "First run downloads the installer while online. Later runs open the installed app offline.",
-    kind: "desktop",
+    license: "MIT · open source",
+    blurb: "Same one-command Chrome chat. Uses GPT4All’s open stack with a local model you pick by computer size.",
+    downloadHint: "Zip is small. Model download depends on the card you pick (about 1–40 GB).",
+    opens: "Chrome → localhost chat (same as Surf)",
+    offlineNote: "Online once to install + pull the model. Chat works offline afterward.",
     home: "https://www.nomic.ai/gpt4all",
     zipName: "surf-gpt4all.zip",
   },
   {
     id: "jan",
     title: "Jan AI",
-    license: "AGPL-3.0",
-    blurb: "Open-source, privacy-first local AI. One command fetches and launches the official Jan app.",
-    opens: "Jan desktop app",
-    offlineNote: "First run needs internet to fetch Jan. After install, use Jan offline.",
-    kind: "desktop",
+    license: "AGPL-3.0 · open source",
+    blurb: "Privacy-first local agent. One command opens Chrome chat on this computer — no extra developer steps.",
+    downloadHint: "Zip is small. Model size follows the card you choose (about 1–40 GB).",
+    opens: "Chrome → localhost chat",
+    offlineNote: "First run needs internet. Later runs open chat offline.",
     home: "https://jan.ai",
     zipName: "surf-jan.zip",
   },
   {
     id: "anythingllm",
     title: "AnythingLLM",
-    license: "MIT",
-    blurb: "Open-source chat with your documents on this computer. LOCAL-SETUP installs and opens Desktop.",
-    opens: "AnythingLLM desktop app",
-    offlineNote: "First run downloads Desktop while online. Your docs stay local afterward.",
-    kind: "desktop",
+    license: "MIT · open source",
+    blurb: "Document-friendly local agent. One command opens Chrome on localhost so you can chat with files on this PC.",
+    downloadHint: "Zip is small. Model download is separate — pick a size that fits your RAM below.",
+    opens: "Chrome → localhost chat",
+    offlineNote: "Online once for setup + model. Then chat and files stay on this computer offline.",
     home: "https://anythingllm.com",
     zipName: "surf-anythingllm.zip",
   },
@@ -71,28 +69,36 @@ export function packById(id: AgentId): AgentPack {
   return AGENT_PACKS.find((p) => p.id === id) || AGENT_PACKS[0];
 }
 
-/** Written into the zip so LOCAL-SETUP needs zero extra flags. */
 export type AgentManifest = {
   agent: AgentId;
   title: string;
   license: string;
   home: string;
-  /** Ollama tag — only for surf */
-  model?: string;
-  tier?: RamTier;
+  model: string;
+  modelTitle?: string;
+  download?: string;
+  ram?: string;
+  tier: RamTier;
   created: string;
 };
 
-export function buildManifest(agent: AgentId, tier: RamTier = "everyday"): AgentManifest {
+export function buildManifest(
+  agent: AgentId,
+  tier: RamTier = "everyday",
+  modelTag?: string,
+): AgentManifest {
   const pack = packById(agent);
-  const model = agent === "surf" ? defaultModelForTier(tier).tag : undefined;
+  const model = (modelTag && modelByTag(modelTag)) || defaultModelForTier(tier);
   return {
     agent,
     title: pack.title,
     license: pack.license,
     home: pack.home,
-    model,
-    tier: agent === "surf" ? tier : undefined,
+    model: model.tag,
+    modelTitle: model.title,
+    download: model.download,
+    ram: model.ram,
+    tier,
     created: new Date().toISOString().slice(0, 10),
   };
 }

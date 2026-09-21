@@ -104,28 +104,28 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 function readmeFor(manifest: AgentManifest): string {
   const pack = packById(manifest.agent);
-  const modelLine =
-    manifest.agent === "surf" && manifest.model
-      ? `\nThis zip is pre-set for model: ${manifest.model}\nLOCAL-SETUP installs Ollama if needed, pulls that model once, and opens Chrome.\n`
-      : `\nThis zip is set for ${pack.title} (${pack.license}).\nLOCAL-SETUP downloads/opens that app for you.\n`;
-
   return `Surf AI — one command on your computer
 
-Pack: ${pack.title}
-License note: ${pack.license}
-${modelLine}
-Phones/tablets: use a Mac, Windows, or Linux computer (no Terminal on phones).
+Pack: ${pack.title} (${pack.license})
+Model baked in: ${manifest.modelTitle || manifest.model}
+Download size for the model: ${manifest.download || "see website"} · ${manifest.ram || ""}
+
+The zip folder is small. The AI model downloads automatically on first LOCAL-SETUP
+(needs internet once). After that, chat works offline.
+
+Phones/tablets: use a Mac, Windows, or Linux computer.
 
 1. Unzip this folder.
-2. Run ONE command from inside the local-ai folder:
+2. Run ONE command from inside local-ai:
 
    Mac/Linux:  bash LOCAL-SETUP.sh
    Windows:    LOCAL-SETUP.bat
 
-That is all. The script installs what this pack needs (first time online), then opens
-chat (${pack.opens}). Later runs work offline if the app/model is already on disk.
+Chrome opens http://127.0.0.1:18766 — start chatting.
+Leave the small window open while you chat.
 
-Chrome (for Surf pack): https://www.google.com/chrome/
+Same steps for Surf, GPT4All, Jan, and AnythingLLM packs.
+Install Chrome if needed: https://www.google.com/chrome/
 
 Do not double-click local-agent.html — always use LOCAL-SETUP.
 Your chats stay on this computer.
@@ -207,30 +207,28 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     { name: "local-ai/README.txt", body: readmeFor(manifest) },
   ];
 
-  // Surf browser chat assets — desktop packs only need the launcher + agent.json.
-  if (manifest.agent === "surf") {
-    const html = await readPackFile("/local-agent.html", true);
-    if (!html || html.kind !== "text") {
-      throw new Error("Surf chat page missing from this site. Refresh and try again.");
-    }
-    const htmlBody = html.body
-      .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
-      .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
-      .replace(/>\s*Upload image\s*</gi, "><");
-    files.push({ name: "local-ai/local-agent.html", body: htmlBody });
-    for (const name of [
-      "system.md",
-      "web-llm.js",
-      "pdf.js",
-      "pdf.worker.js",
-      "icon.svg",
-      "favicon.png",
-      "apple-icon.png",
-    ] as const) {
-      const extra = await readPackFile(`/${name}`);
-      if (!extra) continue;
-      files.push({ name: `local-ai/${name}`, body: extra.body });
-    }
+  // Every agent pack opens the same localhost Chrome chat.
+  const html = await readPackFile("/local-agent.html", true);
+  if (!html || html.kind !== "text") {
+    throw new Error("Chat page missing from this site. Refresh and try again.");
+  }
+  const htmlBody = html.body
+    .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
+    .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
+    .replace(/>\s*Upload image\s*</gi, "><");
+  files.push({ name: "local-ai/local-agent.html", body: htmlBody });
+  for (const name of [
+    "system.md",
+    "web-llm.js",
+    "pdf.js",
+    "pdf.worker.js",
+    "icon.svg",
+    "favicon.png",
+    "apple-icon.png",
+  ] as const) {
+    const extra = await readPackFile(`/${name}`);
+    if (!extra) continue;
+    files.push({ name: `local-ai/${name}`, body: extra.body });
   }
 
   const blob = zipStore(files);

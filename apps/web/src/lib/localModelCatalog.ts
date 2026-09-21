@@ -1,15 +1,19 @@
-/** Ollama models + Colibri install — shown on synap.surf download shell / zip README. */
+/** Models users can bake into a zip — plain language download + RAM guidance. */
 
 export type RamTier = "light" | "everyday" | "strong" | "workstation";
 
 export type OllamaModelOption = {
   id: string;
-  /** ollama pull tag */
   tag: string;
   title: string;
   tier: RamTier;
-  /** Approx download / RAM need — plain language for users */
-  needs: string;
+  /** Short download size, e.g. "~2 GB" */
+  download: string;
+  /** RAM the computer should have */
+  ram: string;
+  /** Who it is for — simple professional line */
+  forWho: string;
+  /** One sentence about everyday use */
   about: string;
   pull: string;
 };
@@ -31,8 +35,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "llama3.2:1b",
     title: "Llama 3.2 1B",
     tier: "light",
-    needs: "~1 GB download · fits ~8 GB RAM",
-    about: "Fastest replies. Good for short questions on older laptops.",
+    download: "~1 GB to download",
+    ram: "Works on ~8 GB RAM",
+    forWho: "Students and light office notes",
+    about: "Smallest pack. Quick answers for short questions; best on older or thin laptops.",
     pull: "ollama pull llama3.2:1b",
   },
   {
@@ -40,8 +46,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "qwen2.5:1.5b",
     title: "Qwen 2.5 1.5B",
     tier: "light",
-    needs: "~1 GB download · fits ~8 GB RAM",
-    about: "Light alternative when you want a second small model.",
+    download: "~1 GB to download",
+    ram: "Works on ~8 GB RAM",
+    forWho: "Light writing and quick checks",
+    about: "Same light footprint as 1B. Good spare option when you want a second small model.",
     pull: "ollama pull qwen2.5:1.5b",
   },
   {
@@ -49,8 +57,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "llama3.2:3b",
     title: "Llama 3.2 3B",
     tier: "everyday",
-    needs: "~2 GB download · comfortable on 8–16 GB RAM",
-    about: "Best default for most people. Clearer answers without a heavy PC.",
+    download: "~2 GB to download",
+    ram: "Comfortable on 8–16 GB RAM",
+    forWho: "Most professionals — email, docs, meetings",
+    about: "Recommended default. Clearer answers without needing a heavy computer.",
     pull: "ollama pull llama3.2:3b",
   },
   {
@@ -58,8 +68,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "phi3:mini",
     title: "Phi-3 Mini",
     tier: "everyday",
-    needs: "~2.5 GB download · 8–16 GB RAM",
-    about: "Solid everyday chat and file questions.",
+    download: "~2.5 GB to download",
+    ram: "Comfortable on 8–16 GB RAM",
+    forWho: "Analysts and document Q&A",
+    about: "Everyday chat and file questions. Slightly larger download than 3B Llama.",
     pull: "ollama pull phi3:mini",
   },
   {
@@ -67,8 +79,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "mistral:7b",
     title: "Mistral 7B",
     tier: "strong",
-    needs: "~4 GB download · ideally 16 GB+ RAM",
-    about: "Stronger writing and reasoning on a capable laptop or desktop.",
+    download: "~4 GB to download",
+    ram: "Ideally 16 GB+ RAM",
+    forWho: "Writers, developers, longer briefs",
+    about: "Stronger drafting and reasoning. Needs a capable laptop or desktop.",
     pull: "ollama pull mistral:7b",
   },
   {
@@ -76,8 +90,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "llama3.1:8b",
     title: "Llama 3.1 8B",
     tier: "strong",
-    needs: "~5 GB download · ideally 16 GB+ RAM",
-    about: "Good quality for longer chats and attached documents.",
+    download: "~5 GB to download",
+    ram: "Ideally 16 GB+ RAM",
+    forWho: "Knowledge work and longer documents",
+    about: "Higher quality for attached files and multi-step questions.",
     pull: "ollama pull llama3.1:8b",
   },
   {
@@ -85,8 +101,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "qwen2.5:14b",
     title: "Qwen 2.5 14B",
     tier: "workstation",
-    needs: "~9 GB download · 32 GB+ RAM recommended",
-    about: "Heavier model for workstations. Slower on weak machines.",
+    download: "~9 GB to download",
+    ram: "32 GB+ RAM recommended",
+    forWho: "Power users and research desks",
+    about: "Large download. Best on a workstation; slow on light laptops.",
     pull: "ollama pull qwen2.5:14b",
   },
   {
@@ -94,8 +112,10 @@ export const OLLAMA_MODELS: OllamaModelOption[] = [
     tag: "llama3.3:70b",
     title: "Llama 3.3 70B",
     tier: "workstation",
-    needs: "~40 GB download · high-RAM / GPU machine",
-    about: "Only if your computer is built for large local models.",
+    download: "~40 GB to download",
+    ram: "High-RAM machine / GPU",
+    forWho: "Labs and high-end workstations only",
+    about: "Very large download and disk use. Only if your computer is built for big local models.",
     pull: "ollama pull llama3.3:70b",
   },
 ];
@@ -109,18 +129,10 @@ export function defaultModelForTier(tier: RamTier): OllamaModelOption {
   return list[0] || OLLAMA_MODELS[2];
 }
 
-/** Colibri — optional local agent (OpenAI-compatible API on :8000). */
-export const COLIBRI_REPO = "https://github.com/JustVugg/colibri.git";
+export function modelById(id: string): OllamaModelOption | undefined {
+  return OLLAMA_MODELS.find((m) => m.id === id);
+}
 
-export const COLIBRI_INSTALL_UNIX = `git clone ${COLIBRI_REPO} ~/colibri && cd ~/colibri/c && ./setup.sh && echo "Next: put a Colibri model on disk, then: COLI_MODEL=/path/to/model ./coli serve"`;
-
-export const COLIBRI_INSTALL_WIN = `git clone ${COLIBRI_REPO} %USERPROFILE%\\colibri && cd %USERPROFILE%\\colibri\\c && python coli info`;
-
-export const COLIBRI_BLURB =
-  "Colibri runs large MoE models on your machine (experts streamed from disk). Needs a one-time download while online; after that chat works offline. Start with a small Colibri container if your disk is limited — big GLM containers are hundreds of GB.";
-
-export function ollamaInstallHint(os: "mac" | "win" | "linux"): string {
-  if (os === "win") return "Install Ollama from https://ollama.com , then run the pull command below.";
-  if (os === "linux") return "curl -fsSL https://ollama.com/install.sh | sh";
-  return "Install Ollama from https://ollama.com (Mac app), then run the pull command below.";
+export function modelByTag(tag: string): OllamaModelOption | undefined {
+  return OLLAMA_MODELS.find((m) => m.tag === tag);
 }

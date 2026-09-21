@@ -17,10 +17,15 @@ import {
   packById,
   type AgentId,
 } from "@/lib/agentPacks";
-import { RAM_TIERS, defaultModelForTier, type RamTier } from "@/lib/localModelCatalog";
+import {
+  RAM_TIERS,
+  defaultModelForTier,
+  modelsForTier,
+  type RamTier,
+} from "@/lib/localModelCatalog";
 
 /**
- * synap.surf /chat — pick an agent zip, download, run one LOCAL-SETUP command.
+ * synap.surf /chat — pick agent + model, download zip, run one LOCAL-SETUP → localhost chat.
  */
 export function ChatDownloadShell() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -30,12 +35,14 @@ export function ChatDownloadShell() {
   const [note, setNote] = useState("");
   const [agent, setAgent] = useState<AgentId>("surf");
   const [tier, setTier] = useState<RamTier>("everyday");
+  const [modelId, setModelId] = useState(defaultModelForTier("everyday").id);
   const [copied, setCopied] = useState(false);
   const os = detectOs();
 
   const pack = packById(agent);
   const cmd = oneCommand(os);
-  const model = agent === "surf" ? defaultModelForTier(tier) : null;
+  const tierModels = modelsForTier(tier);
+  const selected = tierModels.find((m) => m.id === modelId) || defaultModelForTier(tier);
 
   useEffect(() => {
     void prefetchLocalPack();
@@ -43,6 +50,10 @@ export function ChatDownloadShell() {
       .then((p) => setProfile(p?.email_verified ? p : null))
       .catch(() => setProfile(null));
   }, []);
+
+  useEffect(() => {
+    setModelId(defaultModelForTier(tier).id);
+  }, [tier]);
 
   async function requireAccount(then: () => void) {
     try {
@@ -67,11 +78,11 @@ export function ChatDownloadShell() {
     void requireAccount(() => {
       setBusy(true);
       setNote("");
-      const manifest = buildManifest(agent, tier);
+      const manifest = buildManifest(agent, tier, selected.tag);
       void downloadOnThisDevice({ manifest })
         .then(() =>
           setNote(
-            `Downloaded ${pack.zipName}. Unzip → run only: ${cmd} — nothing else to figure out.`,
+            `Downloaded ${pack.zipName}. Unzip, then run only: ${cmd} — Chrome opens chat on this computer.`,
           ),
         )
         .catch(() =>
@@ -121,8 +132,8 @@ export function ChatDownloadShell() {
         <p className="download-kicker">Private AI on your computer</p>
         <h1 className="download-brand">Surf AI</h1>
         <p className="lede">
-          Choose an agent. Download the zip. Unzip. Run <strong>one</strong> command. We install and
-          open everything for you — with or without internet after the first setup.
+          Pick an agent and a model size. Download the zip. Run <strong>one</strong> command. Chrome
+          opens chat on <strong>localhost</strong> — same steps for every agent.
         </p>
 
         <section className="download-section" aria-labelledby="agent-title" style={{ marginTop: 20, paddingTop: 0, borderTop: "none" }}>
@@ -138,55 +149,73 @@ export function ChatDownloadShell() {
                   <strong>{p.title}</strong>
                   <span className="model-needs">{p.license}</span>
                   <span className="model-about">{p.blurb}</span>
-                  <span className="model-about">Opens: {p.opens}. {p.offlineNote}</span>
+                  <span className="model-about">{p.downloadHint}</span>
+                  <span className="model-about">
+                    After setup: {p.opens}. {p.offlineNote}
+                  </span>
                 </button>
               </li>
             ))}
           </ul>
         </section>
 
-        {agent === "surf" ? (
-          <section className="download-section" aria-labelledby="size-title">
-            <h2 id="size-title">2 · Your computer size (we pick the model)</h2>
-            <p className="tiny muted">
-              Baked into the zip — LOCAL-SETUP pulls it automatically. You do not run a second
-              command.
-            </p>
-            <div className="tier-row" role="radiogroup" aria-label="Computer size">
-              {RAM_TIERS.map((t) => (
+        <section className="download-section" aria-labelledby="size-title">
+          <h2 id="size-title">2 · Choose a model for your computer</h2>
+          <p className="tiny muted">
+            The zip itself is small. The AI model is a separate download (shown on each card). We pull
+            it automatically when you run the one setup command — you do not run a second command.
+          </p>
+          <div className="tier-row" role="radiogroup" aria-label="Computer size">
+            {RAM_TIERS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={tier === t.id}
+                className={tier === t.id ? "tier-chip on" : "tier-chip"}
+                onClick={() => setTier(t.id)}
+              >
+                <span className="tier-label">{t.label}</span>
+                <span className="tier-hint">{t.hint}</span>
+              </button>
+            ))}
+          </div>
+          <ul className="model-list">
+            {tierModels.map((m) => (
+              <li key={m.id}>
                 <button
-                  key={t.id}
                   type="button"
-                  role="radio"
-                  aria-checked={tier === t.id}
-                  className={tier === t.id ? "tier-chip on" : "tier-chip"}
-                  onClick={() => setTier(t.id)}
+                  className={selected.id === m.id ? "model-card on" : "model-card"}
+                  onClick={() => setModelId(m.id)}
                 >
-                  <span className="tier-label">{t.label}</span>
-                  <span className="tier-hint">{t.hint}</span>
+                  <strong>{m.title}</strong>
+                  <span className="model-needs">
+                    {m.download} · {m.ram}
+                  </span>
+                  <span className="model-about">
+                    <strong>{m.forWho}</strong> — {m.about}
+                  </span>
                 </button>
-              ))}
-            </div>
-            {model ? (
-              <p className="tiny muted">
-                This zip will use <strong>{model.title}</strong> ({model.needs}). {model.about}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
 
         <section className="download-section" aria-labelledby="dl-title">
-          <h2 id="dl-title">{agent === "surf" ? "3" : "2"} · Download &amp; run</h2>
+          <h2 id="dl-title">3 · Download &amp; run one command</h2>
+          <p className="tiny muted">
+            Selected: <strong>{pack.title}</strong> · <strong>{selected.title}</strong> (
+            {selected.download})
+          </p>
           <div className="cta-row">
             <button type="button" className="primary" disabled={busy} onClick={startDownload}>
-              <Download size={18} />{" "}
-              {busy ? "Preparing zip…" : `Download ${pack.zipName}`}
+              <Download size={18} /> {busy ? "Preparing zip…" : `Download ${pack.zipName}`}
             </button>
           </div>
           <ol className="download-steps">
             <li>Unzip the folder</li>
             <li>
-              Run only this:
+              Run only this (Mac/Linux or Windows):
               <div className="cmd-box" style={{ marginTop: 10 }}>
                 <code>{cmd}</code>
                 <button type="button" className="ghost" onClick={() => void copyCmd()}>
@@ -195,12 +224,15 @@ export function ChatDownloadShell() {
                 </button>
               </div>
             </li>
-            <li>Chat opens ({pack.opens}). Leave the small window open if Surf is serving the page.</li>
+            <li>
+              Chrome opens <code>http://127.0.0.1:18766</code> — start chatting. Leave the small
+              terminal window open.
+            </li>
           </ol>
           <p className="tiny muted download-moss">
-            First run may need internet to fetch the engine/model. After that, the same command works
-            offline when everything is already on disk. Partner apps keep their own licenses (MIT /
-            AGPL) — we only launch their official downloads.
+            Same single command for Surf, GPT4All, Jan, and AnythingLLM. First run may need internet
+            for the engine and model; afterward it works offline. Partner names keep their licenses
+            (MIT / AGPL); chat always opens in your local browser.
           </p>
         </section>
 

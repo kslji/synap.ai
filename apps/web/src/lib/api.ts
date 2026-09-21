@@ -331,3 +331,34 @@ export async function eraseHostData(): Promise<void> {
     /* host may be down — browser wipe still proceeds */
   }
 }
+
+/** Save a rolling per-user summary on the local host (not the marketing VPS). */
+export async function saveHostSummary(body: {
+  title?: string;
+  body: string;
+  source?: string;
+  id?: string;
+}): Promise<{ id: string } | null> {
+  try {
+    return await api("/v1/summaries", {
+      method: "POST",
+      body: JSON.stringify({
+        title: body.title || "Session summary",
+        body: body.body,
+        source: body.source || "chat",
+        id: body.id,
+      }),
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Export this user's summaries into summaries/<owner>/ for offline local use. */
+export async function exportHostSummaries(): Promise<{ ok: boolean; dir?: string; files?: number } | null> {
+  try {
+    return await api("/v1/summaries/export", { method: "POST" });
+  } catch {
+    return null;
+  }
+}

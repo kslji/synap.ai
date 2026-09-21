@@ -211,8 +211,26 @@ class MossRuntime:
                 "time_taken_ms": round(ms, 3),
                 "docs": self._filter_hits(docs, owner=owner)[:top_k],
             }
-        except Exception:
+        except Exception as exc:
             # Creds exhausted, network/auth failure, or SDK error → caller uses keyword.
+            msg = str(exc).lower()
+            if any(
+                token in msg
+                for token in (
+                    "credit",
+                    "quota",
+                    "billing",
+                    "402",
+                    "429",
+                    "unauthorized",
+                    "forbidden",
+                    "401",
+                    "403",
+                    "rate limit",
+                )
+            ):
+                self._client = None
+                self.backend = "keyword-fallback"
             return None
 
     async def query(

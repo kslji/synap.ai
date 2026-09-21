@@ -135,6 +135,49 @@ def counts() -> dict:
     return {"users": int(users), "feedback": int(fb)}
 
 
+def purge_ephemeral(max_age_hours: int = 24) -> dict:
+    """Drop platform ephemera older than max_age_hours. Never stores chats here.
+
+    Removes: expired/consumed OTPs, finished mail jobs, unverified accounts with no
+    recent update, and old feedback rows. Verified accounts are kept.
+    """
+    init_platform_db()
+    cutoff = datetime.now(timezone.utc).timestamp() - max(1, max_age_hours) * 3600
+    cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+    removed = {"otp": 0, "mail": 0, "unverified_users": 0, "feedback": 0}
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM otp_challenges
+            WHERE consumed = 1 OR expires_at < ? OR created_at < ?
+            """,
+            (now_iso(), cutoff_iso),
+        )
+        removed["otp"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        cur = conn.execute(
+            """
+            DELETE FROM mail_jobs
+            WHERE status IN ('sent', 'dead') AND created_at < ?
+            """,
+            (cutoff_iso,),
+        )
+        removed["mail"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        cur = conn.execute(
+            """
+            DELETE FROM users
+            WHERE email_verified = 0 AND updated_at < ? AND created_at < ?
+            """,
+            (cutoff_iso, cutoff_iso),
+        )
+        removed["unverified_users"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        cur = conn.execute(
+            "DELETE FROM feedback WHERE created_at < ?",
+            (cutoff_iso,),
+        )
+        removed["feedback"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    return {"ok": True, "cutoff": cutoff_iso, "removed": removed}
+
+
 def get_user_by_email(email: str) -> dict | None:
     init_platform_db()
     with _connect() as conn:

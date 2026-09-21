@@ -72,7 +72,7 @@ import {
 } from "@/lib/groundedContext";
 import { canUseFilePicker, filesFromDataTransfer, pickFilesOrFolder } from "@/lib/deviceFolder";
 import { downloadOnThisDevice } from "@/lib/openOnDevice";
-import { fetchHostStorage, health, indexMoss, parseApiError, searchMoss, streamChat, eraseHostData, createLocalInstance, type Health } from "@/lib/api";
+import { fetchHostStorage, health, indexMoss, parseApiError, searchMoss, streamChat, eraseHostData, createLocalInstance, saveHostSummary, exportHostSummaries, type Health } from "@/lib/api";
 import { fetchProfile, clearAccount, type UserProfile } from "@/lib/account";
 import { isAbortError, looksLikeNetworkFailure, networkOnline } from "@/lib/net";
 import { AuthDialog } from "./AuthDialog";
@@ -525,6 +525,16 @@ export function LocalChat() {
       const fileBit = batchFileNames.length
         ? ` Files in this summary: ${batchFileNames.join(", ")}.`
         : " No files in this summary.";
+      try {
+        await saveHostSummary({
+          title: batchTitles[0] || "Saved summary",
+          body: note,
+          source: "compact",
+        });
+        await exportHostSummaries();
+      } catch {
+        /* local host may be down — browser memory still saved */
+      }
       setProgress(
         `Kept a ${(latest?.text.length || note.length)}-character note for this batch.${fileBit} Chats and files cleared from this browser.`,
       );
@@ -1177,7 +1187,15 @@ export function LocalChat() {
 
         <OfflineBanner stayLabel="Continue offline chat" />
 
-        {browserLlmOff && !ollamaReady ? null : /1b|1\.5b|in-browser/i.test(engineLabel) ||
+        {browserLlmOff && !ollamaReady ? (
+          <div className="setup-callout" role="note">
+            <p className="setup-callout-title">Start local Surf</p>
+            <p>
+              This site is the shell only. Download the zip, run <strong>LOCAL-SETUP</strong> on your
+              computer, then refresh — chat and Moss stay on your machine.
+            </p>
+          </div>
+        ) : /1b|1\.5b|in-browser/i.test(engineLabel) ||
           (!status?.local_llm?.backend && !status?.ollama) ? (
           <div className="setup-callout soft" role="note">
             <p>

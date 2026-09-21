@@ -35,6 +35,11 @@ export function OfflineBanner({
         setStaying(false);
         setDismissed(false);
         setNote("");
+      } else {
+        // Offline: push this user's local summaries into summaries/<owner>/ when host is up.
+        void import("@/lib/api")
+          .then((m) => m.exportHostSummaries())
+          .catch(() => undefined);
       }
     };
     const sw = () => setSaved(!!navigator.serviceWorker?.controller);

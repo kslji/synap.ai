@@ -8,8 +8,10 @@ PORT=18766
 STAMP="$(date +%s)"
 URL="http://127.0.0.1:${PORT}/local-agent.html?v=${STAMP}"
 
-echo "Surf AI"
+echo "Surf AI — local Small Cloud on this computer"
 echo "Folder: ${HERE}"
+echo "Moss: add MOSS_PROJECT_ID / MOSS_PROJECT_KEY to the host .env when you run the full host;"
+echo "      if credits fail, Surf falls back to on-device keyword search automatically."
 echo
 
 if [[ ! -f "${HERE}/local-agent.html" ]]; then

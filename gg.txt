@@ -1,14 +1,19 @@
-# Deploy static shell only. AI must stay on each user's machine (Local-First).
-# If build fails with ENOSPC, free disk first:
-#   df -h /
-#   cd ~/surf.ai/apps/web && rm -rf .next node_modules/.cache out
-#   npm cache clean --force
-#   sudo journalctl --vacuum-size=50M
-#   docker system prune -af   # only if you use docker
+# Deploy static shell only. AI stays on each user's machine (Local-First).
+# VPS stores accounts/OTP/feedback only — no chat transcripts / no server LLM.
+# Do NOT set NEXT_PUBLIC_HOST_URL for chat — chat uses http://127.0.0.1:18765
+# Moss keys belong in the LOCAL host .env (zip / LOCAL-SETUP), not required for marketing shell chat.
 
 cd ~/surf.ai && git pull origin main
 cd ~/surf.ai/apps/web && npm ci
-# Do NOT set NEXT_PUBLIC_HOST_URL=https://synap.surf — chat uses http://127.0.0.1:18765
 npm run build
-sudo rm -rf /var/www/synap.surf/* && sudo cp -a out/. /var/www/synap.surf/
+rsync -a --delete out/ /var/www/synap.surf/ || (sudo rm -rf /var/www/synap.surf/* && sudo cp -a out/. /var/www/synap.surf/)
 sudo systemctl restart synap-host
+
+# Optional: install 24h platform purge timer (once)
+# sudo cp ~/surf.ai/apps/host/deploy/synap-purge.* /etc/systemd/system/
+# sudo systemctl daemon-reload && sudo systemctl enable --now synap-purge.timer
+# Or run manually: cd ~/surf.ai/apps/host && .venv/bin/python purge_platform.py
+
+curl -sS http://127.0.0.1:18765/health | head -c 200; echo
+curl -sS https://synap.surf/health | head -c 200; echo
+

@@ -1,0 +1,9 @@
+[Unit]
+Description=Purge synap.surf platform ephemera (OTP/mail/unverified/feedback >24h)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/surf.ai/apps/host
+ExecStart=/home/ubuntu/surf.ai/apps/host/.venv/bin/python purge_platform.py
+User=ubuntu

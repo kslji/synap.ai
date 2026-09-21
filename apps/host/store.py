@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -42,6 +43,16 @@ def init_db() -> None:
               created_at TEXT NOT NULL,
               FOREIGN KEY (conversation_id) REFERENCES conversations(id)
             );
+            CREATE TABLE IF NOT EXISTS user_summaries (
+              id TEXT PRIMARY KEY,
+              owner_id TEXT NOT NULL,
+              title TEXT NOT NULL,
+              body TEXT NOT NULL,
+              source TEXT NOT NULL DEFAULT 'chat',
+              updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_summaries_owner
+              ON user_summaries(owner_id, updated_at DESC);
             """
         )
 
@@ -184,13 +195,127 @@ def prune() -> None:
 def clear_chat_data() -> dict:
     """Erase host-side conversations/messages (keeps accounts). Used by Delete data."""
     if current_dir() is None:
-        return {"conversations": 0, "messages": 0}
+        return {"conversations": 0, "messages": 0, "summaries": 0}
     with _connect() as conn:
         n_msg = conn.execute("SELECT COUNT(*) AS c FROM messages").fetchone()["c"]
         n_convo = conn.execute("SELECT COUNT(*) AS c FROM conversations").fetchone()["c"]
+        try:
+            n_sum = conn.execute("SELECT COUNT(*) AS c FROM user_summaries").fetchone()["c"]
+            conn.execute("DELETE FROM user_summaries")
+        except sqlite3.OperationalError:
+            n_sum = 0
         conn.execute("DELETE FROM messages")
         conn.execute("DELETE FROM conversations")
-    return {"conversations": int(n_convo), "messages": int(n_msg)}
+    return {"conversations": int(n_convo), "messages": int(n_msg), "summaries": int(n_sum)}
+
+
+def upsert_user_summary(
+    *,
+    owner_id: str,
+    title: str,
+    body: str,
+    source: str = "chat",
+    summary_id: str | None = None,
+) -> dict:
+    """Rolling per-user summary — stays in the local instance DB, never the VPS platform DB."""
+    owner = (owner_id or "").strip()
+    if not owner:
+        raise ValueError("owner_id required")
+    text = (body or "").strip()
+    if not text:
+        raise ValueError("empty summary")
+    sid = summary_id or str(uuid.uuid4())
+    ts = now_iso()
+    title_s = (title or "Session summary").strip()[:120] or "Session summary"
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_summaries (id, owner_id, title, body, source, updated_at)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              title = excluded.title,
+              body = excluded.body,
+              source = excluded.source,
+              updated_at = excluded.updated_at
+            WHERE user_summaries.owner_id = excluded.owner_id
+            """,
+            (sid, owner, title_s, text[:8000], (source or "chat")[:32], ts),
+        )
+    return {
+        "id": sid,
+        "owner_id": owner,
+        "title": title_s,
+        "body": text[:8000],
+        "source": source,
+        "updated_at": ts,
+    }
+
+
+def list_user_summaries(owner_id: str, limit: int = 40) -> list[dict]:
+    owner = (owner_id or "").strip()
+    if not owner:
+        return []
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, owner_id, title, body, source, updated_at
+            FROM user_summaries
+            WHERE owner_id = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (owner, max(1, min(limit, 200))),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def export_user_summaries(owner_id: str) -> dict:
+    """Write this user's summaries into summaries/<owner>/ on disk for offline local use."""
+    owner = (owner_id or "").strip()
+    if not owner or current_dir() is None:
+        return {"ok": False, "files": 0, "dir": None}
+    rows = list_user_summaries(owner, limit=200)
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", owner)[:80] or "user"
+    out_dir = require_dir() / "summaries" / safe
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Clear stale exports for this owner only.
+    for old in out_dir.glob("*.md"):
+        old.unlink(missing_ok=True)
+    written = 0
+    index: list[dict] = []
+    for i, row in enumerate(rows):
+        name = f"{i:03d}-{(row.get('title') or 'summary')[:40]}"
+        name = re.sub(r"[^a-zA-Z0-9._-]+", "_", name).strip("_") or f"summary-{i}"
+        path = out_dir / f"{name}.md"
+        path.write_text(
+            f"# {row.get('title') or 'Summary'}\n\n"
+            f"_updated {row.get('updated_at')}_ · _{row.get('source')}_\n\n"
+            f"{row.get('body') or ''}\n",
+            encoding="utf-8",
+        )
+        written += 1
+        index.append({"id": row["id"], "file": path.name, "title": row.get("title")})
+    (out_dir / "index.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
+    return {"ok": True, "files": written, "dir": str(out_dir), "owner_id": owner}
+
+
+def purge_stale_user_summaries(max_age_hours: int = 24) -> int:
+    """Drop local summaries not touched within max_age_hours (per-device cleanup)."""
+    if current_dir() is None:
+        return 0
+    cutoff = datetime.now(timezone.utc).timestamp() - max(1, max_age_hours) * 3600
+    removed = 0
+    with _connect() as conn:
+        rows = conn.execute("SELECT id, updated_at FROM user_summaries").fetchall()
+        for row in rows:
+            try:
+                ts = datetime.fromisoformat(str(row["updated_at"]).replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = 0
+            if ts < cutoff:
+                conn.execute("DELETE FROM user_summaries WHERE id = ?", (row["id"],))
+                removed += 1
+    return removed
 
 
 def write_trace(payload: dict) -> Path:

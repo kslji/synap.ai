@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily purge of synap.surf platform ephemera
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

@@ -5,8 +5,10 @@ cd /d "%~dp0"
 set PORT=18766
 set URL=http://127.0.0.1:18766/local-agent.html
 
-echo Surf AI
+echo Surf AI — local Small Cloud on this computer
 echo Folder: %cd%
+echo Moss: add MOSS_PROJECT_ID / MOSS_PROJECT_KEY to the host .env when you run the full host;
+echo       if credits fail, Surf falls back to on-device keyword search automatically.
 echo.
 
 if not exist "local-agent.html" (

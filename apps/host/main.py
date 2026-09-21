@@ -38,10 +38,14 @@ from store import (
     clear_chat_data,
     counts,
     create_conversation,
+    export_user_summaries,
     get_messages,
     init_db,
     list_conversations,
+    list_user_summaries,
     prune,
+    purge_stale_user_summaries,
+    upsert_user_summary,
     write_trace,
 )
 from platform_store import (
@@ -49,6 +53,7 @@ from platform_store import (
     get_user_by_id,
     init_platform_db,
     list_feedback,
+    purge_ephemeral,
     counts as platform_counts,
     db_path as platform_db_path,
 )
@@ -56,9 +61,13 @@ import accounts
 import audit
 import mail_queue
 import vault
+import asyncio
 
 
 _SYSTEM_PROMPT: str | None = None
+# One active chat generation per session subject — keeps a single local GPU/CPU from wedging.
+_chat_locks: dict[str, asyncio.Lock] = {}
+_chat_busy: set[str] = set()
 
 _FILE_GROUND = (
     "TURN CONTEXT: Attached file text follows. Prefer it for file questions; cite filenames. "
@@ -135,6 +144,15 @@ async def lifespan(_: FastAPI):
     instances.migrate_repo_data()
     init_platform_db()
     bind_instance()
+    # Thin VPS: drop expired OTPs / unverified signups older than 24h on boot.
+    try:
+        purge_ephemeral(24)
+    except Exception:
+        pass
+    try:
+        purge_stale_user_summaries(24)
+    except Exception:
+        pass
     await mail_queue.start()
     yield
     await mail_queue.stop()
@@ -551,6 +569,65 @@ async def add_memory(note: NoteReq, session: dict = Depends(require_session)):
     return {"id": doc_id, "docs": moss.docs}
 
 
+class SummaryReq(BaseModel):
+    title: str = Field(default="Session summary", max_length=120)
+    body: str = Field(min_length=1, max_length=8000)
+    source: str = Field(default="chat", max_length=32)
+    id: str | None = None
+
+
+@app.post("/v1/summaries")
+def save_summary(req: SummaryReq, session: dict = Depends(require_session)):
+    """Rolling summary for this user — local instance SQLite only."""
+    if instances.current() is None:
+        raise instances.NoInstanceError()
+    owner = str(session.get("sub") or "").strip()
+    if not owner:
+        raise HTTPException(status_code=401, detail="Missing session subject")
+    try:
+        row = upsert_user_summary(
+            owner_id=owner,
+            title=req.title,
+            body=req.body,
+            source=req.source,
+            summary_id=req.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    export_user_summaries(owner)
+    return row
+
+
+@app.get("/v1/summaries")
+def get_summaries(
+    session: dict = Depends(require_session),
+    limit: int = Query(default=40, ge=1, le=200),
+):
+    owner = str(session.get("sub") or "").strip()
+    if not owner:
+        raise HTTPException(status_code=401, detail="Missing session subject")
+    if instances.current() is None:
+        return {"items": [], "owner_id": owner}
+    return {"items": list_user_summaries(owner, limit=limit), "owner_id": owner}
+
+
+@app.post("/v1/summaries/export")
+def export_summaries(session: dict = Depends(require_session)):
+    """Write this user's summaries into summaries/<owner>/ for offline local use."""
+    if instances.current() is None:
+        raise instances.NoInstanceError()
+    owner = str(session.get("sub") or "").strip()
+    if not owner:
+        raise HTTPException(status_code=401, detail="Missing session subject")
+    return export_user_summaries(owner)
+
+
+@app.post("/v1/platform/purge")
+def platform_purge(_: dict = Depends(require_user)):
+    """Operator/maintenance: purge VPS platform ephemera older than 24h (no chats stored)."""
+    return purge_ephemeral(24)
+
+
 @app.get("/v1/memory/search")
 async def search_memory(
     q: str,
@@ -583,6 +660,22 @@ def messages(conversation_id: str, _: dict = Depends(require_session)):
 @app.post("/v1/chat")
 async def chat(req: ChatRequest, request: Request, session: dict = Depends(require_session)):
     rate_limit(request, f"chat:{session['sub']}")
+    owner_key = str(session.get("sub") or "").strip() or "anon"
+    lock = _chat_locks.setdefault(owner_key, asyncio.Lock())
+    if lock.locked() or owner_key in _chat_busy:
+        raise HTTPException(
+            status_code=429,
+            detail="Another answer is still generating on this computer. Wait for it to finish, then send again.",
+        )
+    async with lock:
+        _chat_busy.add(owner_key)
+        try:
+            return await _run_chat(req, session)
+        finally:
+            _chat_busy.discard(owner_key)
+
+
+async def _run_chat(req: ChatRequest, session: dict):
     if instances.current() is None:
         raise instances.NoInstanceError()
     if vault.needs_unlock():
@@ -720,6 +813,18 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
         # First-time / general questions: inject turn cue so the model does not wait for files.
         ground = _GENERAL_TURN
 
+    # Per-user rolling summaries (local only) — never shared across accounts.
+    if owner:
+        bits = []
+        for s in list_user_summaries(owner, limit=3):
+            bits.append(f"### {s.get('title') or 'Summary'}\n{str(s.get('body') or '')[:1200]}")
+        if bits:
+            ground = (
+                ground
+                + "\n\nPrior session summaries for this user only (do not invent beyond these):\n"
+                + "\n\n".join(bits)
+            ).strip()
+
     # System prompt is identical every turn so Ollama can prefix-cache it.
     ollama_messages = [{"role": "system", "content": load_system_prompt()}]
     prior = history[:-1] if history else []
@@ -777,6 +882,23 @@ async def chat(req: ChatRequest, request: Request, session: dict = Depends(requi
         if assistant:
             saved = add_message(conversation_id, "assistant", assistant)
             msg_id = saved["id"]
+            if owner and len(assistant) > 40:
+                try:
+                    snippet = (
+                        f"User asked: {question[:400]}\n"
+                        f"Assistant: {assistant[:1200]}"
+                    )
+                    upsert_user_summary(
+                        owner_id=owner,
+                        title=f"Chat {conversation_id[:8]}",
+                        body=snippet,
+                        source="live-chat",
+                        summary_id=f"roll-{owner[:24]}-{conversation_id[:8]}",
+                    )
+                    if req.offline:
+                        export_user_summaries(owner)
+                except Exception:
+                    pass
         else:
             msg_id = None
 

@@ -86,9 +86,19 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { VoiceRoom } from "./VoiceRoom";
 import { canDictate, startDictation } from "@/lib/dictation";
-import { completeBrowserChat, isBrowserModelProgress, streamBrowserChat, webGpuOk } from "@/lib/webllm";
+import { isBrowserModelProgress, webGpuOk } from "@/lib/browserCaps";
 import { replyTimeLabel } from "@/lib/responseTime";
 import { BrandMark } from "./BrandMark";
+
+/** Load WebLLM only when an in-browser reply/summary actually needs it (never on /chat open). */
+async function browserLlm() {
+  return import(
+    /* webpackChunkName: "surf-webllm" */
+    /* webpackPrefetch: false */
+    /* webpackPreload: false */
+    "@/lib/webllm"
+  );
+}
 
 function stampReply(messages: ChatMsg[], extra: Pick<ChatMsg, "waitMs" | "backendMs" | "engine">): ChatMsg[] {
   return messages.map((m, i, arr) =>
@@ -424,8 +434,9 @@ export function LocalChat() {
     const summarizeBody = [fileLine, `Chats to fold in:\n${packed}`].join("\n\n");
     try {
       let summary = "";
-      const browserSummary = () =>
-        completeBrowserChat(
+      const browserSummary = async () => {
+        const { completeBrowserChat } = await browserLlm();
+        return completeBrowserChat(
           [
             {
               role: "system",
@@ -438,6 +449,7 @@ export function LocalChat() {
           ],
           setProgress,
         );
+      };
       if (engine === "ollama" && (status?.local_llm?.backend || status?.ollama) && status.platform?.instance) {
         try {
           const { conversation_id } = await streamChat({
@@ -886,6 +898,7 @@ export function LocalChat() {
           paint(t);
         };
         try {
+          const { streamBrowserChat } = await browserLlm();
           await streamBrowserChat(
             fitBrowserPrompt(systemPrompt(memory, extra, BROWSER_MEMORY_BUDGET), prior, userAsk),
             paintBuf,

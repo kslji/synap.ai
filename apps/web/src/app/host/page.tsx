@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { LocalChat } from "@/components/LocalChat";
+import dynamic from "next/dynamic";
+
+const LocalChat = dynamic(
+  () => import("@/components/LocalChat").then((m) => ({ default: m.LocalChat })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="chat-shell">
+        <p className="muted" style={{ padding: 24 }}>
+          Opening chat…
+        </p>
+      </div>
+    ),
+  },
+);
 
 export default function HostPage() {
-  const [ready, setReady] = useState(false);
-  useEffect(() => setReady(true), []);
-  if (!ready) return <div className="chat-shell" />;
   return <LocalChat />;
 }

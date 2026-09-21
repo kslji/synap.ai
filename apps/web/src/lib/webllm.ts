@@ -1,7 +1,10 @@
 "use client";
 
 import { BROWSER_PROMPT_CHARS, fitBrowserPrompt, isModelNoise } from "./groundedContext";
+import { isBrowserModelProgress, webGpuOk } from "./browserCaps";
 import { networkOnline } from "./net";
+
+export { isBrowserModelProgress, webGpuOk } from "./browserCaps";
 
 /** Minimal engine surface so we can lazy-load @mlc-ai/web-llm (keeps /chat from freezing on open). */
 type MLCEngine = {
@@ -27,17 +30,18 @@ export function hasReadyBrowserEngine(): boolean {
   return engineReady;
 }
 
-export function webGpuOk(): boolean {
-  return typeof navigator !== "undefined" && "gpu" in navigator;
-}
-
 function overflow(err: unknown): boolean {
   return isModelNoise(err instanceof Error ? err.message : String(err));
 }
 
 async function loadMlc() {
   // Dynamic import: static import of @mlc-ai/web-llm freezes the tab on first /chat paint.
-  return import("@mlc-ai/web-llm");
+  return import(
+    /* webpackChunkName: "webllm-engine" */
+    /* webpackPrefetch: false */
+    /* webpackPreload: false */
+    "@mlc-ai/web-llm"
+  );
 }
 
 async function mlcAppConfig() {
@@ -122,13 +126,6 @@ export function ensureBrowserEngine(onProgress: (s: string) => void): Promise<ML
     });
   }
   return enginePromise;
-}
-
-/** True for raw WebLLM/MLC download lines — never show these in the chat composer. */
-export function isBrowserModelProgress(s: string): boolean {
-  return /Fetching param cache|Loading model from cache|cache\[\d|It can take a while when we first visit|webgpu\.wasm|Start to fetch|Finish loading on WebGPU|Loading the in-browser model/i.test(
-    s,
-  );
 }
 
 /** Warm WebLLM from Cache Storage — online downloads; offline loads prior Chrome cache. */

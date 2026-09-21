@@ -101,6 +101,28 @@ def run_checks() -> list[dict]:
         "openOnDevice includes pack harness",
         rows,
     )
+    check(
+        "zip-bakes-moss-bridge",
+        "moss_bridge.py" in open_on and "moss_vault.enc" in open_on,
+        "openOnDevice bakes sealed Moss vault + bridge",
+        rows,
+    )
+    vault = PUBLIC / "moss_vault.enc"
+    check("moss-vault-sealed", vault.is_file() and "surf-seal-v1" in vault.read_text(encoding="utf-8"), str(vault), rows)
+    check("moss-bridge-present", (PUBLIC / "moss_bridge.py").is_file(), "moss_bridge.py", rows)
+    html = (PUBLIC / "local-agent.html").read_text(encoding="utf-8")
+    check(
+        "standalone-moss-online-only",
+        "18767" in html and "navigator.onLine" in html and "searchMossPack" in html,
+        "pack chat uses Moss bridge only while online",
+        rows,
+    )
+    check(
+        "standalone-no-plaintext-moss-key",
+        "MOSS_PROJECT_KEY" not in html and "MOSS_PROJECT_ID" not in html,
+        "UI must not embed Moss env keys",
+        rows,
+    )
 
     return rows
 

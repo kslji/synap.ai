@@ -204,6 +204,50 @@ for pid in {int(p) for p in out.split() if p.strip().isdigit()}:
 PY
 }
 
+stop_moss_bridge() {
+  "$PY" - <<'PY'
+import os, signal, subprocess
+try:
+    out = subprocess.check_output(["lsof", "-tiTCP:18767", "-sTCP:LISTEN"], text=True)
+except Exception:
+    raise SystemExit(0)
+for pid in {int(p) for p in out.split() if p.strip().isdigit()}:
+    if pid == os.getpid(): continue
+    try: os.kill(pid, signal.SIGTERM)
+    except OSError: pass
+PY
+}
+
+online_now() {
+  curl -fsS --max-time 2 https://1.1.1.1 >/dev/null 2>&1 \
+    || curl -fsS --max-time 2 https://ollama.com >/dev/null 2>&1 \
+    || return 1
+  return 0
+}
+
+start_moss_bridge() {
+  MOSS_PID=""
+  if [[ ! -f "${HERE}/moss_bridge.py" || ! -f "${HERE}/moss_vault.enc" ]]; then
+    echo "Moss pack files missing — chat works; retrieval uses attached files only."
+    return 0
+  fi
+  if ! online_now; then
+    echo "Offline — Moss paused. Chat still works with your local model + attached files."
+    return 0
+  fi
+  stop_moss_bridge
+  # Optional SDK (keys stay sealed in moss_vault.enc — never printed).
+  "$PY" -m pip install --user -q moss >/dev/null 2>&1 || true
+  "$PY" "${HERE}/moss_bridge.py" >/dev/null 2>&1 &
+  MOSS_PID=$!
+  sleep 0.4
+  if curl -fsS --max-time 1 http://127.0.0.1:18767/health >/dev/null 2>&1; then
+    echo "Moss retrieval ready on this device (keys sealed; online only)."
+  else
+    echo "Moss bridge starting… (keyword fallback if SDK unavailable)"
+  fi
+}
+
 serve_page() {
   "$PY" - <<'PY' &
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -222,8 +266,13 @@ if port_busy; then stop_old_page; sleep 0.35; fi
 echo
 echo "Starting local chat. Leave this window open while you use Surf."
 echo
+start_moss_bridge
 serve_page
-cleanup() { kill "${SERVER_PID}" 2>/dev/null || true; }
+cleanup() {
+  kill "${SERVER_PID}" 2>/dev/null || true
+  if [[ -n "${MOSS_PID:-}" ]]; then kill "${MOSS_PID}" 2>/dev/null || true; fi
+  stop_moss_bridge
+}
 trap cleanup EXIT INT TERM
 wait_ready || true
 open_chrome

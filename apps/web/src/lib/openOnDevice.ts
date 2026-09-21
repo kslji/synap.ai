@@ -164,6 +164,10 @@ Self-check (recommended before chatting):
   Mac/Linux:  bash harness/check-pack.sh
   Windows:    harness\\check-pack.bat
   See harness/TESTS.md for manual smoke prompts.
+
+Moss (hackathon / retrieval):
+  Pack includes moss_bridge.py + sealed moss_vault.enc (keys are encrypted, not readable as plain text).
+  LOCAL-SETUP starts Moss only while online. Offline chat still works; Moss stays paused.
 `;
 }
 
@@ -344,6 +348,22 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     if (!harness || harness.kind !== "text") continue;
     const unixMode = name.endsWith(".sh") ? 0o100755 : undefined;
     files.push({ name: `${root}/harness/${name}`, body: harness.body, unixMode });
+  }
+
+  const mossBridge = await readPackFile("/moss_bridge.py", true);
+  if (mossBridge && mossBridge.kind === "text") {
+    files.push({ name: `${root}/moss_bridge.py`, body: mossBridge.body });
+  }
+  const mossVault = await readPackFile("/moss_vault.enc", true);
+  if (mossVault && mossVault.kind === "text") {
+    // Sealed credentials only — never plaintext project id/key in the zip.
+    if (!mossVault.body.includes("surf-seal-v1")) {
+      throw new Error("Moss vault missing seal — run npm run seal:moss before building packs.");
+    }
+    if (/MOSS_PROJECT_KEY|project_key"\s*:\s*"[^"]{8,}"/.test(mossVault.body) && !mossVault.body.includes('"alg"')) {
+      throw new Error("Refusing to bake plaintext Moss credentials into a pack.");
+    }
+    files.push({ name: `${root}/moss_vault.enc`, body: mossVault.body });
   }
 
   const blob = zipStore(files);

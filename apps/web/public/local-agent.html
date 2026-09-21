@@ -1277,7 +1277,19 @@
       wrap.appendChild(feedbackUi());
     }
     async function indexMoss(text, id) {
-      if (isStandalone() || !hasJwt()) return;
+      if (isStandalone()) {
+        if (!navigator.onLine) return; // offline → do not use Moss
+        try {
+          await fetch("http://127.0.0.1:18767/v1/memory", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: String(text).slice(0, 16000), id }),
+            signal: AbortSignal.timeout(2500),
+          });
+        } catch { /* bridge optional */ }
+        return;
+      }
+      if (!hasJwt()) return;
       try {
         const tok = await token();
         await fetch(HOST + "/v1/memory", {
@@ -1287,18 +1299,61 @@
         });
       } catch { /* host optional */ }
     }
+    async function searchMossPack(q) {
+      if (!isStandalone() || !navigator.onLine) return null;
+      try {
+        const r = await fetch(
+          "http://127.0.0.1:18767/v1/memory/search?q=" + encodeURIComponent(String(q).slice(0, 500)),
+          { signal: AbortSignal.timeout(3500) },
+        );
+        if (!r.ok) return null;
+        return await r.json();
+      } catch {
+        return null;
+      }
+    }
+    async function mossBridgeHealth() {
+      if (!isStandalone() || !navigator.onLine) return null;
+      try {
+        const r = await fetch("http://127.0.0.1:18767/health", { signal: AbortSignal.timeout(600) });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch {
+        return null;
+      }
+    }
+    function formatMossHits(hit) {
+      if (!hit || !Array.isArray(hit.docs) || !hit.docs.length) return "";
+      const lines = hit.docs
+        .slice(0, 4)
+        .map((d) => "- " + String(d.text || "").replace(/\s+/g, " ").trim().slice(0, 280))
+        .filter((s) => s.length > 3);
+      if (!lines.length) return "";
+      return (
+        "\n\nMoss retrieval (" +
+        (hit.time_taken_ms ?? "?") +
+        " ms, " +
+        (hit.backend || "local") +
+        "):\n" +
+        lines.join("\n")
+      );
+    }
     function paintEngines(h) {
       healthCache = h;
       const pack = window.__SURF_PACK__ || null;
       const packTitle = pack && pack.modelTitle ? String(pack.modelTitle) : "";
       const packTag = pack && pack.model ? String(pack.model) : "";
       const attached = (active()?.attached || []).length;
-      const moss = isStandalone() ? attached > 0 : !!h?.moss?.enabled;
+      const mossEnabled = isStandalone()
+        ? !!(h && h.moss && h.moss.enabled && navigator.onLine)
+        : !!h?.moss?.enabled;
       const mossLine = isStandalone()
-        ? (attached
-          ? ("Finding text in your files: on (" + attached + " attached)")
-          : "Finding text in your files: attach a file or folder on this chat")
-        : (moss
+        ? (!navigator.onLine
+          ? "Moss: paused (offline — chat still works)"
+          : mossEnabled
+            ? ("Moss: on (" + (h?.moss?.backend || "local") + ", " + (h?.moss?.docs ?? 0) + " pieces)")
+            : "Moss: starting or attach a file while online")
+        : (mossEnabled
           ? ("Finding text in your files: on (" + (h?.moss?.docs ?? 0) + " pieces ready)")
           : "Finding text in your files: off (start the local host to turn this on)");
       const localKind = h?.local_llm?.backend;
@@ -1309,14 +1364,13 @@
           ? packTitle
           : packTitle + " · " + rawModel)
         : rawModel;
-      // Downloaded packs already chose their model — never nag to re-download from the site.
       const writingLine = local
         ? ("Writing answers with: " + modelLabel)
         : (isStandalone()
           ? ("Writing answers with: " + (packTitle || packTag || "this pack’s model") + " (starting…)")
           : "Writing answers with: the small model in this browser");
       const html =
-        `<li class="${moss ? "ok" : ""}">${mossLine}</li>` +
+        `<li class="${mossEnabled ? "ok" : ""}">${mossLine}</li>` +
         `<li class="${local || isStandalone() ? "ok" : ""}">${writingLine}</li>`;
       document.getElementById("engine-dots").innerHTML = html;
       modeEl.textContent = modelLabel || packTitle || packTag || "local model";
@@ -1333,7 +1387,15 @@
       if (so) so.hidden = isStandalone();
     }
     async function refreshHost() {
-      const h = await hostHealth();
+      let h = await hostHealth();
+      if (isStandalone()) {
+        const mh = await mossBridgeHealth();
+        if (h && mh && mh.moss) {
+          h = { ...h, moss: mh.moss };
+        } else if (h && !navigator.onLine) {
+          h = { ...h, moss: { enabled: false, backend: "offline", docs: 0, sdk: false } };
+        }
+      }
       paintEngines(h);
       await paintFeedback();
     }
@@ -2279,11 +2341,14 @@
         const linkLine = linkNotes
           ? ("\n\nLINK NOTES (local pack; may be blocked):\n" + linkNotes)
           : "";
+        const mossHit = isStandalone() && navigator.onLine ? await searchMossPack(asked) : null;
+        const mossLine = formatMossHits(mossHit);
         const system = (crispe || (fileBlock
           ? "You are Surf AI on this device — a careful document colleague for attached sources. Answer from attached-file text for file questions; cite filenames. When asked for a summary of this file, summarize the file contents — never your role. Stay accurate. Markdown that is easy to scan. File conversion is not supported."
           : "You are Surf AI on this device — a helpful local assistant. First-time users may ask general questions with no files and no training step. Answer clearly. Markdown is fine. Prefer recent chat and retained memory when present. Never reprint retained memory unless asked. File conversion is not supported.")) +
           packIdLine +
           linkLine +
+          mossLine +
           (fileBlock
             ? "\n\nTURN CONTEXT: Attached file text follows. Prefer it for file questions; cite [filename].\n\n" + fileBlock
             : "\n\nTURN CONTEXT: No files are attached on this turn. Answer as a general helpful assistant. The user does not need to upload anything or train you.") +

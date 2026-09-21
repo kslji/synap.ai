@@ -7,12 +7,13 @@
     "vendor-llm": "cp node_modules/@mlc-ai/web-llm/lib/index.js public/web-llm.js",
     "vendor-pdfjs": "node scripts/vendor-pdfjs.mjs",
     "predev": "npm run vendor-llm && npm run vendor-pdfjs",
-    "prebuild": "npm run vendor-llm && npm run vendor-pdfjs && node scripts/fetch-mlc-wasm.mjs",
+    "prebuild": "npm run vendor-llm && npm run vendor-pdfjs && node scripts/fetch-mlc-wasm.mjs && npm run seal:moss",
     "build": "next build",
     "postbuild": "node scripts/write-sw-precache.mjs",
     "start": "npx --yes serve out -p 3000",
     "verify:packs": "node scripts/verify-packs.mjs",
     "verify:agent": "node scripts/verify-local-agent.mjs",
+    "seal:moss": "node scripts/seal-moss-vault.mjs",
     "verify": "npm run verify:packs && npm run verify:agent"
   },
   "dependencies": {

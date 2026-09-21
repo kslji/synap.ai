@@ -103,10 +103,20 @@ else
   bad "delete wired" "erase-side / wipe missing"
 fi
 
-if printf '%s' "$HTML" | grep -q 'mic-on' && printf '%s' "$HTML" | grep -q 'setMicLive'; then
-  ok "mic recording UI"
+if printf '%s' "$HTML" | grep -q '18767' && printf '%s' "$HTML" | grep -q 'searchMossPack'; then
+  ok "moss bridge client (online only)"
 else
-  bad "mic recording UI" "mic-on / setMicLive missing"
+  bad "moss bridge client" "18767 / searchMossPack missing"
+fi
+
+need "moss_bridge.py" "moss_bridge.py"
+need "moss_vault.enc" "moss_vault.enc"
+if [ -f moss_vault.enc ]; then
+  if grep -q 'surf-seal-v1' moss_vault.enc && ! grep -q 'MOSS_PROJECT_KEY' moss_vault.enc; then
+    ok "moss vault sealed"
+  else
+    bad "moss vault sealed" "vault must use surf-seal-v1 without plaintext keys"
+  fi
 fi
 
 if grep -q 'modelTitle' SURF-OPEN.sh && ! grep -q 'agent:-Surf' SURF-OPEN.sh; then

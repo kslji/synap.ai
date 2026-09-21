@@ -70,6 +70,19 @@ if errorlevel 1 (
 
 echo Starting local chat and opening Chrome...
 echo Leave this window open while you chat.
+
+REM Moss bridge (online only). Keys stay in sealed moss_vault.enc — never printed.
+set MOSS_ONLINE=0
+ping -n 1 -w 1500 1.1.1.1 >nul 2>&1 && set MOSS_ONLINE=1
+if "%MOSS_ONLINE%"=="0" ping -n 1 -w 1500 ollama.com >nul 2>&1 && set MOSS_ONLINE=1
+if "%MOSS_ONLINE%"=="1" if exist "moss_bridge.py" if exist "moss_vault.enc" (
+  %PY% -m pip install --user -q moss >nul 2>&1
+  start "Surf-Moss" /MIN %PY% moss_bridge.py
+  echo Moss retrieval ready when online (keys sealed).
+) else (
+  echo Offline or Moss files missing — Moss paused; local chat still works.
+)
+
 start "" %PY% -m http.server %PORT% --bind 127.0.0.1
 timeout /t 2 /nobreak >nul
 start "" "chrome" "%URL%" 2>nul

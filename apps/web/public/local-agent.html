@@ -668,6 +668,46 @@
       } catch (_) {}
       return null;
     }
+    function extractUrls(text) {
+      return [...String(text).matchAll(/https?:\/\/[^\s)<>"']+/gi)].map((m) => m[0].replace(/[.,;:!?)]+$/, "")).slice(0, 3);
+    }
+    async function urlContextNotes(text) {
+      const urls = extractUrls(text);
+      if (!urls.length) return "";
+      const bits = [];
+      for (const url of urls) {
+        if (/youtube\.com|youtu\.be|vimeo\.com/i.test(url)) {
+          bits.push(
+            "Link " + url + ": This local Surf pack cannot watch or transcribe videos. Paste the title, description, or a transcript, or attach a saved notes file.",
+          );
+          continue;
+        }
+        try {
+          const r = await fetch(url, { signal: AbortSignal.timeout(4500), mode: "cors" });
+          if (!r.ok) throw new Error("bad status");
+          const ctype = (r.headers.get("content-type") || "").toLowerCase();
+          if (!/text|html|json|xml|markdown/i.test(ctype)) {
+            bits.push("Link " + url + ": Not plain text/HTML, so it could not be read here. Paste the content or attach a file.");
+            continue;
+          }
+          let body = await r.text();
+          body = body
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 6000);
+          if (body.length < 40) throw new Error("empty");
+          bits.push("Fetched page text from " + url + ":\n" + body);
+        } catch (_) {
+          bits.push(
+            "Link " + url + ": Could not open from this local chat (browsers block most sites). Paste the article text or attach a saved HTML/PDF.",
+          );
+        }
+      }
+      return bits.join("\n\n");
+    }
     function pickPackModel(names, preferred) {
       if (!preferred || !names.length) return null;
       const want = String(preferred).toLowerCase();
@@ -2205,10 +2245,15 @@
         const packIdLine = pack && (pack.modelTitle || pack.model)
           ? ("\n\nRUNTIME: This Surf pack runs local model \"" + (pack.modelTitle || pack.model) + "\"" + (pack.model ? " (tag " + pack.model + ")" : "") + ". If asked which model you are using, say that exact name. Do not claim you are a cloud GPT or that you have no model name.")
           : "";
+        const linkNotes = await urlContextNotes(asked);
+        const linkLine = linkNotes
+          ? ("\n\nLINK NOTES (local pack; may be blocked):\n" + linkNotes)
+          : "";
         const system = (crispe || (fileBlock
           ? "You are Surf AI on this device — a careful document colleague for attached sources. Answer from attached-file text for file questions; cite filenames. When asked for a summary of this file, summarize the file contents — never your role. Stay accurate. Markdown that is easy to scan. File conversion is not supported."
           : "You are Surf AI on this device — a helpful local assistant. First-time users may ask general questions with no files and no training step. Answer clearly. Markdown is fine. Prefer recent chat and retained memory when present. Never reprint retained memory unless asked. File conversion is not supported.")) +
           packIdLine +
+          linkLine +
           (fileBlock
             ? "\n\nTURN CONTEXT: Attached file text follows. Prefer it for file questions; cite [filename].\n\n" + fileBlock
             : "\n\nTURN CONTEXT: No files are attached on this turn. Answer as a general helpful assistant. The user does not need to upload anything or train you.") +

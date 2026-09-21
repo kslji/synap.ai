@@ -1,7 +1,6 @@
 import type { AgentManifest } from "./agentPacks";
 import {
   assertManifestMatchesFolder,
-  packById,
   packDownloadName,
   packFolderName,
 } from "./agentPacks";
@@ -109,17 +108,23 @@ function concat(parts: Uint8Array[]): Uint8Array {
 }
 
 function readmeFor(manifest: AgentManifest): string {
-  const pack = packById(manifest.agent);
   const folder = packFolderName(manifest);
-  return `Surf AI — one command on your computer
+  return `Surf AI — ${manifest.modelTitle} pack
 
-Pack: ${pack.title} (${pack.license})
-Model baked in: ${manifest.modelTitle || manifest.model}
+THIS PACK MODEL (only):
+  Name:  ${manifest.modelTitle}
+  Tag:   ${manifest.model}
+  Id:    ${manifest.modelId}
+  RAM:   ${manifest.ram}
+  Size:  ${manifest.download}
+
 Folder: ${folder}
-Download size for the model: ${manifest.download || "see website"} · ${manifest.ram || ""}
+Zip:    ${packDownloadName(manifest)}
 
-The zip folder is small. The AI model downloads automatically on first LOCAL-SETUP
-(needs internet once). After that, chat works offline.
+Other model packs are separate downloads. This folder is only for ${manifest.modelTitle}.
+
+The zip folder is small. The AI model (${manifest.model}) downloads automatically on first
+LOCAL-SETUP (needs internet once). After that, chat works offline.
 
 You can keep many packs unzipped at once (one folder per model). SURF-OPEN lists them.
 
@@ -129,26 +134,26 @@ Phones/tablets: use a Mac, Windows, or Linux computer.
 2. From ANY directory, run ONE command:
 
    Mac/Linux:
-   bash "$(ls -t "$HOME"/Downloads/surf-ai-*/SURF-OPEN.sh 2>/dev/null | head -n 1)"
+   bash "$(ls -t ~/Downloads/surf-ai-*/SURF-OPEN.sh 2>/dev/null | head -n 1)"
 
    Windows (PowerShell):
-   & (Get-ChildItem $env:USERPROFILE\\Downloads\\surf-ai-*\\SURF-OPEN.bat | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+   powershell -NoProfile -Command "& ((Get-ChildItem $env:USERPROFILE\\Downloads\\surf-ai-*\\SURF-OPEN.bat | Sort LastWriteTime -Desc | Select -First 1).FullName)"
 
-   If several packs exist, SURF-OPEN asks which model to open.
-   Tip: bash …/SURF-OPEN.sh 2   or   SURF_MODEL=${manifest.model} bash …/SURF-OPEN.sh
+   Tip: SURF_MODEL=${manifest.model} bash …/SURF-OPEN.sh
 
    Or open a terminal inside ${folder} and run:
    Mac/Linux:  bash LOCAL-SETUP.sh
    Windows:    LOCAL-SETUP.bat
 
-Chrome opens http://127.0.0.1:18766 — start chatting.
+Chrome opens http://127.0.0.1:18766 — start chatting with ${manifest.modelTitle}.
 Leave the small window open while you chat.
 
-Same steps for Ollama, GPT4All, Jan, and AnythingLLM packs.
 Install Chrome if needed: https://www.google.com/chrome/
 
 Do not double-click local-agent.html — always use LOCAL-SETUP or SURF-OPEN.
 Your chats stay on this computer.
+
+Links / YouTube: this local pack cannot open the live web. Paste article text or attach a saved page.
 `;
 }
 
@@ -254,12 +259,27 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     ram: manifest.ram,
   })};`;
 
+  const modelCard = [
+    `Surf AI pack model`,
+    `title=${manifest.modelTitle}`,
+    `tag=${manifest.model}`,
+    `id=${manifest.modelId}`,
+    `tier=${manifest.tier}`,
+    `ram=${manifest.ram}`,
+    `download=${manifest.download}`,
+    "",
+  ].join("\n");
+
+  const setupShBody = stampSetupScript(setupSh.body, manifest);
+  const setupBatBody = stampSetupScript(setupBat.body, manifest);
+
   const files: Array<{ name: string; body: string | Uint8Array; unixMode?: number }> = [
-    { name: `${root}/LOCAL-SETUP.sh`, body: setupSh.body, unixMode: 0o100755 },
-    { name: `${root}/LOCAL-SETUP.bat`, body: setupBat.body },
+    { name: `${root}/LOCAL-SETUP.sh`, body: setupShBody, unixMode: 0o100755 },
+    { name: `${root}/LOCAL-SETUP.bat`, body: setupBatBody },
     { name: `${root}/SURF-OPEN.sh`, body: openSh.body, unixMode: 0o100755 },
     { name: `${root}/SURF-OPEN.bat`, body: openBat.body },
     { name: `${root}/agent.json`, body: JSON.stringify(manifest, null, 2) + "\n" },
+    { name: `${root}/MODEL.txt`, body: modelCard },
     { name: `${root}/README.txt`, body: readmeFor(manifest) },
   ];
 
@@ -269,15 +289,34 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
   }
   const htmlBody = html.body
     .replace(/\/\*__SURF_PACK_BOOT__\*\//, packBoot)
+    .replace(/<title>Surf AI<\/title>/i, `<title>Surf AI · ${manifest.modelTitle}</title>`)
     .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
     .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
     .replace(/>\s*Upload image\s*</gi, "><");
-  if (!htmlBody.includes(`"model":"${manifest.model}"`) && !htmlBody.includes(`"model": "${manifest.model}"`)) {
-    throw new Error("Failed to bake selected model into the chat page.");
+  if (!htmlBody.includes(manifest.model) || !htmlBody.includes(manifest.modelTitle)) {
+    throw new Error("Failed to bake selected model name into the chat page.");
+  }
+  // Guard: zip must not advertise a different catalog model as primary.
+  for (const other of ["llama3.2:1b", "qwen2.5:1.5b", "llama3.2:3b", "phi3:mini"]) {
+    if (other === manifest.model) continue;
+    if (htmlBody.includes(`"model":"${other}"`) || htmlBody.includes(`"model": "${other}"`)) {
+      throw new Error(`Pack incorrectly embeds other model ${other}.`);
+    }
   }
   files.push({ name: `${root}/local-agent.html`, body: htmlBody });
+
+  const systemMd = await readPackFile("/system.md", true);
+  if (systemMd && systemMd.kind === "text") {
+    const stamped =
+      systemMd.body.replace(
+        /Inference stays local when a local model is available\.[^\n]*/,
+        `Inference stays local. THIS PACK MODEL: ${manifest.modelTitle} (${manifest.model}). If asked which model you are using, answer exactly "${manifest.modelTitle}".`,
+      ) +
+      `\n\n## Pack identity\nThis download is only for **${manifest.modelTitle}** (\`${manifest.model}\`).\n`;
+    files.push({ name: `${root}/system.md`, body: stamped });
+  }
+
   for (const name of [
-    "system.md",
     "web-llm.js",
     "pdf.js",
     "pdf.worker.js",
@@ -299,6 +338,19 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function stampSetupScript(body: string, manifest: AgentManifest): string {
+  const banner = `# Surf AI pack: ${manifest.modelTitle} (${manifest.model})\n`;
+  if (body.startsWith("#!")) {
+    const nl = body.indexOf("\n");
+    return body.slice(0, nl + 1) + banner + body.slice(nl + 1);
+  }
+  if (/^@echo off/i.test(body)) {
+    const nl = body.indexOf("\n");
+    return body.slice(0, nl + 1) + `REM Surf AI pack: ${manifest.modelTitle} (${manifest.model})\r\n` + body.slice(nl + 1);
+  }
+  return banner + body;
 }
 
 function packSlugFromModel(title: string, tag: string): string {

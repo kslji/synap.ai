@@ -165,7 +165,8 @@
     }
     html.standalone #sign-out,
     html.standalone #dl-zip,
-    html.standalone #auth-scrim { display: none !important; }
+    html.standalone #auth-scrim,
+    html.standalone #light-note { display: none !important; }
   </style>
 </head>
 <body>
@@ -276,6 +277,7 @@
     localStorage.setItem("local.ai.client", clientId);
     let memoryBatches = [];
     let wipeArmed = false;
+    let actionBusy = false;
     let threads = [];
     let activeId = null;
     let healthCache = null;
@@ -1276,27 +1278,24 @@
           ? packTitle
           : packTitle + " · " + rawModel)
         : rawModel;
-      const light = /1b|1\.5b|2b|in-browser/i.test(String(rawModel)) || !local;
-      const lightHint = isStandalone()
-        ? "This pack uses a small model — answers stay short. Download a larger pack from synap.surf/download for fuller replies."
-        : "Light model: answers stay short. Download the zip on a computer for fuller replies. Phones use this browser only — no Terminal setup command.";
+      // Downloaded packs already chose their model — never nag to re-download from the site.
       const writingLine = local
         ? ("Writing answers with: " + modelLabel)
-        : "Writing answers with: the small model in this browser";
+        : (isStandalone()
+          ? ("Writing answers with: " + (packTitle || packTag || "this pack’s model") + " (starting…)")
+          : "Writing answers with: the small model in this browser");
       const html =
         `<li class="${moss ? "ok" : ""}">${mossLine}</li>` +
-        `<li class="${local ? "ok" : ""}">${writingLine}</li>` +
-        (light ? `<li class="warn-line">${lightHint}</li>` : "");
+        `<li class="${local || isStandalone() ? "ok" : ""}">${writingLine}</li>`;
       document.getElementById("engine-dots").innerHTML = html;
-      modeEl.textContent = modelLabel;
+      modeEl.textContent = modelLabel || packTitle || packTag || "local model";
       const lightNote = document.getElementById("light-note");
       if (lightNote) {
-        lightNote.hidden = !light;
-        const p = lightNote.querySelector("p");
-        if (p && isStandalone()) {
-          p.textContent = packTitle
-            ? ("This pack uses " + packTitle + ". Answers stay short on light models. For fuller replies, download a larger pack from synap.surf/download.")
-            : "This light model keeps answers short. For fuller replies, download a larger pack from synap.surf/download.";
+        if (isStandalone()) {
+          lightNote.hidden = true;
+        } else {
+          const light = /1b|1\.5b|2b|in-browser/i.test(String(rawModel)) || !local;
+          lightNote.hidden = !light;
         }
       }
       const so = document.getElementById("sign-out");
@@ -2670,7 +2669,20 @@
       renderAll();
       await persist();
     }
+    function setActionBusy(on) {
+      actionBusy = !!on;
+      ["summarize", "summarize-side", "erase", "erase-side", "send", "new"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !!on;
+      });
+    }
     async function compact() {
+      if (actionBusy) return;
+      wipeArmed = false;
+      const erase = document.getElementById("erase");
+      const eraseSide = document.getElementById("erase-side");
+      if (erase) erase.textContent = "Delete data";
+      if (eraseSide) eraseSide.textContent = "Delete all chats and files";
       const withMsgs = threads.filter((th) => (th.msgs || []).some((m) => m.content));
       const packed = withMsgs
         .map((th) => "# " + (th.title || "Chat") + "\n" + th.msgs.map((m) => m.role + ": " + m.content).join("\n"))
@@ -2686,6 +2698,7 @@
           withMsgs.flatMap((th) => (th.attached || []).map((f) => f.name).filter(Boolean)),
         ),
       ].slice(0, 80);
+      setActionBusy(true);
       progress("Summarizing this batch of chats on this device…");
       const fileLine = batchFileNames.length
         ? "Files attached to these chats only:\n" + batchFileNames.map((n) => "- " + n).join("\n")
@@ -2699,19 +2712,31 @@
       let summary = "";
       try {
         const h = await hostHealth();
+        healthCache = h;
         if (useHostChat(h)) {
           await ollamaChat(ask, (piece) => { summary += piece; }, null);
-        } else if (isStandalone() && (h?.ollama || h?.local_llm?.backend === "ollama")) {
+        } else if (isStandalone()) {
+          if (!(h?.ollama || h?.local_llm?.backend === "ollama")) {
+            progress("Wait until this pack’s model finishes loading in Ollama, then try Save summary again.");
+            return;
+          }
           try {
-            await ollamaDirect(ask, (piece) => { summary += piece; });
-          } catch {
-            if ("gpu" in navigator) {
-              await browserChat(
-                [{ role: "system", content: "Write a short factual summary of this batch only." }, { role: "user", content: ask }],
-                (piece) => { summary += piece; },
-                progress,
-              );
-            } else summary = packed.slice(0, 600);
+            await ollamaDirect(
+              ask,
+              (piece) => { summary += piece; },
+              "Write a short factual summary of this chat batch only. Reply with one plain paragraph.",
+            );
+          } catch (err) {
+            progress(
+              err instanceof Error
+                ? err.message
+                : "Could not summarize with this pack’s model. Check Ollama is running, then try again.",
+            );
+            return;
+          }
+          if (!String(summary || "").trim()) {
+            progress("Summary came back empty — try again in a moment.");
+            return;
           }
         } else if ("gpu" in navigator) {
           await browserChat(
@@ -2719,9 +2744,14 @@
             (piece) => { summary += piece; },
             progress,
           );
-        } else summary = packed.slice(0, 600);
-      } catch {
-        summary = packed.slice(0, 600);
+        } else {
+          summary = packed.slice(0, 600);
+        }
+      } catch (err) {
+        progress(err instanceof Error ? err.message : "Could not save a summary. Try again.");
+        return;
+      } finally {
+        setActionBusy(false);
       }
       const note = (summary || packed).trim().slice(0, 4000);
       memoryBatches = [
@@ -2748,6 +2778,7 @@
       await persist();
     }
     async function wipe() {
+      if (actionBusy) return;
       if (!wipeArmed) {
         wipeArmed = true;
         document.getElementById("erase").textContent = "Confirm delete";
@@ -2755,26 +2786,31 @@
         progress("Click Delete again to erase all chats and files from this browser.");
         return;
       }
-      threads = [];
-      memoryBatches = [];
-      activeId = null;
-      fbInbox = [];
-      await kvSet("state", { threads: [], activeId: null, memoryBatches: [], fbInbox: [] }).catch(() => {});
-      await new Promise((resolve) => {
-        const req = indexedDB.deleteDatabase(DB);
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
-        req.onblocked = () => resolve();
-      });
-      const t = newThread();
-      threads = [t];
-      activeId = t.id;
-      wipeArmed = false;
-      document.getElementById("erase").textContent = "Delete data";
-      document.getElementById("erase-side").textContent = "Delete all chats and files";
-      progress("Erased chats and files from this browser.");
-      renderAll();
-      await persist();
+      setActionBusy(true);
+      try {
+        threads = [];
+        memoryBatches = [];
+        activeId = null;
+        fbInbox = [];
+        await kvSet("state", { threads: [], activeId: null, memoryBatches: [], fbInbox: [] }).catch(() => {});
+        await new Promise((resolve) => {
+          const req = indexedDB.deleteDatabase(DB);
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        });
+        const t = newThread();
+        threads = [t];
+        activeId = t.id;
+        wipeArmed = false;
+        document.getElementById("erase").textContent = "Delete data";
+        document.getElementById("erase-side").textContent = "Delete all chats and files";
+        progress("Erased chats and files from this browser.");
+        renderAll();
+        await persist();
+      } finally {
+        setActionBusy(false);
+      }
     }
 
     function memoryPromptText(budget) {

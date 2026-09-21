@@ -51,19 +51,28 @@ export function LocalDataCard({
           Saved a summary for this batch only
           {last.batch?.chatTitles?.length ? ` (${last.batch.chatTitles.length} chat${last.batch.chatTitles.length === 1 ? "" : "s"})` : ""}
           . Messages went from {last.before.messages} to a {formatBytes(last.after.memoryBytes)} note.
-          {last.batch?.fileNames?.length ? (
-            <>
-              <br />
-              Files in this summary: {last.batch.fileNames.join(", ")}
-            </>
-          ) : (
-            <>
-              <br />
-              No files were attached to the chats in this summary.
-            </>
-          )}
         </div>
       )}
+      {last && last.kind === "summarize" && last.batch?.fileNames?.length ? (
+        <div className="summary-files">
+          <div className="summary-files-label">Files in this summary</div>
+          <ul>
+            {last.batch.fileNames.slice(0, 12).map((n) => (
+              <li key={n} title={n}>
+                {n}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {last && last.kind === "summarize" && !last.batch?.fileNames?.length ? (
+        <div className="summary-files">
+          <div className="summary-files-label">Files in this summary</div>
+          <p className="tiny muted" style={{ margin: "4px 0 0" }}>
+            No files were attached to the chats in this summary.
+          </p>
+        </div>
+      ) : null}
       {last && last.kind === "erase" && (
         <div className="data-change">
           Deleted. This browser now has {last.after.chats} chats and {last.after.fileCount} files.

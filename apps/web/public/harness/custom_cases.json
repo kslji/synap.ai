@@ -96,6 +96,34 @@
       "expect": "Answers from harbour-agent only — does not dump the resume text"
     },
     {
+      "id": "manual-xlsx-focus",
+      "enabled": true,
+      "kind": "manual",
+      "ask": "Attach a .xlsx payroll sheet plus a resume PDF, then ask: what is the payroll spreadsheet about?",
+      "expect": "Uses payroll sheet rows only — does not dump the resume"
+    },
+    {
+      "id": "manual-docx-pptx-csv",
+      "enabled": true,
+      "kind": "manual",
+      "ask": "Attach handbook.docx, deck.pptx, and catalog.csv; ask about each by name in turn.",
+      "expect": "Each ask grounds on the named file type only"
+    },
+    {
+      "id": "manual-zip-unpack",
+      "enabled": true,
+      "kind": "manual",
+      "ask": "Attach harbour-agent-OP1.zip (fresh), ask: what is this file all about?",
+      "expect": "Lists real folders/paths from the zip — never 'no file paths were parsed'"
+    },
+    {
+      "id": "manual-summary-files-layout",
+      "enabled": true,
+      "kind": "manual",
+      "ask": "Save a short summary and delete chats with a long PDF attached",
+      "expect": "Sidebar shows 'Files in latest summary' as a wrapped list inside the data card — not a cut-off green line"
+    },
+    {
       "id": "TEMPLATE-manual-your-workflow",
       "enabled": false,
       "kind": "manual",

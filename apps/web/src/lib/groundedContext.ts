@@ -334,8 +334,10 @@ export function pathsFromFiles(files: NamedDoc[]): string[] {
       .replace(/^[-*`]+/, "")
       .replace(/\/+$/, "");
     if (!norm || norm.length > 180) return;
-    if (/^(https?:|mailto:|file tree|extracted zip|no plain-text)/i.test(norm)) return;
-    if (!/[\\/]/.test(norm) && !/\.[A-Za-z0-9]{1,8}$/.test(norm)) {
+    if (/^(https?:|mailto:|file tree|extracted zip|no plain-text|summarize from|folder questions)/i.test(norm)) {
+      return;
+    }
+    if (!/[\\/]/.test(norm) && !/\.[A-Za-z0-9]{1,12}$/.test(norm)) {
       // bare folder name without slash still ok if it looks like a project root
       if (!/^[A-Za-z0-9._-]+$/.test(norm)) return;
     }
@@ -343,7 +345,11 @@ export function pathsFromFiles(files: NamedDoc[]): string[] {
     paths.push(norm);
   };
   for (const line of blob.split(/\r?\n/)) {
-    const t = line.trim().replace(/^\d+\.\s*/, "").replace(/^[-*]\s*/, "");
+    const rawLine = line.trim();
+    if (!rawLine) continue;
+    // Excerpt fences look like "--- path/to/file ---" — never treat as tree bullets.
+    if (/^---/.test(rawLine)) continue;
+    const t = rawLine.replace(/^\d+\.\s*/, "").replace(/^[-*•]\s*/, "");
     if (!t) continue;
     if (/^file tree/i.test(t)) {
       const after = t.replace(/^file tree[^:]*:\s*/i, "");
@@ -352,8 +358,22 @@ export function pathsFromFiles(files: NamedDoc[]): string[] {
       }
       continue;
     }
-    if (/^(extracted zip|summarize from|folder questions|--- )/i.test(t)) continue;
-    if (/[\\/]/.test(t) || t.endsWith("/")) push(t.replace(/\/+$/, ""));
+    if (/^(extracted zip|summarize from|folder questions)/i.test(t)) continue;
+    // Bulleted tree: paths with slash, dirs, OR bare files (README.md) / simple names
+    if (
+      /[\\/]/.test(t) ||
+      t.endsWith("/") ||
+      /\.[A-Za-z0-9]{1,12}$/.test(t) ||
+      /^[A-Za-z0-9._-]{1,80}$/.test(t)
+    ) {
+      push(t.replace(/\/+$/, ""));
+    }
+  }
+  // Also harvest --- path --- excerpt headers when the tree line parse failed
+  if (!paths.length) {
+    for (const m of blob.matchAll(/---\s+([^\n]+?)\s+---/g)) {
+      push(m[1]);
+    }
   }
   return [...new Set(paths)];
 }
@@ -1322,6 +1342,10 @@ export function explainZipProject(name: string, raw: string): string {
         .slice(0, 12)
         .map((p) => `\`${p}\``)
         .join(", ")}.`,
+    );
+  } else if (/Extracted zip|File tree/i.test(raw)) {
+    lines.push(
+      `- Zip header is present but no file paths were found in the extract text. Remove the zip chip and attach it again so the archive can be unpacked.`,
     );
   } else {
     lines.push(`- The attachment says it is a zip extract, but no file paths were parsed — re-attach the zip.`);

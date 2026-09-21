@@ -1,5 +1,5 @@
 {
-  "description": "Pack self-check: named-file asks must not dump sibling attachments.",
+  "description": "Named-file grounding across every attachment type Surf extracts (xlsx/csv/pdf/docx/pptx/zip/json/md/txt/tsv/yml/html/image stub). Sibling files must not leak into context.",
   "cases": [
     {
       "id": "harbour-not-resume",
@@ -39,8 +39,8 @@
       "id": "unnamed-overview-keeps-both",
       "query": "summarize these files",
       "files": [
-        {"name": "notes-a.txt", "text": "NOTES_A_UNIQUE alpha inventory"},
-        {"name": "notes-b.txt", "text": "NOTES_B_UNIQUE beta checklist"}
+        { "name": "notes-a.txt", "text": "NOTES_A_UNIQUE alpha inventory" },
+        { "name": "notes-b.txt", "text": "NOTES_B_UNIQUE beta checklist" }
       ],
       "expect_named": [],
       "must_contain_any": ["NOTES_A_UNIQUE", "NOTES_B_UNIQUE"],
@@ -62,6 +62,311 @@
       "expect_named": ["northwind-invoice.txt"],
       "must_contain_any": ["INV-9921", "408.50"],
       "must_not_contain_any": ["Cardamom", "closed Monday"]
+    },
+
+    {
+      "id": "xlsx-payroll-not-resume",
+      "query": "what is the payroll spreadsheet about?",
+      "files": [
+        {
+          "name": "Kabir_Singh_Lamba_Resume.pdf",
+          "text": "KABIR SINGH LAMBA\nPROFESSIONAL EXPERIENCE\nSoftware Engineer"
+        },
+        {
+          "name": "payroll-ledger.xlsx",
+          "text": "Sheet: Payroll\nemployee\tpto_days\tmanager\nMaya Chen\t12\tPeople Ops\nAlex Rivera\t4\tEngineering\nTOTAL_PTO_UNIQUE 16"
+        }
+      ],
+      "expect_named": ["payroll-ledger.xlsx"],
+      "must_contain_any": ["TOTAL_PTO_UNIQUE", "Maya Chen", "Payroll"],
+      "must_not_contain_any": ["KABIR SINGH", "PROFESSIONAL EXPERIENCE"]
+    },
+    {
+      "id": "xlsx-q1-not-q2",
+      "query": "what does the q1-west workbook say?",
+      "files": [
+        {
+          "name": "q1-west.xlsx",
+          "text": "Sheet: Q1\nregion\trevenue\nWest\tQ1_WEST_UNIQUE_44100\nEast\t12000"
+        },
+        {
+          "name": "q2-east.xlsx",
+          "text": "Sheet: Q2\nregion\trevenue\nWest\tQ2_EAST_UNIQUE_99000\nEast\t15000"
+        }
+      ],
+      "expect_named": ["q1-west.xlsx"],
+      "must_contain_any": ["Q1_WEST_UNIQUE_44100", "Q1"],
+      "must_not_contain_any": ["Q2_EAST_UNIQUE_99000"]
+    },
+    {
+      "id": "xls-legacy-note-scoped",
+      "query": "what does the legacy97 file say?",
+      "files": [
+        {
+          "name": "legacy97.xls",
+          "text": "Excel 97-2003 file \"legacy97.xls\" is stored locally. Save it as .xlsx or .csv so the sheet values can be read. LEGACY_BUDGET_STUB"
+        },
+        {
+          "name": "fy26-plan.xlsx",
+          "text": "Sheet: Budget\nline\tamount\nRent\tMODERN_BUDGET_UNIQUE_2400"
+        }
+      ],
+      "expect_named": ["legacy97.xls"],
+      "must_contain_any": ["LEGACY_BUDGET_STUB", "xlsx or .csv"],
+      "must_not_contain_any": ["MODERN_BUDGET_UNIQUE_2400"]
+    },
+    {
+      "id": "csv-sku-not-xlsx",
+      "query": "what is in the sku-catalog csv?",
+      "files": [
+        {
+          "name": "sku-catalog.csv",
+          "text": "sku,qty,price\nBUN-441,12,3.50\nSKU_CATALOG_UNIQUE_ROW"
+        },
+        {
+          "name": "inventory.xlsx",
+          "text": "Sheet: Stock\nsku\ton_hand\nXLSX_STOCK_UNIQUE_99"
+        }
+      ],
+      "expect_named": ["sku-catalog.csv"],
+      "must_contain_any": ["SKU_CATALOG_UNIQUE_ROW", "BUN-441"],
+      "must_not_contain_any": ["XLSX_STOCK_UNIQUE_99"]
+    },
+    {
+      "id": "tsv-timesheet-not-csv",
+      "query": "explain the timesheet tsv",
+      "files": [
+        {
+          "name": "timesheet.tsv",
+          "text": "name\thours\nJordan\tTIMESHEET_TSV_UNIQUE_37.5"
+        },
+        {
+          "name": "hours.csv",
+          "text": "name,hours\nJordan,CSV_HOURS_UNIQUE_40"
+        }
+      ],
+      "expect_named": ["timesheet.tsv"],
+      "must_contain_any": ["TIMESHEET_TSV_UNIQUE_37.5"],
+      "must_not_contain_any": ["CSV_HOURS_UNIQUE_40"]
+    },
+    {
+      "id": "docx-handbook-not-pdf",
+      "query": "what is the handbook docx about?",
+      "files": [
+        {
+          "name": "employee-handbook.docx",
+          "text": "Acme Bakery handbook\nClosed Monday.\nHANDBOOK_DOCX_UNIQUE_PTO policy"
+        },
+        {
+          "name": "policy-scan.pdf",
+          "text": "PDF POLICY_SCAN_UNIQUE scanned page with no useful handbook text"
+        }
+      ],
+      "expect_named": ["employee-handbook.docx"],
+      "must_contain_any": ["HANDBOOK_DOCX_UNIQUE_PTO", "Closed Monday"],
+      "must_not_contain_any": ["POLICY_SCAN_UNIQUE"]
+    },
+    {
+      "id": "pdf-not-docx",
+      "query": "what does the contract pdf say?",
+      "files": [
+        {
+          "name": "vendor-contract.pdf",
+          "text": "VENDOR_CONTRACT_PDF_UNIQUE\nParty A agrees to deliver flour by Pier 4."
+        },
+        {
+          "name": "vendor-notes.docx",
+          "text": "VENDOR_NOTES_DOCX_UNIQUE\nInternal draft only."
+        }
+      ],
+      "expect_named": ["vendor-contract.pdf"],
+      "must_contain_any": ["VENDOR_CONTRACT_PDF_UNIQUE", "Pier 4"],
+      "must_not_contain_any": ["VENDOR_NOTES_DOCX_UNIQUE"]
+    },
+    {
+      "id": "pptx-deck-not-xlsx",
+      "query": "what is the deck-brief presentation about?",
+      "files": [
+        {
+          "name": "deck-brief.pptx",
+          "text": "--- slide 1 ---\nDECK_BRIEF_UNIQUE\nHarbour ferry leaves Pier 4 at 06:40"
+        },
+        {
+          "name": "ferry-costs.xlsx",
+          "text": "Sheet: Costs\nitem\tusd\nFuel\tXLSX_FERRY_COST_UNIQUE_880"
+        }
+      ],
+      "expect_named": ["deck-brief.pptx"],
+      "must_contain_any": ["DECK_BRIEF_UNIQUE", "Pier 4"],
+      "must_not_contain_any": ["XLSX_FERRY_COST_UNIQUE_880"]
+    },
+    {
+      "id": "json-contacts-not-md",
+      "query": "what is in the hr_contacts json?",
+      "files": [
+        {
+          "name": "hr_contacts.json",
+          "text": "{\n  \"recruiter\": \"Pat Lee\",\n  \"marker\": \"HR_CONTACTS_JSON_UNIQUE\"\n}"
+        },
+        {
+          "name": "team-notes.md",
+          "text": "# Notes\nMD_TEAM_NOTES_UNIQUE standup"
+        }
+      ],
+      "expect_named": ["hr_contacts.json"],
+      "must_contain_any": ["HR_CONTACTS_JSON_UNIQUE", "Pat Lee"],
+      "must_not_contain_any": ["MD_TEAM_NOTES_UNIQUE"]
+    },
+    {
+      "id": "md-readme-not-json",
+      "query": "summarize the cardamom-readme markdown",
+      "files": [
+        {
+          "name": "cardamom-readme.md",
+          "text": "# Cardamom Bakery\nClosed Monday. BAKERY_MD_UNIQUE opens 7:00"
+        },
+        {
+          "name": "store-meta.json",
+          "text": "{\"hours\": \"BAKERY_JSON_UNIQUE_24x7\"}"
+        }
+      ],
+      "expect_named": ["cardamom-readme.md"],
+      "must_contain_any": ["BAKERY_MD_UNIQUE", "Closed Monday"],
+      "must_not_contain_any": ["BAKERY_JSON_UNIQUE_24x7"]
+    },
+    {
+      "id": "txt-log-not-zip",
+      "query": "what does the deck-log txt say?",
+      "files": [
+        {
+          "name": "deck-log.txt",
+          "text": "DECK_LOG_TXT_UNIQUE\nFerry departed Pier 4 at 06:40"
+        },
+        {
+          "name": "harbour-agent-OP1.zip",
+          "text": "HARBOUR_AGENT_README\npurpose: local agent orchestration pack"
+        }
+      ],
+      "expect_named": ["deck-log.txt"],
+      "must_contain_any": ["DECK_LOG_TXT_UNIQUE"],
+      "must_not_contain_any": ["HARBOUR_AGENT", "orchestration pack"]
+    },
+    {
+      "id": "yml-config-not-env",
+      "query": "what is the surf-config yml about?",
+      "files": [
+        {
+          "name": "surf-config.yml",
+          "text": "model: llama3.2:1b\nSURF_CONFIG_YML_UNIQUE: true"
+        },
+        {
+          "name": "secrets.env",
+          "text": "API_KEY=ENV_SECRET_UNIQUE_do_not_leak"
+        }
+      ],
+      "expect_named": ["surf-config.yml"],
+      "must_contain_any": ["SURF_CONFIG_YML_UNIQUE", "llama3.2"],
+      "must_not_contain_any": ["ENV_SECRET_UNIQUE"]
+    },
+    {
+      "id": "html-page-not-svg",
+      "query": "what is the landing-page html about?",
+      "files": [
+        {
+          "name": "landing-page.html",
+          "text": "<html><body><h1>LANDING_HTML_UNIQUE</h1><p>Surf on-device chat</p></body></html>"
+        },
+        {
+          "name": "logo.svg",
+          "text": "<svg><!-- SVG_LOGO_UNIQUE --></svg>"
+        }
+      ],
+      "expect_named": ["landing-page.html"],
+      "must_contain_any": ["LANDING_HTML_UNIQUE", "Surf on-device"],
+      "must_not_contain_any": ["SVG_LOGO_UNIQUE"]
+    },
+    {
+      "id": "zip-pack-not-xlsx",
+      "query": "what is the harbour-agent zip about?",
+      "files": [
+        {
+          "name": "harbour-agent-OP1.zip",
+          "text": "HARBOUR_AGENT_README\npurpose: local agent orchestration pack\nZIP_PACK_UNIQUE"
+        },
+        {
+          "name": "costs.xlsx",
+          "text": "Sheet: Costs\nXLSX_COSTS_UNIQUE 12"
+        }
+      ],
+      "expect_named": ["harbour-agent-OP1.zip"],
+      "must_contain_any": ["ZIP_PACK_UNIQUE", "HARBOUR_AGENT"],
+      "must_not_contain_any": ["XLSX_COSTS_UNIQUE"]
+    },
+    {
+      "id": "image-stub-not-pdf",
+      "query": "what about the pier-photo image?",
+      "files": [
+        {
+          "name": "pier-photo.png",
+          "text": "Image \"pier-photo.png\" is stored on this chat. You cannot see pixels. PIER_PHOTO_STUB_UNIQUE"
+        },
+        {
+          "name": "ferry-report.pdf",
+          "text": "PIER_REPORT_PDF_UNIQUE\nFerry traffic summary"
+        }
+      ],
+      "expect_named": ["pier-photo.png"],
+      "must_contain_any": ["PIER_PHOTO_STUB_UNIQUE", "cannot see pixels"],
+      "must_not_contain_any": ["PIER_REPORT_PDF_UNIQUE"]
+    },
+    {
+      "id": "kitchen-sink-name-xlsx",
+      "query": "what does the payroll-ledger excel sheet say?",
+      "files": [
+        {
+          "name": "Kabir_Singh_Lamba_Resume.pdf",
+          "text": "KABIR SINGH LAMBA PROFESSIONAL EXPERIENCE"
+        },
+        {
+          "name": "employee-handbook.docx",
+          "text": "HANDBOOK_DOCX_UNIQUE Closed Monday"
+        },
+        {
+          "name": "deck-brief.pptx",
+          "text": "DECK_BRIEF_UNIQUE Pier 4"
+        },
+        {
+          "name": "sku-catalog.csv",
+          "text": "SKU_CATALOG_UNIQUE_ROW BUN-441"
+        },
+        {
+          "name": "hr_contacts.json",
+          "text": "HR_CONTACTS_JSON_UNIQUE Pat Lee"
+        },
+        {
+          "name": "bakery-readme.md",
+          "text": "BAKERY_MD_UNIQUE Closed Monday"
+        },
+        {
+          "name": "harbour-agent-OP1.zip",
+          "text": "HARBOUR_AGENT_README ZIP_PACK_UNIQUE"
+        },
+        {
+          "name": "payroll-ledger.xlsx",
+          "text": "Sheet: Payroll\nTOTAL_PTO_UNIQUE Maya Chen People Ops"
+        }
+      ],
+      "expect_named": ["payroll-ledger.xlsx"],
+      "must_contain_any": ["TOTAL_PTO_UNIQUE", "Maya Chen"],
+      "must_not_contain_any": [
+        "KABIR SINGH",
+        "HANDBOOK_DOCX_UNIQUE",
+        "DECK_BRIEF_UNIQUE",
+        "SKU_CATALOG_UNIQUE_ROW",
+        "HR_CONTACTS_JSON_UNIQUE",
+        "BAKERY_MD_UNIQUE",
+        "ZIP_PACK_UNIQUE"
+      ]
     }
   ]
 }

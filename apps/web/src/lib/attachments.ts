@@ -30,9 +30,15 @@ export function packAttachments(files: StoredAttachment[], limit = 24_000): stri
 
 export async function unpackZipIfNeeded(file: StoredAttachment): Promise<StoredAttachment> {
   const zip = /\.zip$/i.test(file.name) || file.mime.includes("zip");
-  const already = /Extracted zip|File tree/i.test(file.text);
-  if (!zip || already) return refreshPdfText(file);
+  if (!zip) return refreshPdfText(file);
   if (!file.bytes || file.bytes.byteLength < 22) return file;
+  const already = /Extracted zip|File tree/i.test(file.text);
+  // Re-extract when an older/broken unpack left a header but no usable paths.
+  const weak =
+    already &&
+    !/^-\s+\S+/m.test(file.text) &&
+    !/---\s+\S+\s+---/.test(file.text);
+  if (already && !weak) return file;
   const text = await extractZipProject(file.name, file.bytes);
   return { ...file, text };
 }
@@ -434,6 +440,62 @@ async function zipCollect(buf: ArrayBuffer, pred: (name: string) => boolean): Pr
 async function zipEntries(buf: ArrayBuffer): Promise<Array<{ name: string; text: string }>> {
   const bytes = new Uint8Array(buf);
   const view = new DataView(buf);
+  const fromCd = await zipEntriesFromCentral(bytes, view);
+  if (fromCd.length) return fromCd;
+  return zipEntriesFromLocal(bytes, view);
+}
+
+/** Prefer the central directory — local headers often set bit 3 (data descriptor) with size 0. */
+async function zipEntriesFromCentral(
+  bytes: Uint8Array,
+  view: DataView,
+): Promise<Array<{ name: string; text: string }>> {
+  const eocd = findZipEocd(bytes);
+  if (eocd < 0) return [];
+  const total = view.getUint16(eocd + 10, true);
+  let offset = view.getUint32(eocd + 16, true);
+  const out: Array<{ name: string; text: string }> = [];
+  for (let i = 0; i < total && offset + 46 <= bytes.length; i++) {
+    if (view.getUint32(offset, true) !== 0x02014b50) break;
+    const method = view.getUint16(offset + 10, true);
+    const compSize = view.getUint32(offset + 20, true);
+    const nameLen = view.getUint16(offset + 28, true);
+    const extraLen = view.getUint16(offset + 30, true);
+    const commentLen = view.getUint16(offset + 32, true);
+    const localOff = view.getUint32(offset + 42, true);
+    const name = new TextDecoder().decode(bytes.slice(offset + 46, offset + 46 + nameLen));
+    offset += 46 + nameLen + extraLen + commentLen;
+    if (name.endsWith("/")) {
+      out.push({ name, text: "" });
+      continue;
+    }
+    if (localOff + 30 > bytes.length) {
+      out.push({ name, text: "" });
+      continue;
+    }
+    const locNameLen = view.getUint16(localOff + 26, true);
+    const locExtraLen = view.getUint16(localOff + 28, true);
+    const dataStart = localOff + 30 + locNameLen + locExtraLen;
+    const data = bytes.slice(dataStart, dataStart + compSize);
+    const wantText = zipIsText(name) || name.endsWith(".xml");
+    if (!wantText) {
+      out.push({ name, text: "" });
+      continue;
+    }
+    try {
+      const raw = method === 0 ? data : method === 8 ? await inflate(data) : null;
+      out.push({ name, text: raw ? new TextDecoder().decode(raw) : "" });
+    } catch {
+      out.push({ name, text: "" });
+    }
+  }
+  return out;
+}
+
+async function zipEntriesFromLocal(
+  bytes: Uint8Array,
+  view: DataView,
+): Promise<Array<{ name: string; text: string }>> {
   const out: Array<{ name: string; text: string }> = [];
   let offset = 0;
   while (offset + 30 < bytes.length) {
@@ -452,10 +514,45 @@ async function zipEntries(buf: ArrayBuffer): Promise<Array<{ name: string; text:
     const extraLen = view.getUint16(offset + 28, true);
     const name = new TextDecoder().decode(bytes.slice(offset + 30, offset + 30 + nameLen));
     const dataStart = offset + 30 + nameLen + extraLen;
-    if (flags & 0x8 && compSize === 0) {
+    // Data descriptor (bit 3): sizes live after the payload — scan to next PK signature.
+    if ((flags & 0x8) !== 0 && compSize === 0) {
       const next = findZipSig(bytes, dataStart);
       if (next < 0) break;
-      offset = next;
+      const payload = bytes.slice(dataStart, next);
+      // Optional data-descriptor signature PK\x07\x08 just before next header — strip if present after payload.
+      // When bit 3 is set, `next` is usually the descriptor or the following local/central header.
+      let data = payload;
+      let after = next;
+      if (
+        next + 16 <= bytes.length &&
+        view.getUint32(next, true) === 0x08074b50
+      ) {
+        compSize = view.getUint32(next + 8, true);
+        data = bytes.slice(dataStart, dataStart + compSize);
+        after = next + 16;
+      } else if (next + 12 <= bytes.length && view.getUint32(next, true) !== 0x04034b50) {
+        // descriptor without signature (rare)
+        after = next;
+        data = bytes.slice(dataStart, next);
+      } else {
+        data = bytes.slice(dataStart, next);
+        after = next;
+      }
+      if (name.endsWith("/")) {
+        out.push({ name, text: "" });
+      } else {
+        const wantText = zipIsText(name) || name.endsWith(".xml");
+        if (!wantText) out.push({ name, text: "" });
+        else {
+          try {
+            const raw = method === 0 ? data : method === 8 ? await inflate(data) : null;
+            out.push({ name, text: raw ? new TextDecoder().decode(raw) : "" });
+          } catch {
+            out.push({ name, text: "" });
+          }
+        }
+      }
+      offset = after;
       continue;
     }
     const data = bytes.slice(dataStart, dataStart + compSize);
@@ -479,6 +576,16 @@ async function zipEntries(buf: ArrayBuffer): Promise<Array<{ name: string; text:
   return out;
 }
 
+function findZipEocd(bytes: Uint8Array): number {
+  const min = Math.max(0, bytes.length - 65_536 - 22);
+  for (let i = bytes.length - 22; i >= min; i--) {
+    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function findZipSig(bytes: Uint8Array, from: number): number {
   for (let i = from; i < bytes.length - 3; i++) {
     if (bytes[i] !== 0x50 || bytes[i + 1] !== 0x4b) continue;
@@ -487,6 +594,7 @@ function findZipSig(bytes: Uint8Array, from: number): number {
     if (b2 === 0x03 && b3 === 0x04) return i;
     if (b2 === 0x01 && b3 === 0x02) return i;
     if (b2 === 0x05 && b3 === 0x06) return i;
+    if (b2 === 0x07 && b3 === 0x08) return i;
   }
   return -1;
 }

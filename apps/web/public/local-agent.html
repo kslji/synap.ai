@@ -181,10 +181,35 @@
     .memory-panel { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
     .memory-preview { font-size: 12px; line-height: 1.45; color: var(--muted); max-height: 88px; overflow: auto; margin: 8px 0 0; }
     .memory-banner { align-self: center; max-width: 720px; font-size: 12px; color: var(--muted); background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
-    .data-card { background: #101614; border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+    .data-card { background: #101614; border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; overflow: hidden; }
     .data-line { font-size: 13px; margin: 4px 0 6px; }
     .data-help { margin: 8px 0 0; padding-left: 16px; color: var(--muted); font-size: 11px; line-height: 1.45; }
     .data-help .ok { color: var(--accent); }
+    .summary-files {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.45;
+      max-width: 100%;
+    }
+    .summary-files .summary-files-label { color: var(--text); font-weight: 600; margin-bottom: 4px; }
+    .summary-files ul { margin: 0; padding-left: 16px; list-style: disc; }
+    .summary-files li {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      margin: 2px 0;
+    }
+    .data-change {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--accent);
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      max-width: 100%;
+    }
     .setup-scrim { position: fixed; inset: 0; background: rgba(8,10,9,.72); z-index: 40; display: flex; align-items: center; justify-content: center; padding: 20px; }
     .setup-scrim.hidden { display: none; }
     .setup-panel { background: var(--bg-2); border: 1px solid var(--line); border-radius: 16px; max-width: 520px; width: 100%; max-height: min(88vh, 720px); overflow: auto; padding: 22px; }
@@ -527,9 +552,18 @@
       const fileB = threads.reduce((n, t) => n + (t.attached || []).reduce((m, f) => m + (f.size || sizeOf(f.text || "")), 0), 0);
       const memB = memoryBatches.length ? sizeOf(memoryBatches) : 0;
       const lastBatch = memoryBatches[memoryBatches.length - 1];
+      const esc = (s) =>
+        String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
       const lastFiles =
         lastBatch && lastBatch.fileNames && lastBatch.fileNames.length
-          ? `<div class="data-change" style="margin-top:8px">Latest summary files: ${lastBatch.fileNames.join(", ")}</div>`
+          ? `<div class="summary-files"><div class="summary-files-label">Files in latest summary</div><ul>${lastBatch.fileNames
+              .slice(0, 12)
+              .map((n) => `<li title="${esc(n)}">${esc(n)}</li>`)
+              .join("")}</ul></div>`
           : "";
       card.innerHTML =
         `<div class="tiny muted">What's saved in this browser</div>` +
@@ -2178,23 +2212,31 @@
       const push = (raw) => {
         const norm = String(raw || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^[-*`]+/, "").replace(/\/+$/, "");
         if (!norm || norm.length > 180) return;
-        if (/^(https?:|mailto:|file tree|extracted zip|no plain-text)/i.test(norm)) return;
-        if (!/[\\/]/.test(norm) && !/\.[A-Za-z0-9]{1,8}$/.test(norm)) {
+        if (/^(https?:|mailto:|file tree|extracted zip|no plain-text|summarize from|folder questions)/i.test(norm)) return;
+        if (!/[\\/]/.test(norm) && !/\.[A-Za-z0-9]{1,12}$/.test(norm)) {
           if (!/^[A-Za-z0-9._-]+$/.test(norm)) return;
         }
         if (!/[A-Za-z0-9._-]+/.test(norm)) return;
         paths.push(norm);
       };
       for (const line of blob.split(/\r?\n/)) {
-        const t = line.trim().replace(/^\d+\.\s*/, "").replace(/^[-*]\s*/, "");
+        const rawLine = line.trim();
+        if (!rawLine) continue;
+        if (/^---/.test(rawLine)) continue;
+        const t = rawLine.replace(/^\d+\.\s*/, "").replace(/^[-*•]\s*/, "");
         if (!t) continue;
         if (/^file tree/i.test(t)) {
           const after = t.replace(/^file tree[^:]*:\s*/i, "");
           if (after && after !== t) for (const part of after.split(/\s+/)) push(part);
           continue;
         }
-        if (/^(extracted zip|summarize from|folder questions|--- )/i.test(t)) continue;
-        if (/[\\/]/.test(t) || t.endsWith("/")) push(t.replace(/\/+$/, ""));
+        if (/^(extracted zip|summarize from|folder questions)/i.test(t)) continue;
+        if (/[\\/]/.test(t) || t.endsWith("/") || /\.[A-Za-z0-9]{1,12}$/.test(t) || /^[A-Za-z0-9._-]{1,80}$/.test(t)) {
+          push(t.replace(/\/+$/, ""));
+        }
+      }
+      if (!paths.length) {
+        for (const m of blob.matchAll(/---\s+([^\n]+?)\s+---/g)) push(m[1]);
       }
       return [...new Set(paths)];
     }
@@ -2254,7 +2296,7 @@
             paths.slice(0, 12).map((p) => "`" + p + "`").join(", ") + ".",
         );
       } else {
-        lines.push("- The attachment says it is a zip extract, but no file paths were parsed — re-attach the zip.");
+        lines.push("- Zip header is present but no file paths were found. Remove the zip chip and attach it again so the archive can be unpacked.");
       }
       if (excerpts.length) {
         lines.push("- **From file excerpts:**");
@@ -2582,6 +2624,21 @@
       }
       return null;
     }
+    function findZipEocd(bytes) {
+      const min = Math.max(0, bytes.length - 65536 - 22);
+      for (let i = bytes.length - 22; i >= min; i--) {
+        if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) return i;
+      }
+      return -1;
+    }
+    function findZipSig(bytes, from) {
+      for (let i = from; i < bytes.length - 3; i++) {
+        if (bytes[i] !== 0x50 || bytes[i + 1] !== 0x4b) continue;
+        const b2 = bytes[i + 2], b3 = bytes[i + 3];
+        if ((b2 === 0x03 && b3 === 0x04) || (b2 === 0x01 && b3 === 0x02) || (b2 === 0x05 && b3 === 0x06) || (b2 === 0x07 && b3 === 0x08)) return i;
+      }
+      return -1;
+    }
     async function extractZip(name, buf) {
       const bytes = new Uint8Array(buf);
       const view = new DataView(buf);
@@ -2590,40 +2647,99 @@
       const baseOk = (p) => /^(readme|license|makefile|dockerfile|landscape)(\.|$)/i.test((p.split("/").pop() || ""));
       const names = [];
       const bodies = [];
-      let offset = 0;
-      while (offset + 30 < bytes.length) {
-        const sig = view.getUint32(offset, true);
-        if (sig === 0x02014b50 || sig === 0x06054b50) break;
-        if (sig !== 0x04034b50) break;
-        const flags = view.getUint16(offset + 6, true);
-        const method = view.getUint16(offset + 8, true);
-        const compSize = view.getUint32(offset + 18, true);
-        const nameLen = view.getUint16(offset + 26, true);
-        const extraLen = view.getUint16(offset + 28, true);
-        const path = new TextDecoder().decode(bytes.slice(offset + 30, offset + 30 + nameLen));
-        const dataStart = offset + 30 + nameLen + extraLen;
-        if (flags & 8 && !compSize) break;
-        if (!path.endsWith("/") && !skipDir.test(path)) names.push(path);
-        const data = bytes.slice(dataStart, dataStart + compSize);
-        const leaf = (path.split("/").pop() || "").toLowerCase();
-        if (!path.endsWith("/") && !skipDir.test(path) && (textName.test(leaf) || baseOk(path))) {
+      const inflateEntry = async (method, data) => {
+        if (method === 0) return data;
+        if (method === 8) return inflateRaw(data);
+        return null;
+      };
+      const eocd = findZipEocd(bytes);
+      if (eocd >= 0) {
+        const total = view.getUint16(eocd + 10, true);
+        let offset = view.getUint32(eocd + 16, true);
+        for (let i = 0; i < total && offset + 46 <= bytes.length; i++) {
+          if (view.getUint32(offset, true) !== 0x02014b50) break;
+          const method = view.getUint16(offset + 10, true);
+          const compSize = view.getUint32(offset + 20, true);
+          const nameLen = view.getUint16(offset + 28, true);
+          const extraLen = view.getUint16(offset + 30, true);
+          const commentLen = view.getUint16(offset + 32, true);
+          const localOff = view.getUint32(offset + 42, true);
+          const path = new TextDecoder().decode(bytes.slice(offset + 46, offset + 46 + nameLen));
+          offset += 46 + nameLen + extraLen + commentLen;
+          if (path.endsWith("/") || skipDir.test(path)) continue;
+          names.push(path);
+          const leaf = (path.split("/").pop() || "").toLowerCase();
+          if (!(textName.test(leaf) || baseOk(path))) continue;
+          if (localOff + 30 > bytes.length) continue;
+          const locNameLen = view.getUint16(localOff + 26, true);
+          const locExtraLen = view.getUint16(localOff + 28, true);
+          const dataStart = localOff + 30 + locNameLen + locExtraLen;
+          const data = bytes.slice(dataStart, dataStart + compSize);
           try {
-            const raw = method === 0 ? data : method === 8 ? await inflateRaw(data) : null;
+            const raw = await inflateEntry(method, data);
             if (raw) bodies.push({ path, text: new TextDecoder().decode(raw) });
           } catch { /* skip */ }
         }
-        offset = dataStart + compSize;
+      } else {
+        // Fallback: walk local file headers (handles data-descriptor bit 3).
+        let offset = 0;
+        while (offset + 30 < bytes.length) {
+          const sig = view.getUint32(offset, true);
+          if (sig === 0x02014b50 || sig === 0x06054b50) break;
+          if (sig !== 0x04034b50) {
+            const next = findZipSig(bytes, offset + 1);
+            if (next < 0) break;
+            offset = next;
+            continue;
+          }
+          const flags = view.getUint16(offset + 6, true);
+          const method = view.getUint16(offset + 8, true);
+          let compSize = view.getUint32(offset + 18, true);
+          const nameLen = view.getUint16(offset + 26, true);
+          const extraLen = view.getUint16(offset + 28, true);
+          const path = new TextDecoder().decode(bytes.slice(offset + 30, offset + 30 + nameLen));
+          const dataStart = offset + 30 + nameLen + extraLen;
+          let data;
+          let after;
+          if ((flags & 0x8) !== 0 && compSize === 0) {
+            const next = findZipSig(bytes, dataStart);
+            if (next < 0) break;
+            if (next + 16 <= bytes.length && view.getUint32(next, true) === 0x08074b50) {
+              compSize = view.getUint32(next + 8, true);
+              data = bytes.slice(dataStart, dataStart + compSize);
+              after = next + 16;
+            } else {
+              data = bytes.slice(dataStart, next);
+              after = next;
+            }
+          } else {
+            data = bytes.slice(dataStart, dataStart + compSize);
+            after = dataStart + compSize;
+          }
+          if (!path.endsWith("/") && !skipDir.test(path)) names.push(path);
+          const leaf = (path.split("/").pop() || "").toLowerCase();
+          if (!path.endsWith("/") && !skipDir.test(path) && (textName.test(leaf) || baseOk(path))) {
+            try {
+              const raw = await inflateEntry(method, data);
+              if (raw) bodies.push({ path, text: new TextDecoder().decode(raw) });
+            } catch { /* skip */ }
+          }
+          offset = after;
+        }
       }
       bodies.sort((a, b) => {
         const rank = (p) => /^readme/i.test(p.split("/").pop()) ? 2 : /landscape|makefile/i.test(p) ? 1 : 0;
         return rank(b.path) - rank(a.path);
       });
-      let out = `Extracted zip "${name}". This IS the project. Summarize from the tree and excerpts.\nFile tree:\n` +
+      let out = `Extracted zip "${name}". This IS the project. Summarize from the tree and excerpts.\nFile tree (${names.length} paths):\n` +
         names.slice(0, 250).map((n) => "- " + n).join("\n");
       for (const b of bodies) {
         const chunk = `\n--- ${b.path} ---\n` + b.text.slice(0, 4000);
         if (out.length + chunk.length > 45000) break;
         out += chunk;
+      }
+      if (!names.length) {
+        out += "\n\nNo file paths could be read from this zip. Re-attach the archive (some zips need a fresh unpack).";
       }
       return out;
     }

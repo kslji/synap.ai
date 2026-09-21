@@ -673,11 +673,17 @@ export function LocalChat() {
     if (hydrated.some((f) => f.text !== threadFiles.find((t) => t.id === f.id)?.text)) {
       setFiles(await listAttachments());
     }
-    const zipStub = hydrated.filter(
-      (f) => /\.zip$/i.test(f.name) && !/File tree|Extracted zip/i.test(f.text),
-    );
+    const zipStub = hydrated.filter((f) => {
+      if (!/\.zip$/i.test(f.name)) return false;
+      const t = f.text || "";
+      if (!/File tree|Extracted zip/i.test(t)) return true;
+      // Header present but no bullet paths / excerpts — unpack failed (e.g. old data-descriptor bug).
+      return !/^-\s+\S+/m.test(t) && !/---\s+\S+\s+---/.test(t);
+    });
     if (zipStub.length) {
-      setProgress("This zip was attached before unpacking was added. Remove the zip chip, attach harbour-agent-OP1.zip again, then ask.");
+      setProgress(
+        "This zip could not be unpacked into a file tree. Remove the zip chip, attach it again, then ask.",
+      );
       return;
     }
     if (wantsFileConvert(asked)) {

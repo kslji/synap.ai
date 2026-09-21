@@ -25,7 +25,7 @@ This runs the same style of cases as Surf’s host harness:
 - Clean questions untouched
 - Moss sealed vault + default local search
 - Pack model identity present
-- Named-file grounding (e.g. “harbour file about” must not dump a sibling résumé)
+- Named-file grounding across types (xlsx/csv/pdf/docx/pptx/zip/json/md/txt/… — e.g. “payroll spreadsheet” must not dump a sibling résumé)
 
 ## Your custom harness (edit freely)
 

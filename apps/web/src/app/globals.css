@@ -2291,6 +2291,41 @@ button.copy-reply:disabled {
   font-size: 11px;
   color: var(--accent);
   line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.data-card {
+  overflow: hidden;
+}
+
+.summary-files {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+  max-width: 100%;
+}
+
+.summary-files-label {
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.summary-files ul {
+  margin: 0;
+  padding-left: 16px;
+  list-style: disc;
+}
+
+.summary-files li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  margin: 2px 0;
 }
 
 .engine-panel {

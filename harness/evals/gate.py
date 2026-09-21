@@ -28,6 +28,7 @@ from test_general_chat import run_checks as general_chat_checks  # noqa: E402
 from test_over_refusal import run_checks as over_refusal_checks  # noqa: E402
 from test_fuzzy_intent import run_checks as fuzzy_intent_checks  # noqa: E402
 from test_file_focus import run_checks as file_focus_checks  # noqa: E402
+from test_zip_and_summary import run_checks as zip_summary_checks  # noqa: E402
 
 REPORT = Path(__file__).with_name("last-report.json")
 LOOPBACK = ("127.0.0.1", "localhost")
@@ -53,6 +54,7 @@ def main() -> int:
     rows.extend(reply_repair_checks())
     rows.extend(resume_facts_checks())
     rows.extend(file_focus_checks())
+    rows.extend(zip_summary_checks())
     rows.extend(standalone_checks())
     rows.extend(pack_identity_checks())
     rows.extend(convert_checks())

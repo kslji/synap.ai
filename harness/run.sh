@@ -15,6 +15,7 @@ fi
 "$PY" harness/evals/test_reply_repair.py
 "$PY" harness/evals/test_resume_facts.py
 "$PY" harness/evals/test_file_focus.py
+"$PY" harness/evals/test_zip_and_summary.py
 "$PY" harness/evals/test_standalone.py
 "$PY" harness/evals/test_pack_identity.py
 "$PY" harness/evals/test_convert.py

@@ -71,6 +71,7 @@ import {
   wantsSavedSummary,
 } from "@/lib/groundedContext";
 import { canUseFilePicker, filesFromDataTransfer, pickFilesOrFolder } from "@/lib/deviceFolder";
+import { buildManifest } from "@/lib/agentPacks";
 import { downloadOnThisDevice } from "@/lib/openOnDevice";
 import { fetchHostStorage, health, indexMoss, parseApiError, searchMoss, streamChat, eraseHostData, createLocalInstance, saveHostSummary, exportHostSummaries, type Health } from "@/lib/api";
 import { fetchProfile, clearAccount, type UserProfile } from "@/lib/account";
@@ -1154,7 +1155,7 @@ export function LocalChat() {
               className="ghost"
               onClick={() =>
                 void requireAccount(() => {
-                  void downloadOnThisDevice();
+                  void downloadOnThisDevice({ manifest: buildManifest("ollama", "light") });
                 })
               }
             >
@@ -1226,7 +1227,7 @@ export function LocalChat() {
                     className="primary empty-download"
                     onClick={() =>
                       void requireAccount(() => {
-                        void downloadOnThisDevice();
+                        void downloadOnThisDevice({ manifest: buildManifest("ollama", "light") });
                       })
                     }
                   >

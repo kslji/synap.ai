@@ -91,7 +91,7 @@ if ! curl -fsS --max-time 1 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; the
 fi
 
 echo "Ensuring model ${MODEL} is on this computer…"
-if ! ollama list 2>/dev/null | grep -q "${MODEL}"; then
+if ! ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fxq "${MODEL}"; then
   echo "Downloading ${MODEL} (once). After this, chat works offline."
   ollama pull "${MODEL}"
 else

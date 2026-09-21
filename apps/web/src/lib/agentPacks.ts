@@ -1,7 +1,12 @@
 /** Zip packs — every pack: one LOCAL-SETUP → Chrome chat on localhost. */
 
 import type { RamTier } from "./localModelCatalog";
-import { defaultModelForTier, modelByTag } from "./localModelCatalog";
+import {
+  OLLAMA_MODELS,
+  defaultModelForTier,
+  modelById,
+  modelByTag,
+} from "./localModelCatalog";
 import { runSetupCommand } from "./setupCommands";
 
 export type AgentId = "ollama" | "gpt4all" | "jan" | "anythingllm";
@@ -75,10 +80,12 @@ export type AgentManifest = {
   title: string;
   license: string;
   home: string;
+  /** Ollama pull tag — must match exactly what LOCAL-SETUP pulls. */
   model: string;
-  modelTitle?: string;
-  download?: string;
-  ram?: string;
+  modelId: string;
+  modelTitle: string;
+  download: string;
+  ram: string;
   tier: RamTier;
   created: string;
 };
@@ -86,22 +93,40 @@ export type AgentManifest = {
 export function buildManifest(
   agent: AgentId,
   tier: RamTier = "light",
-  modelTag?: string,
+  modelTagOrId?: string,
 ): AgentManifest {
   const pack = packById(agent);
-  const model = (modelTag && modelByTag(modelTag)) || defaultModelForTier(tier);
+  const model =
+    (modelTagOrId && (modelById(modelTagOrId) || modelByTag(modelTagOrId))) ||
+    defaultModelForTier(tier);
+  if (!model) {
+    throw new Error("No model available for this pack.");
+  }
   return {
     agent,
     title: pack.title,
     license: pack.license,
     home: pack.home,
     model: model.tag,
+    modelId: model.id,
     modelTitle: model.title,
     download: model.download,
     ram: model.ram,
-    tier,
+    tier: model.tier,
     created: new Date().toISOString().slice(0, 10),
   };
+}
+
+/** Fail fast if catalog ids/tags collide — hackathon-critical. */
+export function assertModelCatalogIntegrity(): void {
+  const ids = new Set<string>();
+  const tags = new Set<string>();
+  for (const m of OLLAMA_MODELS) {
+    if (ids.has(m.id)) throw new Error(`Duplicate model id: ${m.id}`);
+    if (tags.has(m.tag)) throw new Error(`Duplicate model tag: ${m.tag}`);
+    ids.add(m.id);
+    tags.add(m.tag);
+  }
 }
 
 export function oneCommand(os: "mac" | "win" | "linux"): string {
@@ -124,4 +149,15 @@ export function packDownloadName(manifest: AgentManifest): string {
 /** Unzipped folder name — unique per model so multiple packs can coexist. */
 export function packFolderName(manifest: AgentManifest): string {
   return `surf-ai-${packSlug(manifest)}`;
+}
+
+export function assertManifestMatchesFolder(manifest: AgentManifest): void {
+  const folder = packFolderName(manifest);
+  const slug = packSlug(manifest);
+  if (!folder.endsWith(slug)) {
+    throw new Error(`Pack folder mismatch: ${folder} vs ${slug}`);
+  }
+  if (!manifest.model || !manifest.modelId || !manifest.modelTitle) {
+    throw new Error("Pack manifest missing model fields.");
+  }
 }

@@ -2,6 +2,7 @@
 
 import { Download, MessageSquare, WifiOff, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { buildManifest } from "@/lib/agentPacks";
 import { downloadOnThisDevice, prefetchLocalPack } from "@/lib/openOnDevice";
 import { networkOnline } from "@/lib/net";
 
@@ -61,7 +62,7 @@ export function OfflineBanner({
     setBusy(true);
     setNote("");
     try {
-      await downloadOnThisDevice();
+      await downloadOnThisDevice({ manifest: buildManifest("ollama", "light") });
       setNote("Saved the zip. Unzip it, then run the open command from Setup or /download.");
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Could not download. You can still chat here offline.");

@@ -9,6 +9,10 @@
     .setup-scrim:not(#auth-scrim) { display: none !important; }
   </style>
   <title>Surf AI</title>
+  <script>
+    /*__SURF_PACK_BOOT__*/
+    window.__SURF_PACK__ = window.__SURF_PACK__ || null;
+  </script>
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="icon" href="./favicon.png" type="image/png" sizes="32x32" />
   <link rel="apple-touch-icon" href="./apple-icon.png" />
@@ -651,24 +655,60 @@
       p.querySelector(".think-label").textContent = label;
       logEl.scrollTop = logEl.scrollHeight;
     }
+    async function loadPackManifest() {
+      if (window.__SURF_PACK__ && window.__SURF_PACK__.model) return window.__SURF_PACK__;
+      try {
+        const r = await fetch("./agent.json", { cache: "no-store" });
+        if (!r.ok) return null;
+        const j = await r.json();
+        if (j && j.model) {
+          window.__SURF_PACK__ = j;
+          return j;
+        }
+      } catch (_) {}
+      return null;
+    }
+    function pickPackModel(names, preferred) {
+      if (!preferred || !names.length) return null;
+      const want = String(preferred).toLowerCase();
+      const exact = names.find((n) => String(n).toLowerCase() === want);
+      if (exact) return exact;
+      const prefix = names.find((n) => {
+        const s = String(n).toLowerCase();
+        return s === want || s.startsWith(want + "-") || s.startsWith(want + ":");
+      });
+      return prefix || null;
+    }
     async function probeOllama() {
       try {
+        const pack = await loadPackManifest();
+        const preferred = pack && pack.model ? String(pack.model) : "";
         const r = await fetch("http://127.0.0.1:11434/api/tags", { signal: AbortSignal.timeout(800) });
         if (!r.ok) return null;
         const j = await r.json();
         const names = (j.models || []).map((m) => m.name).filter(Boolean);
-        if (!names.length) return null;
+        if (!names.length) {
+          if (preferred) return { model: preferred, names: [], light: /1b|1\.5b|2b/i.test(preferred), fromPack: true };
+          return null;
+        }
+        const fromPack = pickPackModel(names, preferred);
+        if (fromPack) {
+          return { model: fromPack, names, light: /1b|1\.5b|2b/i.test(fromPack), fromPack: true };
+        }
+        // Fallback only when this pack's model is not installed yet.
         const gb = (navigator.deviceMemory || 8);
         const lightFirst = gb < 6;
         const order = lightFirst
           ? [/llama3\.2:1b/i, /qwen2\.5:1\.5b/i, /:1b\b/i, /1\.5b/i, /llama3\.2:3b/i, /:3b\b/i]
           : [/llama3\.2:3b/i, /llama3\.2:1b/i, /qwen2\.5:3b/i, /qwen2\.5:1\.5b/i, /:3b\b/i, /:1b\b/i];
-        let model = names[0];
-        for (const re of order) {
-          const hit = names.find((n) => re.test(n));
-          if (hit) { model = hit; break; }
+        let model = preferred || names[0];
+        if (!preferred) {
+          for (const re of order) {
+            const hit = names.find((n) => re.test(n));
+            if (hit) { model = hit; break; }
+          }
         }
-        return { model, names, light: /1b|1\.5b|2b/i.test(model) };
+        return { model, names, light: /1b|1\.5b|2b/i.test(model), fromPack: false };
       } catch {
         return null;
       }
@@ -1216,7 +1256,7 @@
       await paintFeedback();
     }
     async function ollamaDirect(text, onDelta, system) {
-      const model = healthCache?.active_model || healthCache?.default_model || "llama3.2:1b";
+      const model = healthCache?.active_model || healthCache?.default_model || (window.__SURF_PACK__ && window.__SURF_PACK__.model) || "llama3.2:1b";
       const light = /1b|1\.5b|2b/i.test(String(model));
       const t0 = performance.now();
       const messages = [];

@@ -1,5 +1,11 @@
 import type { AgentManifest } from "./agentPacks";
-import { packById, packDownloadName, packFolderName } from "./agentPacks";
+import {
+  assertManifestMatchesFolder,
+  packById,
+  packDownloadName,
+  packFolderName,
+} from "./agentPacks";
+import { modelById, modelByTag } from "./localModelCatalog";
 
 function crc32(data: Uint8Array): number {
   let c = ~0 >>> 0;
@@ -195,7 +201,7 @@ export type DownloadPackOpts = {
   manifest?: AgentManifest;
 };
 
-/** Build a zip for the chosen agent. User only runs LOCAL-SETUP after unzip. */
+/** Build a zip for the chosen model. agent.json + folder name must match that model. */
 export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise<void> {
   const manifest: AgentManifest = opts.manifest || {
     agent: "ollama",
@@ -203,9 +209,21 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     license: "Ollama",
     home: "https://ollama.com",
     model: "llama3.2:1b",
+    modelId: "llama32-1b",
+    modelTitle: "Llama 3.2 1B",
+    download: "~1 GB to download",
+    ram: "Fits ~4 GB RAM",
     tier: "light",
     created: new Date().toISOString().slice(0, 10),
   };
+
+  const catalog = modelById(manifest.modelId) || modelByTag(manifest.model);
+  if (!catalog || catalog.tag !== manifest.model || catalog.id !== manifest.modelId) {
+    throw new Error(
+      `Pack model mismatch: ${manifest.modelId}/${manifest.model}. Refresh and download again.`,
+    );
+  }
+  assertManifestMatchesFolder(manifest);
 
   const setupSh = await readPackFile("/LOCAL-SETUP.sh", true);
   const setupBat = await readPackFile("/LOCAL-SETUP.bat", true);
@@ -221,6 +239,21 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
   }
 
   const root = packFolderName(manifest);
+  const expectedSlug = packSlugFromModel(catalog.title, catalog.tag);
+  if (!root.endsWith(expectedSlug)) {
+    throw new Error(`Folder name ${root} does not match model ${catalog.title}.`);
+  }
+
+  const packBoot = `window.__SURF_PACK__ = ${JSON.stringify({
+    agent: manifest.agent,
+    model: manifest.model,
+    modelId: manifest.modelId,
+    modelTitle: manifest.modelTitle,
+    tier: manifest.tier,
+    download: manifest.download,
+    ram: manifest.ram,
+  })};`;
+
   const files: Array<{ name: string; body: string | Uint8Array; unixMode?: number }> = [
     { name: `${root}/LOCAL-SETUP.sh`, body: setupSh.body, unixMode: 0o100755 },
     { name: `${root}/LOCAL-SETUP.bat`, body: setupBat.body },
@@ -230,15 +263,18 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     { name: `${root}/README.txt`, body: readmeFor(manifest) },
   ];
 
-  // Every agent pack opens the same localhost Chrome chat.
   const html = await readPackFile("/local-agent.html", true);
   if (!html || html.kind !== "text") {
     throw new Error("Chat page missing from this site. Refresh and try again.");
   }
   const htmlBody = html.body
+    .replace(/\/\*__SURF_PACK_BOOT__\*\//, packBoot)
     .replace(/<input[^>]*id=["']pick-image["'][^>]*>/gi, "")
     .replace(/<button[^>]*id=["']pick-image-btn["'][^>]*>[\s\S]*?<\/button>/gi, "")
     .replace(/>\s*Upload image\s*</gi, "><");
+  if (!htmlBody.includes(`"model":"${manifest.model}"`) && !htmlBody.includes(`"model": "${manifest.model}"`)) {
+    throw new Error("Failed to bake selected model into the chat page.");
+  }
   files.push({ name: `${root}/local-agent.html`, body: htmlBody });
   for (const name of [
     "system.md",
@@ -263,4 +299,13 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function packSlugFromModel(title: string, tag: string): string {
+  return (
+    (title || tag || "pack")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "pack"
+  );
 }

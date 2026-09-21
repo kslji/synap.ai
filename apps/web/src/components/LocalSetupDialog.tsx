@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import Link from "next/link";
 import { detectOs, isMobileBrowser } from "@/lib/runtimeInstall";
+import { buildManifest } from "@/lib/agentPacks";
 import { downloadOnThisDevice } from "@/lib/openOnDevice";
 import { RUN_SETUP_UNIX, RUN_SETUP_WIN } from "@/lib/setupCommands";
 
@@ -104,7 +105,9 @@ export function LocalSetupDialog({
                   onClick={() => {
                     setErr("");
                     setBusy(true);
-                    void downloadOnThisDevice()
+                    void downloadOnThisDevice({
+                      manifest: buildManifest("ollama", "light"),
+                    })
                       .catch(() =>
                         setErr("Download did not finish. Check your connection and try again."),
                       )

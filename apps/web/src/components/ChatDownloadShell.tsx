@@ -9,7 +9,7 @@ import { downloadOnThisDevice, prefetchLocalPack } from "@/lib/openOnDevice";
 import { clearAccount, fetchProfile, type UserProfile } from "@/lib/account";
 import { networkOnline } from "@/lib/net";
 import { detectOs } from "@/lib/runtimeInstall";
-import { buildManifest, oneCommand } from "@/lib/agentPacks";
+import { assertModelCatalogIntegrity, buildManifest, oneCommand } from "@/lib/agentPacks";
 import {
   RAM_TIERS,
   defaultModelForTier,
@@ -17,6 +17,8 @@ import {
   type RamTier,
 } from "@/lib/localModelCatalog";
 import { captureReferralFromUrl, trackEvent } from "@/lib/admin";
+
+assertModelCatalogIntegrity();
 
 /** synap.surf /download — one-screen: pick model → download → copy open command. */
 export function ChatDownloadShell() {
@@ -66,17 +68,32 @@ export function ChatDownloadShell() {
   }
 
   function startDownload() {
+    const lockedId = selected.id;
+    const lockedTag = selected.tag;
+    const lockedTier = selected.tier;
     void requireAccount(() => {
       setBusy(true);
       setNote("");
-      const manifest = buildManifest("ollama", tier, selected.tag);
-      void trackEvent("download", `${manifest.agent}:${manifest.model}`);
-      void downloadOnThisDevice({ manifest })
-        .then(() => setNote("Pack saved. Unzip, then Copy → run the command."))
-        .catch(() =>
-          setNote("Download did not finish. Check your connection and try again."),
-        )
-        .finally(() => setBusy(false));
+      try {
+        const manifest = buildManifest("ollama", lockedTier, lockedId);
+        if (manifest.model !== lockedTag || manifest.modelId !== lockedId) {
+          throw new Error("Selected model did not lock into the pack. Try again.");
+        }
+        void trackEvent("download", `${manifest.agent}:${manifest.model}`);
+        void downloadOnThisDevice({ manifest })
+          .then(() => setNote(`Pack saved: ${manifest.modelTitle} (${manifest.model}). Unzip, then Copy → run.`))
+          .catch((err) =>
+            setNote(
+              err instanceof Error
+                ? err.message
+                : "Download did not finish. Check your connection and try again.",
+            ),
+          )
+          .finally(() => setBusy(false));
+      } catch (err) {
+        setBusy(false);
+        setNote(err instanceof Error ? err.message : "Could not prepare this pack.");
+      }
     });
   }
 

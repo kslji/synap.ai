@@ -28,18 +28,23 @@ export function HomeLanding() {
   const router = useRouter();
   const [setupOpen, setSetupOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [authNext, setAuthNext] = useState<null | (() => void)>(null);
 
   async function gated(fn: () => void) {
+    try {
+      const me = await fetchProfile();
+      if (me?.email_verified) {
+        fn();
+        return;
+      }
+    } catch {
+      /* open auth */
+    }
     if (!networkOnline()) {
-      fn();
+      setAuthOpen(true);
       return;
     }
-    const me = await fetchProfile();
-    if (me?.email_verified) {
-      fn();
-      return;
-    }
-    // Login only — stay on landing after OTP; user clicks the feature themselves.
+    setAuthNext(() => fn);
     setAuthOpen(true);
   }
 
@@ -64,7 +69,7 @@ export function HomeLanding() {
       <main className="landing-hero">
         <OfflineBanner
           stayLabel="Continue offline chat"
-          onStay={() => router.push("/chat")}
+          onStay={() => void gated(() => router.push("/chat"))}
         />
         <ChromeOnlyNotice />
         <LandingTypeCycle
@@ -108,9 +113,14 @@ export function HomeLanding() {
       <LocalSetupDialog open={setupOpen} onClose={() => setSetupOpen(false)} />
       <AuthDialog
         open={authOpen}
-        onClose={() => setAuthOpen(false)}
+        onClose={() => {
+          setAuthOpen(false);
+          setAuthNext(null);
+        }}
         onAuthed={() => {
           setAuthOpen(false);
+          authNext?.();
+          setAuthNext(null);
         }}
       />
     </div>

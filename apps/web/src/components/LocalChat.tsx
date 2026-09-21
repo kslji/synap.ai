@@ -246,19 +246,29 @@ export function LocalChat() {
     setThreads((all) => [thread, ...all.filter((t) => t.id !== thread.id)].sort((a, b) => b.updatedAt - a.updatedAt));
   }
 
-  async function needProfile(): Promise<boolean> {
-    if (!networkOnline()) return true;
-    if (profile?.email_verified) return true;
-    const me = await fetchProfile();
-    if (me?.email_verified) {
-      setProfile(me);
+  /** Account required for download + chat features. After OTP, runs `then` if provided. */
+  async function requireAccount(then?: () => void): Promise<boolean> {
+    if (profile?.email_verified) {
+      then?.();
       return true;
     }
+    try {
+      const me = await fetchProfile();
+      if (me?.email_verified) {
+        setProfile(me);
+        then?.();
+        return true;
+      }
+    } catch {
+      /* stay gated */
+    }
+    setAuthNext(() => then ?? null);
     setAuthOpen(true);
     return false;
   }
 
   async function addFiles(list: FileList | File[]) {
+    if (!(await requireAccount())) return;
     const incoming = [...list];
     if (!incoming.length) return;
     const isImage = (f: File) =>
@@ -402,6 +412,7 @@ export function LocalChat() {
   }
 
   async function compact() {
+    if (!(await requireAccount())) return;
     if (busy) stopReply();
     const packed = packThreads(threads);
     if (!packed) {
@@ -533,6 +544,7 @@ export function LocalChat() {
   }
 
   async function wipe() {
+    if (!(await requireAccount())) return;
     if (busy) stopReply();
     if (!wipeArmed) {
       setWipeArmed(true);
@@ -589,6 +601,7 @@ export function LocalChat() {
   }
 
   async function send(preset?: string, fromThread?: Thread) {
+    if (!(await requireAccount())) return;
     const content = (preset ?? input).trim();
     let thread = fromThread || active;
     if (!thread) thread = newThread();
@@ -1129,7 +1142,11 @@ export function LocalChat() {
             <button
               type="button"
               className="ghost"
-              onClick={() => void downloadOnThisDevice()}
+              onClick={() =>
+                void requireAccount(() => {
+                  void downloadOnThisDevice();
+                })
+              }
             >
               <Download size={14} /> Download zip
             </button>
@@ -1189,13 +1206,21 @@ export function LocalChat() {
                   <button
                     type="button"
                     className="primary empty-download"
-                    onClick={() => void downloadOnThisDevice()}
+                    onClick={() =>
+                      void requireAccount(() => {
+                        void downloadOnThisDevice();
+                      })
+                    }
                   >
-                    <Download size={18} /> Download for your computer
+                    <Download size={18} />{" "}
+                    {profile?.email_verified
+                      ? "Download for your computer"
+                      : "Create account to download"}
                   </button>
                   <p className="setup-empty-hint">
-                    Unzip → run <strong>LOCAL-SETUP</strong> → Chrome opens Surf. You can still attach
-                    files here while you set that up.
+                    {profile?.email_verified
+                      ? "Unzip → run LOCAL-SETUP → Surf opens on your computer."
+                      : "Create an account first. Then download the zip, run LOCAL-SETUP, and use Surf on your computer."}
                   </p>
                 </>
               ) : (
@@ -1390,7 +1415,10 @@ export function LocalChat() {
       </section>
       <AuthDialog
         open={authOpen}
-        onClose={() => setAuthOpen(false)}
+        onClose={() => {
+          setAuthOpen(false);
+          setAuthNext(null);
+        }}
         onAuthed={(user) => {
           setProfile(user);
           setAuthOpen(false);

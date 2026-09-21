@@ -83,7 +83,11 @@ function zipStore(files: Array<{ name: string; body: string | Uint8Array; unixMo
     u32(offset),
     u16(0),
   ]);
-  return new Blob([concat([...locals, centralDir, end])], { type: "application/zip" });
+  const bytes = concat([...locals, centralDir, end]);
+  // Copy onto a plain ArrayBuffer so BlobPart typing accepts it (TS 5.x / DOM libs).
+  const ab = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(ab).set(bytes);
+  return new Blob([ab], { type: "application/zip" });
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {

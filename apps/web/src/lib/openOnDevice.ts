@@ -1,5 +1,5 @@
 import type { AgentManifest } from "./agentPacks";
-import { packById } from "./agentPacks";
+import { packById, packDownloadName } from "./agentPacks";
 
 function crc32(data: Uint8Array): number {
   let c = ~0 >>> 0;
@@ -190,7 +190,6 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
     tier: "everyday",
     created: new Date().toISOString().slice(0, 10),
   };
-  const pack = packById(manifest.agent);
 
   const setupSh = await readPackFile("/LOCAL-SETUP.sh", true);
   const setupBat = await readPackFile("/LOCAL-SETUP.bat", true);
@@ -234,7 +233,7 @@ export async function downloadOnThisDevice(opts: DownloadPackOpts = {}): Promise
   const blob = zipStore(files);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = pack.zipName;
+  a.download = packDownloadName(manifest);
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();

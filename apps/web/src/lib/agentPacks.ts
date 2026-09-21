@@ -107,3 +107,12 @@ export function oneCommand(os: "mac" | "win" | "linux"): string {
   if (os === "win") return "LOCAL-SETUP.bat";
   return "bash LOCAL-SETUP.sh";
 }
+
+/** Browser download filename — model-aware, not agent product branding. */
+export function packDownloadName(manifest: AgentManifest): string {
+  const model = (manifest.modelTitle || manifest.model || "pack")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `surf-ai-${model || "pack"}.zip`;
+}

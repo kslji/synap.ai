@@ -196,14 +196,15 @@ export function ChatDownloadShell() {
           </p>
           <div className="cta-row">
             <button type="button" className="primary" disabled={busy} onClick={startDownload}>
-              <Download size={18} /> {busy ? "Preparing…" : `Download ${pack.zipName}`}
+              <Download size={18} />
+              {busy ? "Preparing pack…" : `Download ${selected.title}`}
             </button>
           </div>
           <ol className="download-steps">
             <li>Unzip</li>
             <li>
               Run
-              <div className="cmd-box" style={{ marginTop: 10 }}>
+              <div className="cmd-box">
                 <code>{cmd}</code>
                 <button type="button" className="ghost" onClick={() => void copyCmd()}>
                   {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -217,10 +218,6 @@ export function ChatDownloadShell() {
 
         {note ? <p className="download-note">{note}</p> : null}
       </main>
-
-      <footer className="landing-foot">
-        <Link href="/">Home</Link>
-      </footer>
 
       <AuthDialog
         open={authOpen}

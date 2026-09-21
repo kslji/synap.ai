@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, MicOff, Paperclip, Pencil, Plus, Send, Square, Trash2 } from "lucide-react";
+import { Mic, MicOff, Paperclip, Pencil, Plus, Send, Square, Trash2, Download } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -1129,13 +1129,9 @@ export function LocalChat() {
             <button
               type="button"
               className="ghost"
-              onClick={() =>
-                void needProfile().then((ok) => {
-                  if (ok) void downloadOnThisDevice();
-                })
-              }
+              onClick={() => void downloadOnThisDevice()}
             >
-              Download zip
+              <Download size={14} /> Download zip
             </button>
             <button type="button" className="ghost" disabled={busy} onClick={() => void compact()}>
               Save summary
@@ -1164,21 +1160,13 @@ export function LocalChat() {
 
         <OfflineBanner stayLabel="Continue offline chat" />
 
-        {browserLlmOff && !ollamaReady ? (
-          <div className="setup-callout" role="note">
-            <p className="setup-callout-title">Run Surf on your computer</p>
-            <p>
-              This site is only the shell — AI does not run on our servers. Download the zip, run{" "}
-              <strong>LOCAL-SETUP</strong>, then refresh. You can still attach files here for grounded
-              answers without a model.
-            </p>
-          </div>
-        ) : /1b|1\.5b|in-browser/i.test(engineLabel) || (!status?.local_llm?.backend && !status?.ollama) ? (
+        {browserLlmOff && !ollamaReady ? null : /1b|1\.5b|in-browser/i.test(engineLabel) ||
+          (!status?.local_llm?.backend && !status?.ollama) ? (
           <div className="setup-callout soft" role="note">
             <p>
               Light model on (
               <strong>{/in-browser/i.test(engineLabel) ? "browser" : engineLabel}</strong>
-              ). For fuller replies, start Ollama on your computer via LOCAL-SETUP.
+              ). Download the zip for fuller answers on your computer.
             </p>
           </div>
         ) : null}
@@ -1191,19 +1179,40 @@ export function LocalChat() {
           </div>
           {empty && (
             <div className="empty">
-              <h1>Ask anything</h1>
-              <p className="muted">
-                General questions work with no files. Attach documents when you want answers grounded
-                in them.
-              </p>
               {browserLlmOff && engine === "browser" && !ollamaReady ? (
-                <p className="setup-empty-hint">{LOCAL_HOST_HINT}</p>
-              ) : gpu === false && engine === "browser" && allowInBrowserLlm() ? (
-                <p className="setup-empty-hint">
-                  This browser cannot run the in-page model. Use Google Chrome, or start Ollama on
-                  your computer with LOCAL-SETUP.
-                </p>
-              ) : null}
+                <>
+                  <h1>Private AI on your computer</h1>
+                  <p className="muted">
+                    synap.surf is the shell. Your model, Moss, and chats run on the machine in front of
+                    you — not on our servers.
+                  </p>
+                  <button
+                    type="button"
+                    className="primary empty-download"
+                    onClick={() => void downloadOnThisDevice()}
+                  >
+                    <Download size={18} /> Download for your computer
+                  </button>
+                  <p className="setup-empty-hint">
+                    Unzip → run <strong>LOCAL-SETUP</strong> → Chrome opens Surf. You can still attach
+                    files here while you set that up.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1>Ask anything</h1>
+                  <p className="muted">
+                    General questions work with no files. Attach documents when you want answers
+                    grounded in them.
+                  </p>
+                  {gpu === false && engine === "browser" && allowInBrowserLlm() ? (
+                    <p className="setup-empty-hint">
+                      This browser cannot run the in-page model. Use Google Chrome, or download the
+                      zip for your computer.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
           )}
           {msgs.map((m, i) => {

@@ -602,6 +602,10 @@ button.secondary:not(:disabled):active,
   color: var(--muted);
 }
 
+.empty-download {
+  margin-top: 18px;
+}
+
 .data-help .warn-line,
 .data-help .hint-line {
   color: var(--muted);

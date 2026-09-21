@@ -23,7 +23,7 @@ export function LocalEngines({ status }: { status: Health | null }) {
   const model =
     status?.active_model ||
     status?.default_model ||
-    (browserOk ? "in-browser model" : "waiting for setup");
+    (browserOk ? "in-browser model" : "download zip to start");
 
   return (
     <div className="engine-panel">
@@ -31,25 +31,20 @@ export function LocalEngines({ status }: { status: Health | null }) {
       <ul className="data-help">
         <li className={moss ? "ok" : ""}>
           {!moss
-            ? "Moss: waiting — run LOCAL-SETUP on your computer"
+            ? "Moss: off until you run the downloaded app"
             : !online
-              ? `Moss: offline keyword search (${status?.moss?.docs ?? 0} pieces)`
+              ? `Moss: offline (${status?.moss?.docs ?? 0} pieces)`
               : mossSdk
-                ? `Moss: online (${status?.moss?.docs ?? 0} pieces)`
+                ? `Moss: on (${status?.moss?.docs ?? 0} pieces)`
                 : `Moss: keyword search (${status?.moss?.docs ?? 0} pieces)`}
         </li>
         <li className={local ? "ok" : ""}>
           {local
             ? `Answers: ${backendLabel(status)} (${model}) on your computer`
             : browserOk
-              ? "Answers: in-browser model (or start Ollama locally)"
-              : "Answers: waiting — Download zip → LOCAL-SETUP"}
+              ? "Answers: in-browser model"
+              : "Answers: download the zip to run AI on your computer"}
         </li>
-        {!local && !browserOk ? (
-          <li className="hint-line">Private AI stays on your machine so this tab stays fast.</li>
-        ) : /1b|1\.5b|in-browser/i.test(model) || !local ? (
-          <li className="hint-line">Light path — fuller answers when Ollama is running locally.</li>
-        ) : null}
       </ul>
     </div>
   );

@@ -10,24 +10,17 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   {
-    text: "Open this in Google Chrome only — Surf’s in-browser model is built for Chrome.",
-    action: { label: "Get Chrome", href: "https://www.google.com/chrome/", external: true },
-  },
-  {
-    text: "Upcoming: connect cloud models via OpenRouter - create an account when it ships.",
-    action: { label: "OpenRouter", href: "https://openrouter.ai", external: true },
-  },
-  {
-    text: "Upcoming: use your own LLM API endpoint - no OpenRouter account required.",
-  },
-  {
-    text: "For the best AI experience today, download the local zip and run Surf on your device.",
+    text: "Private AI on your computer — download the zip and run LOCAL-SETUP. This website never runs your model.",
   },
   {
     text: "We do not store your chats. Anything saved stays in your private browser on this device.",
   },
   {
-    text: "With the downloaded zip, chats stay on your PC - no external calls, whether you are online or offline.",
+    text: "With the downloaded zip, chats stay on your PC — online or offline, no cloud LLM.",
+  },
+  {
+    text: "Upcoming: connect cloud models via OpenRouter when it ships.",
+    action: { label: "OpenRouter", href: "https://openrouter.ai", external: true },
   },
 ];
 

@@ -108,7 +108,6 @@ export function HomeLanding() {
       <LocalSetupDialog open={setupOpen} onClose={() => setSetupOpen(false)} />
       <AuthDialog
         open={authOpen}
-        allowSkip
         onClose={() => setAuthOpen(false)}
         onAuthed={() => {
           setAuthOpen(false);

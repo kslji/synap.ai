@@ -35,12 +35,10 @@ export function AuthDialog({
   open,
   onClose,
   onAuthed,
-  allowSkip = false,
 }: {
   open: boolean;
   onClose: () => void;
   onAuthed: (user: UserProfile) => void;
-  allowSkip?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("register");
   const [email, setEmail] = useState("");
@@ -114,7 +112,7 @@ export function AuthDialog({
             : "Choose a new password";
 
   return (
-    <div className="setup-scrim" role="presentation" onClick={allowSkip ? onClose : undefined}>
+    <div className="setup-scrim" role="presentation" onClick={onClose}>
       <div className="setup-panel" role="dialog" aria-labelledby="auth-title" onClick={(e) => e.stopPropagation()}>
         <h2 id="auth-title">{title}</h2>
         {!networkOnline() && (
@@ -180,11 +178,6 @@ export function AuthDialog({
                   ? "Send reset code"
                   : "Save password and sign in"}
         </button>
-        {allowSkip ? (
-          <button type="button" className="ghost wide" disabled={busy} onClick={onClose}>
-            Continue without signing in
-          </button>
-        ) : null}
         {(mode === "verify" || mode === "reset") && (
           <button
             type="button"

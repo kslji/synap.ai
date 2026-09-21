@@ -32,6 +32,21 @@ input {
 
 button {
   cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.12s ease;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.96);
+  filter: brightness(0.82);
+}
+
+button:disabled {
+  cursor: not-allowed;
 }
 
 a {
@@ -381,6 +396,12 @@ button.primary,
   font-size: 15px;
 }
 
+button.primary:not(:disabled):active,
+.primary:not(:disabled):active {
+  background: #6ee0a8;
+  filter: brightness(0.9);
+}
+
 button.secondary,
 .secondary,
 .ghost {
@@ -393,6 +414,13 @@ button.secondary,
   border-radius: 999px;
   padding: 10px 14px;
   font-size: 14px;
+}
+
+button.secondary:not(:disabled):active,
+.secondary:not(:disabled):active,
+.ghost:not(:disabled):active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #6a7a72;
 }
 
 .primary.wide {
@@ -1206,6 +1234,11 @@ button.secondary,
   justify-content: center;
 }
 
+.send:not(:disabled):active {
+  transform: scale(0.9);
+  background: #6ee0a8;
+}
+
 .send:disabled {
   opacity: 0.4;
 }
@@ -1628,6 +1661,12 @@ button.linkish {
   color: var(--accent);
   padding: 0;
   font-size: inherit;
+}
+
+button.linkish:not(:disabled):active {
+  transform: none;
+  filter: brightness(0.75);
+  text-decoration: underline;
 }
 
 .setup-cmd {

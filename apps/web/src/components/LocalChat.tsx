@@ -1382,7 +1382,6 @@ export function LocalChat() {
       </section>
       <AuthDialog
         open={authOpen}
-        allowSkip
         onClose={() => setAuthOpen(false)}
         onAuthed={(user) => {
           setProfile(user);

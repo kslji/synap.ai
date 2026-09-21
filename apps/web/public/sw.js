@@ -1,8 +1,10 @@
 /* Surf AI — keep the site usable offline, like YouTube with saved videos. */
-const CACHE = "surf-shell-v14";
+const CACHE = "surf-shell-v15";
 const PRECACHE = [
   "/",
   "/index.html",
+  "/download",
+  "/download.html",
   "/chat",
   "/chat.html",
   "/host",
@@ -65,6 +67,8 @@ async function cachedPage(path) {
     path,
     path.endsWith("/") ? `${path}index.html` : `${path}.html`,
     `${path.replace(/\/$/, "")}/index.html`,
+    "/download.html",
+    "/download",
     "/chat.html",
     "/chat",
     "/index.html",

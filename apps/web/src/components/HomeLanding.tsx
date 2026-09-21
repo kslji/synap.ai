@@ -10,17 +10,14 @@ import { AuthDialog } from "./AuthDialog";
 import { LocalSetupDialog } from "./LocalSetupDialog";
 import { OfflineBanner } from "./OfflineBanner";
 import { BrandMark } from "./BrandMark";
-import { ChromeOnlyNotice } from "./ChromeOnlyNotice";
 import { LandingTypeCycle } from "./TypeCopy";
 
-const HEADLINE = "Surf your files locally. Synap data instantly.";
-const LEDE =
-  "Download Surf to your computer. Attach a folder or file and get answers from your machine — nothing is sent to the internet for chat.";
+const HEADLINE = "Surf your files locally.";
+const LEDE = "Private AI on the machine in front of you — download once, chat offline.";
 const POINTS = [
-  "Surf is that spark between you and what’s already on your desk.",
-  "Ride the machine in front of you - no passport for your folders, no customs in the cloud.",
-  "When the wifi goes out, the wave doesn’t. Keep surfing the same tide pool.",
-  "Come back tomorrow and your board is still on this shore, not rented from someone else’s beach.",
+  "Your files stay on your desk. No cloud customs for your folders.",
+  "When Wi‑Fi drops, the wave doesn’t. Keep going on this computer.",
+  "One zip. One command. Local chat opens for you.",
 ] as const;
 
 export function HomeLanding() {
@@ -49,6 +46,7 @@ export function HomeLanding() {
 
   return (
     <div className="landing">
+      <div className="landing-atmosphere" aria-hidden />
       <header className="landing-top">
         <div>
           <Link href="/" className="brand">
@@ -56,21 +54,21 @@ export function HomeLanding() {
             Surf AI
           </Link>
         </div>
-        <button
-          type="button"
-          className="ghost"
-          onClick={() => setSetupOpen(true)}
-        >
-          <Terminal size={16} /> Setup steps
-        </button>
+        <div className="landing-top-actions">
+          <Link href="/download" className="ghost linkish">
+            Download
+          </Link>
+          <button type="button" className="ghost" onClick={() => setSetupOpen(true)}>
+            <Terminal size={16} /> Setup
+          </button>
+        </div>
       </header>
 
       <main className="landing-hero">
         <OfflineBanner
           stayLabel="Get the download zip"
-          onStay={() => void gated(() => router.push("/chat"))}
+          onStay={() => void gated(() => router.push("/download"))}
         />
-        <ChromeOnlyNotice />
         <LandingTypeCycle
           headline={HEADLINE}
           lede={LEDE}
@@ -81,9 +79,9 @@ export function HomeLanding() {
               <button
                 type="button"
                 className="primary"
-                onClick={() => void gated(() => router.push("/chat"))}
+                onClick={() => void gated(() => router.push("/download"))}
               >
-                <Download size={18} /> Download Surf for your computer
+                <Download size={18} /> Download for your computer
               </button>
               <button type="button" className="ghost" onClick={() => setSetupOpen(true)}>
                 Setup steps

@@ -70,7 +70,7 @@ export function LocalSetupDialog({
             <ol className="setup-steps">
               <li>
                 On a computer, open{" "}
-                <Link href="/chat" onClick={onClose}>
+                <Link href="/download" onClick={onClose}>
                   Download
                 </Link>{" "}
                 and save the zip.

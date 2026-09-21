@@ -5,8 +5,9 @@ import { prefetchLocalPack } from "@/lib/openOnDevice";
 
 const WARM = [
   "/",
+  "/download",
+  "/download.html",
   "/chat",
-  "/chat.html",
   "/host",
   "/host.html",
   "/manifest.webmanifest",

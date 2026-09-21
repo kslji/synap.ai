@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Check, Copy, Download, LogOut } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { AuthDialog } from "./AuthDialog";
-import { ChromeOnlyNotice } from "./ChromeOnlyNotice";
 import { downloadOnThisDevice, prefetchLocalPack } from "@/lib/openOnDevice";
 import { clearAccount, fetchProfile, type UserProfile } from "@/lib/account";
 import { networkOnline } from "@/lib/net";
@@ -24,9 +23,7 @@ import {
   type RamTier,
 } from "@/lib/localModelCatalog";
 
-/**
- * synap.surf /chat — pick agent + model, download zip, run one LOCAL-SETUP → localhost chat.
- */
+/** synap.surf /download — pick agent + model, one LOCAL-SETUP → localhost chat. */
 export function ChatDownloadShell() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -80,13 +77,9 @@ export function ChatDownloadShell() {
       setNote("");
       const manifest = buildManifest(agent, tier, selected.tag);
       void downloadOnThisDevice({ manifest })
-        .then(() =>
-          setNote(
-            `Downloaded ${pack.zipName}. Unzip, then run only: ${cmd} — Chrome opens chat on this computer.`,
-          ),
-        )
+        .then(() => setNote(`Ready. Unzip, then run: ${cmd}`))
         .catch(() =>
-          setNote("Download did not finish. Stay on this page, check your connection, and try again."),
+          setNote("Download did not finish. Check your connection and try again."),
         )
         .finally(() => setBusy(false));
     });
@@ -98,12 +91,13 @@ export function ChatDownloadShell() {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
-      setNote("Could not copy. Type the command from the box below.");
+      setNote("Could not copy — select the command and copy it yourself.");
     }
   }
 
   return (
     <div className="landing download-shell">
+      <div className="landing-atmosphere" aria-hidden />
       <header className="landing-top">
         <Link href="/" className="brand">
           <BrandMark size={36} />
@@ -128,43 +122,28 @@ export function ChatDownloadShell() {
       </header>
 
       <main className="landing-hero download-hero">
-        <ChromeOnlyNotice />
-        <p className="download-kicker">Private AI on your computer</p>
-        <h1 className="download-brand">Surf AI</h1>
-        <p className="lede">
-          Pick an agent and a model size. Download the zip. Run <strong>one</strong> command. Chrome
-          opens chat on <strong>localhost</strong> — same steps for every agent.
-        </p>
+        <p className="download-kicker">Get local AI</p>
+        <h1 className="download-brand">Download</h1>
 
-        <section className="download-section" aria-labelledby="agent-title" style={{ marginTop: 20, paddingTop: 0, borderTop: "none" }}>
-          <h2 id="agent-title">1 · Choose your agent</h2>
-          <ul className="model-list">
+        <section className="download-section first" aria-label="Agents">
+          <div className="agent-grid">
             {AGENT_PACKS.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className={agent === p.id ? "model-card on" : "model-card"}
-                  onClick={() => setAgent(p.id)}
-                >
-                  <strong>{p.title}</strong>
-                  <span className="model-needs">{p.license}</span>
-                  <span className="model-about">{p.blurb}</span>
-                  <span className="model-about">{p.downloadHint}</span>
-                  <span className="model-about">
-                    After setup: {p.opens}. {p.offlineNote}
-                  </span>
-                </button>
-              </li>
+              <button
+                key={p.id}
+                type="button"
+                className={agent === p.id ? "agent-tile on" : "agent-tile"}
+                onClick={() => setAgent(p.id)}
+              >
+                <span className="agent-tile-title">{p.title}</span>
+                <span className="agent-tile-meta">{p.license}</span>
+                <span className="agent-tile-hint">{p.downloadHint}</span>
+              </button>
             ))}
-          </ul>
+          </div>
         </section>
 
         <section className="download-section" aria-labelledby="size-title">
-          <h2 id="size-title">2 · Choose a model for your computer</h2>
-          <p className="tiny muted">
-            The zip itself is small. The AI model is a separate download (shown on each card). We pull
-            it automatically when you run the one setup command — you do not run a second command.
-          </p>
+          <h2 id="size-title">Your computer</h2>
           <div className="tier-row" role="radiogroup" aria-label="Computer size">
             {RAM_TIERS.map((t) => (
               <button
@@ -201,21 +180,20 @@ export function ChatDownloadShell() {
           </ul>
         </section>
 
-        <section className="download-section" aria-labelledby="dl-title">
-          <h2 id="dl-title">3 · Download &amp; run one command</h2>
-          <p className="tiny muted">
-            Selected: <strong>{pack.title}</strong> · <strong>{selected.title}</strong> (
-            {selected.download})
+        <section className="download-section download-cta-block" aria-labelledby="dl-title">
+          <h2 id="dl-title">Get the zip</h2>
+          <p className="selection-line">
+            {pack.title} · {selected.title} · {selected.download}
           </p>
           <div className="cta-row">
             <button type="button" className="primary" disabled={busy} onClick={startDownload}>
-              <Download size={18} /> {busy ? "Preparing zip…" : `Download ${pack.zipName}`}
+              <Download size={18} /> {busy ? "Preparing…" : `Download ${pack.zipName}`}
             </button>
           </div>
           <ol className="download-steps">
-            <li>Unzip the folder</li>
+            <li>Unzip</li>
             <li>
-              Run only this (Mac/Linux or Windows):
+              Run
               <div className="cmd-box" style={{ marginTop: 10 }}>
                 <code>{cmd}</code>
                 <button type="button" className="ghost" onClick={() => void copyCmd()}>
@@ -224,23 +202,15 @@ export function ChatDownloadShell() {
                 </button>
               </div>
             </li>
-            <li>
-              Chrome opens <code>http://127.0.0.1:18766</code> — start chatting. Leave the small
-              terminal window open.
-            </li>
+            <li>Chat opens on this computer</li>
           </ol>
-          <p className="tiny muted download-moss">
-            Same single command for Ollama, GPT4All, Jan, and AnythingLLM. First run may need internet
-            for the engine and model; afterward it works offline. Partner names keep their licenses
-            (MIT / AGPL); chat always opens in your local browser.
-          </p>
         </section>
 
         {note ? <p className="download-note">{note}</p> : null}
       </main>
 
       <footer className="landing-foot">
-        <Link href="/">Back to home</Link>
+        <Link href="/">Home</Link>
       </footer>
 
       <AuthDialog

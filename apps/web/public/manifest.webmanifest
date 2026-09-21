@@ -2,7 +2,7 @@
   "name": "Surf AI",
   "short_name": "Surf",
   "description": "Local chat on this computer. Works offline after the first visit, like saved YouTube videos.",
-  "start_url": "/chat",
+  "start_url": "/download",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0c0f0e",

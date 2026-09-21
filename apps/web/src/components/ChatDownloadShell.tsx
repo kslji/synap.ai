@@ -9,13 +9,7 @@ import { downloadOnThisDevice, prefetchLocalPack } from "@/lib/openOnDevice";
 import { clearAccount, fetchProfile, type UserProfile } from "@/lib/account";
 import { networkOnline } from "@/lib/net";
 import { detectOs } from "@/lib/runtimeInstall";
-import {
-  AGENT_PACKS,
-  buildManifest,
-  oneCommand,
-  packById,
-  type AgentId,
-} from "@/lib/agentPacks";
+import { buildManifest, oneCommand } from "@/lib/agentPacks";
 import {
   RAM_TIERS,
   defaultModelForTier,
@@ -24,20 +18,18 @@ import {
 } from "@/lib/localModelCatalog";
 import { captureReferralFromUrl, trackEvent } from "@/lib/admin";
 
-/** synap.surf /download — pick agent + model, one LOCAL-SETUP → localhost chat. */
+/** synap.surf /download — pick model, one setup command → localhost chat. */
 export function ChatDownloadShell() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authNext, setAuthNext] = useState<null | (() => void)>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
-  const [agent, setAgent] = useState<AgentId>("ollama");
   const [tier, setTier] = useState<RamTier>("light");
   const [modelId, setModelId] = useState(defaultModelForTier("light").id);
   const [copied, setCopied] = useState(false);
   const os = detectOs();
 
-  const pack = packById(agent);
   const cmd = oneCommand(os);
   const tierModels = modelsForTier(tier);
   const selected = tierModels.find((m) => m.id === modelId) || defaultModelForTier(tier);
@@ -77,7 +69,7 @@ export function ChatDownloadShell() {
     void requireAccount(() => {
       setBusy(true);
       setNote("");
-      const manifest = buildManifest(agent, tier, selected.tag);
+      const manifest = buildManifest("ollama", tier, selected.tag);
       void trackEvent("download", `${manifest.agent}:${manifest.model}`);
       void downloadOnThisDevice({ manifest })
         .then(() =>
@@ -130,27 +122,7 @@ export function ChatDownloadShell() {
         <p className="download-kicker">Get local AI</p>
         <h1 className="download-brand">Download</h1>
 
-        <section className="download-section first" aria-label="Agents">
-          <div className="agent-grid">
-            {AGENT_PACKS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={agent === p.id ? "agent-tile on" : "agent-tile"}
-                onClick={() => {
-                  setAgent(p.id);
-                  void trackEvent("agent_click", p.id);
-                }}
-              >
-                <span className="agent-tile-title">{p.title}</span>
-                <span className="agent-tile-meta">{p.license}</span>
-                <span className="agent-tile-hint">{p.downloadHint}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="download-section" aria-labelledby="size-title">
+        <section className="download-section first" aria-labelledby="size-title">
           <h2 id="size-title">Models for 1–8 GB RAM</h2>
           <p className="selection-line">
             Pick your laptop size, then a model. Heavier packs stay off for now.
@@ -197,7 +169,7 @@ export function ChatDownloadShell() {
         <section className="download-section download-cta-block" aria-labelledby="dl-title">
           <h2 id="dl-title">Get the zip</h2>
           <p className="selection-line">
-            {pack.title} · {selected.title} · {selected.download}
+            {selected.title} · {selected.download}
           </p>
           <div className="cta-row">
             <button type="button" className="primary" disabled={busy} onClick={startDownload}>

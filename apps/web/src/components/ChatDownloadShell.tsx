@@ -137,18 +137,19 @@ export function ChatDownloadShell() {
         <div className="download-head">
           <p className="download-kicker">Get local AI</p>
           <h1 className="download-brand">Download</h1>
+          <p className="download-lede">Pick your laptop RAM, choose a model, then download the pack.</p>
         </div>
 
         <section className="download-section first" aria-labelledby="size-title">
-          <h2 id="size-title">Models for 1–8 GB RAM</h2>
-          <div className="tier-row" role="radiogroup" aria-label="Computer size">
+          <h2 id="size-title">Your laptop</h2>
+          <div className="tier-seg" role="radiogroup" aria-label="Computer size">
             {RAM_TIERS.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 role="radio"
                 aria-checked={tier === t.id}
-                className={tier === t.id ? "tier-chip on" : "tier-chip"}
+                className={tier === t.id ? "tier-seg-btn on" : "tier-seg-btn"}
                 onClick={() => setTier(t.id)}
               >
                 <span className="tier-label">{t.label}</span>
@@ -156,7 +157,9 @@ export function ChatDownloadShell() {
               </button>
             ))}
           </div>
-          <ul className="model-list model-list-grid">
+
+          <h2 className="download-models-title">Models</h2>
+          <ul className="model-list">
             {tierModels.map((m) => (
               <li key={m.id}>
                 <button
@@ -167,9 +170,11 @@ export function ChatDownloadShell() {
                     void trackEvent("model_click", m.tag);
                   }}
                 >
-                  <strong>{m.title}</strong>
-                  <span className="model-needs">
-                    {m.download} · {m.ram}
+                  <span className="model-card-top">
+                    <strong>{m.title}</strong>
+                    <span className="model-needs">
+                      {m.download} · {m.ram}
+                    </span>
                   </span>
                   <span className="model-about">{m.about}</span>
                 </button>
@@ -180,7 +185,7 @@ export function ChatDownloadShell() {
 
         <section className="download-dock" aria-label="Download pack">
           <p className="selection-line">
-            {selected.title} · {selected.download}
+            Selected: <strong>{selected.title}</strong> · {selected.download}
           </p>
           <div className="download-dock-actions">
             <button type="button" className="primary" disabled={busy} onClick={startDownload}>
@@ -195,6 +200,7 @@ export function ChatDownloadShell() {
               </button>
             </div>
           </div>
+          <p className="download-hint">Unzip, then paste that command from any folder.</p>
           {note ? <p className="download-note">{note}</p> : null}
         </section>
       </main>

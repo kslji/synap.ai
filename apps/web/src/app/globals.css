@@ -619,7 +619,7 @@ a.brand:hover {
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -745,8 +745,8 @@ button.download-copy-required {
 .download-optional {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 0;
+  gap: 6px;
+  margin-top: 4px;
   min-width: 0;
   opacity: 0.9;
 }
@@ -761,7 +761,7 @@ button.download-copy-required {
 .download-optional-cmds {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
   min-width: 0;
 }
 

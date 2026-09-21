@@ -216,7 +216,7 @@ export function ChatDownloadShell() {
               <code title={cmd}>{cmd}</code>
               <button
                 type="button"
-                className="primary download-copy-required"
+                className="ghost"
                 onClick={() => void copyText(cmd, "open")}
                 disabled={mobile}
               >

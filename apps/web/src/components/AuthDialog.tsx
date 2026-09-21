@@ -17,18 +17,18 @@ type Mode = "register" | "login" | "verify" | "forgot" | "reset";
 
 function copyFor(mode: Mode): string {
   if (mode === "register") {
-    return "Create an account with your email and a password (at least 8 characters). We email a 6-digit code so we know the address is yours.";
+    return "Enter your email and a password (at least 8 characters). We’ll send a 6-digit code to confirm it’s you.";
   }
   if (mode === "login") {
-    return "Sign in with the same email and password you used to register.";
+    return "Sign in with the email and password you used to register.";
   }
   if (mode === "verify") {
-    return "Enter the 6-digit code from your email. It expires in 10 minutes. Mail is sent by the Python host (smtplib), not Node/Nodemailer. If nothing arrives, this computer has no SMTP settings — the code is also saved in mail-outbox.jsonl on the host.";
+    return "Check your inbox for a 6-digit code (it expires in 10 minutes). Don’t forget to look in spam.";
   }
   if (mode === "forgot") {
-    return "We’ll email a 6-digit reset code to this address if an account exists.";
+    return "Enter your email and we’ll send a 6-digit code to reset your password.";
   }
-  return "Enter the 6-digit reset code from email, then choose a new password (at least 8 characters).";
+  return "Enter the 6-digit code from your email, then choose a new password (at least 8 characters).";
 }
 
 export function AuthDialog({
@@ -60,7 +60,7 @@ export function AuthDialog({
     setHint("");
     try {
       if (!networkOnline()) {
-        setErr("Internet is off. Sign-in is stored on our backend and will send when you are online. Meanwhile you can wait, or chat with attached files.");
+        setErr("You’re offline. Connect to the internet to continue signing in.");
         return;
       }
       const needsPassword = mode === "register" || mode === "login" || mode === "reset";
@@ -117,8 +117,7 @@ export function AuthDialog({
         <h2 id="auth-title">{title}</h2>
         {!networkOnline() && (
           <p className="warn">
-            Internet is off. Accounts and thumbs live on our backend, not on this computer. Please
-            wait until you are online, or close this and chat with attached files.
+            You’re offline. Connect to the internet to sign in, or close this and come back later.
           </p>
         )}
         <p className="muted">{copyFor(mode)}</p>

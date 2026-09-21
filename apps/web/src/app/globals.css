@@ -175,6 +175,54 @@ a {
   isolation: isolate;
 }
 
+.page-loading {
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-loading-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 28px;
+  text-align: center;
+}
+
+.page-loading-inner p {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.page-loading-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: page-loading-pulse 1.4s ease-out infinite;
+}
+
+@keyframes page-loading-pulse {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 12px transparent;
+  }
+  100% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 .landing-atmosphere {
   pointer-events: none;
   position: fixed;

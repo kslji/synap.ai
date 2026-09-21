@@ -64,27 +64,24 @@ export function LocalSetupDialog({
           <>
             <h2 id="setup-title">On a phone or tablet</h2>
             <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-              Open this in <strong>Google Chrome</strong> only. You do not paste setup commands on
-              mobile. Phones have no Terminal for the local zip flow. Use chat in Chrome, or set Surf
-              up on a computer for fuller answers.
+              Open this in <strong>Google Chrome</strong> only. Phones cannot run the local zip setup
+              (no Terminal). Use a Mac, Windows, or Linux computer to download and chat privately.
             </p>
             <ol className="setup-steps">
               <li>
-                Keep chatting here — open{" "}
+                On a computer, open{" "}
                 <Link href="/chat" onClick={onClose}>
-                  Chat
-                </Link>
-                . The light in-browser model works without any install command.
+                  Download
+                </Link>{" "}
+                and save the zip.
               </li>
               <li>
-                For the zip and one-line setup (fuller replies, offline host), use a Mac, Windows,
-                or Linux computer. Open this site there, tap <strong>Setup steps</strong>, then
-                follow the download and Terminal instructions.
+                Unzip, run <strong>LOCAL-SETUP</strong>, and chat opens on that machine — not in this
+                phone browser.
               </li>
             </ol>
             <p className="tiny muted">
-              Answers on this phone stay in this browser’s storage. The download zip is meant for
-              desktops, not for running shell scripts on iOS or Android.
+              Answers stay on the computer that runs the zip. This website only hands you the download.
             </p>
           </>
         ) : (
@@ -147,8 +144,8 @@ export function LocalSetupDialog({
               <a href="https://www.google.com/chrome/" target="_blank" rel="noreferrer">
                 Google Chrome
               </a>{" "}
-              if you do not have it yet. Answers stay on this computer. On a phone, use Chat in the
-              browser instead — setup commands are for computers only.
+              if you do not have it yet. Answers stay on this computer. Phones cannot run this zip —
+              download from a desktop instead.
             </p>
           </>
         )}

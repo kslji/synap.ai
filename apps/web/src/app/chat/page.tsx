@@ -2,14 +2,14 @@
 
 import dynamic from "next/dynamic";
 
-const LocalChat = dynamic(
-  () => import("@/components/LocalChat").then((m) => ({ default: m.LocalChat })),
+const ChatDownloadShell = dynamic(
+  () => import("@/components/ChatDownloadShell").then((m) => ({ default: m.ChatDownloadShell })),
   {
     ssr: false,
     loading: () => (
-      <div className="chat-shell">
-        <p className="muted" style={{ padding: 24 }}>
-          Opening chat…
+      <div className="landing">
+        <p className="muted" style={{ padding: 28 }}>
+          Loading…
         </p>
       </div>
     ),
@@ -17,5 +17,5 @@ const LocalChat = dynamic(
 );
 
 export default function ChatPage() {
-  return <LocalChat />;
+  return <ChatDownloadShell />;
 }

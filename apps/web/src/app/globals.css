@@ -255,6 +255,57 @@ a.brand:hover {
   margin: 0 auto;
 }
 
+.landing-hero.download-hero {
+  max-width: 560px;
+  text-align: left;
+}
+
+.download-kicker {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.download-brand {
+  margin: 0 0 16px;
+  font-size: clamp(2.6rem, 8vw, 3.6rem);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.download-steps {
+  margin: 28px 0 0;
+  padding-left: 1.2em;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.download-steps li + li {
+  margin-top: 8px;
+}
+
+.download-steps code {
+  font-size: 0.9em;
+  color: var(--text);
+}
+
+.download-moss {
+  margin-top: 28px;
+  line-height: 1.55;
+  max-width: 42em;
+}
+
+.download-note {
+  margin-top: 18px;
+  color: var(--accent);
+  line-height: 1.5;
+}
+
+.download-shell .landing-hero .lede {
+  margin-bottom: 8px;
+}
+
 .landing-foot {
   padding: 18px 28px 28px;
   text-align: center;

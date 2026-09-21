@@ -100,7 +100,7 @@ function concat(parts: Uint8Array[]): Uint8Array {
 const README = `Surf AI — use this on your computer
 
 Phones and tablets: do not use this zip. There is no Terminal setup on mobile.
-Use Chat in the website browser instead. This folder is for Mac, Windows, or Linux.
+Download from synap.surf on a Mac, Windows, or Linux computer instead.
 
 1. Double-click the zip to unpack it, then open the local-ai folder.
 2. Open Terminal (Mac: Command + Space, type Terminal) or Command Prompt (Windows).
@@ -117,13 +117,17 @@ https://www.google.com/chrome/
 Do not double-click local-agent.html in Finder. Always start with the command above.
 Your chats stay on this computer. Nothing is sent to ChatGPT or Claude.
 
+Moss (optional): if you also run the full local host with MOSS_PROJECT_ID / MOSS_PROJECT_KEY
+in its .env and you are online, Surf uses Moss to find text in your files. If credits or keys
+fail, it falls back to on-device keyword search automatically.
+
 Keep every file in this folder together. local-agent.html needs:
   icon.svg / favicon.png / apple-icon.png  (browser tab logo)
   pdf.js / pdf.worker.js                   (PDF text)
   web-llm.js                               (in-browser model helper)
 Moving the HTML out alone breaks the logo and PDF reading.
 
-Account, email, and voice code stay on the website — they are not part of this download.
+Account and email stay on the website — they are not part of this download.
 `;
 
 type Packed = { kind: "text"; body: string } | { kind: "bin"; body: Uint8Array };

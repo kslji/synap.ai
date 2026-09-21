@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Terminal, Waves } from "lucide-react";
+import { Download, Terminal } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { downloadOnThisDevice } from "@/lib/openOnDevice";
 import { fetchProfile } from "@/lib/account";
 import { networkOnline } from "@/lib/net";
 import { AuthDialog } from "./AuthDialog";
@@ -16,7 +15,7 @@ import { LandingTypeCycle } from "./TypeCopy";
 
 const HEADLINE = "Surf your files locally. Synap data instantly.";
 const LEDE =
-  "Try local Surf: attach a folder or a file and get an answer from you personal computer. Nothing is sent to internet.";
+  "Download Surf to your computer. Attach a folder or file and get answers from your machine — nothing is sent to the internet for chat.";
 const POINTS = [
   "Surf is that spark between you and what’s already on your desk.",
   "Ride the machine in front of you - no passport for your folders, no customs in the cloud.",
@@ -68,7 +67,7 @@ export function HomeLanding() {
 
       <main className="landing-hero">
         <OfflineBanner
-          stayLabel="Continue offline chat"
+          stayLabel="Get the download zip"
           onStay={() => void gated(() => router.push("/chat"))}
         />
         <ChromeOnlyNotice />
@@ -84,14 +83,7 @@ export function HomeLanding() {
                 className="primary"
                 onClick={() => void gated(() => router.push("/chat"))}
               >
-                <Waves size={18} /> Try local Surf
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => void gated(() => void downloadOnThisDevice())}
-              >
-                <Download size={16} /> Download to run offline
+                <Download size={18} /> Download Surf for your computer
               </button>
               <button type="button" className="ghost" onClick={() => setSetupOpen(true)}>
                 Setup steps

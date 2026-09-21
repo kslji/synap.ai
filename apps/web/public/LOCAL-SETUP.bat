@@ -7,6 +7,9 @@ set URL=http://127.0.0.1:18766/local-agent.html
 
 echo Surf AI — local Small Cloud on this computer
 echo Folder: %cd%
+echo Models: after Chrome opens, pull one that fits your RAM — see PULL-MODEL.bat
+echo         e.g. PULL-MODEL.bat llama3.2:3b
+echo Colibri optional: INSTALL-COLIBRI.bat then coli serve with your model path
 echo Moss: add MOSS_PROJECT_ID / MOSS_PROJECT_KEY to the host .env when you run the full host;
 echo       if credits fail, Surf falls back to on-device keyword search automatically.
 echo.

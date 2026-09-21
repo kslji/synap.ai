@@ -10,6 +10,7 @@ function backendLabel(status: Health | null): string {
   const id = status?.local_llm?.backend;
   if (id === "lmstudio") return "LM Studio";
   if (id === "llamacpp") return "llama.cpp";
+  if (id === "colibri") return "Colibri";
   if (id === "ollama") return "Ollama";
   return "local model";
 }

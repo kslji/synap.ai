@@ -10,6 +10,9 @@ URL="http://127.0.0.1:${PORT}/local-agent.html?v=${STAMP}"
 
 echo "Surf AI — local Small Cloud on this computer"
 echo "Folder: ${HERE}"
+echo "Models: after Chrome opens, pull one that fits your RAM — see PULL-MODEL.sh"
+echo "        e.g. bash PULL-MODEL.sh llama3.2:3b"
+echo "Colibri (optional): bash INSTALL-COLIBRI.sh  then coli serve with COLI_MODEL=…"
 echo "Moss: add MOSS_PROJECT_ID / MOSS_PROJECT_KEY to the host .env when you run the full host;"
 echo "      if credits fail, Surf falls back to on-device keyword search automatically."
 echo

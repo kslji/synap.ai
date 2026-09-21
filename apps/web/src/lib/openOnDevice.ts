@@ -109,23 +109,34 @@ Download from synap.surf on a Mac, Windows, or Linux computer instead.
      Mac/Linux:  cd ~/Downloads/local-ai && bash LOCAL-SETUP.sh
      Windows:    cd %USERPROFILE%\\Downloads\\local-ai && LOCAL-SETUP.bat
 
-3. Google Chrome opens Surf AI by itself. Leave the small window open while you chat.
+3. Install Ollama (https://ollama.com), then pull a model that fits your RAM:
+
+     Light laptop (~8 GB):     bash PULL-MODEL.sh llama3.2:1b
+     Everyday (8–16 GB):       bash PULL-MODEL.sh llama3.2:3b
+     Strong (16–32 GB):        bash PULL-MODEL.sh llama3.1:8b
+     Workstation (32 GB+):     bash PULL-MODEL.sh qwen2.5:14b
+
+   Windows: PULL-MODEL.bat llama3.2:3b
+
+4. Optional — Colibri agent (https://github.com/JustVugg/colibri):
+     Mac/Linux:  bash INSTALL-COLIBRI.sh
+     Windows:    INSTALL-COLIBRI.bat
+   Then download a Colibri model and run: COLI_MODEL=/path/to/model ./coli serve
+   (port 8000). Online once for clone + model; offline afterward if the model is on disk.
+
+5. Google Chrome opens Surf AI. Leave the small LOCAL-SETUP window open while you chat.
 
 Install Google Chrome first if you do not have it:
 https://www.google.com/chrome/
 
-Do not double-click local-agent.html in Finder. Always start with the command above.
+Do not double-click local-agent.html in Finder. Always start with LOCAL-SETUP.
 Your chats stay on this computer. Nothing is sent to ChatGPT or Claude.
 
 Moss (optional): if you also run the full local host with MOSS_PROJECT_ID / MOSS_PROJECT_KEY
 in its .env and you are online, Surf uses Moss to find text in your files. If credits or keys
 fail, it falls back to on-device keyword search automatically.
 
-Keep every file in this folder together. local-agent.html needs:
-  icon.svg / favicon.png / apple-icon.png  (browser tab logo)
-  pdf.js / pdf.worker.js                   (PDF text)
-  web-llm.js                               (in-browser model helper)
-Moving the HTML out alone breaks the logo and PDF reading.
+Keep every file in this folder together.
 
 Account and email stay on the website — they are not part of this download.
 `;
@@ -136,6 +147,10 @@ const PACK_PATHS = [
   "/local-agent.html",
   "/LOCAL-SETUP.sh",
   "/LOCAL-SETUP.bat",
+  "/PULL-MODEL.sh",
+  "/PULL-MODEL.bat",
+  "/INSTALL-COLIBRI.sh",
+  "/INSTALL-COLIBRI.bat",
   "/system.md",
   "/web-llm.js",
   "/pdf.js",
@@ -177,9 +192,13 @@ export async function downloadOnThisDevice(): Promise<void> {
   const html = await readPackFile("/local-agent.html", true);
   const setupSh = await readPackFile("/LOCAL-SETUP.sh", true);
   const setupBat = await readPackFile("/LOCAL-SETUP.bat", true);
+  const pullSh = await readPackFile("/PULL-MODEL.sh", true);
+  const pullBat = await readPackFile("/PULL-MODEL.bat", true);
+  const coliSh = await readPackFile("/INSTALL-COLIBRI.sh", true);
+  const coliBat = await readPackFile("/INSTALL-COLIBRI.bat", true);
   if (!html || html.kind !== "text" || !setupSh || setupSh.kind !== "text" || !setupBat || setupBat.kind !== "text") {
     throw new Error(
-      "The local zip is not in this tab yet. Stay here — do not close the window. Download once while online, or keep chatting in this window.",
+      "The local zip is not in this tab yet. Stay here — do not close the window. Download once while online.",
     );
   }
   // Hard guard: never ship an image-upload control in the offline pack.
@@ -193,6 +212,18 @@ export async function downloadOnThisDevice(): Promise<void> {
     { name: "local-ai/LOCAL-SETUP.bat", body: setupBat.body },
     { name: "local-ai/README.txt", body: README },
   ];
+  if (pullSh?.kind === "text") {
+    files.push({ name: "local-ai/PULL-MODEL.sh", body: pullSh.body, unixMode: 0o100755 });
+  }
+  if (pullBat?.kind === "text") {
+    files.push({ name: "local-ai/PULL-MODEL.bat", body: pullBat.body });
+  }
+  if (coliSh?.kind === "text") {
+    files.push({ name: "local-ai/INSTALL-COLIBRI.sh", body: coliSh.body, unixMode: 0o100755 });
+  }
+  if (coliBat?.kind === "text") {
+    files.push({ name: "local-ai/INSTALL-COLIBRI.bat", body: coliBat.body });
+  }
   for (const name of ["system.md", "web-llm.js", "pdf.js", "pdf.worker.js", "icon.svg", "favicon.png", "apple-icon.png"] as const) {
     const extra = await readPackFile(`/${name}`);
     if (!extra) continue;

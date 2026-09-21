@@ -306,6 +306,124 @@ a.brand:hover {
   margin-bottom: 8px;
 }
 
+.download-section {
+  margin-top: 36px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+.download-section h2 {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.tier-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 14px 0 16px;
+}
+
+.tier-chip {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tier-chip.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.tier-label {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.tier-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.model-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-card {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-card.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.model-needs {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.model-about {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.cmd-box {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.cmd-box code {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.cmd-box .cmd-long {
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .tier-row {
+    grid-template-columns: 1fr;
+  }
+  .cmd-box {
+    flex-direction: column;
+  }
+}
+
 .landing-foot {
   padding: 18px 28px 28px;
   text-align: center;

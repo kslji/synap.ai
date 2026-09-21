@@ -128,6 +128,7 @@ def ollama_options(model: str | None = None) -> dict[str, Any]:
 def _bases() -> dict[str, str]:
     return {
         "ollama": settings.ollama_base.rstrip("/"),
+        "colibri": settings.colibri_base.rstrip("/"),
         "lmstudio": settings.lmstudio_base.rstrip("/"),
         "llamacpp": settings.llamacpp_base.rstrip("/"),
     }
@@ -174,7 +175,8 @@ async def _ollama_models() -> list[str]:
 async def detect_engine() -> dict[str, Any]:
     """Probe loopback servers that are actually up. No cloud providers."""
     preferred = (settings.local_llm or "auto").strip().lower()
-    order = ["ollama", "lmstudio", "llamacpp"]
+    # Ollama first for everyday zip flow; Colibri when user started coli serve (:8000).
+    order = ["ollama", "colibri", "lmstudio", "llamacpp"]
     if preferred in order:
         order = [preferred] + [x for x in order if x != preferred]
     found: list[dict[str, Any]] = []
@@ -193,7 +195,7 @@ async def detect_engine() -> dict[str, Any]:
         "url": None if active is None else active["url"],
         "models": [] if active is None else active["models"],
         "available": found,
-        "note": "Ollama :11434, LM Studio :1234, llama.cpp llama-server :8080. Never OpenAI/Anthropic.",
+        "note": "Ollama :11434, Colibri :8000, LM Studio :1234, llama.cpp :8080. Never OpenAI/Anthropic.",
     }
 
 
@@ -226,7 +228,7 @@ async def stream_chat(
         async for line in _stream_ollama(model, messages):
             yield line
         return
-    if backend in {"lmstudio", "llamacpp"}:
+    if backend in {"lmstudio", "llamacpp", "colibri"}:
         async for line in _stream_openai(str(snap["url"]), model, messages):
             yield line
         return

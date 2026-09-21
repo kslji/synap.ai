@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     host_bind: str = "127.0.0.1"
     host_port: int = 18765
     ollama_base: str = "http://127.0.0.1:11434"
+    colibri_base: str = "http://127.0.0.1:8000"
     lmstudio_base: str = "http://127.0.0.1:1234"
     llamacpp_base: str = "http://127.0.0.1:8080"
     local_llm: str = "auto"

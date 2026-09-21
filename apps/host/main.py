@@ -683,7 +683,7 @@ async def _run_chat(req: ChatRequest, session: dict):
     if not await local_engine_alive():
         raise HTTPException(
             status_code=503,
-            detail="No local model server. Start Ollama (`ollama serve`), LM Studio (port 1234), or llama.cpp `llama-server` (port 8080).",
+            detail="No local model server. Start Ollama (`ollama serve`), Colibri (`coli serve` on :8000), LM Studio (port 1234), or llama.cpp `llama-server` (port 8080).",
         )
 
     cleaned, flags = sanitize_user_text(req.content)

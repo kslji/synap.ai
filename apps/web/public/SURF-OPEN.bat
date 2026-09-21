@@ -45,7 +45,7 @@ if "%CHOICE%"=="" (
     set /a N+=1
     set "LABEL=%%~nxL"
     if exist "%%L\agent.json" (
-      for /f "usebackq delims=" %%A in (`python -c "import json;d=json.load(open(r'%%L\agent.json'));print((d.get('title') or '')+' · '+(d.get('modelTitle') or d.get('model') or ''))" 2^>nul`) do set "LABEL=%%A — %%~nxL"
+      for /f "usebackq delims=" %%A in (`python -c "import json;d=json.load(open(r'%%L\agent.json'));print((d.get('modelTitle') or d.get('model') or '')+' ('+(d.get('model') or '?')+')')" 2^>nul`) do set "LABEL=%%A — %%~nxL"
     )
     echo   !N!) !LABEL!
   )

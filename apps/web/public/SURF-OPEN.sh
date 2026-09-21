@@ -80,10 +80,9 @@ label_for() {
   if [ -f "${dir}/agent.json" ]; then
     title="$(py_json "$dir" "d.get('modelTitle') or d.get('title') or ''")"
     model="$(py_json "$dir" "d.get('model') or ''")"
-    agent="$(py_json "$dir" "d.get('title') or d.get('agent') or ''")"
   fi
   if [ -n "$title" ] || [ -n "$model" ]; then
-    echo "${agent:-Surf} · ${title:-$model} (${model:-?}) — ${folder}"
+    echo "${title:-$model} (${model:-?}) — ${folder}"
   else
     echo "Surf pack — ${folder}"
   fi

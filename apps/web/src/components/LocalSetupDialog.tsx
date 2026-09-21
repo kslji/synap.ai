@@ -88,8 +88,8 @@ export function LocalSetupDialog({
           <>
             <h2 id="setup-title">Use Surf AI on this computer</h2>
             <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-              Open this in <strong>Google Chrome</strong> only. On the download page, pick an agent
-              and model, download the zip, unzip into Downloads (each model gets its own folder),
+              Open this in <strong>Google Chrome</strong> only. On the download page, pick a model
+              for your laptop, download the zip, unzip into Downloads (each model gets its own folder),
               then run <strong>one</strong> command from any directory — SURF-OPEN lists your packs
               and opens chat.
             </p>

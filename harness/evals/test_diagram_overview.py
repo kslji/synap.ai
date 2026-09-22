@@ -181,6 +181,63 @@ def run_checks() -> list[dict]:
         "system cue forbids inventing file facts",
         rows,
     )
+    # Multi-category attachment Q&A (not résumé-only)
+    check(
+        "classify-attachment-kinds",
+        'AttachmentKind' in grounded
+        and 'export function classifyAttachment' in grounded
+        and '"resume"' in grounded
+        and '"zip"' in grounded
+        and '"spreadsheet"' in grounded
+        and '"outreach"' in grounded
+        and '"slides"' in grounded
+        and '"code"' in grounded
+        and '"config"' in grounded
+        and '"document"' in grounded,
+        "classifyAttachment covers resume/zip/sheet/outreach/slides/code/config/doc",
+        rows,
+    )
+    check(
+        "interview-routes-by-kind",
+        "export function extractiveInterviewQuestions" in grounded
+        and 'kind === "resume"' in grounded
+        and 'kind === "spreadsheet"' in grounded
+        and 'kind === "outreach"' in grounded
+        and 'kind === "slides"' in grounded
+        and 'kind === "code"' in grounded
+        and 'kind === "config"' in grounded
+        and 'kind === "document"' in grounded
+        and "extractiveDocumentQuestions" in grounded
+        and "extractiveSpreadsheetQuestions" in grounded
+        and "extractiveCodeQuestions" in grounded,
+        "extractiveInterviewQuestions switches on attachment kind",
+        rows,
+    )
+    check(
+        "wants-questions-any-attachment",
+        "file|zip|pdf|doc|document|project|repo|code|sheet|spreadsheet" in grounded
+        and "file|zip|pdf|doc|document|project|repo|code|sheet|spreadsheet" in html,
+        "wantsInterviewQuestions matches non-resume attachment phrasing",
+        rows,
+    )
+    check(
+        "localchat-interview-early-exit",
+        "wantsInterviewQuestions(asked)" in chat and "extractiveInterviewQuestions(named)" in chat,
+        "LocalChat early-exits interview asks for any attached file",
+        rows,
+    )
+    check(
+        "pack-classify-and-interview",
+        "function classifyAttachment(files)" in html
+        and "function extractiveInterviewQuestions(files)" in html
+        and 'kind === "spreadsheet"' in html
+        and "extractiveDocumentQuestions" in html
+        and "extractiveSpreadsheetQuestions" in html
+        and "extractiveCodeQuestions" in html
+        and "wantsInterviewQuestions(asked)" in html,
+        "pack mirrors category-aware interview path",
+        rows,
+    )
     return rows
 
 

@@ -740,7 +740,7 @@ export function LocalChat() {
     // If the ask names a file (e.g. "harbour"), ground only on that attachment — not siblings.
     const scoped = filesNamedInAsk(allAttached, asked);
     const named = scoped.length ? scoped : allAttached;
-    const thin = named.length ? thinAttachmentReply(named, asked) : null;
+    const thin = named.length && !wantsInterviewQuestions(asked) ? thinAttachmentReply(named, asked) : null;
     if (thin) {
       const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
       const working: Thread = {

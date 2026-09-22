@@ -21,12 +21,28 @@
   <style>
     :root { color-scheme: dark; --bg:#0c0f0e; --bg-2:#141a18; --line:#24302b; --text:#e8eee9; --muted:#8b9a92; --accent:#7dcea0; --warn:#e2b657; --danger:#e07a6a; --font:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; }
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); }
     button, textarea, input { font-family: inherit; }
     button { cursor: pointer; }
     a { color: var(--accent); text-decoration: none; }
-    .chat-shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
-    .chat-side { background: var(--bg-2); border-right: 1px solid var(--line); padding: 18px 14px; display: flex; flex-direction: column; min-height: 100vh; overflow: auto; }
+    .chat-shell {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      height: 100%;
+      height: 100dvh;
+      max-height: 100dvh;
+      overflow: hidden;
+    }
+    .chat-side {
+      background: var(--bg-2);
+      border-right: 1px solid var(--line);
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+      overflow: auto;
+    }
     .brand { font-weight: 600; letter-spacing: -0.03em; font-size: 18px; color: var(--text); }
     a.brand:hover { color: var(--accent); }
     .muted { color: var(--muted); }
@@ -72,7 +88,14 @@
       .icon#mic.mic-on::before,
       .icon#mic.mic-on::after { animation: none; }
     }
-    .chat-main { display: flex; flex-direction: column; min-height: 100vh; min-width: 0; }
+    .chat-main {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      min-width: 0;
+      height: 100%;
+      overflow: hidden;
+    }
     .light-model-note { display: block; padding: 10px 18px; border-bottom: 1px solid var(--line); background: #121a16; }
     .light-model-note[hidden] { display: none !important; }
     .light-model-note p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
@@ -82,10 +105,11 @@
     .head-title { font-weight: 600; }
     .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .chat-log {
-      flex: 1;
+      flex: 1 1 auto;
       min-height: 0;
-      overflow: auto;
-      overflow-anchor: none;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
       scroll-behavior: auto;
       padding: 28px 22px 28px;
@@ -267,7 +291,7 @@
     .setup-cmd { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; margin: 8px 0; }
     .mobile-only { display: none; }
     @media (max-width: 560px) {
-      .chat-shell { grid-template-columns: 1fr; }
+      .chat-shell { grid-template-columns: 1fr; height: 100dvh; max-height: 100dvh; }
       .chat-side { display: none; }
       .mobile-only { display: block; }
     }
@@ -1982,8 +2006,169 @@
       if (/\binterview questions?\b/.test(t)) return true;
       if (/\bquestions?\b/.test(t) && /\binterview(er|ing|s)?\b/.test(t)) return true;
       if (/\bquestions?\b/.test(t) && /\b(resume|cv|curriculum)\b/.test(t)) return true;
+      if (/\bquestions?\b/.test(t) && /\b(on|about|from|based on|for)\b/.test(t) && /\b(this|the|my|our)\b/.test(t) && /\b(resume|cv|file|doc|pdf)\b/.test(t)) return true;
+      if (/\bquestions?\b/.test(t) && /\b(this|the|my|our|attached)\b/.test(t) && /\b(file|zip|pdf|doc|document|project|repo|code|sheet|spreadsheet|csv|xlsx|presentation|slides?|deck|config|json)\b/.test(t)) return true;
       if (/\bquestions?\b/.test(t) && /\b(could|would|might|should)\b/.test(t) && /\bask\b/.test(t)) return true;
+      if (/\binterview\b/.test(t) && /\b(prep|prepare|practice|mock)\b/.test(t)) return true;
       return false;
+    }
+    function classifyAttachment(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      if (!usable.length) return "document";
+      const name = usable.map((f) => f.name).join(" ");
+      const raw = usable.map((f) => f.text).join("\n");
+      const head = raw.slice(0, 5000);
+      if (looksLikeResumeOrCv(name, raw)) return "resume";
+      if (/Extracted zip|File tree/i.test(raw) || /\.zip$/i.test(name)) return "zip";
+      try {
+        if (typeof pathsFromFiles === "function" && pathsFromFiles(usable).filter((p) => String(p).includes("/")).length >= 2) return "zip";
+      } catch { /* pathsFromFiles may be defined later — ignore */ }
+      if (/linkedin|outreach|connection message|talent acquisition/i.test(head) && /hi[, ]/i.test(head) && !looksLikeResumeOrCv(name, raw)) return "outreach";
+      if (/\.(csv|tsv|xlsx?)$/i.test(name) || /^Sheet:/m.test(raw) || (raw.includes("\n") && (raw.split("\n")[0] || "").split(/,|\t/).length >= 4)) return "spreadsheet";
+      if (/\.(pptx?|odp)$/i.test(name) || /^Slide\s*\d+/im.test(raw)) return "slides";
+      if (/\.(ya?ml|toml|ini|env|conf|cfg)$/i.test(name) || (/^[A-Z][A-Z0-9_]+=\S+/m.test(raw) && (raw.match(/^[A-Z][A-Z0-9_]+=/gm) || []).length >= 3)) return "config";
+      if (/\.(py|ts|tsx|js|jsx|go|rs|java|kt|c|cpp|h|cs|rb|php|swift)$/i.test(name) || /\b(function|class|def |import |package |fn |pub )/i.test(head)) return "code";
+      return "document";
+    }
+    function extractiveResumeInterviewQuestions(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      if (!usable.length) return "";
+      const raw = usable.map((f) => f.text).join("\n");
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const lines = raw.split(/\r?\n/).map((l) => l.replace(/\s+/g, " ").trim()).filter((l) => l.length >= 3 && l.length < 220);
+      const skillsLine =
+        lines.find((l) => /^(skills|technical skills|technologies|tech stack)\b/i.test(l)) ||
+        lines.find((l) => /\b(python|javascript|typescript|java|react|sql|aws|docker)\b/i.test(l) && /[,|:|]/.test(l));
+      const education = lines.find((l) => /\b(bachelor|master|b\.?s\.?|m\.?s\.?|b\.?tech|university|college)\b/i.test(l));
+      const roleLines = lines.filter((l) => /\b(engineer|developer|analyst|intern|manager|designer|scientist|consultant|founder)\b/i.test(l)).slice(0, 6);
+      const companies = [...new Set(lines.flatMap((l) => {
+        const m = l.match(/\b(?:at|@)\s+([A-Z][A-Za-z0-9&.\- ]{1,40})|\b([A-Z][A-Za-z0-9&.\- ]{1,40})\s*[—\-–|]\s*(?:software|data|product|engineer)/);
+        return m ? [String(m[1] || m[2] || "").trim()] : [];
+      }).filter((c) => c.length >= 2 && !/^(experience|education|skills|projects)$/i.test(c)))].slice(0, 4);
+      const projectish = lines.filter((l) => /\b(built|developed|designed|implemented|led|created|deployed)\b/i.test(l)).slice(0, 5);
+      const qs = [];
+      if (roleLines[0]) {
+        qs.push("Walk me through your most recent role" + cite + " — starting from “" + roleLines[0].slice(0, 90) + (roleLines[0].length > 90 ? "…" : "") + "”. What did you own day to day?");
+      } else {
+        qs.push("Tell me about yourself using this résumé" + cite + ": what thread connects your roles and projects?");
+      }
+      if (companies.length) {
+        qs.push("Why did you join " + companies[0] + (companies[1] ? " (and later " + companies[1] + ")" : "") + "? What problem were you hired to solve?");
+      }
+      if (skillsLine) {
+        qs.push("You list skills such as “" + skillsLine.replace(/^(skills|technical skills|technologies|tech stack)\s*:?\s*/i, "").slice(0, 120) + "”. Pick one and go deep: a concrete bug or design trade-off you handled.");
+      } else {
+        qs.push("Which skill on this résumé" + cite + " would you defend in a technical deep-dive, and what example proves it?");
+      }
+      if (projectish[0]) {
+        qs.push("Expand on this bullet: “" + projectish[0].slice(0, 110) + (projectish[0].length > 110 ? "…" : "") + "”. What was your part vs the team’s?");
+      }
+      if (education) {
+        qs.push("How does “" + education.slice(0, 100) + (education.length > 100 ? "…" : "") + "” show up in the work you do now?");
+      }
+      qs.push("What’s a failure or hard trade-off on this résumé story that taught you something you’d reuse in this role?");
+      qs.push("If we hired you tomorrow, what from this résumé would you ship in the first 30 days?");
+      return "Interview questions a hiring manager could ask based on this résumé" + cite + ":\n\n" + qs.slice(0, 7).map((q, i) => (i + 1) + ". " + q).join("\n\n");
+    }
+    function extractiveDocumentQuestions(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const raw = usable.map((f) => f.text).join("\n");
+      const heads = [...raw.matchAll(/^#{1,3}\s+(.+)$/gm)].map((m) => m[1].trim()).slice(0, 6);
+      const excerpts = raw.split(/\r?\n/).map((l) => l.replace(/\s+/g, " ").trim()).filter((l) => l.length >= 8 && l.length < 200 && !/^---/.test(l)).slice(0, 4);
+      const qs = [
+        "In one sentence, what is this document" + cite + " for, and who is the intended reader?",
+      ];
+      if (heads[0]) qs.push("What does the “" + heads[0] + "” section cover, and why is it placed first?");
+      if (excerpts[0]) qs.push("Explain this passage in plain language: “" + excerpts[0].slice(0, 120) + (excerpts[0].length > 120 ? "…" : "") + "”");
+      qs.push("What would you challenge or verify before acting on this document" + cite + "?");
+      qs.push("If you had to brief a teammate in 60 seconds using only this file" + cite + ", what three points would you keep?");
+      return "Questions a careful reader could ask about this document" + cite + ":\n\n" + qs.slice(0, 6).map((q, i) => (i + 1) + ". " + q).join("\n\n");
+    }
+    function extractiveSpreadsheetQuestions(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const raw = usable.map((f) => f.text).join("\n");
+      const sheets = [...raw.matchAll(/^Sheet:\s*(.+)$/gm)].map((m) => m[1].trim()).slice(0, 6);
+      const header = (raw.split(/\r?\n/).find((l) => l.includes(",") || l.includes("\t")) || "").split(/,|\t/).map((c) => c.trim()).filter(Boolean).slice(0, 8);
+      const qs = ["What is this spreadsheet" + cite + " tracking, and what decision does it support?"];
+      if (sheets.length) qs.push("What is each sheet for (" + sheets.map((s) => "“" + s + "”").join(", ") + "), and when would you open each one?");
+      if (header.length) qs.push("Walk through these columns — " + header.map((h) => "`" + h + "`").join(", ") + " — what does each represent?");
+      qs.push("How would you spot an anomaly or bad row in this data" + cite + "?");
+      qs.push("What total, filter, or pivot would you compute first for a stakeholder update?");
+      return "Questions about this spreadsheet" + cite + ":\n\n" + qs.slice(0, 6).map((q, i) => (i + 1) + ". " + q).join("\n\n");
+    }
+    function extractiveOutreachQuestions(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const raw = usable.map((f) => f.text).join("\n");
+      const names = [...raw.matchAll(/Name:\s*([^\n|]+)/gi)].map((m) => m[1].trim()).slice(0, 5);
+      const qs = ["Who is this outreach pack" + cite + " aimed at, and what outcome are you optimizing for?"];
+      if (names.length) qs.push("Why message " + names.slice(0, 3).join(", ") + " specifically — what makes each contact relevant?");
+      qs.push("Which template line would you personalize first, and what detail would you add from their profile?");
+      qs.push("How will you track replies and follow-ups from this list" + cite + "?");
+      return "Questions about this outreach / messaging guide" + cite + ":\n\n" + qs.map((q, i) => (i + 1) + ". " + q).join("\n\n");
+    }
+    function extractiveSlidesQuestions(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const raw = usable.map((f) => f.text).join("\n");
+      const titles = [...raw.matchAll(/^Slide\s*(\d+)[:\s]*(.*)$/gim)].map((m) => (m[2] || ("Slide " + m[1])).trim()).filter(Boolean).slice(0, 6);
+      const qs = ["What is the one takeaway of this deck" + cite + " for the audience?"];
+      if (titles[0]) qs.push("What belongs on “" + titles[0] + "”, and what would you cut if time is short?");
+      qs.push("Where is the weakest evidence in this talk, and how would you strengthen it?");
+      qs.push("What question do you expect from the room after the last slide?");
+      return "Questions about this presentation" + cite + ":\n\n" + qs.map((q, i) => (i + 1) + ". " + q).join("\n\n");
+    }
+    function extractiveCodeQuestions(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const raw = usable.map((f) => f.text).join("\n");
+      const funcs = [...new Set([...raw.matchAll(/\b(?:function|def|fn|class|export\s+(?:async\s+)?function)\s+([A-Za-z_][\w]*)/g)].map((m) => m[1]))].slice(0, 6);
+      const qs = ["What is the responsibility of `" + (usable[0]?.name || "this file") + "`" + cite + ", and what should not live here?"];
+      if (funcs.length) qs.push("What do " + funcs.slice(0, 3).map((f) => "`" + f + "`").join(", ") + " do, and how do they interact?");
+      qs.push("How would you unit-test the riskiest path in this file" + cite + "?");
+      qs.push("If you refactored this tomorrow, what would you extract first and why?");
+      return "Code-review questions for this file" + cite + ":\n\n" + qs.map((q, i) => (i + 1) + ". " + q).join("\n\n");
+    }
+    function extractiveConfigQuestions(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const raw = usable.map((f) => f.text).join("\n");
+      const keys = [...new Set([...raw.matchAll(/^([A-Z][A-Z0-9_]+)=/gm), ...raw.matchAll(/^([A-Za-z_][\w.-]*)\s*:/gm)].map((m) => m[1]))].slice(0, 10);
+      const qs = ["What runtime or deploy environment does this config" + cite + " control?"];
+      if (keys.length) qs.push("Which of these keys are secrets vs public settings: " + keys.slice(0, 6).map((k) => "`" + k + "`").join(", ") + "?");
+      qs.push("What breaks if a required key is missing or wrong in production?");
+      qs.push("How would you rotate or override values safely across machines?");
+      return "Questions about this config" + cite + ":\n\n" + qs.map((q, i) => (i + 1) + ". " + q).join("\n\n");
+    }
+    function extractiveInterviewQuestions(files) {
+      const kind = classifyAttachment(files);
+      if (kind === "resume") return extractiveResumeInterviewQuestions(files);
+      if (kind === "spreadsheet") return extractiveSpreadsheetQuestions(files);
+      if (kind === "outreach") return extractiveOutreachQuestions(files);
+      if (kind === "slides") return extractiveSlidesQuestions(files);
+      if (kind === "code") return extractiveCodeQuestions(files);
+      if (kind === "config") return extractiveConfigQuestions(files);
+      if (kind === "document") return extractiveDocumentQuestions(files);
+      const names = (files || []).map((f) => f.name).filter(Boolean);
+      const root = names[0] ? names[0].replace(/\.zip$/i, "") : "this project";
+      let kids = [];
+      try {
+        if (typeof pathsFromFiles === "function") {
+          kids = [...new Set(pathsFromFiles(files).map((p) => String(p).split("/").filter(Boolean)[1]).filter(Boolean))].slice(0, 8);
+        }
+      } catch { /* ignore */ }
+      const qs = [];
+      if (kids.length) {
+        qs.push("What does each top-level area in `" + root + "` do — especially " + kids.slice(0, 4).map((k) => "`" + k + "`").join(", ") + " — and how do they connect?");
+      } else {
+        qs.push("What is `" + root + "`, and what problem does this codebase solve?");
+      }
+      qs.push("If you had one day to improve `" + root + "`, what would you change first and why?");
+      qs.push("Which module would you open first in a code review, and what risks would you look for?");
+      qs.push("How would you test or verify a change before shipping?");
+      return "Interview questions grounded in the attached project (`" + root + "`):\n\n" + qs.map((q, i) => (i + 1) + ". " + q).join("\n\n");
     }
     function trimTurns(list, budget) {
       const out = [];
@@ -2100,6 +2285,7 @@
       const t = String(q || "").trim().toLowerCase();
       if (!t) return false;
       if (wantsDiagram(q)) return false;
+      if (wantsInterviewQuestions(q)) return false;
       return /\b(summar(y|ise|ize)?|overview|brief|recap|include[sd]?|consist|what(?:'s| is| does)\s+(this|it)|what is this|walk (me )?through|explain|tell me about|what(?:'s| is) (in|inside)|purpose)\b/.test(t)
         || /\bwhat\s+(is|are)\s+\S[\w.+-]{1,48}\s+(file|zip|pdf|doc|document|project|repo)\b/.test(t)
         || /\b[\w.+-]{3,48}\s+(file|zip|pdf)\s+(is\s+)?about\b/.test(t);
@@ -2357,7 +2543,11 @@
         "This is a **" + kind + "** **[" + name + "]**.",
         "- **Purpose:** hold readable information (story, instructions, résumé, notes) so you can ask about meaning — not so I paste it back.",
       ];
-      if (/linkedin|outreach|connection message|talent acquisition|recruiter/i.test(raw) && /hi[, ]/i.test(raw)) {
+      if (
+        /linkedin|outreach|connection message|talent acquisition|recruiter/i.test(raw) &&
+        /hi[, ]/i.test(raw) &&
+        !looksLikeResumeOrCv(name, raw)
+      ) {
         const names = [...String(raw).matchAll(/Name:\s*([^\n|]+)/gi)].map((m) => m[1].trim()).slice(0, 5);
         return (
           "This file **[" + name + "]** is a **LinkedIn outreach / connection-message guide**.\n" +
@@ -2686,6 +2876,10 @@
         const diagram = architectureFlowFromFiles(usable);
         if (diagram) return diagram;
       }
+      if (wantsInterviewQuestions(ask)) {
+        const qs = extractiveInterviewQuestions(usable);
+        if (qs) return qs;
+      }
       if (!looksUngroundedAgainstFiles(out, usable, ask, lightModel)) return out;
       if (wantsFileOverview(ask) || lightModel || asksAboutAttachedFilesPack(ask)) {
         const overview = extractiveFileOverview(usable);
@@ -2741,8 +2935,24 @@
           return;
         }
       }
+      // Interview asks on attached résumé/files — extractive Qs (do not mislabel as LinkedIn outreach).
+      if (t.attached?.length && wantsInterviewQuestions(asked)) {
+        const named = filesNamedInAsk(t.attached, asked);
+        const qs = extractiveInterviewQuestions(named.length ? named : t.attached);
+        if (qs) {
+          input.value = "";
+          syncSend();
+          t.msgs.push({ role: "user", content: asked });
+          if (t.msgs.length === 1) t.title = titleFrom(asked);
+          t.updatedAt = Date.now();
+          t.msgs.push({ role: "assistant", content: qs });
+          renderAll();
+          await persist();
+          return;
+        }
+      }
       // File summaries: always extractive when attachments exist (Qwen 1.5B / llama 1B dump wrong text otherwise).
-      if (t.attached?.length && wantsFileOverview(asked) && !wantsDiagram(asked)) {
+      if (t.attached?.length && wantsFileOverview(asked) && !wantsDiagram(asked) && !wantsInterviewQuestions(asked)) {
         const named = filesNamedInAsk(t.attached, asked);
         const brief = extractiveFileOverview(named.length ? named : t.attached);
         if (brief) {

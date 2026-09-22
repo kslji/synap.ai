@@ -434,21 +434,16 @@ a.brand:hover {
   display: none;
 }
 
-.download-note {
+.download-err {
   margin: 0;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-2));
+  border: 1px solid color-mix(in srgb, var(--danger, #e07a6a) 45%, var(--line));
+  background: color-mix(in srgb, var(--danger, #e07a6a) 12%, var(--bg-2));
   color: var(--text);
   font-size: 13px;
   line-height: 1.45;
   word-break: break-word;
-}
-
-.download-note strong {
-  color: var(--accent);
-  font-weight: 600;
 }
 
 .download-hint {
@@ -657,6 +652,7 @@ a.brand:hover {
 }
 
 .download-run-required {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -670,6 +666,115 @@ a.brand:hover {
     color-mix(in srgb, var(--bg-2) 70%, transparent)
   );
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.download-run-required.is-guided {
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.download-toast-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: calc(12px + var(--top-banner-h, 44px) + 8px) 16px 16px;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.download-toast {
+  position: relative;
+  cursor: default;
+  width: min(420px, 100%);
+  padding: 14px 40px 14px 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: #152019;
+  color: var(--text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: download-popup-in 0.28s ease-out;
+}
+
+.download-toast strong {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--accent);
+}
+
+.download-toast span {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.download-toast em {
+  font-style: normal;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.download-toast-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.download-toast-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+@keyframes download-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .download-toast,
+  .download-copy-pulse {
+    animation: none;
+  }
+}
+
+.download-copy-pulse {
+  border-color: var(--accent) !important;
+  color: var(--accent);
+  animation: download-copy-glow 1.2s ease-in-out infinite;
+}
+
+@keyframes download-copy-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent);
+  }
 }
 
 .download-run-label {
@@ -869,7 +974,7 @@ button.download-copy-required {
     grid-template-columns: 64px minmax(0, 1fr);
   }
 
-  .download-note {
+  .download-err {
     font-size: 12.5px;
     padding: 9px 11px;
   }
@@ -1272,7 +1377,10 @@ button.secondary:not(:disabled):active,
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 20px 22px 8px;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+  padding: 20px 22px 28px;
   display: flex;
   flex-direction: column;
   gap: 12px;

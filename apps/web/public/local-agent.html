@@ -81,7 +81,18 @@
     .chat-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line); gap: 12px; }
     .head-title { font-weight: 600; }
     .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .chat-log { flex: 1; min-height: 0; overflow: auto; padding: 28px 22px 12px; display: flex; flex-direction: column; gap: 12px; }
+    .chat-log {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      overflow-anchor: none;
+      overscroll-behavior: contain;
+      scroll-behavior: auto;
+      padding: 28px 22px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
     .empty { margin: auto; max-width: 520px; text-align: center; }
     .empty h1 { font-size: 32px; letter-spacing: -0.04em; margin: 0 0 12px; font-weight: 600; }
     .warn { color: var(--warn); font-size: 14px; }
@@ -362,6 +373,39 @@
     const EMPTY = `<div class="empty" id="empty"><h1>Ask anything</h1><p class="muted">General questions work with no files. Attach documents when you want answers grounded in them. Answers
                 come from your private ai model. Wi-Fi is optional.</p></div>`;
     const logEl = document.getElementById("log");
+    let stickBottom = true;
+    let scrollRaf = 0;
+    let mdPaintRaf = 0;
+    let mdPaintPending = null;
+    logEl.addEventListener(
+      "scroll",
+      () => {
+        const gap = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight;
+        stickBottom = gap < 120;
+      },
+      { passive: true },
+    );
+    function scrollLog(force) {
+      if (!force && !stickBottom) return;
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = 0;
+        if (!force && !stickBottom) return;
+        logEl.scrollTop = logEl.scrollHeight;
+      });
+    }
+    function paintStreamingMarkdown(el, text) {
+      mdPaintPending = { el, text };
+      if (mdPaintRaf) return;
+      mdPaintRaf = requestAnimationFrame(() => {
+        mdPaintRaf = 0;
+        const job = mdPaintPending;
+        mdPaintPending = null;
+        if (!job) return;
+        fillMarkdown(job.el, job.text, true);
+        scrollLog(false);
+      });
+    }
     const input = document.getElementById("input");
     const filesEl = document.getElementById("files");
     const modeEl = document.getElementById("mode");
@@ -699,7 +743,7 @@
           logEl.appendChild(d);
         }
       }
-      logEl.scrollTop = logEl.scrollHeight;
+      scrollLog(true);
     }
     function renderFiles() {
       const t = active();
@@ -761,7 +805,7 @@
         logEl.appendChild(p);
       }
       p.querySelector(".think-label").textContent = label;
-      logEl.scrollTop = logEl.scrollHeight;
+      scrollLog(false);
     }
     async function loadPackManifest() {
       if (window.__SURF_PACK__ && window.__SURF_PACK__.model) return window.__SURF_PACK__;
@@ -2729,7 +2773,9 @@
       t.msgs.push({ role: "user", content: asked });
       if (t.msgs.length === 1) t.title = titleFrom(asked);
       t.updatedAt = Date.now();
+      stickBottom = true;
       renderLog();
+      scrollLog(true);
       progress(t.attached.length ? "Using " + t.attached.length + " attached file(s) · generating…" : (useHostChat(healthCache) || isStandalone() ? "Generating…" : "Thinking"));
       const bot = document.createElement("div");
       bot.className = "bubble assistant";
@@ -2767,8 +2813,7 @@
             mountAssistant(bot);
           }
           streamBuf += piece;
-          fillMarkdown(bot, streamBuf, true);
-          logEl.scrollTop = logEl.scrollHeight;
+          paintStreamingMarkdown(bot, streamBuf);
         };
         const startedAt = performance.now();
         let backendMs = null;
@@ -2823,9 +2868,15 @@
           finalText = groundAttachedFileReply(finalText, groundFiles, asked, lightNow);
         }
         if (!bot.isConnected) progress("");
+        if (mdPaintRaf) {
+          cancelAnimationFrame(mdPaintRaf);
+          mdPaintRaf = 0;
+          mdPaintPending = null;
+        }
         mountAssistant(bot);
         fillMarkdown(bot, finalText, false);
         paintCite(bot, t.lastCite);
+        scrollLog(true);
         const rec = {
           role: "assistant",
           content: finalText,

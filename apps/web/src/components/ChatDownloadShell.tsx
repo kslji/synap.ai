@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Copy, Download, LogOut } from "lucide-react";
 import { BrandMark } from "./BrandMark";
@@ -27,11 +27,14 @@ export function ChatDownloadShell() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authNext, setAuthNext] = useState<null | (() => void)>(null);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
+  const [errNote, setErrNote] = useState("");
+  const [guideRequired, setGuideRequired] = useState(false);
+  const [guideTitle, setGuideTitle] = useState("");
   const [tier, setTier] = useState<RamTier>("light");
   const [modelId, setModelId] = useState(defaultModelForTier("light").id);
   const [copied, setCopied] = useState<"open" | "evals" | "custom" | null>(null);
   const [mobile, setMobile] = useState(false);
+  const requiredRef = useRef<HTMLDivElement>(null);
   const os = detectOs();
 
   const cmd = oneCommand(os);
@@ -52,6 +55,11 @@ export function ChatDownloadShell() {
   useEffect(() => {
     setModelId(defaultModelForTier(tier).id);
   }, [tier]);
+
+  useEffect(() => {
+    if (!guideRequired) return;
+    requiredRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [guideRequired]);
 
   async function requireAccount(then: () => void) {
     try {
@@ -74,7 +82,8 @@ export function ChatDownloadShell() {
 
   function startDownload() {
     if (isMobileBrowser()) {
-      setNote("Use a Mac, Windows, or Linux laptop — phones and tablets can’t run Terminal setup.");
+      setGuideRequired(false);
+      setErrNote("Use a Mac, Windows, or Linux laptop — phones and tablets can’t run Terminal setup.");
       return;
     }
     const lockedId = selected.id;
@@ -82,7 +91,8 @@ export function ChatDownloadShell() {
     const lockedTier = selected.tier;
     void requireAccount(() => {
       setBusy(true);
-      setNote("");
+      setErrNote("");
+      setGuideRequired(false);
       try {
         const manifest = buildManifest("ollama", lockedTier, lockedId);
         if (manifest.model !== lockedTag || manifest.modelId !== lockedId) {
@@ -90,39 +100,79 @@ export function ChatDownloadShell() {
         }
         void trackEvent("download", `${manifest.agent}:${manifest.model}`);
         void downloadOnThisDevice({ manifest })
-          .then(() =>
-            setNote(
-              `Pack saved: ${manifest.modelTitle} (${manifest.model}). Unzip the zip, then Copy the Required command and run it in Terminal.`,
-            ),
-          )
-          .catch((err) =>
-            setNote(
+          .then(() => {
+            setErrNote("");
+            setGuideTitle(manifest.modelTitle || manifest.model || selected.title);
+            setGuideRequired(true);
+          })
+          .catch((err) => {
+            setGuideRequired(false);
+            setGuideTitle("");
+            setErrNote(
               err instanceof Error
                 ? err.message
                 : "Download did not finish. Check your connection and try again.",
-            ),
-          )
+            );
+          })
           .finally(() => setBusy(false));
       } catch (err) {
         setBusy(false);
-        setNote(err instanceof Error ? err.message : "Could not prepare this pack.");
+        setGuideRequired(false);
+        setGuideTitle("");
+        setErrNote(err instanceof Error ? err.message : "Could not prepare this pack.");
       }
     });
+  }
+
+  function dismissGuide() {
+    setGuideRequired(false);
+    setGuideTitle("");
   }
 
   async function copyText(text: string, which: "open" | "evals" | "custom") {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(which);
+      if (which === "open") dismissGuide();
       window.setTimeout(() => setCopied(null), 1800);
     } catch {
-      setNote("Could not copy — select the command and copy it yourself.");
+      setErrNote("Could not copy — select the command and copy it yourself.");
     }
   }
 
   return (
     <div className="landing download-shell">
       <div className="landing-atmosphere" aria-hidden />
+      {guideRequired ? (
+        <div
+          className="download-toast-layer"
+          role="presentation"
+          onClick={dismissGuide}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") dismissGuide();
+          }}
+        >
+          <div
+            className="download-toast"
+            role="status"
+            aria-live="polite"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <strong>Pack downloaded{guideTitle ? `: ${guideTitle}` : ""}</strong>
+            <span>
+              Unzip the zip, then <em>Copy</em> the Required command below and run it in Terminal.
+            </span>
+            <button
+              type="button"
+              className="download-toast-close"
+              onClick={dismissGuide}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
       <header className="landing-top download-top">
         <Link href="/" className="brand">
           <BrandMark size={28} />
@@ -211,7 +261,13 @@ export function ChatDownloadShell() {
                 ? "Open on a laptop"
                 : `Download ${selected.title}`}
           </button>
-          <div className="download-run-required" aria-label="Required open command">
+          <div
+            ref={requiredRef}
+            className={
+              guideRequired ? "download-run-required is-guided" : "download-run-required"
+            }
+            aria-label="Required open command"
+          >
             <p className="download-run-label">
               <span className="download-run-badge">Required</span>
               Unzip, then run this in Terminal
@@ -220,7 +276,7 @@ export function ChatDownloadShell() {
               <code title={cmd}>{cmd}</code>
               <button
                 type="button"
-                className="ghost"
+                className={guideRequired ? "ghost download-copy-pulse" : "ghost"}
                 onClick={() => void copyText(cmd, "open")}
                 disabled={mobile}
               >
@@ -268,9 +324,9 @@ export function ChatDownloadShell() {
               Phones and tablets aren’t supported — use a computer with Terminal.
             </p>
           )}
-          {note ? (
-            <p className="download-note" role="status" aria-live="polite">
-              {note}
+          {errNote ? (
+            <p className="download-err" role="alert">
+              {errNote}
             </p>
           ) : null}
         </section>

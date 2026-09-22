@@ -170,6 +170,8 @@ export function LocalChat() {
   const stopMic = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const genIdRef = useRef(0);
+  const stickBottomRef = useRef(true);
+  const scrollRafRef = useRef(0);
 
   const load = useCallback(async (preferId?: string) => {
     const [all, mem, quota, host, stored] = await Promise.all([
@@ -240,9 +242,41 @@ export function LocalChat() {
     setEngine(ready ? "ollama" : "browser");
   }, [status]);
 
+  const scrollLogToBottom = useCallback((force = false) => {
+    const el = logRef.current;
+    if (!el) return;
+    if (!force && !stickBottomRef.current) return;
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      const node = logRef.current;
+      if (!node) return;
+      if (!force && !stickBottomRef.current) return;
+      // Instant jump (not smooth) — smooth + token stream feels irregular.
+      node.scrollTop = node.scrollHeight;
+    });
+  }, []);
+
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [active?.messages, busy]);
+    const el = logRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickBottomRef.current = gap < 120;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [active?.id]);
+
+  useEffect(() => {
+    scrollLogToBottom(false);
+  }, [active?.messages, busy, progress, scrollLogToBottom]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, []);
 
   async function persist(thread: Thread) {
     await saveThread(thread);
@@ -833,6 +867,8 @@ export function LocalChat() {
     abortRef.current = new AbortController();
     const myGen = ++genIdRef.current;
     const stillThisGen = () => myGen === genIdRef.current && !abortRef.current?.signal.aborted;
+    stickBottomRef.current = true;
+    scrollLogToBottom(true);
     setBusy(true);
     let startedAt = performance.now();
     setProgress(

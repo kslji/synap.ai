@@ -642,8 +642,7 @@ export function extractiveDocumentQuestions(files: NamedDoc[]): string {
   }
   qs.push(`What would you challenge or verify before acting on this document${cite}?`);
   qs.push(`If you had to brief a teammate in 60 seconds using only this file${cite}, what three points would you keep?`);
-  const body = qs.slice(0, 7).map((q, i) => `${i + 1}. ${q}`).join("\n\n");
-  return `Questions a careful reader could ask about this document${cite}:\n\n${body}`;
+  return formatNumberedQuestions(`Questions a careful reader could ask about this document${cite}`, qs.slice(0, 7));
 }
 
 export function extractiveSpreadsheetQuestions(files: NamedDoc[]): string {
@@ -667,7 +666,7 @@ export function extractiveSpreadsheetQuestions(files: NamedDoc[]): string {
   qs.push(`How would you spot an anomaly or bad row in this data${cite}?`);
   qs.push(`What total, filter, or pivot would you compute first for a stakeholder update?`);
   qs.push(`What is missing from this sheet that you’d need before trusting a report built on it?`);
-  return `Questions about this spreadsheet${cite}:\n\n${qs.slice(0, 6).map((q, i) => `${i + 1}. ${q}`).join("\n\n")}`;
+  return formatNumberedQuestions(`Questions about this spreadsheet${cite}`, qs.slice(0, 6));
 }
 
 export function extractiveOutreachQuestions(files: NamedDoc[]): string {
@@ -683,7 +682,7 @@ export function extractiveOutreachQuestions(files: NamedDoc[]): string {
   qs.push(`Which template line would you personalize first, and what detail would you add from their profile?`);
   qs.push(`How do you stay under LinkedIn’s invite length limit without sounding generic?`);
   qs.push(`How will you track replies and follow-ups from this list${cite}?`);
-  return `Questions about this outreach / messaging guide${cite}:\n\n${qs.map((q, i) => `${i + 1}. ${q}`).join("\n\n")}`;
+  return formatNumberedQuestions(`Questions about this outreach / messaging guide${cite}`, qs);
 }
 
 export function extractiveSlidesQuestions(files: NamedDoc[]): string {
@@ -700,7 +699,7 @@ export function extractiveSlidesQuestions(files: NamedDoc[]): string {
   if (titles[1]) qs.push(`How does “${titles[1]}” advance the story from the previous slide?`);
   qs.push(`Where is the weakest evidence in this talk, and how would you strengthen it?`);
   qs.push(`What question do you expect from the room after the last slide?`);
-  return `Questions about this presentation${cite}:\n\n${qs.map((q, i) => `${i + 1}. ${q}`).join("\n\n")}`;
+  return formatNumberedQuestions(`Questions about this presentation${cite}`, qs);
 }
 
 export function extractiveCodeQuestions(files: NamedDoc[]): string {
@@ -724,7 +723,7 @@ export function extractiveCodeQuestions(files: NamedDoc[]): string {
   qs.push(`How would you unit-test the riskiest path in this file${cite}?`);
   qs.push(`What failure mode or edge case is under-handled here?`);
   qs.push(`If you refactored this tomorrow, what would you extract first and why?`);
-  return `Code-review questions for this file${cite}:\n\n${qs.map((q, i) => `${i + 1}. ${q}`).join("\n\n")}`;
+  return formatNumberedQuestions(`Code-review questions for this file${cite}`, qs);
 }
 
 export function extractiveConfigQuestions(files: NamedDoc[]): string {
@@ -746,11 +745,11 @@ export function extractiveConfigQuestions(files: NamedDoc[]): string {
   }
   qs.push(`What breaks if a required key is missing or wrong in production?`);
   qs.push(`How would you rotate or override values safely across machines?`);
-  return `Questions about this config${cite}:\n\n${qs.map((q, i) => `${i + 1}. ${q}`).join("\n\n")}`;
+  return formatNumberedQuestions(`Questions about this config${cite}`, qs);
 }
 
 /** Résumé-grounded interview questions from extracted sections (not a zip tree template). */
-export function extractiveResumeInterviewQuestions(files: NamedDoc[]): string {
+export function extractiveResumeInterviewQuestions(files: NamedDoc[], more = false): string {
   const usable = files.filter((f) => String(f.text || "").trim());
   const raw = usable.map((f) => f.text).join("\n");
   const cite = usable[0]?.name ? ` [${usable[0].name}]` : "";
@@ -782,9 +781,39 @@ export function extractiveResumeInterviewQuestions(files: NamedDoc[]): string {
   ].slice(0, 4);
   const projectish = lines
     .filter((l) => /\b(built|developed|designed|implemented|led|created|deployed)\b/i.test(l))
-    .slice(0, 5);
+    .slice(0, 8);
 
   const qs: string[] = [];
+  if (more) {
+    if (roleLines[1]) {
+      qs.push(
+        `Compare your earlier role (“${roleLines[1].slice(0, 90)}${roleLines[1].length > 90 ? "…" : ""}”) with the latest one — what changed in how you work?`,
+      );
+    }
+    if (companies[1]) {
+      qs.push(`What did you take from ${companies[0]} into ${companies[1]} that still shows up in your craft?`);
+    }
+    if (projectish[1]) {
+      qs.push(
+        `Another bullet: “${projectish[1].slice(0, 110)}${projectish[1].length > 110 ? "…" : ""}”. What metric or outcome proved it worked?`,
+      );
+    }
+    if (projectish[2]) {
+      qs.push(
+        `Walk me through a hard debugging or design day behind: “${projectish[2].slice(0, 100)}${projectish[2].length > 100 ? "…" : ""}”.`,
+      );
+    }
+    if (skillsLine) {
+      qs.push(
+        `Besides the headline skills in “${skillsLine.replace(/^(skills|technical skills|technologies|tech stack)\s*:?\s*/i, "").slice(0, 100)}”, what would you *not* claim yet and how are you closing that gap?`,
+      );
+    }
+    qs.push(`Tell me about a disagreement with a teammate or stakeholder that this résumé does not spell out — how did you resolve it?`);
+    qs.push(`What would a skeptical interviewer challenge first on this résumé${cite}, and how would you answer?`);
+    qs.push(`Where do you want this career to go in 2–3 years, given what’s already on this file${cite}?`);
+    const bodyMore = qs.slice(0, 7);
+    return formatNumberedQuestions("More interview questions from this résumé" + cite, bodyMore);
+  }
   if (roleLines[0]) {
     qs.push(`Walk me through your most recent role${cite} — starting from “${roleLines[0].slice(0, 90)}${roleLines[0].length > 90 ? "…" : ""}”. What did you own day to day?`);
   } else {
@@ -811,14 +840,22 @@ export function extractiveResumeInterviewQuestions(files: NamedDoc[]): string {
   qs.push(`What’s a failure or hard trade-off on this résumé story that taught you something you’d reuse in this role?`);
   qs.push(`If we hired you tomorrow, what from this résumé would you ship in the first 30 days?`);
 
-  const body = qs.slice(0, 7).map((q, i) => `${i + 1}. ${q}`).join("\n\n");
-  return `Interview questions a hiring manager could ask based on this résumé${cite}:\n\n${body}`;
+  return formatNumberedQuestions("Interview questions a hiring manager could ask based on this résumé" + cite, qs.slice(0, 7));
+}
+
+export function wantsMoreInterviewQuestions(q: string): boolean {
+  const t = normalizeUserAsk(q).toLowerCase();
+  return (
+    (/\b(more|another|additional|extra|few more|some more)\b/.test(t) && /\bquestions?\b/.test(t)) ||
+    (/\bi want more\b/.test(t) && /\bquestions?\b/.test(t))
+  );
 }
 
 /** Category-aware Q&A from attachments (resume, zip, sheet, doc, code, …). */
-export function extractiveInterviewQuestions(files: NamedDoc[]): string {
+export function extractiveInterviewQuestions(files: NamedDoc[], ask = ""): string {
+  const more = wantsMoreInterviewQuestions(ask);
   const kind = classifyAttachment(files);
-  if (kind === "resume") return extractiveResumeInterviewQuestions(files);
+  if (kind === "resume") return extractiveResumeInterviewQuestions(files, more);
   if (kind === "spreadsheet") return extractiveSpreadsheetQuestions(files);
   if (kind === "outreach") return extractiveOutreachQuestions(files);
   if (kind === "slides") return extractiveSlidesQuestions(files);
@@ -859,11 +896,10 @@ export function extractiveInterviewQuestions(files: NamedDoc[]): string {
   }
   qs.push(`If you had one day to improve \`${root}\`, what would you change first and why?`);
   qs.push(`Which module would you open first in a code review, and what risks would you look for?`);
-  const body = qs.map((q, i) => `${i + 1}. ${q}`).join("\n\n");
-  return (
-    `Interview questions grounded in the attached project (\`${root}\`), from the zip file tree` +
-    (kids.length ? ` (folders: ${kids.map((k) => `\`${k}\``).join(", ")})` : "") +
-    `:\n\n${body}`
+  return formatNumberedQuestions(
+    `Interview questions grounded in the attached project (\`${root}\`)` +
+      (kids.length ? ` (folders: ${kids.map((k) => `\`${k}\``).join(", ")})` : ""),
+    qs,
   );
 }
 
@@ -1056,6 +1092,112 @@ export function looksUngroundedAgainstFiles(
 }
 
 /**
+ * Canonical presentation for any question list (every model path).
+ * Renders as a markdown ordered list with clear spacing.
+ */
+export function formatNumberedQuestions(title: string, questions: string[]): string {
+  const qs = questions
+    .map((q) =>
+      String(q || "")
+        .replace(/^#+\s*/, "")
+        .replace(/^\d+[.)]\s*/, "")
+        .replace(/\*\*/g, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter((q) => q.length >= 8)
+    .map((q) => (/\?[.!]*$/.test(q) ? q.replace(/[.!]*$/, "?") : `${q}?`.replace(/\?\?+$/, "?")));
+  if (!qs.length) return "";
+  const head = String(title || "Questions")
+    .replace(/\*\*/g, "")
+    .replace(/:+\s*$/, "")
+    .trim();
+  return `**${head}**\n\n${qs.slice(0, 10).map((q, i) => `${i + 1}. ${q}`).join("\n\n")}`;
+}
+
+/**
+ * Turn glued / ###-separated / run-on interview questions into a clean numbered list.
+ * Used for every model so presentation stays readable even if the LLM answered.
+ */
+export function presentQuestionList(text: string, ask = ""): string {
+  let raw = String(text || "").trim();
+  if (!raw) return raw;
+
+  // Markdown ### used as separators (not real headings) → hard breaks.
+  raw = raw.replace(/\s*#{2,}\s*/g, "\n");
+  // "Q1:" / "Question 1:" glue
+  raw = raw.replace(/\s*(?:^|\b)(?:Q(?:uestion)?\s*)?(\d+)\s*[:.)\-–—]\s*/gi, "\n$1. ");
+  // Run-on: "...? What is..." with no newline
+  raw = raw.replace(/\?\s+(?=[A-Z“"‘])/g, "?\n");
+
+  const lines = raw
+    .split(/\n+/)
+    .map((l) => l.replace(/^\s*[-•*]\s+/, "").replace(/^\s*\d+[.)]\s*/, "").trim())
+    .filter((l) => l.length >= 8 && !/^(interview|more)?\s*questions?:?$/i.test(l));
+
+  // Prefer lines that look like questions; fall back to all non-empty chunks.
+  let qs = lines.filter(
+    (l) => /\?/.test(l) || /^(walk|tell|explain|describe|how|what|why|when|where|which|who|compare|expand)\b/i.test(l),
+  );
+  if (qs.length < 2) qs = lines.filter((l) => l.length >= 12);
+  if (qs.length < 2) {
+    qs = raw
+      .split(/(?<=\?)\s+/)
+      .map((l) => l.trim())
+      .filter((l) => l.length >= 12 && !/^(interview|more)?\s*questions?:?$/i.test(l));
+  }
+  if (qs.length < 2) {
+    // Already a proper numbered list — normalize title + spacing only.
+    if (/^\s*\d+\.\s+/m.test(String(text || "")) && (String(text || "").match(/\?/g) || []).length >= 2) {
+      const existing = String(text || "")
+        .split(/\n+/)
+        .map((l) => l.replace(/^\s*\d+[.)]\s*/, "").trim())
+        .filter((l) => l.length >= 8 && !/^(interview|more)?\s*questions?:?$/i.test(l) && !/^\*\*/.test(l));
+      if (existing.length >= 2) {
+        const title = wantsMoreInterviewQuestions(ask)
+          ? "More interview questions"
+          : wantsInterviewQuestions(ask)
+            ? "Interview questions"
+            : "Questions";
+        return formatNumberedQuestions(title, existing);
+      }
+    }
+    return String(text || "").trim();
+  }
+
+  const seen = new Set<string>();
+  const uniq: string[] = [];
+  for (const q of qs) {
+    const key = softFactKey(q, 14);
+    if (key.length > 12 && seen.has(key)) continue;
+    if (key.length > 12) seen.add(key);
+    const clean = q.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim();
+    if (clean) uniq.push(clean);
+  }
+  if (uniq.length < 2) return String(text || "").trim();
+
+  const title = wantsMoreInterviewQuestions(ask)
+    ? "More interview questions"
+    : wantsInterviewQuestions(ask)
+      ? "Interview questions"
+      : "Questions";
+  return formatNumberedQuestions(title, uniq);
+}
+
+/** True when a reply looks like a question dump that needs formatting. */
+export function looksLikeQuestionDump(text: string): boolean {
+  const t = String(text || "");
+  if (!t.trim()) return false;
+  if (/\s#{2,}\s/.test(t)) return true;
+  const marks = (t.match(/\?/g) || []).length;
+  if (marks < 2) return false;
+  // Missing a clean numbered list (1. … 2. …)
+  const numbered = (t.match(/^\s*\d+\.\s+/gm) || []).length;
+  if (numbered >= 2 && !/\s#{2,}\s/.test(t)) return false;
+  return marks >= 3 || (marks >= 2 && !/^\s*\d+\.\s+/m.test(t));
+}
+
+/**
  * Post-reply grounding for attached-file turns.
  * Preserves capable free-form answers; only rescues when the reply is clearly ungrounded.
  */
@@ -1066,7 +1208,13 @@ export function groundAttachedFileReply(
   opts?: { lightModel?: boolean },
 ): string {
   const usable = (files || []).filter((f) => String(f.text || "").trim());
-  if (!usable.length) return String(reply || "");
+  if (!usable.length) {
+    // Still tidy ###-glued question dumps even without files.
+    if (wantsInterviewQuestions(ask) || /\s#{2,}\s/.test(reply) || (reply.match(/\?/g) || []).length >= 4) {
+      return presentQuestionList(reply, ask);
+    }
+    return String(reply || "");
+  }
   let out = String(reply || "");
 
   // Diagram asks should never keep LLM-invented mermaid.
@@ -1075,12 +1223,20 @@ export function groundAttachedFileReply(
     if (diagram) return diagram;
   }
 
-  if (!looksUngroundedAgainstFiles(out, usable, ask, opts)) return out;
-
+  // Interview / “more questions”: always present extractive numbered list for every model.
   if (wantsInterviewQuestions(ask)) {
-    const qs = extractiveInterviewQuestions(usable);
+    const qs = extractiveInterviewQuestions(usable, ask);
     if (qs) return qs;
   }
+
+  if (!looksUngroundedAgainstFiles(out, usable, ask, opts)) {
+    // Grounded but messy formatting (### glue, run-on questions) → tidy presentation.
+    if (/\s#{2,}\s/.test(out) || ((out.match(/\?/g) || []).length >= 4 && !/^\s*\d+[.)]/m.test(out))) {
+      return presentQuestionList(out, ask);
+    }
+    return out;
+  }
+
   const fact = extractiveFactAnswer(usable, ask);
   if (fact) return fact;
   const topic = extractiveTopicAnswer(usable, ask);
@@ -1092,6 +1248,9 @@ export function groundAttachedFileReply(
   // Stronger model, unclear extractive hit: keep the reply but strip invented mermaid fences.
   if (/```\s*mermaid[\s\S]*?```/i.test(out)) {
     out = out.replace(/```\s*mermaid[\s\S]*?```/gi, "").trim();
+  }
+  if (/\s#{2,}\s/.test(out) || ((out.match(/\?/g) || []).length >= 4 && !/^\s*\d+[.)]/m.test(out))) {
+    return presentQuestionList(out, ask);
   }
   return out;
 }
@@ -2219,6 +2378,9 @@ export function wantsInterviewQuestions(q: string): boolean {
   if (/^(give me |generate |make |write |list |prepare )?(some |a few |the )?(interview )?questions?\??$/.test(t)) {
     return true;
   }
+  // Follow-ups after a first list: “more questions”, “i want more question”
+  if (/\b(more|another|additional|extra|few more|some more)\b/.test(t) && hasQ) return true;
+  if (/\bi want more\b/.test(t) && hasQ) return true;
   // “what could they ask / questions to ask me”
   if (hasQ && /\b(could|would|might|should|can|to)\b/.test(t) && /\bask\b/.test(t)) return true;
   if (hasIv && /\b(prep|prepare|practice|mock|drill)\b/.test(t)) return true;
@@ -2604,7 +2766,7 @@ export function offlineFileBrief(files: NamedDoc[], query: string, reason: "offl
     if (diagram) return diagram;
   }
   if (wantsInterviewQuestions(q)) {
-    return extractiveInterviewQuestions(focus);
+    return extractiveInterviewQuestions(focus, q);
   }
 
   // Overview / explain only when the user actually asked for that.

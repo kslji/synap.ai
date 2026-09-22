@@ -222,20 +222,30 @@ def run_checks() -> list[dict]:
     )
     check(
         "localchat-interview-early-exit",
-        "wantsInterviewQuestions(asked)" in chat and "extractiveInterviewQuestions(named)" in chat,
+        "wantsInterviewQuestions(asked)" in chat and "extractiveInterviewQuestions(named" in chat,
         "LocalChat early-exits interview asks for any attached file",
         rows,
     )
     check(
         "pack-classify-and-interview",
         "function classifyAttachment(files)" in html
-        and "function extractiveInterviewQuestions(files)" in html
+        and "function extractiveInterviewQuestions(files" in html
         and 'kind === "spreadsheet"' in html
         and "extractiveDocumentQuestions" in html
         and "extractiveSpreadsheetQuestions" in html
         and "extractiveCodeQuestions" in html
         and "wantsInterviewQuestions(asked)" in html,
         "pack mirrors category-aware interview path",
+        rows,
+    )
+    check(
+        "present-question-list",
+        "export function presentQuestionList" in grounded
+        and "export function formatNumberedQuestions" in grounded
+        and "function presentQuestionList" in html
+        and "function formatNumberedQuestions" in html
+        and "always extractive numbered list" in html,
+        "question lists formatted for every model",
         rows,
     )
     return rows

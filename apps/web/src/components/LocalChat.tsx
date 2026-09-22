@@ -41,6 +41,8 @@ import {
   extractiveFileOverview,
   repairLoopedReply,
   groundAttachedFileReply,
+  presentQuestionList,
+  looksLikeQuestionDump,
   extractiveFactAnswer,
   extractiveInterviewQuestions,
   architectureFlowFromFiles,
@@ -790,7 +792,7 @@ export function LocalChat() {
     // Interview asks: always use extractive grounding when files are attached —
     // light models and offline stubs often miss "interviewer" / resume phrasing.
     if (named.length && wantsInterviewQuestions(asked)) {
-      const qs = extractiveInterviewQuestions(named);
+      const qs = extractiveInterviewQuestions(named, asked);
       if (qs) {
         const history: ChatMsg[] = [...thread.messages, { role: "user", content: asked }];
         const working: Thread = {
@@ -914,6 +916,10 @@ export function LocalChat() {
             // Hallucination gate for attached files — extractive rescue only when clearly ungrounded.
             if (named.length) {
               content = groundAttachedFileReply(content, named, asked, { lightModel });
+            }
+            // Every model: question replies must be a clean numbered list.
+            if (wantsInterviewQuestions(asked) || looksLikeQuestionDump(content)) {
+              content = presentQuestionList(content, asked);
             }
             // Tiny models soft-hedge (“cannot provide financial advice… would that help?”) or over-refuse.
             // Surf’s answer: ask for a document/link text to summarize — don’t invent advice.

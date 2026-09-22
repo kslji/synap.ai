@@ -14,7 +14,7 @@ import { LandingTypeCycle } from "./TypeCopy";
 
 const HEADLINES = [
   "Surf your files locally. Synap data instantly.",
-  "Your private agent buddy — work across your files and system.",
+  "Your private agent buddy work across your files and system.",
   "One zip. One command. An agent buddy on your desk.",
   "Open the pack. Shape your agent buddy for your platform.",
 ] as const;
@@ -79,7 +79,7 @@ export function HomeLanding() {
           headlines={HEADLINES}
           lede={LEDE}
           points={POINTS}
-          holdMs={10_000}
+          holdMs={3_000}
           middle={
             <div className="cta-row">
               <button

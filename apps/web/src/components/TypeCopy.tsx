@@ -45,7 +45,7 @@ export function LandingTypeCycle({
   headlines,
   lede,
   points,
-  holdMs = 10_000,
+  holdMs = 3_000,
   middle,
 }: {
   headlines: readonly string[];
@@ -113,20 +113,20 @@ export function LandingTypeCycle({
               built[n] = s;
               setRows(built.slice(0, n + (s ? 1 : 0)));
             },
-            110,
+            72,
             stopped,
           );
-          await wait(350);
+          await wait(220);
         }
         setRows([]);
         if (stop) return;
         setCaret("l");
-        await eraseText(lede, setBlurb, 105, stopped);
+        await eraseText(lede, setBlurb, 68, stopped);
         if (stop) return;
-        await wait(325);
+        await wait(220);
         setCaret("h");
-        await eraseText(headline, setHead, 120, stopped);
-        await wait(600);
+        await eraseText(headline, setHead, 78, stopped);
+        await wait(450);
       }
     })();
 

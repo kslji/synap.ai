@@ -632,6 +632,220 @@ export function isMetaAgentNoise(text: string): boolean {
   );
 }
 
+const FILE_GROUND_STOP = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "this",
+  "that",
+  "from",
+  "have",
+  "are",
+  "was",
+  "were",
+  "will",
+  "your",
+  "you",
+  "not",
+  "but",
+  "can",
+  "all",
+  "any",
+  "into",
+  "about",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "how",
+  "does",
+  "did",
+  "file",
+  "files",
+  "text",
+  "document",
+  "summary",
+  "overview",
+  "please",
+  "here",
+  "there",
+  "they",
+  "them",
+  "their",
+  "been",
+  "also",
+  "just",
+  "like",
+  "more",
+  "some",
+  "than",
+  "then",
+  "only",
+  "other",
+  "into",
+  "over",
+  "such",
+  "using",
+  "based",
+  "according",
+]);
+
+function contentTokens(text: string): string[] {
+  return (String(text || "").toLowerCase().match(/[a-z][a-z0-9.+_-]{2,}/g) || []).filter(
+    (t) => !FILE_GROUND_STOP.has(t) && t.length >= 3,
+  );
+}
+
+function attachmentNameKeys(files: NamedDoc[]): Set<string> {
+  const keys = new Set<string>();
+  for (const f of files) {
+    const base = String(f.name || "")
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop() || "";
+    if (!base) continue;
+    keys.add(base.toLowerCase());
+    const stem = base.replace(/\.[^.]+$/, "");
+    if (stem.length >= 3) keys.add(stem.toLowerCase());
+    for (const part of stem.toLowerCase().split(/[^a-z0-9]+/)) {
+      if (part.length >= 4) keys.add(part);
+    }
+  }
+  return keys;
+}
+
+/** Reply cites a [name] / filename that is not among the attachments. */
+export function replyCitesUnknownFiles(reply: string, files: NamedDoc[]): boolean {
+  if (!files.length) return false;
+  const known = attachmentNameKeys(files);
+  const cited = new Set<string>();
+  for (const m of String(reply || "").matchAll(/\[([^\]\n]{2,80})\]/g)) {
+    const raw = m[1].trim();
+    if (!raw || /^https?:/i.test(raw)) continue;
+    if (/^(filename|file|doc|document|source|context)$/i.test(raw)) continue;
+    const base = raw.replace(/\\/g, "/").split("/").pop() || raw;
+    cited.add(base.toLowerCase());
+    cited.add(base.replace(/\.[^.]+$/, "").toLowerCase());
+  }
+  for (const m of String(reply || "").matchAll(
+    /\b([\w.+-]{3,60}\.(?:pdf|docx?|xlsx?|csv|zip|json|md|txt|pptx?))\b/gi,
+  )) {
+    cited.add(m[1].toLowerCase());
+    cited.add(m[1].replace(/\.[^.]+$/, "").toLowerCase());
+  }
+  if (!cited.size) return false;
+  for (const c of cited) {
+    if (known.has(c)) continue;
+    // Allow partial: "harbour" when attachment is harbour-agent.zip
+    let hit = false;
+    for (const k of known) {
+      if (k.includes(c) || c.includes(k)) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) return true;
+  }
+  return false;
+}
+
+/**
+ * Share of reply content-tokens that also appear in attached file text.
+ * Low ratio ⇒ model is inventing rather than reading the files.
+ */
+export function replyFileOverlapRatio(reply: string, files: NamedDoc[]): number {
+  const replyToks = contentTokens(reply);
+  if (replyToks.length < 8) return 1;
+  const fileSet = new Set(
+    contentTokens(files.map((f) => `${f.name}\n${f.text || ""}`).join("\n")).slice(0, 8000),
+  );
+  if (fileSet.size < 12) return 1;
+  let hit = 0;
+  for (const t of replyToks) {
+    if (fileSet.has(t)) hit += 1;
+  }
+  return hit / replyToks.length;
+}
+
+/**
+ * Detect clear file-hallucination signals without gating ordinary free-form chat.
+ * Stronger models only trip on clear signals; light models also trip on low overlap.
+ */
+export function looksUngroundedAgainstFiles(
+  reply: string,
+  files: NamedDoc[],
+  ask: string,
+  opts?: { lightModel?: boolean },
+): boolean {
+  const text = String(reply || "").trim();
+  if (!text || !files.length) return false;
+  if (isMetaAgentNoise(text)) return true;
+  if (replyCitesUnknownFiles(text, files)) return true;
+
+  // Invented mermaid when the user did not ask for a diagram (overview early-exit already covers diagram asks).
+  if (
+    !wantsDiagram(ask) &&
+    (/```\s*mermaid\b/i.test(text) || /^\s*flowchart\s+(TB|TD|LR|RL|BT)\b/im.test(text))
+  ) {
+    return true;
+  }
+
+  const fileAsk = asksAboutAttachedFiles(ask);
+  if (!fileAsk && !opts?.lightModel) return false;
+  if (!fileAsk && opts?.lightModel) {
+    // Light model + files present but casual ask: only catch meta/wrong-name/mermaid above.
+    return false;
+  }
+
+  const overlap = replyFileOverlapRatio(text, files);
+  if (opts?.lightModel && text.length > 100 && overlap < 0.14) return true;
+  if (text.length > 160 && overlap < 0.06) return true;
+  return false;
+}
+
+/**
+ * Post-reply grounding for attached-file turns.
+ * Preserves capable free-form answers; only rescues when the reply is clearly ungrounded.
+ */
+export function groundAttachedFileReply(
+  reply: string,
+  files: NamedDoc[],
+  ask: string,
+  opts?: { lightModel?: boolean },
+): string {
+  const usable = (files || []).filter((f) => String(f.text || "").trim());
+  if (!usable.length) return String(reply || "");
+  let out = String(reply || "");
+
+  // Diagram asks should never keep LLM-invented mermaid.
+  if (wantsDiagram(ask)) {
+    const diagram = architectureFlowFromFiles(usable);
+    if (diagram) return diagram;
+  }
+
+  if (!looksUngroundedAgainstFiles(out, usable, ask, opts)) return out;
+
+  if (wantsInterviewQuestions(ask)) {
+    const qs = extractiveInterviewQuestions(usable);
+    if (qs) return qs;
+  }
+  const fact = extractiveFactAnswer(usable, ask);
+  if (fact) return fact;
+  const topic = extractiveTopicAnswer(usable, ask);
+  if (topic) return topic;
+  if (wantsFileOverview(ask) || opts?.lightModel || asksAboutAttachedFiles(ask)) {
+    const overview = extractiveFileOverview(usable);
+    if (overview) return overview;
+  }
+  // Stronger model, unclear extractive hit: keep the reply but strip invented mermaid fences.
+  if (/```\s*mermaid[\s\S]*?```/i.test(out)) {
+    out = out.replace(/```\s*mermaid[\s\S]*?```/gi, "").trim();
+  }
+  return out;
+}
+
 /** Model emitted a safety refusal template. */
 export function looksLikeSafetyRefusal(text: string): boolean {
   const t = String(text || "").toLowerCase();
@@ -2213,7 +2427,8 @@ export function fileTurnCue(): string {
   return (
     "TURN CONTEXT: Attached file text follows. Prefer it for file questions; cite [filename]. " +
     "Infer the user’s real intent even when wording is messy or misspelled. " +
-    "Do not invent facts missing from the attachments."
+    "Do not invent facts, filenames, paths, or diagrams missing from the attachments. " +
+    "If the answer is not in the attached text, say you do not see it there — do not guess."
   );
 }
 
@@ -2229,7 +2444,8 @@ export function groundedSystem(memory: string, extra: string, memoryBudget: numb
     ? "You are Surf AI on this device — a careful document colleague for the attached sources. " +
       "Infer the user’s real intent even when spelling is wrong. " +
       "For explain / what is this / briefly: teach why fields, scripts, and sections exist — never paste the raw file. " +
-      "One fact → one short line with [filename]. Do not invent facts missing from CONTEXT. " +
+      "One fact → one short line with [filename]. Do not invent facts, names, or paths missing from CONTEXT. " +
+      "If unsure, say it is not in the attached files. Never invent mermaid/diagrams. " +
       "Never summarize your role. Do not mention product internals unless asked."
     : "You are Surf AI on this device — a helpful local assistant. " +
       "First-time users may ask general questions with no files and no prior setup. " +

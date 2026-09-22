@@ -153,6 +153,34 @@ def run_checks() -> list[dict]:
         "pack can diagram a single resume/file",
         rows,
     )
+    check(
+        "hallucination-gate-export",
+        "export function groundAttachedFileReply" in grounded
+        and "export function looksUngroundedAgainstFiles" in grounded,
+        "grounding gate exported from groundedContext",
+        rows,
+    )
+    check(
+        "localchat-hallucination-gate",
+        "groundAttachedFileReply(" in chat,
+        "LocalChat applies grounding after model reply",
+        rows,
+    )
+    check(
+        "pack-hallucination-gate",
+        "function groundAttachedFileReply" in html
+        and "groundAttachedFileReply(finalText" in html,
+        "pack applies grounding after model reply",
+        rows,
+    )
+    check(
+        "no-invent-prompt",
+        "Do not invent facts, filenames" in grounded
+        or "do not invent facts, names, or paths" in grounded.lower()
+        or "Never invent mermaid" in grounded,
+        "system cue forbids inventing file facts",
+        rows,
+    )
     return rows
 
 

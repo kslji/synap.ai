@@ -40,6 +40,7 @@ import {
   OLLAMA_LIGHT_DOC_BUDGET,
   extractiveFileOverview,
   repairLoopedReply,
+  groundAttachedFileReply,
   extractiveFactAnswer,
   extractiveInterviewQuestions,
   architectureFlowFromFiles,
@@ -873,6 +874,10 @@ export function LocalChat() {
             } else if (named.length && isMetaAgentNoise(content)) {
               const rescue = extractiveFileOverview(named);
               if (rescue) content = rescue;
+            }
+            // Hallucination gate for attached files — extractive rescue only when clearly ungrounded.
+            if (named.length) {
+              content = groundAttachedFileReply(content, named, asked, { lightModel });
             }
             // Tiny models soft-hedge (“cannot provide financial advice… would that help?”) or over-refuse.
             // Surf’s answer: ask for a document/link text to summarize — don’t invent advice.

@@ -2558,6 +2558,100 @@
       const t = String(text || "").toLowerCase();
       return /document agent|system context|list of attached files|agent'?s? (job|role)|these instructions|conversation structure/.test(t);
     }
+    const FILE_GROUND_STOP = new Set("the and for with this that from have are was were will your you not but can all any into about what when where which who how does did file files text document summary overview please here there they them their been also just like more some than then only other over such using based according".split(" "));
+    function contentTokens(text) {
+      return (String(text || "").toLowerCase().match(/[a-z][a-z0-9.+_-]{2,}/g) || []).filter((t) => !FILE_GROUND_STOP.has(t) && t.length >= 3);
+    }
+    function attachmentNameKeys(files) {
+      const keys = new Set();
+      for (const f of files || []) {
+        const base = String(f.name || "").replace(/\\/g, "/").split("/").pop() || "";
+        if (!base) continue;
+        keys.add(base.toLowerCase());
+        const stem = base.replace(/\.[^.]+$/, "");
+        if (stem.length >= 3) keys.add(stem.toLowerCase());
+        for (const part of stem.toLowerCase().split(/[^a-z0-9]+/)) {
+          if (part.length >= 4) keys.add(part);
+        }
+      }
+      return keys;
+    }
+    function replyCitesUnknownFiles(reply, files) {
+      if (!files || !files.length) return false;
+      const known = attachmentNameKeys(files);
+      const cited = new Set();
+      for (const m of String(reply || "").matchAll(/\[([^\]\n]{2,80})\]/g)) {
+        const raw = m[1].trim();
+        if (!raw || /^https?:/i.test(raw)) continue;
+        if (/^(filename|file|doc|document|source|context)$/i.test(raw)) continue;
+        const base = raw.replace(/\\/g, "/").split("/").pop() || raw;
+        cited.add(base.toLowerCase());
+        cited.add(base.replace(/\.[^.]+$/, "").toLowerCase());
+      }
+      for (const m of String(reply || "").matchAll(/\b([\w.+-]{3,60}\.(?:pdf|docx?|xlsx?|csv|zip|json|md|txt|pptx?))\b/gi)) {
+        cited.add(m[1].toLowerCase());
+        cited.add(m[1].replace(/\.[^.]+$/, "").toLowerCase());
+      }
+      if (!cited.size) return false;
+      for (const c of cited) {
+        if (known.has(c)) continue;
+        let hit = false;
+        for (const k of known) {
+          if (k.includes(c) || c.includes(k)) { hit = true; break; }
+        }
+        if (!hit) return true;
+      }
+      return false;
+    }
+    function replyFileOverlapRatio(reply, files) {
+      const replyToks = contentTokens(reply);
+      if (replyToks.length < 8) return 1;
+      const fileSet = new Set(contentTokens((files || []).map((f) => f.name + "\n" + (f.text || "")).join("\n")).slice(0, 8000));
+      if (fileSet.size < 12) return 1;
+      let hit = 0;
+      for (const t of replyToks) if (fileSet.has(t)) hit += 1;
+      return hit / replyToks.length;
+    }
+    function asksAboutAttachedFilesPack(q) {
+      const t = String(q || "").trim().toLowerCase();
+      if (!t) return false;
+      if (wantsFileOverview(t) || wantsDiagram(t)) return true;
+      if (/\b(this|the|my|our)\s+(file|pdf|doc|document|zip|resume|cv|attachment)\b/.test(t)) return true;
+      if (/\b(attach(?:ed|ment)?|uploaded|in the file|from the file)\b/.test(t)) return true;
+      return false;
+    }
+    function looksUngroundedAgainstFiles(reply, files, ask, lightModel) {
+      const text = String(reply || "").trim();
+      if (!text || !files || !files.length) return false;
+      if (isMetaAgentNoise(text)) return true;
+      if (replyCitesUnknownFiles(text, files)) return true;
+      if (!wantsDiagram(ask) && (/```\s*mermaid\b/i.test(text) || /^\s*flowchart\s+(TB|TD|LR|RL|BT)\b/im.test(text))) return true;
+      const fileAsk = asksAboutAttachedFilesPack(ask);
+      if (!fileAsk && !lightModel) return false;
+      if (!fileAsk && lightModel) return false;
+      const overlap = replyFileOverlapRatio(text, files);
+      if (lightModel && text.length > 100 && overlap < 0.14) return true;
+      if (text.length > 160 && overlap < 0.06) return true;
+      return false;
+    }
+    function groundAttachedFileReply(reply, files, ask, lightModel) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      if (!usable.length) return String(reply || "");
+      let out = String(reply || "");
+      if (wantsDiagram(ask)) {
+        const diagram = architectureFlowFromFiles(usable);
+        if (diagram) return diagram;
+      }
+      if (!looksUngroundedAgainstFiles(out, usable, ask, lightModel)) return out;
+      if (wantsFileOverview(ask) || lightModel || asksAboutAttachedFilesPack(ask)) {
+        const overview = extractiveFileOverview(usable);
+        if (overview) return overview;
+      }
+      if (/```\s*mermaid[\s\S]*?```/i.test(out)) {
+        out = out.replace(/```\s*mermaid[\s\S]*?```/gi, "").trim();
+      }
+      return out;
+    }
     async function send() {
       let t = active();
       if (!t) {
@@ -2711,8 +2805,8 @@
         const waitMs = Math.round(performance.now() - startedAt);
         let finalText = streamBuf || bot.textContent || "";
         if (!finalText.trim()) finalText = "(no reply)";
-        const modelTagNow = String(healthCache?.active_model || healthCache?.default_model || "");
-        const lightNow = /1b|1\.5b|in-browser/i.test(modelTagNow);
+        const modelTagNow = String(healthCache?.active_model || healthCache?.default_model || (window.__SURF_PACK__ && window.__SURF_PACK__.model) || "");
+        const lightNow = /1b|1\.5b|1\.5\s*b|2b|in-browser|qwen2\.5:1\.5/i.test(modelTagNow);
         if (t.attached?.length && wantsFileOverview(asked) && isMetaAgentNoise(finalText)) {
           const namedRescue = filesNamedInAsk(t.attached, asked);
           const rescue = extractiveFileOverview(namedRescue.length ? namedRescue : t.attached);
@@ -2722,6 +2816,11 @@
           const namedRepair = filesNamedInAsk(t.attached || [], asked);
           const repairFiles = namedRepair.length ? namedRepair : (t.attached || []);
           finalText = repairLoopedReply(finalText, repairFiles, !!(repairFiles.length && wantsFileOverview(asked)));
+        }
+        if (t.attached?.length) {
+          const namedGround = filesNamedInAsk(t.attached, asked);
+          const groundFiles = namedGround.length ? namedGround : t.attached;
+          finalText = groundAttachedFileReply(finalText, groundFiles, asked, lightNow);
         }
         if (!bot.isConnected) progress("");
         mountAssistant(bot);

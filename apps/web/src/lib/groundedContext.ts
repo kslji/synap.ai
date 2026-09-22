@@ -88,9 +88,13 @@ export function wantsShortFact(q: string): boolean {
   return (
     /\b(how old|years?\s*old|date of birth|\bdob\b|\bage\b)\b/.test(t) ||
     /\b(e-?mail|phone|mobile|contact number|whatsapp|linkedin)\b/.test(t) ||
+    /\b(job\s+)?title\b|\bdesignation\b|\bcurrent\s+role\b|\bworks?\s+at\b|\bemployer\b|\bbased\s+in\b|\blive[sd]?\s+in\b|\blocation\b|\bcity\b/.test(
+      t,
+    ) ||
     /\bwhat(?:'s| is| was)\s+(his|her|their|the person'?s?|this (person|candidate)'?s?)\s+(name|age|email|phone|number|address|title|role|company|location|city)\b/.test(
       t,
     ) ||
+    /\bwhat(?:'s| is| was)\s+.+\s+(title|role|company|employer|location|city|job)\b/.test(t) ||
     /\b(name|age|email|phone|number|address|title|role|company)\s+(of|for)\s+(the |this )?(person|candidate|author|user)?\b/.test(
       t,
     ) ||
@@ -244,12 +248,21 @@ export function extractiveFactAnswer(files: NamedDoc[], query: string): string |
     return m?.[1]?.trim() || null;
   };
 
+  const parts: string[] = [];
+  const wantMany =
+    ((q.match(/\?/g) || []).length >= 2) ||
+    (/\b(title|role|job)\b/.test(q) && /\b(company|employer|organization)\b/.test(q)) ||
+    (/\b(title|role|company|employer)\b/.test(q) && /\b(location|city|based|address)\b/.test(q));
+
   if (
     /\b(experience|exp\.?|worked|tenure|how long|how much)\b/.test(q) ||
     (/\b(at|in|with)\b/.test(q) && /\b(experience|exp\.?|role|job)\b/.test(q))
   ) {
     const company = extractCompanyExperience(blob, query, cite);
-    if (company) return company;
+    if (company) {
+      if (!wantMany) return company;
+      parts.push(company.replace(cite, "").trim());
+    }
   }
 
   if (/\bage|how old|years?\s*old\b/.test(q)) {
@@ -257,60 +270,92 @@ export function extractiveFactAnswer(files: NamedDoc[], query: string): string |
       hit(/\bage\s*[:\-–]?\s*(\d{1,3})\b/i) ||
       hit(/\b(\d{1,3})\s*(?:years?|yrs?)\s*old\b/i) ||
       hit(/\bage\s+(\d{1,3})\b/i);
-    if (age) return `${age}${cite}`;
-    const dob = hit(
-      /\b(?:dob|date of birth|born(?:\s+on)?)\s*[:\-–]?\s*([0-9]{1,2}[\/\-.][0-9]{1,2}[\/\-.][0-9]{2,4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{4})\b/i,
-    );
-    if (dob) return `Date of birth in the file: ${dob}. Age as a number is not written.${cite}`;
-    return `Age is not written in this file.${cite}`;
+    if (age) {
+      if (!wantMany) return `${age}${cite}`;
+      parts.push(`Age: ${age}`);
+    } else {
+      const dob = hit(
+        /\b(?:dob|date of birth|born(?:\s+on)?)\s*[:\-–]?\s*([0-9]{1,2}[\/\-.][0-9]{1,2}[\/\-.][0-9]{2,4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{4})\b/i,
+      );
+      if (dob) {
+        if (!wantMany) return `Date of birth in the file: ${dob}. Age as a number is not written.${cite}`;
+        parts.push(`Date of birth: ${dob}`);
+      } else if (!wantMany) {
+        return `Age is not written in this file.${cite}`;
+      }
+    }
   }
 
   if (/\be-?mail\b/.test(q)) {
     const email = hit(/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i);
-    return email ? `${email}${cite}` : `No email found in this file.${cite}`;
+    if (!wantMany) return email ? `${email}${cite}` : `No email found in this file.${cite}`;
+    if (email) parts.push(`Email: ${email}`);
   }
 
   if (/\b(phone|mobile|contact number|whatsapp)\b/.test(q)) {
     const labeled =
       hit(/\b(?:phone|mobile|tel|cell|whatsapp)\s*[:\-–]?\s*([+\d][\d\s().\-]{7,}\d)/i) ||
       hit(/(?:\+?\d{1,3}[\s\-.]?)?(?:\(?\d{2,5}\)?[\s\-.]?)?\d{3,5}[\s\-.]?\d{3,5}(?:[\s\-.]?\d{2,5})?/);
-    return labeled ? `${labeled}${cite}` : `No phone number found in this file.${cite}`;
+    if (!wantMany) return labeled ? `${labeled}${cite}` : `No phone number found in this file.${cite}`;
+    if (labeled) parts.push(`Phone: ${labeled}`);
   }
 
   if (/\blinkedin\b/.test(q)) {
     const url = hit(/\b((?:https?:\/\/)?(?:www\.)?linkedin\.com\/[^\s]+)/i);
-    return url ? `${url}${cite}` : `No LinkedIn URL found in this file.${cite}`;
+    if (!wantMany) return url ? `${url}${cite}` : `No LinkedIn URL found in this file.${cite}`;
+    if (url) parts.push(`LinkedIn: ${url}`);
   }
 
-  if (/\b(who is|name)\b/.test(q)) {
+  if (/\b(who is|name)\b/.test(q) && !/\b(file\s+name|filename)\b/.test(q)) {
     const name =
       hit(/\b(?:name|candidate)\s*[:\-–]\s*([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,3})\b/) ||
       usable[0]?.name.replace(/\.(pdf|docx?|txt)$/i, "").replace(/[_-]+/g, " ");
-    if (name && name.length > 2) return `${name}${cite}`;
+    if (name && name.length > 2) {
+      if (!wantMany) return `${name}${cite}`;
+      parts.push(`Name: ${name}`);
+    }
   }
 
-  if (/\b(title|role|designation)\b/.test(q)) {
+  if (/\b(title|role|designation|job)\b/.test(q)) {
     const title =
       hit(/\b(?:title|role|designation|position)\s*[:\-–]\s*([^\n]{3,80})/i) ||
       hit(
-        /\b((?:senior|junior|lead|staff|principal)?\s*(?:software|data|ml|ai|full[\s-]?stack|backend|frontend|devops)?\s*(?:engineer|developer|analyst|scientist|manager|architect)[^\n]{0,40})/i,
+        /\b((?:senior|junior|lead|staff|principal)?\s*(?:software|data|ml|ai|full[\s-]?stack|backend|frontend|devops)?\s*(?:engineer|developer|analyst|scientist|manager|architect|sde(?:-\d)?)[^\n]{0,40})/i,
       );
-    if (title) return `${title.trim()}${cite}`;
+    if (title) {
+      if (!wantMany) return `${title.trim()}${cite}`;
+      parts.push(`Title: ${title.trim()}`);
+    }
   }
 
   if (/\b(company|employer|organization)\b/.test(q)) {
+    const roleCo = hit(
+      /\b(?:engineer|developer|sde(?:-\d)?|manager|analyst)\s*[,|–—-]\s*([A-Z][A-Za-z0-9+.&'’-]{1,40})/i,
+    );
     const co = hit(/\b(?:company|employer|organization|at)\s*[:\-–]?\s*([A-Z][^\n,]{2,60})/);
-    if (co) return `${co.trim()}${cite}`;
+    const company = (roleCo || co || "").trim();
+    if (company) {
+      if (!wantMany) return `${company}${cite}`;
+      parts.push(`Company: ${company}`);
+    }
   }
 
   if (/\b(location|city|address|based)\b/.test(q)) {
     const loc =
       hit(/\b(?:location|city|address|based in)\s*[:\-–]?\s*([^\n]{3,80})/i) ||
-      hit(/\b([A-Z][a-z]+(?:[\s,]+[A-Z][a-z]+){0,3},\s*[A-Z]{2,})\b/);
-    if (loc) return `${loc.trim()}${cite}`;
+      hit(/\b([A-Z][a-z]+(?:[\s,]+[A-Z][a-z]+){0,3},\s*(?:India|[A-Z]{2,}|[A-Z][a-z]+))\b/);
+    if (loc) {
+      if (!wantMany) return `${loc.trim()}${cite}`;
+      parts.push(`Location: ${loc.trim()}`);
+    }
   }
 
-  return null;
+  if (wantMany && parts.length) {
+    // One cite at the end — never repeat the filename on every line.
+    return parts.map((p, i) => `${i + 1}. ${p}`).join("\n") + cite;
+  }
+
+  return parts.length === 1 ? `${parts[0]}${cite}` : null;
 }
 
 /** User asked for a flowchart / architecture diagram (not a text dump). */
@@ -670,7 +715,9 @@ export function extractiveCodeQuestions(files: NamedDoc[]): string {
     ),
   ].slice(0, 6);
   const qs: string[] = [];
-  qs.push(`What is the responsibility of \`${usable[0]?.name || "this file"}\`${cite}, and what should not live here?`);
+  qs.push(
+    `What is the responsibility of ${cite ? `this file${cite}` : `\`${usable[0]?.name || "this file"}\``}, and what should not live here?`,
+  );
   if (funcs.length) {
     qs.push(`What do ${funcs.slice(0, 3).map((f) => `\`${f}\``).join(", ")} do, and how do they interact?`);
   }
@@ -1187,29 +1234,30 @@ export function overRefusalRetryHint(ask: string): string {
 
 /** Tiny models sometimes emit the same bullet 4–10 times with tiny wording changes. */
 export function looksLikeLoopedSummary(text: string): boolean {
-  const bullets = String(text || "")
+  const raw = String(text || "");
+  const bullets = raw
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => /^([-•*]|\d+[.)])\s+/.test(l))
-    .map((l) =>
-      l
-        .replace(/^([-•*]|\d+[.)])\s+/, "")
-        .toLowerCase()
-        .replace(/\$[\d.]+/g, "$")
-        .replace(/[^a-z0-9\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .split(" ")
-        .slice(0, 8)
-        .join(" "),
-    )
+    .map((l) => softFactKey(l.replace(/^([-•*]|\d+[.)])\s+/, ""), 8))
     .filter((k) => k.length > 10);
-  if (bullets.length < 4) return false;
-  const counts = new Map<string, number>();
-  for (const k of bullets) counts.set(k, (counts.get(k) || 0) + 1);
-  const max = Math.max(...counts.values());
-  // Same soft-key appears 3+ times, or unique keys are < half of bullets.
-  return max >= 3 || counts.size <= Math.ceil(bullets.length / 2);
+  if (bullets.length >= 4) {
+    const counts = new Map<string, number>();
+    for (const k of bullets) counts.set(k, (counts.get(k) || 0) + 1);
+    const max = Math.max(...counts.values());
+    if (max >= 3 || counts.size <= Math.ceil(bullets.length / 2)) return true;
+  }
+  const sentences = raw
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((p) => softFactKey(p, 12))
+    .filter((k) => k.length > 16);
+  if (sentences.length >= 5) {
+    const counts = new Map<string, number>();
+    for (const k of sentences) counts.set(k, (counts.get(k) || 0) + 1);
+    const max = Math.max(...counts.values());
+    if (max >= 3) return true;
+  }
+  return false;
 }
 
 /** Prefer cutting on a newline / sentence so tables and words are not sliced mid-token. */
@@ -1674,7 +1722,7 @@ export function repairLoopedReply(
   out = collapseDuplicateSentences(out);
   if (!looksLikeLoopedSummary(out)) return out;
 
-  if (opts?.preferExtractiveOverview && opts.files?.length) {
+  if ((opts?.preferExtractiveOverview || opts?.files?.length) && opts.files?.length) {
     const rescue = extractiveFileOverview(opts.files);
     if (rescue) return rescue;
   }
@@ -2165,6 +2213,10 @@ export function wantsInterviewQuestions(q: string): boolean {
       t,
     )
   ) {
+    return true;
+  }
+  // Bare “questions” / “give me questions” (attachments present handled by caller)
+  if (/^(give me |generate |make |write |list |prepare )?(some |a few |the )?(interview )?questions?\??$/.test(t)) {
     return true;
   }
   // “what could they ask / questions to ask me”

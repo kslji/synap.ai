@@ -2008,9 +2008,114 @@
       if (/\bquestions?\b/.test(t) && /\b(resume|cv|curriculum)\b/.test(t)) return true;
       if (/\bquestions?\b/.test(t) && /\b(on|about|from|based on|for)\b/.test(t) && /\b(this|the|my|our)\b/.test(t) && /\b(resume|cv|file|doc|pdf)\b/.test(t)) return true;
       if (/\bquestions?\b/.test(t) && /\b(this|the|my|our|attached)\b/.test(t) && /\b(file|zip|pdf|doc|document|project|repo|code|sheet|spreadsheet|csv|xlsx|presentation|slides?|deck|config|json)\b/.test(t)) return true;
+      // Bare “questions” / “give me questions” with an attachment → extractive Qs (not LLM loop).
+      if (/^(give me |generate |make |write |list |prepare )?(some |a few |the )?(interview )?questions?\??$/.test(t)) return true;
       if (/\bquestions?\b/.test(t) && /\b(could|would|might|should)\b/.test(t) && /\bask\b/.test(t)) return true;
       if (/\binterview\b/.test(t) && /\b(prep|prepare|practice|mock)\b/.test(t)) return true;
       return false;
+    }
+    function wantsShortFact(q) {
+      const t = String(q || "").trim().toLowerCase();
+      if (!t) return false;
+      if (wantsInterviewQuestions(q) || wantsDiagram(q)) return false;
+      if (
+        /\b(summar(y|ise|ize)?|overview|brief(?:ly)?|what is this|walk (me )?through|explain (the |this )?(file|doc|zip|project))\b/.test(t) &&
+        !/\b(experience|exp\.?|tenure|how long|how much)\b/.test(t)
+      ) {
+        return false;
+      }
+      return (
+        /\b(how old|years?\s*old|date of birth|\bdob\b|\bage\b)\b/.test(t) ||
+        /\b(e-?mail|phone|mobile|contact number|whatsapp|linkedin)\b/.test(t) ||
+        /\b(job\s+)?title\b|\bdesignation\b|\bcurrent\s+role\b|\bworks?\s+at\b|\bemployer\b|\bbased\s+in\b|\blive[sd]?\s+in\b|\blocation\b|\bcity\b/.test(t) ||
+        /\bwhat(?:'s| is| was)\s+(his|her|their|the person'?s?|this (person|candidate)'?s?)\s+(name|age|email|phone|number|address|title|role|company|location|city)\b/.test(t) ||
+        /\bwhat(?:'s| is| was)\s+.+\s+(title|role|company|employer|location|city|job)\b/.test(t) ||
+        /\b(name|age|email|phone|number|address|title|role|company)\s+(of|for)\s+(the |this )?(person|candidate|author|user)?\b/.test(t) ||
+        /\bwho is (this|the) (person|candidate|author)\b/.test(t) ||
+        /\b(how (much|long)|years?|months?|tenure|duration)?\s*(of\s+)?(experience|exp\.?|worked|work(ed|ing)?)\b/.test(t) ||
+        /\b(experience|exp\.?)\s+(at|in|with|for)\b/.test(t) ||
+        (/\b(at|in|with)\s+[A-Za-z0-9][\w+.&' -]{1,40}\b/.test(t) && /\b(experience|exp\.?|role|title|worked|work|job|tenure)\b/.test(t))
+      );
+    }
+    function extractiveFactAnswer(files, query) {
+      if (!wantsShortFact(query)) return null;
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      if (!usable.length) return null;
+      const blob = usable.map((f) => f.text).join("\n");
+      const q = String(query || "").trim().toLowerCase();
+      const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
+      const hit = (re) => {
+        const m = blob.match(re);
+        return m && m[1] ? m[1].trim() : null;
+      };
+      const parts = [];
+      const wantMany =
+        ((q.match(/\?/g) || []).length >= 2) ||
+        (/\b(title|role|job)\b/.test(q) && /\b(company|employer|organization)\b/.test(q)) ||
+        (/\b(title|role|company|employer)\b/.test(q) && /\b(location|city|based|address)\b/.test(q));
+
+      if (/\bage|how old|years?\s*old\b/.test(q)) {
+        const age = hit(/\bage\s*[:\-–]?\s*(\d{1,3})\b/i) || hit(/\b(\d{1,3})\s*(?:years?|yrs?)\s*old\b/i);
+        if (age) {
+          if (!wantMany) return age + cite;
+          parts.push("Age: " + age);
+        } else if (!wantMany) return "Age is not written in this file." + cite;
+      }
+      if (/\be-?mail\b/.test(q)) {
+        const email = hit(/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i);
+        if (!wantMany) return email ? email + cite : "No email found in this file." + cite;
+        if (email) parts.push("Email: " + email);
+      }
+      if (/\b(phone|mobile|contact number|whatsapp)\b/.test(q)) {
+        const phone = hit(/\b(?:phone|mobile|tel|cell|whatsapp)\s*[:\-–]?\s*([+\d][\d\s().\-]{7,}\d)/i);
+        if (!wantMany) return phone ? phone + cite : "No phone number found in this file." + cite;
+        if (phone) parts.push("Phone: " + phone);
+      }
+      if (/\blinkedin\b/.test(q)) {
+        const url = hit(/\b((?:https?:\/\/)?(?:www\.)?linkedin\.com\/[^\s]+)/i);
+        if (!wantMany) return url ? url + cite : "No LinkedIn URL found in this file." + cite;
+        if (url) parts.push("LinkedIn: " + url);
+      }
+      if (/\b(who is|name)\b/.test(q) && !/\b(file\s+name|filename)\b/.test(q)) {
+        const name =
+          hit(/\b(?:name|candidate)\s*[:\-–]\s*([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){1,3})\b/) ||
+          String(usable[0]?.name || "").replace(/\.(pdf|docx?|txt)$/i, "").replace(/[_-]+/g, " ");
+        if (name && name.length > 2) {
+          if (!wantMany) return name + cite;
+          parts.push("Name: " + name);
+        }
+      }
+      if (/\b(title|role|designation|job)\b/.test(q)) {
+        const title =
+          hit(/\b(?:title|role|designation|position)\s*[:\-–]\s*([^\n]{3,80})/i) ||
+          hit(/\b((?:senior|junior|lead|staff|principal)?\s*(?:software|data|ml|ai|full[\s-]?stack|backend|frontend|devops)?\s*(?:engineer|developer|analyst|scientist|manager|architect|sde(?:-\d)?)[^\n]{0,40})/i);
+        if (title) {
+          if (!wantMany) return title.trim() + cite;
+          parts.push("Title: " + title.trim());
+        }
+      }
+      if (/\b(company|employer|organization)\b/.test(q)) {
+        const company =
+          hit(/\b(?:engineer|developer|sde(?:-\d)?|manager|analyst)\s*[,|–—-]\s*([A-Z][A-Za-z0-9+.&'’-]{1,40})/i) ||
+          hit(/\b(?:company|employer|organization|at)\s*[:\-–]?\s*([A-Z][^\n,]{2,60})/);
+        if (company) {
+          if (!wantMany) return company.trim() + cite;
+          parts.push("Company: " + company.trim());
+        }
+      }
+      if (/\b(location|city|address|based)\b/.test(q)) {
+        const loc =
+          hit(/\b(?:location|city|address|based in)\s*[:\-–]?\s*([^\n]{3,80})/i) ||
+          hit(/\b([A-Z][a-z]+(?:[\s,]+[A-Z][a-z]+){0,3},\s*(?:India|[A-Z]{2,}|[A-Z][a-z]+))\b/);
+        if (loc) {
+          if (!wantMany) return loc.trim() + cite;
+          parts.push("Location: " + loc.trim());
+        }
+      }
+      if (wantMany && parts.length) {
+        return parts.map((p, i) => (i + 1) + ". " + p).join("\n") + cite;
+      }
+      return parts.length === 1 ? parts[0] + cite : null;
     }
     function classifyAttachment(files) {
       const usable = (files || []).filter((f) => String(f.text || "").trim());
@@ -2125,7 +2230,7 @@
       const cite = usable[0]?.name ? " [" + usable[0].name + "]" : "";
       const raw = usable.map((f) => f.text).join("\n");
       const funcs = [...new Set([...raw.matchAll(/\b(?:function|def|fn|class|export\s+(?:async\s+)?function)\s+([A-Za-z_][\w]*)/g)].map((m) => m[1]))].slice(0, 6);
-      const qs = ["What is the responsibility of `" + (usable[0]?.name || "this file") + "`" + cite + ", and what should not live here?"];
+      const qs = ["What is the responsibility of " + (cite ? ("this file" + cite) : ("`" + (usable[0]?.name || "this file") + "`")) + ", and what should not live here?"];
       if (funcs.length) qs.push("What do " + funcs.slice(0, 3).map((f) => "`" + f + "`").join(", ") + " do, and how do they interact?");
       qs.push("How would you unit-test the riskiest path in this file" + cite + "?");
       qs.push("If you refactored this tomorrow, what would you extract first and why?");
@@ -2752,18 +2857,49 @@
       }
       return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
     }
+    function collapseDuplicateSentences(text) {
+      const parts = String(text || "")
+        .split(/(?<=[.!?])\s+|\n+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (parts.length < 3) return String(text || "").trim();
+      const out = [];
+      const seen = new Set();
+      for (const p of parts) {
+        const key = softFactKey(p, 12);
+        if (key.length > 16 && seen.has(key)) continue;
+        if (key.length > 16) seen.add(key);
+        out.push(p);
+      }
+      if (out.length >= parts.length - 1) return String(text || "").trim();
+      return out.join(" ").replace(/\s+/g, " ").trim();
+    }
     function looksLikeLoopedSummary(text) {
-      const bullets = String(text || "")
+      const raw = String(text || "");
+      const bullets = raw
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => /^([-•*]|\d+[.)])\s+/.test(l))
         .map((l) => softFactKey(l.replace(/^([-•*]|\d+[.)])\s+/, ""), 8))
         .filter((k) => k.length > 10);
-      if (bullets.length < 4) return false;
-      const counts = new Map();
-      for (const k of bullets) counts.set(k, (counts.get(k) || 0) + 1);
-      const max = Math.max(...counts.values());
-      return max >= 3 || counts.size <= Math.ceil(bullets.length / 2);
+      if (bullets.length >= 4) {
+        const counts = new Map();
+        for (const k of bullets) counts.set(k, (counts.get(k) || 0) + 1);
+        const max = Math.max(...counts.values());
+        if (max >= 3 || counts.size <= Math.ceil(bullets.length / 2)) return true;
+      }
+      // Prose loops (tiny models repeat the same fact sentence).
+      const sentences = raw
+        .split(/(?<=[.!?])\s+|\n+/)
+        .map((p) => softFactKey(p, 12))
+        .filter((k) => k.length > 16);
+      if (sentences.length >= 5) {
+        const counts = new Map();
+        for (const k of sentences) counts.set(k, (counts.get(k) || 0) + 1);
+        const max = Math.max(...counts.values());
+        if (max >= 3) return true;
+      }
+      return false;
     }
     function hardCapBullets(text, maxN) {
       const out = [];
@@ -2781,8 +2917,14 @@
     /** Same fixed iterations as the website chat — keep offline zip pack in sync. */
     function repairLoopedReply(text, files, preferExtractive) {
       let out = collapseDuplicateBullets(String(text || ""));
+      out = collapseDuplicateSentences(out);
       if (!looksLikeLoopedSummary(out)) return out;
       if (preferExtractive && files && files.length) {
+        const rescue = extractiveFileOverview(files);
+        if (rescue) return rescue;
+      }
+      // Fact loops with attachments: prefer a short extractive overview over endless repeats.
+      if (files && files.length && looksLikeLoopedSummary(out)) {
         const rescue = extractiveFileOverview(files);
         if (rescue) return rescue;
       }
@@ -2935,6 +3077,23 @@
           return;
         }
       }
+      // Short facts (title / company / location / email…): extractive for all models —
+      // light tags otherwise loop the same resume lines and cite the filename over and over.
+      if (t.attached?.length && wantsShortFact(asked)) {
+        const named = filesNamedInAsk(t.attached, asked);
+        const fact = extractiveFactAnswer(named.length ? named : t.attached, asked);
+        if (fact) {
+          input.value = "";
+          syncSend();
+          t.msgs.push({ role: "user", content: asked });
+          if (t.msgs.length === 1) t.title = titleFrom(asked);
+          t.updatedAt = Date.now();
+          t.msgs.push({ role: "assistant", content: fact });
+          renderAll();
+          await persist();
+          return;
+        }
+      }
       // Interview asks on attached résumé/files — extractive Qs (do not mislabel as LinkedIn outreach).
       if (t.attached?.length && wantsInterviewQuestions(asked)) {
         const named = filesNamedInAsk(t.attached, asked);
@@ -3004,7 +3163,7 @@
         const linkLine = linkNotes
           ? ("\n\nLINK NOTES (local pack; may be blocked):\n" + linkNotes)
           : "";
-        const mossHit = isStandalone() && navigator.onLine ? await searchMossPack(asked) : null;
+        const mossHit = isStandalone() && navigator.onLine && !fileBlock ? await searchMossPack(asked) : null;
         const mossLine = formatMossHits(mossHit);
         const system = (crispe || (fileBlock
           ? "You are Surf AI on this device — a careful document colleague for attached sources. Answer from attached-file text for file questions; cite filenames. When asked for a summary of this file, summarize the file contents — never your role. Stay accurate. Markdown that is easy to scan. File conversion is not supported."
@@ -3502,7 +3661,14 @@
       }
       if (t.attached.length >= 40) return;
       const body = sanitizeCorpusText(String(text || "").slice(0, 40000));
-      t.attached.push({ name, text: body, size: size || new TextEncoder().encode(body).length, preview: preview || "" });
+      const base = String(name || "").replace(/\\/g, "/").split("/").pop() || name;
+      const existing = t.attached.findIndex((f) => {
+        const n = String(f.name || "").replace(/\\/g, "/").split("/").pop() || f.name;
+        return n.toLowerCase() === String(base).toLowerCase();
+      });
+      const row = { name, text: body, size: size || new TextEncoder().encode(body).length, preview: preview || "" };
+      if (existing >= 0) t.attached[existing] = row;
+      else t.attached.push(row);
       t.updatedAt = Date.now();
       renderFiles();
       await persist();

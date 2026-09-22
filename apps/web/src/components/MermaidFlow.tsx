@@ -22,10 +22,16 @@ export function MermaidFlow({ source }: { source: string }) {
   const layers = layersFor(graph);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const dir = graph.dir === "LR" ? "flow-lr" : "flow-tb";
+  const isTb = dir === "flow-tb";
   return (
     <div className={`flow-map ${dir}`} role="img" aria-label="Diagram">
       {layers.map((layer, i) => {
         const next = layers[i + 1] || [];
+        const cross =
+          graph.edges.filter((e) => layer.includes(e.from) && next.includes(e.to)).length > 0
+            ? graph.edges.filter((e) => layer.includes(e.from) && next.includes(e.to))
+            : graph.edges.filter((e) => layer.includes(e.from)).slice(0, 3);
+        const collapseHub = isTb && next.length > 0 && cross.length > 1 && !cross.some((e) => e.label);
         return (
           <div key={i} className="flow-stage">
             <div className="flow-layer">
@@ -37,17 +43,20 @@ export function MermaidFlow({ source }: { source: string }) {
             </div>
             {next.length > 0 && (
               <div className="flow-connectors">
-                {(
-                  graph.edges.filter((e) => layer.includes(e.from) && next.includes(e.to)).length
-                    ? graph.edges.filter((e) => layer.includes(e.from) && next.includes(e.to))
-                    : graph.edges.filter((e) => layer.includes(e.from)).slice(0, 3)
-                ).map((edge, ei) => (
-                  <div key={`${edge.from}-${edge.to}-${ei}`} className="flow-arrow">
+                {collapseHub ? (
+                  <div className="flow-arrow">
                     <span className="flow-shaft" />
-                    {edge.label ? <em>{edge.label}</em> : null}
                     <span className="flow-head" />
                   </div>
-                ))}
+                ) : (
+                  cross.map((edge, ei) => (
+                    <div key={`${edge.from}-${edge.to}-${ei}`} className="flow-arrow">
+                      <span className="flow-shaft" />
+                      {edge.label ? <em>{edge.label}</em> : null}
+                      <span className="flow-head" />
+                    </div>
+                  ))
+                )}
               </div>
             )}
           </div>

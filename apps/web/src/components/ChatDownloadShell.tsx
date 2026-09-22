@@ -90,7 +90,11 @@ export function ChatDownloadShell() {
         }
         void trackEvent("download", `${manifest.agent}:${manifest.model}`);
         void downloadOnThisDevice({ manifest })
-          .then(() => setNote(`Pack saved: ${manifest.modelTitle} (${manifest.model}). Unzip, then Copy → run.`))
+          .then(() =>
+            setNote(
+              `Pack saved: ${manifest.modelTitle} (${manifest.model}). Unzip the zip, then Copy the Required command and run it in Terminal.`,
+            ),
+          )
           .catch((err) =>
             setNote(
               err instanceof Error
@@ -264,7 +268,11 @@ export function ChatDownloadShell() {
               Phones and tablets aren’t supported — use a computer with Terminal.
             </p>
           )}
-          {note ? <p className="download-note">{note}</p> : null}
+          {note ? (
+            <p className="download-note" role="status" aria-live="polite">
+              {note}
+            </p>
+          ) : null}
         </section>
       </main>
 

@@ -769,13 +769,12 @@ export function LocalChat() {
         return;
       }
     }
-    // Purpose-first overview when the model is light OR truly offline with no local Ollama.
-    // Local Ollama still works without internet — do not force the extractive stub then.
+    // Purpose-first overview for attached files — always extractive so light models
+    // (Qwen 1.5B / llama 1B) cannot dump the wrong file or invent a fake diagram summary.
     if (
       named.length &&
       wantsFileOverview(asked) &&
-      !wantsDiagram(asked) &&
-      (lightModel || (!networkOnline() && !ollamaOn))
+      !wantsDiagram(asked)
     ) {
       const brief = extractiveFileOverview(named);
       if (brief) {
@@ -1417,6 +1416,10 @@ export function LocalChat() {
                 value={input}
                 rows={1}
                 placeholder={threadFiles.length ? "Ask about the attached files…" : "Message…"}
+                data-gramm="false"
+                data-gramm_editor="false"
+                data-enable-grammarly="false"
+                spellCheck
                 onChange={(e) => {
                   setInput(e.target.value);
                   if (progress && !busy) setProgress("");

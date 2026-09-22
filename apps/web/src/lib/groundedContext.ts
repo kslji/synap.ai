@@ -19,7 +19,8 @@ export const OLLAMA_MEMORY_BUDGET = 1200;
 export const OLLAMA_LIGHT_DOC_BUDGET = 2800;
 
 export function isLightModelTag(model: string | null | undefined): boolean {
-  return /1b|1\.5b|2b|in-browser/i.test(String(model || ""));
+  const t = String(model || "");
+  return /1b|1\.5b|1\.5\s*b|2b|in-browser|qwen2\.5:1\.5/i.test(t);
 }
 
 export function wantsSavedSummary(q: string): boolean {
@@ -316,7 +317,7 @@ export function wantsDiagram(q: string): boolean {
   const t = q.trim().toLowerCase();
   if (!t) return false;
   return (
-    /\b(mermaid|flowchart|diagram|visuali[sz]e|visuali[sz]?ing|architecture\s+(diagram|map|chart)|draw\s+(a\s+)?(flow|diagram|chart)|show\s+(me\s+)?(a\s+)?(flow|diagram|chart))\b/.test(
+    /\b(mermaid|flowchart|flow\s*-?\s*chart|diagram|visuali[sz]e|visuali[sz]?ing|architecture\s+(diagram|map|chart|flow)|draw\s+(a\s+)?(flow|diagram|chart|architecture)|show\s+(me\s+)?(a\s+)?(flow|diagram|chart|architecture)|make\s+(a\s+)?(flow|diagram|chart))\b/.test(
       t,
     ) || /\bflowchart\s+(tb|td|lr|rl|bt)\b/.test(t)
   );
@@ -378,51 +379,121 @@ export function pathsFromFiles(files: NamedDoc[]): string[] {
   return [...new Set(paths)];
 }
 
-/**
- * Build a Mermaid flowchart from zip file-tree lines so light models still show a diagram.
- */
-export function architectureFlowFromFiles(files: NamedDoc[]): string | null {
-  const paths = pathsFromFiles(files);
-  if (paths.length < 2) return null;
-  const roots = new Map<string, Set<string>>();
-  for (const p of paths) {
-    const parts = p.split("/").filter(Boolean);
-    if (!parts.length) continue;
-    const root = parts[0];
-    const child = parts[1];
-    if (!roots.has(root)) roots.set(root, new Set());
-    if (child) roots.get(root)!.add(child);
-  }
-  const entries = [...roots.entries()].sort((a, b) => b[1].size - a[1].size);
-  if (!entries.length) return null;
-  const [root, kids] = entries[0];
-  const id = (s: string) =>
+function mermaidSafeLabel(s: string): string {
+  return String(s || "")
+    .replace(/["\[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 42);
+}
+
+function mermaidNodeId(s: string): string {
+  const base =
     "N" +
-    s
+    String(s || "")
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .slice(0, 28);
-  const lines = [`flowchart TB`, `  ${id(root)}["${root}"]`];
-  const childList = [...kids].slice(0, 10);
-  if (!childList.length) {
-    for (const p of paths.slice(0, 8)) {
+  return base || "N0";
+}
+
+/** Section / heading diagram when there is no zip file tree. */
+function documentStructureFlow(files: NamedDoc[]): string | null {
+  const usable = files.filter((f) => String(f.text || "").trim());
+  if (!usable.length) return null;
+  const f = usable[0];
+  const raw = String(f.text || "");
+  const title =
+    mermaidSafeLabel(f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")) || "Document";
+  const sectionHits: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.length > 60) continue;
+    if (/^#{1,3}\s+(.+)/.test(t)) {
+      sectionHits.push(mermaidSafeLabel(t.replace(/^#+\s+/, "")));
+      continue;
+    }
+    if (/^[A-Z][A-Z0-9 &/().-]{3,48}$/.test(t) && !/^(HTTP|HTTPS|API|URL|PDF|JSON)$/.test(t)) {
+      sectionHits.push(mermaidSafeLabel(t));
+      continue;
+    }
+    if (
+      /^(professional|work)\s+experience|technical\s+skills|education|projects?|summary|certifications?|skills|experience\b/i.test(
+        t,
+      )
+    ) {
+      sectionHits.push(mermaidSafeLabel(t));
+    }
+    if (sectionHits.length >= 8) break;
+  }
+  const uniq = [...new Set(sectionHits.filter(Boolean))].slice(0, 8);
+  const root = mermaidNodeId("doc");
+  const lines = [`flowchart TB`, `  ${root}["${title}"]`];
+  const kids =
+    uniq.length >= 2
+      ? uniq
+      : [
+          mermaidSafeLabel(f.name.split(/[/\\]/).pop() || "File"),
+          "Contents",
+          "Ask follow-ups",
+        ];
+  kids.forEach((s, i) => {
+    const id = mermaidNodeId(`${i}_${s}`);
+    lines.push(`  ${id}["${s}"]`);
+    lines.push(`  ${root} --> ${id}`);
+  });
+  const label =
+    uniq.length >= 2
+      ? `Diagram of **[${f.name}]** from its sections:`
+      : `Diagram of **[${f.name}]** (structure overview):`;
+  return `${label}\n\n\`\`\`mermaid\n${lines.join("\n")}\n\`\`\``;
+}
+
+/**
+ * Build a Mermaid flowchart from zip file-tree lines so light models still show a diagram.
+ * Falls back to document/section structure for resumes and single files.
+ */
+export function architectureFlowFromFiles(files: NamedDoc[]): string | null {
+  const paths = pathsFromFiles(files);
+  if (paths.length >= 2) {
+    const roots = new Map<string, Set<string>>();
+    for (const p of paths) {
       const parts = p.split("/").filter(Boolean);
-      if (parts.length < 2) continue;
-      childList.push(parts[1]);
-      if (childList.length >= 8) break;
+      if (!parts.length) continue;
+      const root = parts[0];
+      const child = parts[1];
+      if (!roots.has(root)) roots.set(root, new Set());
+      if (child) roots.get(root)!.add(child);
+    }
+    const entries = [...roots.entries()].sort((a, b) => b[1].size - a[1].size);
+    if (entries.length) {
+      const [root, kids] = entries[0];
+      const lines = [
+        `flowchart TB`,
+        `  ${mermaidNodeId(root)}["${mermaidSafeLabel(root)}"]`,
+      ];
+      const childList = [...kids].slice(0, 10);
+      if (!childList.length) {
+        for (const p of paths.slice(0, 8)) {
+          const parts = p.split("/").filter(Boolean);
+          if (parts.length < 2) continue;
+          childList.push(parts[1]);
+          if (childList.length >= 8) break;
+        }
+      }
+      const seen = new Set<string>();
+      for (const c of childList) {
+        if (seen.has(c)) continue;
+        seen.add(c);
+        lines.push(`  ${mermaidNodeId(c)}["${mermaidSafeLabel(c)}"]`);
+        lines.push(`  ${mermaidNodeId(root)} --> ${mermaidNodeId(c)}`);
+      }
+      if (lines.length >= 4) {
+        return `Architecture from the attached file tree:\n\n\`\`\`mermaid\n${lines.join("\n")}\n\`\`\``;
+      }
     }
   }
-  const seen = new Set<string>();
-  for (const c of childList) {
-    if (seen.has(c)) continue;
-    seen.add(c);
-    lines.push(`  ${id(c)}["${c}"]`);
-    lines.push(`  ${id(root)} --> ${id(c)}`);
-  }
-  if (lines.length < 4) return null;
-  return (
-    `Architecture from the attached file tree:\n\n\`\`\`mermaid\n${lines.join("\n")}\n\`\`\``
-  );
+  return documentStructureFlow(files);
 }
 
 /** Interview Q&A from zip tree / file names when the LLM cannot run. */

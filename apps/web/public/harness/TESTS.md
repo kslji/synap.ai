@@ -45,6 +45,7 @@ Edit `harness/custom_cases.json` — starter cases PASS out of the box; copy the
 | `guardrail_cases.json` | Fixed Surf eval cases |
 | `custom_cases.json` | **Your** editable cases + templates |
 | `file_focus.py` / `file_focus_cases.json` | Named-file grounding (multi-attachment) |
+| (repo) `test_diagram_overview.py` | Light-model diagram/summary early-exit + composer flex |
 | `run-evals.py` / `.sh` / `.bat` | Fixed pack evals |
 | `run-custom.py` / `.sh` / `.bat` | Customizable harness runner |
 | `CUSTOM.md` | How to add / change your cases |

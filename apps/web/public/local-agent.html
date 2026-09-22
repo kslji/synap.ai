@@ -72,7 +72,7 @@
       .icon#mic.mic-on::before,
       .icon#mic.mic-on::after { animation: none; }
     }
-    .chat-main { display: flex; flex-direction: column; min-height: 100vh; }
+    .chat-main { display: flex; flex-direction: column; min-height: 100vh; min-width: 0; }
     .light-model-note { display: block; padding: 10px 18px; border-bottom: 1px solid var(--line); background: #121a16; }
     .light-model-note[hidden] { display: none !important; }
     .light-model-note p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
@@ -81,13 +81,13 @@
     .chat-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line); gap: 12px; }
     .head-title { font-weight: 600; }
     .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .chat-log { flex: 1; overflow: auto; padding: 28px 22px 12px; display: flex; flex-direction: column; gap: 12px; }
+    .chat-log { flex: 1; min-height: 0; overflow: auto; padding: 28px 22px 12px; display: flex; flex-direction: column; gap: 12px; }
     .empty { margin: auto; max-width: 520px; text-align: center; }
     .empty h1 { font-size: 32px; letter-spacing: -0.04em; margin: 0 0 12px; font-weight: 600; }
     .warn { color: var(--warn); font-size: 14px; }
-    .bubble { max-width: min(72%, 720px); padding: 12px 16px; border-radius: 16px; white-space: pre-wrap; line-height: 1.5; font-size: 15px; }
+    .bubble { max-width: min(72%, 720px); min-width: 0; padding: 12px 16px; border-radius: 16px; white-space: pre-wrap; line-height: 1.5; font-size: 15px; }
     .bubble.user { align-self: flex-end; background: #1d2a24; }
-    .bubble.assistant { align-self: flex-start; background: var(--bg-2); border: 1px solid var(--line); white-space: normal; }
+    .bubble.assistant { align-self: flex-start; background: var(--bg-2); border: 1px solid var(--line); white-space: normal; overflow-x: auto; }
     .md-body p { margin: 0 0 .65em; }
     .md-body p:last-child, .md-body ul:last-child, .md-body ol:last-child, .md-body pre:last-child, .md-body .md-code:last-child, .md-body .md-table-wrap:last-child { margin-bottom: 0; }
     .md-body h3, .md-body h4, .md-body h5 { margin: .85em 0 .4em; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; }
@@ -113,26 +113,27 @@
     .md-pre code { border: 0; padding: 0; background: transparent; white-space: pre; font-size: 12.5px; line-height: 1.55; color: #d7e4dc; }
     .md-tok-key { color: #9ecbff; } .md-tok-str { color: #b8e0a8; } .md-tok-num { color: #f0c674; }
     .md-tok-kw { color: #d7a6ff; } .md-tok-cmt { color: #6b7c72; font-style: italic; } .md-tok-punct { color: #8aa396; }
-    .flow-map { margin: 0 0 .9em; padding: 14px; overflow: auto; background: linear-gradient(180deg, #121a17, #0e1412); border: 1px solid var(--line); border-radius: 16px; }
+    .flow-map { margin: 0 0 .9em; padding: 16px; overflow: auto; max-width: 100%; background: linear-gradient(165deg, #152019 0%, #0e1412 55%, #12181a 100%); border: 1px solid var(--line); border-radius: 16px; }
     .flow-map.flow-lr, .flow-stage { display: flex; align-items: stretch; gap: 8px; }
-    .flow-map.flow-tb { display: flex; flex-direction: column; gap: 4px; }
-    .flow-map.flow-tb .flow-stage { flex-direction: column; }
-    .flow-layer { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; }
-    .flow-node { min-width: 140px; max-width: 220px; padding: 12px 14px; border-radius: 14px; border: 1px solid #355246; background: #1a2621; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 13px; line-height: 1.35; text-align: center; font-weight: 500; }
+    .flow-map.flow-tb { display: flex; flex-direction: column; gap: 2px; align-items: stretch; }
+    .flow-map.flow-tb .flow-stage { flex-direction: column; align-items: center; width: 100%; }
+    .flow-layer { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; justify-content: center; width: 100%; }
+    .flow-node { min-width: 120px; max-width: 200px; padding: 12px 14px; border-radius: 12px; border: 1px solid #355246; background: #1a2621; box-shadow: 0 6px 18px rgba(0,0,0,.22); font-size: 13px; line-height: 1.35; text-align: center; font-weight: 500; word-break: break-word; }
     .flow-node.flow-round { border-radius: 999px; }
+    .flow-node.tone-0 { background: #1a2e24; border-color: #5a9a74; }
     .flow-node.tone-1 { background: #1c2c24; border-color: #4a7d62; }
     .flow-node.tone-2 { background: #1e2830; border-color: #4d6d82; }
     .flow-node.tone-3 { background: #26221c; border-color: #7a6a3e; }
     .flow-connectors { display: flex; flex-direction: column; justify-content: center; gap: 8px; min-width: 72px; }
-    .flow-map.flow-tb .flow-connectors { min-width: 0; min-height: 36px; align-items: center; }
+    .flow-map.flow-tb .flow-connectors { min-width: 0; min-height: 28px; align-items: center; width: 100%; }
     .flow-arrow { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
     .flow-map.flow-tb .flow-arrow { flex-direction: column; }
     .flow-shaft { flex: 1; min-width: 28px; min-height: 2px; background: var(--accent); opacity: .7; }
-    .flow-map.flow-tb .flow-shaft { min-width: 2px; min-height: 18px; width: 2px; }
+    .flow-map.flow-tb .flow-shaft { min-width: 2px; min-height: 16px; width: 2px; }
     .flow-head { width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 8px; border-color: transparent transparent transparent var(--accent); }
     .flow-map.flow-tb .flow-head { border-width: 8px 5px 0 5px; border-color: var(--accent) transparent transparent transparent; }
     .flow-arrow em { font-style: normal; max-width: 140px; line-height: 1.25; color: var(--accent); }
-    .bubble-wrap { display: flex; flex-direction: column; max-width: min(72%, 720px); }
+    .bubble-wrap { display: flex; flex-direction: column; max-width: min(72%, 720px); min-width: 0; }
     .bubble-wrap.user { align-self: flex-end; }
     .bubble-wrap.assistant { align-self: flex-start; }
     .bubble-wrap .bubble { max-width: 100%; }
@@ -157,10 +158,37 @@
     .think-dots i:nth-child(3) { animation-delay: .3s; }
     .think-label { color: var(--muted); font-size: 14px; }
     @keyframes think-bounce { 0%,80%,100% { opacity:.35; transform: translateY(0); } 40% { opacity:1; transform: translateY(-3px); } }
-    .composer { padding: 12px 22px 24px; }
-    .composer-wrap { max-width: 760px; margin: 0 auto; }
-    .composer-box { display: flex; align-items: flex-end; gap: 8px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 16px; padding: 8px 8px 8px 14px; }
-    .composer-box textarea { flex: 1; background: transparent; color: var(--text); border: 0; resize: none; outline: none; min-height: 24px; max-height: 160px; padding: 8px 0; font-size: 15px; }
+    .composer { padding: 12px 22px 24px; flex-shrink: 0; }
+    .composer-wrap { max-width: 760px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+    .composer-box {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 8px 8px 8px 14px;
+    }
+    .composer-box > .attach-one,
+    .composer-box > .icon,
+    .composer-box > .send { flex-shrink: 0; }
+    .composer-box textarea {
+      flex: 1 1 auto;
+      min-width: 0;
+      width: 100%;
+      background: transparent;
+      color: var(--text);
+      border: 0;
+      resize: none;
+      outline: none;
+      min-height: 24px;
+      max-height: 160px;
+      padding: 8px 0;
+      font-size: 15px;
+      line-height: 1.4;
+    }
     .send { background: var(--accent); color: #0c0f0e; border: 0; border-radius: 10px; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; }
     .send:disabled { opacity: .4; }
     .attach-one { position: relative; }
@@ -168,7 +196,16 @@
     .attach-menu.open { display: flex; }
     .attach-menu button { background: transparent; border: 0; color: var(--text); text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 14px; width: 100%; }
     .attach-menu button:hover { background: var(--bg); }
-    .attach-bar { max-width: 760px; margin: 0 auto 8px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px; }
+    .attach-bar {
+      max-width: 760px;
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0 auto 8px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 8px 10px;
+    }
     .attach-bar-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .attach-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 72px; overflow: auto; }
     .attach-chip { display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; max-width: 180px; }
@@ -283,7 +320,7 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
               </button>
             </div>
-            <textarea id="input" rows="1" placeholder="Message…"></textarea>
+            <textarea id="input" rows="1" placeholder="Message…" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" spellcheck="true"></textarea>
             <button type="button" class="icon" id="mic" aria-label="Start dictation" aria-pressed="false" title="Dictate" disabled>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/></svg>
             </button>
@@ -1044,7 +1081,8 @@
       const layers = mermaidLayers(graph);
       const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
       const dir = graph.dir === "LR" ? "flow-lr" : "flow-tb";
-      return `<div class="flow-map ${dir}">` + layers.map((layer, i) => {
+      const isTb = dir === "flow-tb";
+      return `<div class="flow-map ${dir}" role="img" aria-label="Diagram">` + layers.map((layer, i) => {
         const next = layers[i + 1] || [];
         const cards = layer.map((id, ni) => {
           const n = byId[id];
@@ -1055,9 +1093,14 @@
         if (next.length) {
           let edges = graph.edges.filter((e) => layer.includes(e.from) && next.includes(e.to));
           if (!edges.length) edges = graph.edges.filter((e) => layer.includes(e.from)).slice(0, 3);
-          arrows = `<div class="flow-connectors">` + edges.map((e) =>
-            `<div class="flow-arrow"><span class="flow-shaft"></span>${e.label ? `<em>${escapeText(e.label)}</em>` : ""}<span class="flow-head"></span></div>`
-          ).join("") + `</div>`;
+          // Hub → many children: one clean vertical connector (not a stack of arrows).
+          if (isTb && edges.length > 1 && !edges.some((e) => e.label)) {
+            arrows = `<div class="flow-connectors"><div class="flow-arrow"><span class="flow-shaft"></span><span class="flow-head"></span></div></div>`;
+          } else {
+            arrows = `<div class="flow-connectors">` + edges.map((e) =>
+              `<div class="flow-arrow"><span class="flow-shaft"></span>${e.label ? `<em>${escapeText(e.label)}</em>` : ""}<span class="flow-head"></span></div>`
+            ).join("") + `</div>`;
+          }
         }
         return `<div class="flow-stage"><div class="flow-layer">${cards}</div>${arrows}</div>`;
       }).join("") + `</div>`;
@@ -1746,7 +1789,9 @@
       }
       // Bare "about" alone used to dump EVERY attachment — when the user names a file
       // ("harbour file about"), only that file should be in context.
-      const overviewAsk = /\b(summar(y|ise|ize)?|overview|diagram|visuali[sz]e|folder (tree|structure)|mermaid|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is| does)\s+(this|it)|this file|tell me|about|consist|include[sd]?)\b/.test(q);
+      // Diagrams are handled extractively — do not dump-all here for "diagram".
+      const overviewAsk = /\b(summar(y|ise|ize)?|overview|folder (tree|structure)|explain (the |this )?(project|repo|zip)|what is this (project|zip|repo|code|file)|interview|walk (me )?through|brief me|what(?:'s| is| does)\s+(this|it)|this file|tell me|about|consist|include[sd]?)\b/.test(q)
+        && !/\b(mermaid|flowchart|diagram|visuali[sz]e)\b/.test(q);
       const usable = attached.filter((f) => String(f.text || "").trim());
       const named = filesNamedInAsk(usable, query);
       const focus = named.length ? named : usable;
@@ -1917,9 +1962,100 @@
         || /\b(saved summary|memory note|user memory note|retained memory|what did you (save|keep|summarize)|show (my )?memory)\b/.test(t)
         || /^summary\??$/.test(t);
     }
+    function wantsDiagram(q) {
+      const t = String(q || "").trim().toLowerCase();
+      if (!t) return false;
+      return /\b(mermaid|flowchart|flow\s*-?\s*chart|diagram|visuali[sz]e|visuali[sz]?ing|architecture\s+(diagram|map|chart|flow)|draw\s+(a\s+)?(flow|diagram|chart|architecture)|show\s+(me\s+)?(a\s+)?(flow|diagram|chart|architecture)|make\s+(a\s+)?(flow|diagram|chart))\b/.test(t)
+        || /\bflowchart\s+(tb|td|lr|rl|bt)\b/.test(t);
+    }
+    function mermaidSafeLabel(s) {
+      return String(s || "").replace(/["\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 42);
+    }
+    function mermaidNodeId(s) {
+      const base = "N" + String(s || "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 28);
+      return base || "N0";
+    }
+    function documentStructureFlow(files) {
+      const usable = (files || []).filter((f) => String(f.text || "").trim());
+      if (!usable.length) return null;
+      const f = usable[0];
+      const raw = String(f.text || "");
+      const title = mermaidSafeLabel(f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")) || "Document";
+      const sectionHits = [];
+      for (const line of raw.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t || t.length > 60) continue;
+        if (/^#{1,3}\s+/.test(t)) {
+          sectionHits.push(mermaidSafeLabel(t.replace(/^#+\s+/, "")));
+          continue;
+        }
+        if (/^[A-Z][A-Z0-9 &/().-]{3,48}$/.test(t) && !/^(HTTP|HTTPS|API|URL|PDF|JSON)$/.test(t)) {
+          sectionHits.push(mermaidSafeLabel(t));
+          continue;
+        }
+        if (/^(professional|work)\s+experience|technical\s+skills|education|projects?|summary|certifications?|skills|experience\b/i.test(t)) {
+          sectionHits.push(mermaidSafeLabel(t));
+        }
+        if (sectionHits.length >= 8) break;
+      }
+      const uniq = [...new Set(sectionHits.filter(Boolean))].slice(0, 8);
+      const root = mermaidNodeId("doc");
+      const lines = ["flowchart TB", "  " + root + '["' + title + '"]'];
+      const kids = uniq.length >= 2
+        ? uniq
+        : [mermaidSafeLabel((f.name.split(/[/\\]/).pop() || "File")), "Contents", "Ask follow-ups"];
+      kids.forEach((s, i) => {
+        const id = mermaidNodeId(i + "_" + s);
+        lines.push("  " + id + '["' + s + '"]');
+        lines.push("  " + root + " --> " + id);
+      });
+      const label = uniq.length >= 2
+        ? ("Diagram of **[" + f.name + "]** from its sections:")
+        : ("Diagram of **[" + f.name + "]** (structure overview):");
+      return label + "\n\n```mermaid\n" + lines.join("\n") + "\n```";
+    }
+    function architectureFlowFromFiles(files) {
+      const paths = pathsFromFiles(files || []);
+      if (paths.length >= 2) {
+        const roots = new Map();
+        for (const p of paths) {
+          const parts = p.split("/").filter(Boolean);
+          if (!parts.length) continue;
+          if (!roots.has(parts[0])) roots.set(parts[0], new Set());
+          if (parts[1]) roots.get(parts[0]).add(parts[1]);
+        }
+        const entries = [...roots.entries()].sort((a, b) => b[1].size - a[1].size);
+        if (entries.length) {
+          const root = entries[0][0];
+          const kids = entries[0][1];
+          const lines = ["flowchart TB", "  " + mermaidNodeId(root) + '["' + mermaidSafeLabel(root) + '"]'];
+          const childList = [...kids].slice(0, 10);
+          if (!childList.length) {
+            for (const p of paths.slice(0, 8)) {
+              const parts = p.split("/").filter(Boolean);
+              if (parts.length < 2) continue;
+              childList.push(parts[1]);
+              if (childList.length >= 8) break;
+            }
+          }
+          const seen = new Set();
+          for (const c of childList) {
+            if (seen.has(c)) continue;
+            seen.add(c);
+            lines.push("  " + mermaidNodeId(c) + '["' + mermaidSafeLabel(c) + '"]');
+            lines.push("  " + mermaidNodeId(root) + " --> " + mermaidNodeId(c));
+          }
+          if (lines.length >= 4) {
+            return "Architecture from the attached file tree:\n\n```mermaid\n" + lines.join("\n") + "\n```";
+          }
+        }
+      }
+      return documentStructureFlow(files);
+    }
     function wantsFileOverview(q) {
       const t = String(q || "").trim().toLowerCase();
       if (!t) return false;
+      if (wantsDiagram(q)) return false;
       return /\b(summar(y|ise|ize)?|overview|brief|recap|include[sd]?|consist|what(?:'s| is| does)\s+(this|it)|what is this|walk (me )?through|explain|tell me about|what(?:'s| is) (in|inside)|purpose)\b/.test(t)
         || /\bwhat\s+(is|are)\s+\S[\w.+-]{1,48}\s+(file|zip|pdf|doc|document|project|repo)\b/.test(t)
         || /\b[\w.+-]{3,48}\s+(file|zip|pdf)\s+(is\s+)?about\b/.test(t);
@@ -2448,11 +2584,27 @@
         await persist();
         return;
       }
-      const modelTag = String(healthCache?.active_model || healthCache?.default_model || "");
+      const modelTag = String(healthCache?.active_model || healthCache?.default_model || (window.__SURF_PACK__ && window.__SURF_PACK__.model) || "");
       const ollamaLocal = !!(healthCache?.local_llm?.backend || healthCache?.ollama);
-      const lightModel = /1b|1\.5b|in-browser/i.test(modelTag) || !ollamaLocal;
-      // Local Ollama works without internet — only force extractive when light or truly no local model.
-      if (t.attached?.length && wantsFileOverview(asked) && (lightModel || (!navigator.onLine && !ollamaLocal))) {
+      const lightModel = /1b|1\.5b|1\.5\s*b|2b|in-browser|qwen2\.5:1\.5/i.test(modelTag) || !ollamaLocal;
+      // Diagrams: never trust light models to invent mermaid — build from file tree / sections.
+      if (t.attached?.length && wantsDiagram(asked)) {
+        const named = filesNamedInAsk(t.attached, asked);
+        const diagram = architectureFlowFromFiles(named.length ? named : t.attached);
+        if (diagram) {
+          input.value = "";
+          syncSend();
+          t.msgs.push({ role: "user", content: asked });
+          if (t.msgs.length === 1) t.title = titleFrom(asked);
+          t.updatedAt = Date.now();
+          t.msgs.push({ role: "assistant", content: diagram });
+          renderAll();
+          await persist();
+          return;
+        }
+      }
+      // File summaries: always extractive when attachments exist (Qwen 1.5B / llama 1B dump wrong text otherwise).
+      if (t.attached?.length && wantsFileOverview(asked) && !wantsDiagram(asked)) {
         const named = filesNamedInAsk(t.attached, asked);
         const brief = extractiveFileOverview(named.length ? named : t.attached);
         if (brief) {

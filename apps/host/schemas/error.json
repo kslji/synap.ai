@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synap.surf/schemas/api-error.json",
+  "title": "SurfHostApiError",
+  "description": "Error body from the auth host. detail stays a string or FastAPI validation list so the existing site parser keeps working. code is additive.",
+  "type": "object",
+  "required": ["detail", "code"],
+  "properties": {
+    "detail": {
+      "description": "Human-readable message, or a list of {loc, msg, type} validation items.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "object" } }
+      ]
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "unauthorized",
+        "forbidden",
+        "not_found",
+        "conflict",
+        "payload_too_large",
+        "validation_error",
+        "locked",
+        "rate_limited",
+        "internal_error",
+        "not_implemented",
+        "bad_gateway",
+        "unavailable",
+        "error"
+      ]
+    },
+    "request_id": { "type": "string" }
+  },
+  "additionalProperties": false
+}

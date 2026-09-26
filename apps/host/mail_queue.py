@@ -42,16 +42,22 @@ def _send_smtp(to_email: str, subject: str, body: str) -> None:
 
 def _write_outbox(to_email: str, subject: str, body: str, job_id: str) -> None:
     path = platform_dir() / "mail-outbox.jsonl"
+    # Once SMTP accepted the message, do not keep the OTP on disk.
+    stored_body = "[redacted]" if settings.smtp_host else body
     row = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "id": job_id,
         "to": to_email,
         "subject": subject,
-        "body": body,
+        "body": stored_body,
         "channel": "smtp" if settings.smtp_host else "local-queue",
     }
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row) + "\n")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
 
 
 def process_due_jobs() -> int:

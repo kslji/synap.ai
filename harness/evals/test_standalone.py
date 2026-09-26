@@ -49,10 +49,17 @@ def run_checks() -> list[dict]:
         f"send={send_idx} ollamaChat={ollama_chat}",
         rows,
     )
+    send_end = html.find("\n    async function ", send_idx + 10)
+    if send_end == -1:
+        send_end = send_idx + 20000
+    send_body = html[send_idx:send_end]
     check(
         "zip-chat-does-not-require-profile",
-        "if (ollamaOn)" in html and "useHostChat(h)" in html and "isStandalone()" in html[send_idx:send_idx + 4000],
-        "send() uses useHostChat / standalone fallback",
+        "isStandalone()" in send_body
+        and "ollamaDirect(" in send_body
+        and "else if (ollamaOn)" in send_body
+        and "Sign in with your email profile first." not in send_body.split("isStandalone()", 1)[0],
+        "send() standalone path talks to Ollama without a profile",
         rows,
     )
     check(

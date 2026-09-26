@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -56,16 +57,11 @@ def main() -> int:
         except urllib.error.HTTPError:
             post_json("/v1/auth/resend-otp", {"email": email, "purpose": "verify"})
     if token is None:
-        outbox = Path(inst.get("data_dir") or ".") / "mail-outbox.jsonl"
-        if not outbox.exists():
-            print("FAIL mail queue outbox missing", outbox)
+        code = _otp_from_outbox(inst, email)
+        if not code:
+            print("FAIL OTP not in local mail outbox (SMTP_HOST must be empty for smoke)")
             return 1
-        last = json.loads(outbox.read_text(encoding="utf-8").strip().splitlines()[-1])
-        match = re.search(r"\b(\d{6})\b", last.get("body") or "")
-        if not match:
-            print("FAIL OTP not in queued mail body")
-            return 1
-        verified = post_json("/v1/auth/verify-email", {"email": email, "otp": match.group(1)})
+        verified = post_json("/v1/auth/verify-email", {"email": email, "otp": code})
         token = verified["token"]
         print("PASS /v1/auth/verify-email")
     else:
@@ -129,6 +125,35 @@ def main() -> int:
             print("  got:", text[:240].replace("\n", " "))
             failed += 1
     return 1 if failed else 0
+
+
+def _otp_from_outbox(inst: dict, email: str) -> str | None:
+    """OTP lives in the platform outbox, not the chat instance folder."""
+    paths: list[Path] = []
+    env_dir = os.environ.get("PLATFORM_DATA_DIR", "").strip()
+    if env_dir:
+        paths.append(Path(env_dir) / "mail-outbox.jsonl")
+    paths.append(HERE.parents[1] / "data" / "platform" / "mail-outbox.jsonl")
+    data_dir = inst.get("data_dir")
+    if data_dir:
+        paths.append(Path(data_dir) / "mail-outbox.jsonl")
+    found: str | None = None
+    for path in paths:
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("to") and row.get("to") != email:
+                continue
+            match = re.search(r"\b(\d{6})\b", row.get("body") or "")
+            if match:
+                found = match.group(1)
+    return found
 
 
 if __name__ == "__main__":

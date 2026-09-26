@@ -49,6 +49,23 @@ class Settings(BaseSettings):
     )
     jwt_ttl_hours: int = 12
     chat_rate_per_minute: int = 30
+    # Auth/OTP budgets are shared across gunicorn workers (platform SQLite).
+    auth_rate_limit: int = 10
+    auth_rate_window_seconds: int = 600
+    auth_ip_rate_limit: int = 40
+    auth_ip_rate_window_seconds: int = 600
+    otp_rate_limit: int = 5
+    otp_rate_window_seconds: int = 900
+    otp_ip_rate_limit: int = 20
+    otp_ip_rate_window_seconds: int = 900
+    login_rate_limit: int = 10
+    login_rate_window_seconds: int = 600
+    track_rate_per_minute: int = 60
+    max_body_bytes: int = 2_000_000
+    health_cache_seconds: float = 8
+    trust_proxy_headers: bool = True
+    surf_env: str = "development"
+    log_level: str = "info"
     max_conversations: int = 50
     max_messages_per_conversation: int = 200
     max_trace_files: int = 80
@@ -80,6 +97,10 @@ class Settings(BaseSettings):
     @property
     def admin_email_set(self) -> set[str]:
         return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+
+    @property
+    def is_production(self) -> bool:
+        return self.surf_env.strip().lower() in {"production", "prod"}
 
 
 settings = Settings()

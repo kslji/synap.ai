@@ -21,6 +21,10 @@ def platform_dir() -> Path:
     else:
         path = ROOT / "data" / "platform"
     path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass
     return path
 
 
@@ -33,11 +37,16 @@ def now_iso() -> str:
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path(), timeout=30)
+    path = db_path()
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
     return conn
 
 
@@ -51,7 +60,8 @@ def init_platform_db() -> None:
               password_hash TEXT NOT NULL,
               email_verified INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
+              updated_at TEXT NOT NULL,
+              password_changed_at TEXT
             );
             CREATE TABLE IF NOT EXISTS otp_challenges (
               id TEXT PRIMARY KEY,
@@ -97,6 +107,8 @@ def init_platform_db() -> None:
               ON analytics_events(kind, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_analytics_label
               ON analytics_events(kind, label);
+            CREATE INDEX IF NOT EXISTS idx_otp_lookup
+              ON otp_challenges(email, purpose, consumed);
             """
         )
         _ensure_user_referral_columns(conn)
@@ -115,6 +127,11 @@ def _ensure_user_referral_columns(conn: sqlite3.Connection) -> None:
         if "referred_by" not in cols:
             try:
                 conn.execute("ALTER TABLE users ADD COLUMN referred_by TEXT")
+            except sqlite3.OperationalError:
+                pass
+        if "password_changed_at" not in cols:
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN password_changed_at TEXT")
             except sqlite3.OperationalError:
                 pass
         try:
@@ -141,6 +158,12 @@ def _ensure_user_referral_columns(conn: sqlite3.Connection) -> None:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_analytics_label ON analytics_events(kind, label)"
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_otp_lookup
+                  ON otp_challenges(email, purpose, consumed)
+                """
             )
         except sqlite3.OperationalError:
             pass
@@ -260,11 +283,11 @@ def insert_user(email: str, password_hash: str, referred_by: str | None = None) 
             """
             INSERT INTO users (
               id, email, password_hash, email_verified, created_at, updated_at,
-              referral_code, referred_by
+              referral_code, referred_by, password_changed_at
             )
-            VALUES (?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?)
             """,
-            (uid, email, password_hash, 0, ts, ts, code.lower(), ref),
+            (uid, email, password_hash, 0, ts, ts, code.lower(), ref, ts),
         )
     return {
         "id": uid,
@@ -274,6 +297,7 @@ def insert_user(email: str, password_hash: str, referred_by: str | None = None) 
         "updated_at": ts,
         "referral_code": code,
         "referred_by": ref,
+        "password_changed_at": ts,
     }
 
 
@@ -430,10 +454,15 @@ def set_user_verified(user_id: str) -> None:
 
 
 def set_user_password(user_id: str, password_hash: str) -> None:
+    ts = now_iso()
     with _connect() as conn:
         conn.execute(
-            "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
-            (password_hash, now_iso(), user_id),
+            """
+            UPDATE users
+            SET password_hash = ?, updated_at = ?, password_changed_at = ?
+            WHERE id = ?
+            """,
+            (password_hash, ts, ts, user_id),
         )
 
 
@@ -469,17 +498,36 @@ def get_active_otp(email: str, purpose: str) -> dict | None:
     return dict(row) if row else None
 
 
-def bump_otp_attempts(otp_id: str) -> None:
+def bump_otp_attempts(otp_id: str) -> int:
     with _connect() as conn:
         conn.execute(
-            "UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = ?",
+            "UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = ? AND consumed = 0",
             (otp_id,),
         )
+        row = conn.execute(
+            "SELECT attempts FROM otp_challenges WHERE id = ?",
+            (otp_id,),
+        ).fetchone()
+    return int(row["attempts"]) if row else 0
 
 
 def consume_otp(otp_id: str) -> None:
     with _connect() as conn:
         conn.execute("UPDATE otp_challenges SET consumed = 1 WHERE id = ?", (otp_id,))
+
+
+def consume_otp_once(otp_id: str, max_attempts: int) -> bool:
+    """Mark a challenge used. False when another request already consumed it."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE otp_challenges
+            SET consumed = 1
+            WHERE id = ? AND consumed = 0 AND attempts < ?
+            """,
+            (otp_id, max_attempts),
+        )
+        return cur.rowcount == 1
 
 
 def insert_mail_job(to_email: str, subject: str, body: str, available_at: str) -> str:
@@ -592,13 +640,23 @@ def add_feedback(
     }
 
 
-def list_feedback(limit: int = 80) -> list[dict]:
+def list_feedback(limit: int = 80, client_id: str | None = None) -> list[dict]:
     init_platform_db()
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if client_id:
+            rows = conn.execute(
+                """
+                SELECT * FROM feedback
+                WHERE client_id = ?
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (client_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
     out = []
     for r in rows:
         row = dict(r)

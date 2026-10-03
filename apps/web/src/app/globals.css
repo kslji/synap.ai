@@ -2781,3 +2781,9 @@ button.linkish:not(:disabled):active {
     display: block;
   }
 }
+
+.download-shell-contained {
+  height: 100dvh;
+  max-height: 100dvh;
+  background: var(--bg);
+}

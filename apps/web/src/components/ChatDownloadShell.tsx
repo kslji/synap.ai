@@ -22,7 +22,7 @@ import { captureReferralFromUrl, trackEvent } from "@/lib/admin";
 assertModelCatalogIntegrity();
 
 /** synap.surf /download — one-screen: pick model → download → copy open command. */
-export function ChatDownloadShell() {
+export function ChatDownloadShell({ contained = false }: { contained?: boolean }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authNext, setAuthNext] = useState<null | (() => void)>(null);
@@ -141,8 +141,8 @@ export function ChatDownloadShell() {
   }
 
   return (
-    <div className="landing download-shell">
-      <div className="landing-atmosphere" aria-hidden />
+    <div className={contained ? "landing download-shell download-shell-contained" : "landing download-shell"}>
+      {contained ? null : <div className="landing-atmosphere" aria-hidden />}
       {guideRequired ? (
         <div
           className="download-toast-layer"

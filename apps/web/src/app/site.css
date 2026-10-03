@@ -1,0 +1,362 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "../";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --font-display: var(--font-sora), Helvetica, sans-serif;
+  --font-body: var(--font-manrope), Helvetica, sans-serif;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+.synap-site {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.677 0.216 36.2);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.96 0 0);
+  --secondary-foreground: oklch(0.145 0 0);
+  --accent: oklch(0.932 0.194 102.8);
+  --accent-foreground: oklch(0.145 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+  --border: oklch(0.86 0 0);
+  --input: oklch(0.86 0 0);
+  --ring: oklch(0.677 0.216 36.2);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-foreground: oklch(1 0 0);
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), Helvetica, sans-serif;
+  letter-spacing: 0;
+}
+
+.synap-site a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.synap-site button:not(:disabled):active {
+  transform: none;
+  filter: none;
+}
+
+.synap-site :is(a, button).site-btn {
+  background: var(--site-btn-bg, transparent);
+  color: var(--site-btn-fg, var(--foreground));
+  border-color: var(--site-btn-border, transparent);
+}
+
+.synap-site :is(a, button).site-btn:hover {
+  background: var(--site-btn-bg-hover, var(--site-btn-bg, transparent));
+  color: var(--site-btn-fg-hover, var(--site-btn-fg, var(--foreground)));
+  border-color: var(--site-btn-border-hover, var(--site-btn-border, transparent));
+}
+
+.synap-site :is(a, button).site-btn-signal,
+.synap-site :is(a, button).site-btn-dark,
+.synap-site :is(a, button).site-btn-outline {
+  border-radius: 999px;
+}
+
+.synap-site :is(a, button).site-btn-signal {
+  --site-btn-bg: var(--primary);
+  --site-btn-fg: #fff;
+  --site-btn-bg-hover: color-mix(in oklch, var(--primary) 84%, black);
+  --site-btn-fg-hover: #fff;
+}
+
+.synap-site :is(a, button).site-btn-dark {
+  --site-btn-bg: var(--foreground);
+  --site-btn-fg: #fff;
+  --site-btn-bg-hover: var(--primary);
+  --site-btn-fg-hover: #fff;
+}
+
+.synap-site :is(a, button).site-btn-outline {
+  --site-btn-bg: #fff;
+  --site-btn-fg: var(--foreground);
+  --site-btn-border: var(--border);
+  --site-btn-bg-hover: #fff;
+  --site-btn-fg-hover: var(--foreground);
+  --site-btn-border-hover: var(--foreground);
+  border-style: solid;
+  border-width: 1px;
+}
+
+.synap-site :is(a, button).site-btn-ghost {
+  --site-btn-bg: transparent;
+  --site-btn-fg: var(--foreground);
+  --site-btn-bg-hover: var(--secondary);
+  --site-btn-fg-hover: var(--foreground);
+}
+
+.synap-site :is(a, button).site-btn-link {
+  --site-btn-bg: transparent;
+  --site-btn-fg: var(--primary);
+  --site-btn-bg-hover: transparent;
+  --site-btn-fg-hover: color-mix(in oklch, var(--primary) 80%, black);
+}
+
+@utility site-container {
+  width: min(100% - 2.5rem, 80rem);
+  margin-inline: auto;
+}
+@utility kicker {
+  font-family: var(--font-body), Helvetica, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: color-mix(in oklch, var(--foreground) 53%, transparent);
+}
+@utility section-heading {
+  font-family: var(--font-display), Helvetica, sans-serif;
+  font-size: clamp(1.9rem, 3vw, 2.6rem);
+  font-weight: 700;
+  line-height: 1.15;
+}
+@utility signal-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  background: var(--card);
+}
+@utility signal-card-dark {
+  background: var(--foreground);
+  color: var(--background);
+  border-color: var(--foreground);
+  & .kicker {
+    color: color-mix(in oklch, var(--background) 55%, transparent);
+  }
+}
+@utility format-tag {
+  background: var(--foreground);
+  color: var(--background);
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+@utility console-visual {
+  background: var(--foreground);
+  color: var(--background);
+  border-radius: 8px;
+  padding: 1.25rem;
+  font-family: var(--font-body), Helvetica, sans-serif;
+  min-height: 285px;
+}
+@utility console-inner {
+  border: 1px solid color-mix(in oklch, var(--background) 10%, transparent);
+  background: color-mix(in oklch, var(--background) 5%, transparent);
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+@utility console-conversation {
+  min-height: 265px;
+}
+@utility console-message-user {
+  max-width: 86%;
+  border-radius: 8px 8px 2px 8px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  animation: chat-user 8s ease-in-out infinite;
+}
+@utility console-agent-avatar {
+  display: grid;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: none;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: var(--font-display), Helvetica, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+@utility console-response-area {
+  position: relative;
+  min-height: 5.25rem;
+}
+@utility console-message-agent {
+  max-width: 95%;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--background);
+  animation: chat-response 8s ease-in-out infinite;
+}
+@utility console-typing {
+  position: absolute;
+  inset: 0 auto auto 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 2rem;
+  padding: 0 0.7rem;
+  border: 1px solid color-mix(in oklch, var(--background) 16%, transparent);
+  border-radius: 8px 8px 8px 2px;
+  animation: chat-typing 8s ease-in-out infinite;
+  & span {
+    width: 0.3rem;
+    height: 0.3rem;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: typing-dot 1s ease-in-out infinite alternate;
+  }
+  & span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  & span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+}
+@utility animate-rise {
+  animation: rise 0.6s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes chat-user {
+  0%,
+  5% {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  12%,
+  92% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+}
+@keyframes chat-typing {
+  0%,
+  13% {
+    opacity: 0;
+  }
+  20%,
+  38% {
+    opacity: 1;
+  }
+  46%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes chat-response {
+  0%,
+  40% {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  50%,
+  92% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+}
+@keyframes typing-dot {
+  from {
+    opacity: 0.35;
+    transform: translateY(1px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@utility agent-ticker {
+  animation: ticker 28s linear infinite;
+  &:hover {
+    animation-play-state: paused;
+  }
+}
+@utility guide-panel {
+  animation: rise 0.35s ease-out both;
+}
+@utility guide-progress {
+  animation: guide-fill 4.8s linear both;
+}
+@keyframes ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes guide-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .synap-site *,
+  .synap-site *::before,
+  .synap-site *::after {
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+  .synap-site .console-typing {
+    display: none;
+  }
+  .synap-site .console-message-user,
+  .synap-site .console-message-agent {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .synap-site .agent-ticker {
+    flex-wrap: wrap;
+    width: auto;
+  }
+  .synap-site .agent-ticker > :nth-child(n + 6) {
+    display: none;
+  }
+  .synap-site .guide-progress {
+    width: 100%;
+  }
+}

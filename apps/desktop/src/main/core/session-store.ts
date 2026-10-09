@@ -37,7 +37,7 @@ interface MemConv {
 export class SessionStore {
   private mem = new Map<string, MemConv>()
 
-  constructor(private readonly db: DB | null) {}
+  constructor(readonly db: DB | null) {}
 
   get mode(): 'encrypted' | 'session' {
     return this.db ? 'encrypted' : 'session'
@@ -76,7 +76,10 @@ export class SessionStore {
   }
 
   ensure(id: string | null, firstText: string, agentId: string): string {
-    if (id && this.has(id)) return id
+    if (id && this.has(id)) {
+      this.renameIfPlaceholder(id, firstText)
+      return id
+    }
     const cid = id ?? randomUUID()
     const now = Date.now()
     const title = firstText.replace(/\s+/g, ' ').trim().slice(0, 64) || 'New chat'
@@ -103,6 +106,18 @@ export class SessionStore {
       'INSERT INTO messages (id, conversation_id, role, content, sources_json, gate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     ).run(message.id, conversationId, message.role, message.text, JSON.stringify(message.sources), message.gate ?? null, now)
     this.db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
+  }
+
+  /** File drops create a chat titled "New chat" before the first message. */
+  renameIfPlaceholder(id: string, firstText: string): void {
+    const title = firstText.replace(/\s+/g, ' ').trim().slice(0, 64)
+    if (!title) return
+    if (!this.db) {
+      const conv = this.mem.get(id)
+      if (conv?.title === 'New chat') conv.title = title
+      return
+    }
+    this.db.prepare(`UPDATE conversations SET title = ? WHERE id = ? AND title = 'New chat'`).run(title, id)
   }
 
   private has(id: string): boolean {

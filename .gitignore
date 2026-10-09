@@ -24,6 +24,7 @@ apps/web/dist
 apps/desktop/out
 apps/desktop/dist
 apps/desktop/resources/bin
+apps/desktop/resources/tessdata/*.traineddata
 packages/*/dist
 *.gguf
 *.part

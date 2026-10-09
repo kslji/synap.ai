@@ -30,7 +30,7 @@ export function ModelsScreen({
           ))}
         </div>
         <h2 className="mt-8 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Later</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">Speech models land in week 2. Vision files download with image attachments on Day 3.</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">Speech models land in week 2. Images in your documents are read with on-device OCR. The Qwen vision projector is optional and is not downloaded automatically.</p>
         <div className="mt-3 flex flex-col gap-2">
           {later.map((m) => (
             <div key={m.id} className="card flex items-center justify-between px-4 py-3 opacity-70">

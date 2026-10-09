@@ -1,6 +1,6 @@
 import type { ChatEvent, GateName, StoredMessage } from '../../shared/ipc-contract'
 
-export type View = 'onboarding' | 'chat' | 'models' | 'settings'
+export type View = 'onboarding' | 'chat' | 'models' | 'settings' | 'library'
 
 export interface UiMsg {
   id: string

@@ -69,6 +69,7 @@ export function Sidebar({
       </div>
       <div className="mt-2 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
         <ThemeSwitch value={theme} onChange={onTheme} />
+        <NavButton current={view} id="library" onView={onView}>Documents</NavButton>
         <NavButton current={view} id="models" onView={onView}>Models</NavButton>
         <NavButton current={view} id="settings" onView={onView}>Settings</NavButton>
       </div>

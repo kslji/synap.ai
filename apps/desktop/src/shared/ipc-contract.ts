@@ -18,7 +18,17 @@ export const IPC = {
   updatesInstallOffline: 'updates:install-offline',
   conversationsList: 'conversations:list',
   conversationsOpen: 'conversations:open',
+  libraryAdd: 'library:add',
+  libraryPick: 'library:pick',
+  libraryList: 'library:list',
+  libraryRetry: 'library:retry',
+  libraryCancel: 'library:cancel',
+  libraryDelete: 'library:delete',
+  libraryPreview: 'library:preview',
+  libraryEvent: 'library:event',
 } as const
+
+export type DocScope = 'chat' | 'all'
 
 export interface ChatSendReq {
   conversationId: string | null
@@ -26,6 +36,7 @@ export interface ChatSendReq {
   agentId?: string
   images?: { mime: 'image/png' | 'image/jpeg'; base64: string }[]
   allowWeb?: boolean
+  docScope?: DocScope
 }
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
@@ -43,7 +54,7 @@ export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
 
 export type ChatEvent =
   | { type: 'token'; messageId: string; text: string }
-  | { type: 'sources'; messageId: string; sources: { title: string; url: string; pack: string }[] }
+  | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
   | { type: 'done'; messageId: string; gate: GateName }
   | { type: 'error'; messageId: string; message: string }
@@ -85,11 +96,52 @@ export interface ConversationSummary {
   updatedAt: number
 }
 
+export interface Citation {
+  title: string
+  url: string
+  pack: string
+  chunkId?: number
+  fileName?: string
+  locator?: string | null
+  excerpt?: string
+}
+
+export type AttachmentStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+
+export interface LibraryFile {
+  id: string
+  name: string
+  mime: string
+  sizeBytes: number
+  addedAt: number
+  conversationIds: string[]
+  status: AttachmentStatus
+  stage: string | null
+  progress: number
+  error: string | null
+  jobId: string | null
+  chunkCount: number
+}
+
+export interface ChunkPreview {
+  chunkId: number
+  fileName: string
+  title: string
+  heading: string | null
+  locator: string | null
+  text: string
+}
+
+export interface LibraryEvent {
+  type: 'upsert'
+  file: LibraryFile
+}
+
 export interface StoredMessage {
   id: string
   role: 'user' | 'assistant'
   text: string
-  sources: { title: string; url: string; pack: string }[]
+  sources: Citation[]
   gate?: GateName
 }
 
@@ -128,5 +180,16 @@ export interface SurfApi {
   conversations: {
     list(): Promise<ConversationSummary[]>
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
+  }
+  library: {
+    pathForFile(file: File): string
+    add(paths: string[], conversationId: string | null, createConversation?: boolean): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    pick(conversationId: string | null, createConversation?: boolean): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    list(): Promise<LibraryFile[]>
+    retry(jobId: string): Promise<void>
+    cancel(jobId: string): Promise<void>
+    remove(attachmentId: string): Promise<void>
+    preview(ref: { chunkId?: number; attachmentId?: string }): Promise<ChunkPreview | null>
+    onEvent(cb: (e: LibraryEvent) => void): () => void
   }
 }

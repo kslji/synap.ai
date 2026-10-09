@@ -12,13 +12,19 @@ files:
   - "!**/*.map"
 asar: true
 asarUnpack:
-  - "**/*.node"                      # better-sqlite3-multiple-ciphers prebuilt Node-API addon
+  - "**/*.node"                      # better-sqlite3-multiple-ciphers, @napi-rs/canvas
   - "node_modules/sqlite-vec-*/**"   # vec0.so/.dylib/.dll must be a real file for loadExtension()
+  - "node_modules/tesseract.js/**"   # worker script cannot live inside app.asar
+  - "node_modules/tesseract.js-core/**"
+  - "node_modules/pdfjs-dist/**"
+  - "node_modules/@napi-rs/canvas*/**"
 extraResources:
   - from: resources/bin/${platform}-${arch}   # llama-server + libs (scripts/fetch-sidecars.mjs fills these)
     to: bin
   - from: resources/models.registry.json
     to: models.registry.json
+  - from: resources/tessdata
+    to: tessdata
 # Node-API prebuilds (bsmc) work in Electron as-is; rebuilding would need a C++ toolchain for nothing.
 npmRebuild: false
 

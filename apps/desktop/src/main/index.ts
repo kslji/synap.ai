@@ -12,6 +12,12 @@ import { openUserDb } from './core/db'
 import { LlamaServer, resolveSidecar } from './core/sidecar-manager'
 import { LlamaClient } from './core/llama-client'
 import { Embedder, EMBEDDINGGEMMA2_256 } from './core/embedding'
+import { indexFile } from './core/ingest'
+import { LIBRARY_MIGRATION } from './core/library-schema'
+import { SESSION_MIGRATION } from './core/session-store'
+import { DOC_TAU } from './core/retrieval'
+import { searchUser } from './core/user-search'
+import { makeDocx, makePdf, makePng } from './core/samples'
 import { Calculator } from './core/calculator'
 import calcWorker from './core/calculator.worker?modulePath'
 import { surfEnv } from './core/surf-env'
@@ -73,6 +79,7 @@ async function selfTest(): Promise<void> {
   })
 
   const embGguf = join(models, EMBEDDINGGEMMA2_256.gguf)
+  let ferrySource: { title: string; text: string } | null = null
   await step(r, 'llama-server sidecar: EmbeddingGemma 2 (256-d)', async () => {
     if (!existsSync(embGguf)) throw new Error(`missing ${embGguf}`)
     const srv = new LlamaServer({ binPath: bin, modelPath: embGguf, embeddings: true, pooling: 'mean', ctx: 2048, logFile: join(ud, 'embed.log') })
@@ -86,6 +93,71 @@ async function selfTest(): Promise<void> {
     } finally { await srv.stop() }
   })
 
+  await step(r, 'rag: ingest PDF, DOCX, and image, then cite', async () => {
+    if (!existsSync(embGguf)) throw new Error(`missing ${embGguf}`)
+    const docs = join(ud, 'selftest-docs')
+    mkdirSync(docs, { recursive: true })
+    const pdfPath = join(docs, 'harbor-ferry.pdf')
+    const docxPath = join(docs, 'northwind-invoice.docx')
+    const pngPath = join(docs, 'shelf.png')
+    writeFileSync(pdfPath, makePdf(['The harbor ferry leaves Pier 4 at 06:40.', 'Tickets cost 120 rupees.']))
+    writeFileSync(docxPath, await makeDocx([
+      { heading: true, text: 'Northwind invoice' },
+      { text: 'Invoice INV-441 is due on 18 April 2026 for 408.50 USD.' },
+    ]))
+    writeFileSync(pngPath, makePng('Warehouse shelf B7 holds 40 coils of rope.'))
+    const dbPath = join(ud, 'selftest-rag.db')
+    rmSync(dbPath, { force: true })
+    const db = openUserDb(dbPath, randomBytes(32).toString('hex'), [SESSION_MIGRATION, LIBRARY_MIGRATION])
+    const root = join(ud, 'selftest-attachments')
+    const tessdataDir = join(app.getAppPath(), 'resources', 'tessdata')
+    const embedSrv = new LlamaServer({ binPath: bin, modelPath: embGguf, embeddings: true, pooling: 'mean', ctx: 2048, logFile: join(ud, 'rag-embed.log'), startupTimeoutMs: 180_000 })
+    await embedSrv.start()
+    let summary = ''
+    try {
+      const embedder = new Embedder(new LlamaClient({ baseUrl: embedSrv.baseUrl, apiKey: embedSrv.apiKey }))
+      const deps = {
+        db, root, tessdataDir, tessCacheDir: join(ud, 'tess-cache'),
+        embed: (rows: { title?: string | null; text: string }[]) => embedder.embedDocs(rows),
+      }
+      await indexFile(deps, pdfPath, null)
+      await indexFile(deps, docxPath, null)
+      const image = await indexFile(deps, pngPath, null)
+      const [qFerry, qHindi, qPizza, qInvoice] = await embedder.embedQueries([
+        'What time does the harbor ferry leave?',
+        'नौका किस घाट से निकलती है?',
+        'best pizza recipe with pineapple',
+        'How much is invoice INV-441?',
+      ])
+      const ferry = searchUser(db, 'What time does the harbor ferry leave?', qFerry, null)
+      const hindi = searchUser(db, 'नौका किस घाट से निकलती है?', qHindi, null)
+      const pizza = searchUser(db, 'best pizza recipe with pineapple', qPizza, null)
+      const invoice = searchUser(db, 'How much is invoice INV-441?', qInvoice, null)
+      const top = ferry.top[0]
+      if (!top || !top.fileName.endsWith('.pdf')) throw new Error(`ferry hit ${top?.fileName} decision=${ferry.decision}`)
+      if (ferry.decision === 'insufficient') throw new Error(`ferry gate insufficient cos=${top.cosine.toFixed(3)} tau=${DOC_TAU.latinCos}`)
+      ferrySource = { title: top.title, text: top.text }
+      if (invoice.top[0]?.fileName.endsWith('.docx') !== true && invoice.decision === 'insufficient') {
+        throw new Error(`invoice miss decision=${invoice.decision} top=${invoice.top[0]?.fileName}`)
+      }
+      const hindiCos = hindi.top[0]?.cosine ?? 0
+      const pizzaCos = pizza.top[0]?.cosine ?? 0
+      if (hindiCos + 0.02 < pizzaCos) throw new Error(`hindi cosine ${hindiCos.toFixed(3)} did not beat unrelated ${pizzaCos.toFixed(3)}`)
+      if (hindiCos >= DOC_TAU.hindiCos && hindi.decision === 'insufficient') {
+        throw new Error(`hindi gate too strict cos=${hindiCos.toFixed(3)} decision=${hindi.decision}`)
+      }
+      const imageText = (db.prepare(
+        `SELECT c.text AS text FROM chunks c JOIN documents d ON d.id = c.document_id JOIN attachments a ON a.id = d.attachment_id WHERE a.original_name = ?`,
+      ).all('shelf.png') as { text: string }[]).map((row) => row.text).join(' ')
+      if (!/B7|rope/i.test(imageText)) throw new Error(`image OCR did not read the shelf label: ${imageText.slice(0, 180)}`)
+      summary = `ferry ${top.fileName} ${top.locator} cos=${top.cosine.toFixed(3)} gate=${ferry.decision}; hindi cos=${hindiCos.toFixed(3)} gate=${hindi.decision}; unrelated cos=${pizzaCos.toFixed(3)} gate=${pizza.decision}; invoice ${invoice.top[0]?.fileName ?? 'none'} gate=${invoice.decision}; image="${imageText.slice(0, 80)}" chunks=${image.chunkCount}; tau latin ${DOC_TAU.latinCos}/${DOC_TAU.latinCov} strong ${DOC_TAU.latinStrong} hindi ${DOC_TAU.hindiCos}`
+    } finally {
+      db.close()
+      await embedSrv.stop()
+    }
+    return summary
+  })
+
   const chatGguf = join(models, surfEnv('CHAT_GGUF') ?? 'Qwen3.5-2B-Q4_K_M.gguf')
   await step(r, 'llama-server sidecar: Qwen3.5 chat (thinking off)', async () => {
     if (!existsSync(chatGguf)) throw new Error(`missing ${chatGguf}`)
@@ -94,7 +166,19 @@ async function selfTest(): Promise<void> {
     try {
       const c = new LlamaClient({ baseUrl: srv.baseUrl, apiKey: srv.apiKey })
       const res = await c.chat([{ role: 'user', content: 'Reply with exactly one word: surf' }], undefined, undefined, 16)
-      return `answer="${String(res.choices[0].message.content).trim()}"`
+      const word = String(res.choices[0].message.content).trim()
+      if (!ferrySource) return `answer="${word}" (no document fixture)`
+      const grounded = await c.chat([{
+        role: 'system',
+        content: 'Answer using only the sources. Cite the source as [S1]. Do not invent times or citations.',
+      }, {
+        role: 'user',
+        content: `SOURCES:\n[S1] ${ferrySource.title}\n${ferrySource.text}\n\nQuestion: What time does the harbor ferry leave?`,
+      }], undefined, undefined, 120)
+      const answer = String(grounded.choices[0].message.content ?? '').trim()
+      if (!/06:40|6:40|0640/.test(answer)) throw new Error(`grounded answer missing 06:40: ${answer}`)
+      if (!/\[S1\]/.test(answer)) throw new Error(`grounded answer missing citation: ${answer}`)
+      return `answer="${word}"; grounded="${answer.replace(/\s+/g, ' ')}"`
     } finally { await srv.stop() }
   })
 
@@ -158,6 +242,15 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await shot(`models-${theme}`)
     await go('settings')
     await shot(`settings-${theme}`)
+    const demo = async (scene: string, name: string) => {
+      await win.webContents.executeJavaScript(`window.__surfDemo && window.__surfDemo(${JSON.stringify(scene)})`)
+      await sleep(350)
+      await shot(`${name}-${theme}`)
+    }
+    await demo('upload', 'upload')
+    await demo('processing', 'processing')
+    await demo('citation', 'citation')
+    await demo('library', 'library')
   }
   console.log('[surf] screenshots in', dir)
 }

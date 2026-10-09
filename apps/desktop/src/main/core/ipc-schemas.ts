@@ -8,6 +8,7 @@ export const ChatSendReq = z.object({
   agentId: z.string().max(64).default('general'),
   images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg']), base64: z.string().max(14_000_000) })).max(4).default([]),
   allowWeb: z.boolean().default(false),
+  docScope: z.enum(['chat', 'all']).default('chat'),
 })
 
 export const SettingsPatch = z.object({
@@ -21,6 +22,21 @@ export const SettingsPatch = z.object({
 
 export const ModelId = z.string().min(1).max(80)
 export const ConversationId = z.string().uuid()
+export const JobId = z.string().uuid()
+export const AttachmentId = z.string().uuid()
+export const LibraryPick = z.object({
+  conversationId: z.string().uuid().nullable(),
+  createConversation: z.boolean().default(false),
+})
+export const LibraryAdd = z.object({
+  paths: z.array(z.string().min(1).max(4096)).min(1).max(20),
+  conversationId: z.string().uuid().nullable(),
+  createConversation: z.boolean().default(false),
+})
+export const LibraryPreview = z.object({
+  chunkId: z.number().int().positive().optional(),
+  attachmentId: z.string().uuid().optional(),
+}).strict()
 export type ParsedChat = z.output<typeof ChatSendReq>
 
 export const _chatCheck = (x: z.output<typeof ChatSendReq>): ChatSendReqT => x

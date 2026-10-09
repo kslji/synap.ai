@@ -1,8 +1,8 @@
 /**
  * Preload (sandboxed, contextIsolation on). Exposes window.surf — never ipcRenderer itself.
  */
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type SurfApi, type ChatEvent, type ModelEvent } from '../shared/ipc-contract'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import { IPC, type SurfApi, type ChatEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T) => cb(payload)
@@ -36,6 +36,17 @@ const api: SurfApi = {
   conversations: {
     list: () => ipcRenderer.invoke(IPC.conversationsList),
     open: (id) => ipcRenderer.invoke(IPC.conversationsOpen, id),
+  },
+  library: {
+    pathForFile: (file) => webUtils.getPathForFile(file),
+    add: (paths, conversationId, createConversation = false) => ipcRenderer.invoke(IPC.libraryAdd, { paths, conversationId, createConversation }),
+    pick: (conversationId, createConversation = false) => ipcRenderer.invoke(IPC.libraryPick, { conversationId, createConversation }),
+    list: () => ipcRenderer.invoke(IPC.libraryList),
+    retry: (jobId) => ipcRenderer.invoke(IPC.libraryRetry, jobId),
+    cancel: (jobId) => ipcRenderer.invoke(IPC.libraryCancel, jobId),
+    remove: (attachmentId) => ipcRenderer.invoke(IPC.libraryDelete, attachmentId),
+    preview: (ref) => ipcRenderer.invoke(IPC.libraryPreview, ref),
+    onEvent: (cb) => subscribe<LibraryEvent>(IPC.libraryEvent, cb),
   },
 }
 

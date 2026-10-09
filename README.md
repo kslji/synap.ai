@@ -114,3 +114,26 @@ apps/host    Auth / OTP / feedback only (no chat)
 harness/     Evals for file focus, zip unpack, guardrails
 ```
 
+## Run locally
+
+```bash
+python3 -m venv apps/host/.venv
+apps/host/.venv/bin/pip install -r apps/host/requirements.txt
+cp .env.example .env
+apps/host/.venv/bin/python -m uvicorn main:app --app-dir apps/host --host 127.0.0.1 --port 18765
+
+cd apps/web && npm ci && npm run dev
+```
+
+The site stays a static shell. Chat still uses Ollama on the laptop. Host details, rate limits, and the VPS unit files are in `apps/host/README.md`.
+
+## Verify
+
+```bash
+./scripts/check.sh
+# host already on 127.0.0.1:18765:
+./harness/run.sh
+```
+
+`allowInBrowserLlm()` stays false on synap.surf (`apps/web/src/lib/browserCaps.ts`).
+

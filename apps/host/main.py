@@ -9,13 +9,29 @@ from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from auth import mint_admin_token, mint_token, mint_user_token, require_admin, require_session, require_user
+from asgi_guard import SurfGuard
+from auth import (
+    mint_admin_token,
+    mint_token,
+    mint_user_token,
+    require_admin,
+    require_session,
+    require_user,
+    secret_equal,
+)
+from client_ip import is_direct_loopback
 from config import settings
+from errors import code_for, error_payload
 from guardrails import sanitize_user_text
+from logging_setup import LOG, configure, log_boot
+from public_view import redact_public_payload
 import instances
 from livekit_probe import livekit_reachable
 from livekit_tokens import livekit_configured, mint_livekit_token
@@ -32,7 +48,7 @@ from ollama_client import (
     stream_chat,
     total_ram_gb,
 )
-from rate_limit import rate_limit
+from rate_limit import client_bucket, limit_auth, rate_limit
 from store import (
     add_message,
     clear_chat_data,
@@ -181,6 +197,11 @@ async def lifespan(_: FastAPI):
     except Exception:
         pass
     try:
+        configure()
+        log_boot()
+    except Exception:
+        pass
+    try:
         await mail_queue.start()
     except Exception:
         pass
@@ -191,20 +212,68 @@ async def lifespan(_: FastAPI):
         pass
 
 
-app = FastAPI(title="local.ai Host", version="0.3.0", lifespan=lifespan)
+_docs = None if settings.is_production else "/docs"
+app = FastAPI(
+    title="local.ai Host",
+    version="0.3.0",
+    lifespan=lifespan,
+    docs_url=_docs,
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
+)
+# SurfGuard is added first so CORS stays outermost and can label short-circuit responses.
+app.add_middleware(SurfGuard)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "HEAD", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID"],
 )
 
 
+def _request_id(request: Request) -> str | None:
+    return getattr(request.state, "request_id", None)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    code = code_for(exc.status_code, getattr(exc, "code", None))
+    detail = exc.detail if exc.detail is not None else "Request failed."
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=error_payload(detail, code, _request_id(request)),
+        headers=dict(exc.headers or {}),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content=error_payload(jsonable_encoder(exc.errors()), "validation_error", _request_id(request)),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, StarletteHTTPException):
+        return await http_exception_handler(request, exc)
+    configure()
+    LOG.exception("unhandled error", extra={"path": request.url.path, "request_id": _request_id(request)})
+    return JSONResponse(
+        status_code=500,
+        content=error_payload("Something went wrong.", "internal_error", _request_id(request)),
+    )
+
+
 @app.exception_handler(instances.NoInstanceError)
-async def no_instance_handler(_: Request, exc: instances.NoInstanceError):
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
+async def no_instance_handler(request: Request, exc: instances.NoInstanceError):
+    return JSONResponse(
+        status_code=409,
+        content=error_payload(str(exc), "conflict", _request_id(request)),
+    )
 
 
 class SessionReq(BaseModel):
@@ -277,8 +346,17 @@ class ResendReq(BaseModel):
     purpose: Literal["verify", "reset"] = "verify"
 
 
-@app.get("/health")
-async def health():
+_health_cache: dict | None = None
+_health_cache_at = 0.0
+
+
+def _for_client(request: Request, payload: dict) -> dict:
+    if is_direct_loopback(request):
+        return payload
+    return redact_public_payload(payload)
+
+
+async def _build_health() -> dict:
     alive = await ollama_alive()
     engine = await detect_engine()
     models = list(engine.get("models") or [])
@@ -344,16 +422,56 @@ async def health():
     }
 
 
+async def health() -> dict:
+    """Full host snapshot. Cached briefly so public /health cannot fan out to Ollama."""
+    global _health_cache, _health_cache_at
+    now = time.monotonic()
+    ttl = max(0.0, float(settings.health_cache_seconds))
+    if _health_cache is not None and ttl > 0 and now - _health_cache_at < ttl:
+        return _health_cache
+    payload = await _build_health()
+    _health_cache = payload
+    _health_cache_at = now
+    return payload
+
+
+@app.get("/healthz")
+async def healthz():
+    """Process liveness. Does not probe Ollama, LiveKit, or Moss."""
+    return {"ok": True}
+
+
+@app.get("/ready")
+async def ready():
+    """Platform DB is the only dependency of the marketing auth host."""
+    try:
+        platform_counts()
+    except Exception:
+        configure()
+        LOG.error("ready check failed")
+        return JSONResponse(
+            status_code=503,
+            content=error_payload("Platform database is not ready.", "unavailable"),
+        )
+    return {"ok": True}
+
+
+@app.get("/health")
+async def health_route(request: Request):
+    return _for_client(request, await health())
+
+
 @app.get("/v1/health")
-async def v1_health():
-    return await health()
+async def v1_health(request: Request):
+    return _for_client(request, await health())
 
 
 @app.post("/v1/auth/session")
 async def session(req: SessionReq, request: Request):
     if instances.current() is None:
         raise instances.NoInstanceError()
-    rate_limit(request, f"auth:{req.client_id}")
+    rate_limit(request, client_bucket(request, "session"), limit=settings.auth_ip_rate_limit, window_seconds=float(settings.auth_ip_rate_window_seconds))
+    rate_limit(request, f"session-client:{req.client_id}")
     return {"token": mint_token(req.client_id), "token_type": "bearer", "aud": "local-ai"}
 
 
@@ -368,7 +486,7 @@ def _token_payload(user: dict) -> dict:
 
 @app.post("/v1/auth/register")
 def auth_register(req: EmailAuthReq, request: Request):
-    rate_limit(request, f"register:{req.email.lower()}")
+    limit_auth(request, req.email, "register")
     result = accounts.register(req.email, req.password, referral_code=req.referral_code)
     audit.append("auth.register", {"email": result["email"]})
     return result
@@ -376,7 +494,7 @@ def auth_register(req: EmailAuthReq, request: Request):
 
 @app.post("/v1/auth/verify-email")
 def auth_verify(req: OtpReq, request: Request):
-    rate_limit(request, f"verify:{req.email.lower()}")
+    limit_auth(request, req.email, "verify")
     user = accounts.verify_email(req.email, req.otp)
     audit.append("auth.verify", {"email": user["email"]})
     return _token_payload(user)
@@ -384,7 +502,7 @@ def auth_verify(req: OtpReq, request: Request):
 
 @app.post("/v1/auth/login")
 def auth_login(req: EmailAuthReq, request: Request):
-    rate_limit(request, f"login:{req.email.lower()}")
+    limit_auth(request, req.email, "login")
     user = accounts.login(req.email, req.password)
     audit.append("auth.login", {"email": user["email"]})
     return _token_payload(user)
@@ -393,21 +511,24 @@ def auth_login(req: EmailAuthReq, request: Request):
 @app.post("/v1/track")
 def track_event(req: TrackEventReq, request: Request):
     """Public, rate-limited analytics (model / agent / download clicks)."""
-    rate_limit(request, f"track:{request.client.host if request.client else 'anon'}")
+    rate_limit(
+        request,
+        client_bucket(request, "track"),
+        limit=settings.track_rate_per_minute,
+        window_seconds=60,
+    )
     record_event(req.kind, req.label.strip(), referral_code=req.referral_code)
     return {"ok": True}
 
 
 @app.post("/v1/admin/login")
 def admin_login(req: EmailAuthReq, request: Request):
-    rate_limit(request, f"admin-login:{req.email.lower()}")
+    limit_auth(request, req.email, "admin-login")
     email = accounts.normalize_email(req.email)
-    if not settings.admin_password or email not in settings.admin_email_set:
-        raise HTTPException(status_code=401, detail="Admin sign-in is not available.")
-    given = req.password.encode("utf-8")
-    expected = settings.admin_password.encode("utf-8")
-    if len(given) != len(expected) or not py_secrets.compare_digest(given, expected):
-        raise HTTPException(status_code=401, detail="Email or password is wrong.")
+    allowed = bool(settings.admin_password) and email in settings.admin_email_set
+    expected = settings.admin_password if allowed else "surf-admin-disabled"
+    if not allowed or not secret_equal(req.password, expected):
+        raise HTTPException(status_code=401, detail="Admin sign-in failed.")
     # Stable referral code per admin email (stored on a shadow user row if needed).
     row = get_user_by_email(email)
     if not row:
@@ -445,7 +566,7 @@ def admin_me(session: dict = Depends(require_admin)):
 
 @app.post("/v1/auth/forgot")
 def auth_forgot(req: EmailOnlyReq, request: Request):
-    rate_limit(request, f"forgot:{req.email.lower()}")
+    limit_auth(request, req.email, "forgot")
     result = accounts.forgot(req.email)
     audit.append("auth.forgot")
     return result
@@ -453,7 +574,7 @@ def auth_forgot(req: EmailOnlyReq, request: Request):
 
 @app.post("/v1/auth/reset")
 def auth_reset(req: ResetReq, request: Request):
-    rate_limit(request, f"reset:{req.email.lower()}")
+    limit_auth(request, req.email, "reset")
     user = accounts.reset_password(req.email, req.otp, req.password)
     audit.append("auth.reset", {"email": user["email"]})
     return _token_payload(user)
@@ -461,7 +582,7 @@ def auth_reset(req: ResetReq, request: Request):
 
 @app.post("/v1/auth/resend-otp")
 def auth_resend(req: ResendReq, request: Request):
-    rate_limit(request, f"resend:{req.email.lower()}")
+    limit_auth(request, req.email, "resend")
     return accounts.resend(req.email, req.purpose)
 
 
@@ -474,7 +595,7 @@ def auth_me(session: dict = Depends(require_user)):
 
 
 @app.get("/v1/storage")
-def storage():
+def storage(request: Request):
     report = instances.storage_report()
     report["sqlite"] = counts()
     report["platform"] = {**platform_counts(), "db": str(platform_db_path())}
@@ -482,17 +603,17 @@ def storage():
         "keep_summary": "Browser agent only: fold chats into a short memory note, then delete the chat text. The agent still receives that note.",
         "erase_data": "Browser agent only: delete chats and memory from this browser. The agent starts with no context.",
     }
-    return report
+    return _for_client(request, report)
 
 
 @app.get("/v1/instances")
-def list_instances():
-    return instances.snapshot()
+def list_instances(request: Request):
+    return _for_client(request, instances.snapshot())
 
 
 @app.post("/v1/instances")
 def create_instance(req: InstanceReq, request: Request):
-    rate_limit(request, "instance-create")
+    rate_limit(request, client_bucket(request, "instance-create"))
     try:
         created = instances.create(req.name)
     except ValueError as exc:
@@ -504,7 +625,7 @@ def create_instance(req: InstanceReq, request: Request):
 
 @app.post("/v1/instances/{instance_id}/activate")
 def activate_instance(instance_id: str, request: Request):
-    rate_limit(request, "instance-activate")
+    rate_limit(request, client_bucket(request, "instance-activate"))
     try:
         active = instances.activate(instance_id)
     except ValueError as exc:
@@ -622,7 +743,7 @@ def get_feedback(
     session: dict = Depends(require_user),
     limit: int = Query(default=80, ge=1, le=200),
 ):
-    return {"items": list_feedback(limit), "client_id": session["sub"]}
+    return {"items": list_feedback(limit, client_id=str(session["sub"])), "client_id": session["sub"]}
 
 
 @app.post("/v1/storage/prune")
@@ -716,7 +837,7 @@ def export_summaries(session: dict = Depends(require_session)):
 
 
 @app.post("/v1/platform/purge")
-def platform_purge(_: dict = Depends(require_user)):
+def platform_purge(_: dict = Depends(require_admin)):
     """Operator/maintenance: purge VPS platform ephemera older than 24h (no chats stored)."""
     return purge_ephemeral(24)
 

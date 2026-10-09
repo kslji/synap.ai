@@ -56,7 +56,12 @@ def run_checks() -> list[dict]:
     check("agent-md-code-copy", "md-code-copy" in html and "bindCodeCopy" in html, "agent copy", rows)
     check("agent-prepare-md", "function prepareMd(" in html, "prepareMd", rows)
     check("agent-tables", "md-table" in html and "parseTableLines" in html, "agent tables", rows)
-    check("agent-streaming-fill", "fillMarkdown(bot, streamBuf, true)" in html, "stream fill", rows)
+    check(
+        "agent-streaming-fill",
+        "fillMarkdown(bot, streamBuf, true)" in html or "paintStreamingMarkdown(bot, streamBuf)" in html,
+        "stream fill",
+        rows,
+    )
     check("css-code-bar", ".md-code-bar" in css and ".md-table" in css, "theme styles", rows)
     check("css-tokens", ".md-tok-str" in css and ".md-file-ref" in css, "token styles", rows)
 

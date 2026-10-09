@@ -277,6 +277,7 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     }
   }
   console.log('[surf] screenshots in', dir)
+  app.exit(0)
 }
 
 async function answerFromWeb(srv: LlamaServer, chat: LlamaClient, chatGguf: string, embGguf: string): Promise<string> {

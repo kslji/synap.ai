@@ -218,6 +218,8 @@ async function selfTest(): Promise<void> {
     ipcMain.handle(IPC.authDevices, () => [])
     ipcMain.removeHandler(IPC.packsList)
     ipcMain.handle(IPC.packsList, () => [])
+    ipcMain.removeHandler(IPC.libraryList)
+    ipcMain.handle(IPC.libraryList, () => [])
     const paths = preloadAndHtml()
     const win = createMainWindow(paths.preload, paths.html)
     await new Promise<void>((res) => win.webContents.once('did-finish-load', () => res()))

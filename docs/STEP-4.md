@@ -118,4 +118,4 @@ cd services/api && python3 -m pytest && python3 -m alembic heads
 cd apps/desktop && npm run test:unit
 ```
 
-The desktop self-test signs in with the dev OTP, builds the general starter pack against the local embed server, downloads it from the lite API, verifies the signature, and asks for the lantern code online and again after that API is stopped. The web step answers from the live fixture, turns Offline only on, and answers a follow-up from the saved passage with a `Web, saved <date>` citation.
+The desktop self-test signs in with the dev OTP, builds the general starter pack against the local embed server, downloads it from the lite API, verifies the signature, and asks for the lantern code online and again after that API is stopped. The web step answers from the live fixture, turns Offline only on, and answers a follow-up from the saved passage. That follow-up cited `Web, saved 9 Oct 2026` and included SB-4417 with `[S1]`. The chat screenshot of a saved-web citation, in light and dark, is on the pull request.

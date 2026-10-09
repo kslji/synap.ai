@@ -1,0 +1,19 @@
+@import "tailwindcss";
+@import "@surf/ui/tokens.css";
+@import "@surf/ui/components.css";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  letter-spacing: -0.011em;
+}
+button, textarea, input { font: inherit; color: inherit; }
+a { color: var(--accent-text); }
+::selection { background: var(--accent-soft); }

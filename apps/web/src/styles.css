@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import "@surf/ui/tokens.css";
+@import "@surf/ui/components.css";
+
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  letter-spacing: -0.011em;
+}
+a { color: var(--accent-text); }
+a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

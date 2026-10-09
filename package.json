@@ -1,0 +1,26 @@
+{
+  "name": "surf-ai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Surf AI — local-first desktop assistant",
+  "workspaces": [
+    "apps/desktop",
+    "apps/web",
+    "packages/ui",
+    "packages/shared"
+  ],
+  "installConfig": {
+    "hoistingLimits": "workspaces"
+  },
+  "scripts": {
+    "dev:desktop": "npm run dev -w @surf/desktop",
+    "dev:web": "npm run dev -w @surf/web",
+    "typecheck": "npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
+    "build": "npm run build -w @surf/desktop && npm run build -w @surf/web",
+    "build:web": "npm run build -w @surf/web",
+    "selftest": "npm run selftest -w @surf/desktop"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

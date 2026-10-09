@@ -1,0 +1,42 @@
+# Surf AI backend - one GCP e2-medium VM. Images pinned by digest (verified 9 Oct 2026 on Linux, Docker 26.1).
+# Start:  cd deploy && cp .env.example .env && docker compose up -d --build
+name: surf
+services:
+  caddy:
+    image: caddy:2@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772   # v2.11.7
+    ports: ["80:80", "443:443"]
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data"]
+    depends_on: [api]
+    restart: unless-stopped
+  api:
+    build: ../services/api
+    env_file: .env
+    expose: ["8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_started }
+      searxng: { condition: service_started }
+    restart: unless-stopped
+  searxng:
+    image: searxng/searxng:latest@sha256:cc026dbee25b864d7f9731957cd5ef36ba2e2d61abd2996d57f1b863483e7409   # 2026.10.7-6671d89be
+    volumes: ["./searxng/settings.yml:/etc/searxng/settings.yml:ro"]
+    environment: ["SEARXNG_SECRET=${SEARXNG_SECRET}"]
+    expose: ["8080"]            # never published - only the API talks to it
+    restart: unless-stopped
+  valkey:
+    image: valkey/valkey:8@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2   # 8.1.10
+    command: ["valkey-server", "--save", "", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    expose: ["6379"]
+    restart: unless-stopped
+  postgres:
+    image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d   # PG 17.11
+    env_file: .env
+    volumes: ["pg_data:/var/lib/postgresql/data", "./initdb:/docker-entrypoint-initdb.d:ro"]
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=50"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 20
+    expose: ["5432"]
+    restart: unless-stopped
+volumes: { caddy_data: {}, pg_data: {} }

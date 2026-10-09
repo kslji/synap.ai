@@ -1,0 +1,26 @@
+{
+  "name": "harbor-ts-samples",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript reference samples for the Harbor Electron main process (copy into apps/desktop/src/main).",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "tsx tests/run-tests.ts"
+  },
+  "dependencies": {
+    "better-sqlite3-multiple-ciphers": "^13.0.3",
+    "electron-updater": "^6.8.9",
+    "mathjs": "^15.2.0",
+    "sqlite-vec": "^0.1.9",
+    "systeminformation": "^5.33.15",
+    "zod": "^4.6.5",
+    "@huggingface/tokenizers": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "electron": "^44.7.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "@types/better-sqlite3": "^9.6.0"
+  }
+}

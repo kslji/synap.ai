@@ -1,0 +1,102 @@
+{
+  "registry_format": "harbor-models/1",
+  "updated_at": "2026-10-09",
+  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-09).",
+  "models": [
+    {
+      "id": "qwen3.5-4b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 4,
+      "license": "apache-2.0", "context_default": 16384, "context_max": 262144,
+      "file": "Qwen3.5-4B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+      "size_bytes": 2740937888,
+      "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+      "mmproj": {
+        "file": "mmproj-F16.gguf",
+        "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/mmproj-F16.gguf",
+        "size_bytes": 672423616,
+        "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
+      },
+      "min_ram_gb": 8, "tiers": [1],
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    },
+    {
+      "id": "qwen3.5-9b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 9,
+      "license": "apache-2.0", "context_default": 32768, "context_max": 262144,
+      "file": "Qwen3.5-9B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf",
+      "size_bytes": 5680522464,
+      "sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+      "mmproj": {
+        "file": "mmproj-F16.gguf",
+        "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/mmproj-F16.gguf",
+        "size_bytes": 918166080,
+        "sha256": "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f"
+      },
+      "min_ram_gb": 16, "tiers": [2, 3],
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    },
+    {
+      "id": "qwen3.5-2b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 2,
+      "license": "apache-2.0", "context_default": 8192, "context_max": 262144,
+      "file": "Qwen3.5-2B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
+      "size_bytes": 1280835840,
+      "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+      "mmproj": {
+        "file": "mmproj-F16.gguf",
+        "url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-F16.gguf",
+        "size_bytes": 668227264,
+        "sha256": "7035e9cb8d7c6a9681d07eef9a364783e86ea4cd73faab2eabb4f43a101830c7"
+      },
+      "min_ram_gb": 4, "tiers": [0],
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    },
+    {
+      "id": "embeddinggemma-2-text-q8_0", "role": "embedding", "family": "embeddinggemma-2", "params_b": 0.27,
+      "license": "apache-2.0", "spec_id": "embeddinggemma-2-text@256", "native_dim": 768, "dim": 256, "pooling": "mean",
+      "query_prefix": "task: search result | query: ",
+      "doc_template": "title: {title} | text: {text}",
+      "file": "embeddinggemma-2-Q8_0.gguf",
+      "url": "https://huggingface.co/unsloth/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf",
+      "size_bytes": 309855520,
+      "sha256": "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc",
+      "min_llama_cpp_build": 11452,
+      "min_ram_gb": 0, "tiers": [0, 1, 2, 3]
+    },
+    {
+      "id": "whisper-base-q8_0", "role": "asr", "family": "whisper", "license": "mit",
+      "file": "ggml-base-q8_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q8_0.bin",
+      "size_bytes": 81768585,
+      "sha256": "c577b9a86e7e048a0b7eada054f4dd79a56bbfa911fbdacf900ac5b567cbb7d9",
+      "min_ram_gb": 0, "tiers": [0, 1]
+    },
+    {
+      "id": "whisper-small-q8_0", "role": "asr", "family": "whisper", "license": "mit",
+      "file": "ggml-small-q8_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q8_0.bin",
+      "size_bytes": 264464607,
+      "sha256": "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
+      "min_ram_gb": 16, "tiers": [2]
+    },
+    {
+      "id": "whisper-large-v3-turbo-q5_0", "role": "asr", "family": "whisper", "license": "mit",
+      "file": "ggml-large-v3-turbo-q5_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+      "size_bytes": 574041195,
+      "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      "min_ram_gb": 32, "tiers": [3]
+    },
+    {
+      "id": "silero-vad-v6.2.0", "role": "vad", "family": "silero", "license": "mit",
+      "file": "ggml-silero-v6.2.0.bin",
+      "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
+      "size_bytes": 885098,
+      "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
+      "min_ram_gb": 0, "tiers": [0, 1, 2, 3]
+    }
+  ]
+}

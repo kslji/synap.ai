@@ -1,0 +1,53 @@
+# electron-builder 26.x config for apps/desktop (see ARCHITECTURE.md section 13).
+# Build: npm run build && npx electron-builder --mac --arm64 --x64   |   npx electron-builder --win --x64
+appId: com.harbor.desktop            # placeholder - pick your reverse-DNS id once, never change it
+productName: Harbor
+directories:
+  buildResources: build              # icons, entitlements
+  output: dist
+files:
+  - out/**                           # electron-vite output (main, preload, renderer)
+  - package.json
+  - "!**/*.map"
+asar: true
+asarUnpack:
+  - "**/*.node"                      # better-sqlite3-multiple-ciphers native addon
+  - node_modules/sqlite-vec-*/**     # vec0.dylib / vec0.dll must be real files for loadExtension
+extraResources:
+  # llama-server, whisper-cli, doc-worker (+ their shared libraries) per platform/arch.
+  # resources/bin/darwin-arm64, darwin-x64, win32-x64 are filled by scripts/fetch-sidecars.mjs
+  - from: resources/bin/${platform}-${arch}
+    to: bin
+    filter: ["**/*"]
+  - from: resources/models.registry.json
+    to: models.registry.json
+npmRebuild: true                     # rebuilds native modules for Electron's ABI (uses @electron/rebuild)
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip                    # required for auto-update metadata (latest-mac.yml)
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false                    # set true once the Apple Developer account exists (post-MVP);
+                                     # needs env APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # Post-MVP: OV code-signing certificate (cloud HSM / token). Until then testers click
+  # "More info -> Run anyway" in SmartScreen.
+nsis:
+  oneClick: false
+  perMachine: false                  # per-user install: no admin rights needed, auto-update works
+  allowToChangeInstallationDirectory: true
+
+publish:
+  provider: github
+  owner: your-github-user            # placeholder
+  repo: harbor-releases              # PUBLIC repo just for installers (source can stay private)
+  releaseType: draft

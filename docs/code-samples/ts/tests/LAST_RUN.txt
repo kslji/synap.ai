@@ -1,0 +1,19 @@
+Final pre-delivery run (box: Linux x64, Node v22.23.3, llama.cpp b11514, CPU only, chat Qwen3.5-2B Q4_K_M, embeddings EmbeddingGemma 2 Q8_0 @256)
+
+PASS  calculator: arithmetic, units, blocked functions, timeout
+      slow-expr -> finished; "15% * 2400" -> 360 (966 ms)
+PASS  model registry: schema, licences, tier picks
+      this box: 15.6 GB RAM, 8 cores, 0 GPU(s) -> tier 2 (45 ms)
+PASS  user db: SQLCipher mode + sqlite-vec + FTS5 + migrations + wrong key
+      sqlcipher 4 CLI reads it (47 ms)
+PASS  pack: Ed25519 manifest verification + tamper detection
+      marine-core@2026.10.08, 1 file(s) (15 ms)
+PASS  sidecar: llama-server embeddings (EmbeddingGemma 2 @256) + hybrid retrieval on the pack
+      "When did the SOLAS convention enter into force?" -> answer (best cos 0.87, 6 hits) | "convention on dumping of wastes at sea" -> answer (best cos 0.85, 6 hits) | "best pizza recipe with pineapple" -> insufficient (best cos 0.50, 6 hits) | "समुद्र में कचरा डंप करने पर कन्वेंशन" -> borderline (best cos 0.80, 6 hits) (2173 ms)
+PASS  sidecar: Qwen3.5 chat + tool calling (calculator) + vision via mmproj
+      tools: calculator({"expression":"23.7 * 17.5"}), unit_convert({"value":14,"from":"knots","to":"km/h"}); answer: In 17.5 days, the ship burns **414.75 tonnes** of fuel. Converting 14 knots to kilometers per hour gives approximately **25.93 km/h**. [11284 ms] | vision: A warning light on an engine dashboard indicating low lube oil pressure for the main engine, with a reading of 1.2 bar. [5817 ms] (21649 ms)
+PASS  token budget: Qwen3.5 tokenizer (server vs @huggingface/tokenizers), template overhead, allocator
+      english: 28 tok (heuristic 41) | hindi: 39 tok (heuristic 25) | code: 22 tok (heuristic 23) | template overhead 1 msg = 12 tok (const 5) | [budget llama-server /tokenize] system=60 tools=163 retrieved=1159 summary=15 history=657 question=18 answerReserve=2024 total=4096 dropped(chunks=4, turns=3) | allocator prompt est 2072 vs exact template (without tools) 1927 (965 ms)
+PASS  model download: resume via HTTP Range + SHA-256 (EmbeddingGemma 2 Q8_0, 310 MB)
+      interrupted at 9.9 MB, resumed and verified (7624 ms)
+exit=0

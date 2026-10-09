@@ -1,0 +1,10 @@
+use_default_settings: true
+server:
+  limiter: false          # private instance behind our API; rate limiting happens in the API
+  image_proxy: false
+  public_instance: false
+search:
+  safe_search: 1
+  formats: [html, json]   # JSON is required, otherwise /search?format=json returns 403
+ui:
+  static_use_hash: true

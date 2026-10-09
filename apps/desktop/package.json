@@ -1,0 +1,47 @@
+{
+  "name": "@surf/desktop",
+  "version": "0.1.0",
+  "description": "Surf AI - local-first offline AI assistant (skeleton verified on Linux)",
+  "main": "./out/main/index.js",
+  "author": "Surf AI",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run build --prefix ../../packages/ui && npm run build --prefix ../../packages/shared && npm run typecheck:node && npm run typecheck:web",
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "selftest": "electron-vite build && SURF_SELFTEST=1 electron .",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64",
+    "dist:mac": "npm run build && electron-builder --mac --arm64 --x64",
+    "dist:win": "npm run build && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "better-sqlite3-multiple-ciphers": "13.0.3",
+    "electron-updater": "6.8.9",
+    "mathjs": "15.2.0",
+    "sqlite-vec": "0.1.9",
+    "systeminformation": "5.33.15",
+    "zod": "4.6.5",
+    "@huggingface/tokenizers": "0.2.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "2.0.0",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "22.19.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "tailwindcss": "4.2.1",
+    "@tailwindcss/vite": "4.2.1",
+    "@surf/ui": "0.1.0"
+  }
+}

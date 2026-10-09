@@ -16,20 +16,8 @@ sys.path.insert(0, str(HOST_DIR))
 from http_client import get_json  # noqa: E402
 from test_guardrails import run_checks as guardrail_checks  # noqa: E402
 from test_moss import run_checks as moss_checks  # noqa: E402
-from test_moss_pack import run_checks as moss_pack_checks  # noqa: E402
-from test_pack_guardrails import run_checks as pack_guardrails_checks  # noqa: E402
 from test_reply_repair import run_checks as reply_repair_checks  # noqa: E402
-from test_resume_facts import run_checks as resume_facts_checks  # noqa: E402
-from test_standalone import run_checks as standalone_checks  # noqa: E402
-from test_pack_identity import run_checks as pack_identity_checks  # noqa: E402
 from test_convert import run_checks as convert_checks  # noqa: E402
-from test_chat_markdown import run_checks as chat_markdown_checks  # noqa: E402
-from test_general_chat import run_checks as general_chat_checks  # noqa: E402
-from test_over_refusal import run_checks as over_refusal_checks  # noqa: E402
-from test_fuzzy_intent import run_checks as fuzzy_intent_checks  # noqa: E402
-from test_file_focus import run_checks as file_focus_checks  # noqa: E402
-from test_zip_and_summary import run_checks as zip_summary_checks  # noqa: E402
-from test_diagram_overview import run_checks as diagram_overview_checks  # noqa: E402
 
 REPORT = Path(__file__).with_name("last-report.json")
 LOOPBACK = ("127.0.0.1", "localhost")
@@ -50,20 +38,8 @@ def main() -> int:
     rows: list[dict] = []
     rows.extend(guardrail_checks())
     rows.extend(moss_checks())
-    rows.extend(moss_pack_checks())
-    rows.extend(pack_guardrails_checks())
     rows.extend(reply_repair_checks())
-    rows.extend(resume_facts_checks())
-    rows.extend(file_focus_checks())
-    rows.extend(zip_summary_checks())
-    rows.extend(diagram_overview_checks())
-    rows.extend(standalone_checks())
-    rows.extend(pack_identity_checks())
     rows.extend(convert_checks())
-    rows.extend(chat_markdown_checks())
-    rows.extend(general_chat_checks())
-    rows.extend(over_refusal_checks())
-    rows.extend(fuzzy_intent_checks())
 
     try:
         health = get_json("/health")

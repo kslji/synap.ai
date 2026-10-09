@@ -1,7 +1,11 @@
-# Deploy static shell + restart thin auth host (Local-First).
-# AI stays on each user's machine. VPS = accounts/OTP/feedback only.
+# Deploy the Surf AI marketing site, then keep the auth host running.
+# The portable zip pack is retired. This script does not build or publish it.
+# /var/www/synap.surf receives the static site (macOS .dmg and Windows .exe only).
 #
-# Required in ~/surf.ai/.env :
+# The new desktop app and this website do not call the auth host.
+# apps/host stays up for existing OTP / feedback accounts until that API is replaced.
+#
+# Required in ~/surf.ai/.env if the host is still used:
 #   HOST_BIND=127.0.0.1:18765
 #   PLATFORM_DATA_DIR=/var/lib/synap/platform
 #   CORS_ORIGINS=https://synap.surf,https://www.synap.surf
@@ -10,27 +14,21 @@
 
 cd ~/surf.ai && git pull origin main
 
-# Moss pack vault: seal script reads ~/surf.ai/.env (MOSS_PROJECT_ID / MOSS_PROJECT_KEY).
-# Confirm on the VPS (shows only whether set, not the secret):
-#   grep -E '^MOSS_PROJECT_(ID|KEY)=' ~/surf.ai/.env | sed 's/=.*/=***set***/'
-# Or:  cd ~/surf.ai/apps/web && npm run seal:moss
-# Expect: "sealed Moss vault → ... (credentials encrypted; not plaintext)"
-
 # Keep systemd unit in sync (auth host)
 sudo cp ~/surf.ai/apps/host/deploy/synap-host.service /etc/systemd/system/synap-host.service
 sudo systemctl daemon-reload
 
-cd ~/surf.ai/apps/web && npm ci
-npm run build
-rsync -a --delete out/ /var/www/synap.surf/ || (sudo rm -rf /var/www/synap.surf/* && sudo cp -a out/. /var/www/synap.surf/)
+cd ~/surf.ai && npm ci
+npm run build -w @surf/web
+rsync -a --delete apps/web/dist/ /var/www/synap.surf/ || (sudo rm -rf /var/www/synap.surf/* && sudo cp -a apps/web/dist/. /var/www/synap.surf/)
 
 mkdir -p ~/surf.ai/apps/host/logs
 sudo systemctl restart synap-host
 sleep 2
 sudo systemctl is-active synap-host
 curl -sS http://127.0.0.1:18765/health | head -c 200; echo
-curl -sS https://synap.surf/health | head -c 200; echo
+curl -sS -o /dev/null -w "site %{http_code}\n" https://synap.surf/
 
-# If health fails:
+# If the host health check fails:
 #   tail -n 80 ~/surf.ai/apps/host/logs/error.log
 #   cd ~/surf.ai/apps/host && .venv/bin/python -c "import main; print('ok')"

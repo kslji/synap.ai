@@ -1,0 +1,37 @@
+{
+  "env": {
+    "ok": true,
+    "ms": 0,
+    "detail": "electron 44.7.0, node 24.21.0, packaged=true, linux-x64, bin=/tmp/appimage_extracted_9ee964cde32e0ce94ef61c3fe0c2bc21/resources/bin/llama-server"
+  },
+  "sqlite: SQLCipher user.db + sqlite-vec float[256] + FTS5": {
+    "ok": true,
+    "detail": "cipher=sqlcipher, sqlite 3.53.4, sqlite-vec v0.1.9, knn id=1 dist=0.000, fts rowid=1",
+    "ms": 210
+  },
+  "safeStorage (OS keychain)": {
+    "ok": true,
+    "detail": "backend=basic_text, available=true -> app must refuse (Linux without libsecret); real test on Mac/Windows",
+    "ms": 4
+  },
+  "calculator worker (mathjs, worker_threads)": {
+    "ok": true,
+    "detail": "23.7*17.5=414.75; 14 knots=25.928 km / h",
+    "ms": 348
+  },
+  "llama-server sidecar: EmbeddingGemma 2 (256-d)": {
+    "ok": true,
+    "detail": "dim=256, cos(relevant)=0.902, cos(unrelated)=0.560",
+    "ms": 2048
+  },
+  "llama-server sidecar: Qwen3.5 chat (thinking off)": {
+    "ok": true,
+    "detail": "answer=\"harbor\"",
+    "ms": 2494
+  },
+  "renderer: sandboxed window, preload API, no Node": {
+    "ok": true,
+    "detail": "{\"harbor\":\"object\",\"chatSend\":\"function\",\"require\":\"undefined\",\"process\":\"undefined\"}",
+    "ms": 92
+  }
+}

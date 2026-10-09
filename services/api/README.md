@@ -1,16 +1,21 @@
 # Surf AI API
 
-FastAPI service from the verified backend slice: health, model registry, pack manifest, and a SearXNG search proxy that does not store query text.
+Search proxy and page fetch. The desktop calls it only when web search is allowed and Offline only is off. User documents are not uploaded. Query text is not stored.
 
-Run it with the compose file at the repo root:
+Local lite mode (no Postgres):
 
 ```bash
-cd deploy
-cp .env.example .env
-docker compose up -d --build
-curl -s localhost/v1/health
+python3 -m pip install -r requirements.txt
+SURF_API_LITE=1 SEARXNG_URL=http://127.0.0.1:8080/search \
+  JWT_SECRET=dev-only-secret-change-me-at-least-32-bytes \
+  python3 -m uvicorn app.main:app --app-dir . --host 127.0.0.1 --port 8000
 ```
 
-This is Day 4–5 work. The desktop app does not call it yet. Search from the app is a stub until that day: if local sources are weak and web search is allowed, Surf says it does not have enough information and that web search is not connected.
+The compose stack in `deploy/` is the production shape (Caddy, API, Postgres, Valkey, SearXNG). See `docs/STEP-3.md` for the GCP VM notes.
 
-Postgres defaults in `.env.example` use the database name `surf`. The original verification run used the placeholder name `harbor`; the schema file is unchanged.
+`POST /v1/devices/register` returns a temporary HS256 device JWT. Step 5 replaces that issuer with login. The verifier (`sub`, `aud`, HS256) stays.
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest
+```

@@ -17,8 +17,11 @@ export function ChatScreen({
   files,
   scope,
   preview,
+  webSearchAllowed,
+  chatWeb,
   onSend,
   onToggleOffline,
+  onToggleChatWeb,
   onAttach,
   onPick,
   onScope,
@@ -31,8 +34,11 @@ export function ChatScreen({
   files: LibraryFile[]
   scope: DocScope
   preview: ChunkPreview | null
+  webSearchAllowed: boolean
+  chatWeb: boolean
   onSend: (text: string) => void
   onToggleOffline: () => void
+  onToggleChatWeb: () => void
   onAttach: (paths: string[]) => void
   onPick: () => void
   onScope: (scope: DocScope) => void
@@ -45,15 +51,18 @@ export function ChatScreen({
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
-  const mood: SurfMood = streaming
-    ? pending && pending.tools.length > 0 && !pending.text
-      ? 'working'
-      : pending && !pending.text
-        ? 'thinking'
-        : 'answering'
-    : status.offlineOnly || !status.online
-      ? 'offline'
-      : 'idle'
+  const searching = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'reading'))
+  const mood: SurfMood = searching
+    ? 'searching'
+    : streaming
+      ? pending && pending.tools.length > 0 && !pending.text
+        ? 'working'
+        : pending && !pending.text
+          ? 'thinking'
+          : 'answering'
+      : status.offlineOnly || !status.online
+        ? 'offline'
+        : 'idle'
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
@@ -72,16 +81,16 @@ export function ChatScreen({
         <header className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-3">
           <div>
             <div className="text-sm font-semibold">General</div>
-            <div className="text-xs text-[var(--muted)]">Answers stay on this computer</div>
+            <div className="text-xs text-[var(--muted)]">{status.onlineReason || 'Answers stay on this computer'}</div>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`pill ${status.offlineOnly || !status.online ? 'pill-warn' : 'pill-ok'}`}>
+            <span className={`pill ${status.offlineOnly || !status.online ? 'pill-warn' : 'pill-ok'}`} title={status.onlineReason} data-online-reason={status.onlineReason}>
               <i />
               {status.offlineOnly ? 'Offline only' : status.online ? 'Online' : 'Offline'}
             </span>
             <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
               Offline only
-              <button type="button" className="toggle" data-on={status.offlineOnly ? 'yes' : 'no'} aria-pressed={status.offlineOnly} onClick={onToggleOffline}>
+              <button type="button" className="toggle" data-offline-toggle="yes" data-on={status.offlineOnly ? 'yes' : 'no'} aria-pressed={status.offlineOnly} onClick={onToggleOffline}>
                 <span />
               </button>
             </label>
@@ -128,6 +137,16 @@ export function ChatScreen({
                 <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
                 <ScopeButton current={scope} id="all" onScope={onScope}>All documents</ScopeButton>
               </div>
+              <button
+                type="button"
+                className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
+                data-chat-web={webSearchAllowed && chatWeb ? 'yes' : 'no'}
+                aria-pressed={webSearchAllowed && chatWeb}
+                title={webSearchAllowed ? 'Search the web for this chat' : 'Turn on web search in Settings'}
+                onClick={onToggleChatWeb}
+              >
+                Web {webSearchAllowed && chatWeb ? 'on' : 'off'}
+              </button>
               {reading && (
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
                   <SurfCrew who="octo" mood="working" size={36} />
@@ -199,8 +218,10 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
     <div className="flex gap-3">
       <div className="pt-1"><SurfCrew mood={creature} who={castFor(creature)} size={52} /></div>
       <div className="min-w-0 flex-1">
+        {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
+        {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
         <div className="whitespace-pre-wrap text-[15px] leading-relaxed">
-          <CitedText text={msg.text || (msg.pending ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
+          <CitedText text={msg.text || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
         </div>
         {msg.tools.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
@@ -209,9 +230,9 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
             ))}
           </div>
         )}
-        {msg.sources.length > 0 && (
+        {msg.sources.some((s) => s.kind !== 'web') && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {msg.sources.map((s, i) => (
+            {msg.sources.map((s, i) => s.kind === 'web' ? null : (
               <button
                 key={i}
                 type="button"
@@ -223,6 +244,22 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
                 [S{i + 1}] {s.fileName || s.title || s.pack}{s.locator ? ` · ${s.locator}` : ''}
               </button>
             ))}
+          </div>
+        )}
+        {msg.sources.some((s) => s.kind === 'web') && (
+          <div className="mt-3 flex flex-col gap-2">
+            {msg.sources.map((s, i) => s.kind === 'web' ? (
+              <button
+                key={i}
+                type="button"
+                className="card px-3 py-2 text-left"
+                data-web-source="yes"
+                onClick={() => { void window.surf.links.open(s.url) }}
+              >
+                <div className="text-sm font-semibold">[S{i + 1}] {s.title}</div>
+                <div className="text-xs text-[var(--muted)]">{s.domain || s.url}{s.published ? ` · ${s.published}` : ''}</div>
+              </button>
+            ) : null)}
           </div>
         )}
       </div>
@@ -238,6 +275,13 @@ function CitedText({ text, sources, onOpen }: { text: string; sources: UiMsg['so
         const mark = /^\[S(\d+)\]$/.exec(part)
         if (!mark) return <span key={i}>{part}</span>
         const source = sources[Number(mark[1]) - 1]
+        if (source?.kind === 'web' && source.url) {
+          return (
+            <button key={i} type="button" className="font-semibold text-[var(--accent-text)] underline" data-web-source="yes" onClick={() => { void window.surf.links.open(source.url) }}>
+              {part}
+            </button>
+          )
+        }
         if (!source?.chunkId) return <span key={i}>{part}</span>
         return (
           <button key={i} type="button" className="font-semibold text-[var(--accent-text)] underline" data-citation="yes" onClick={() => onOpen(source.chunkId!)}>

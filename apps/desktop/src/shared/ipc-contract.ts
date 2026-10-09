@@ -26,6 +26,7 @@ export const IPC = {
   libraryDelete: 'library:delete',
   libraryPreview: 'library:preview',
   libraryEvent: 'library:event',
+  linksOpen: 'links:open',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -48,6 +49,8 @@ export interface SettingsPatch {
   chatModelId?: string
   onboardingComplete?: boolean
   theme?: ThemeChoice
+  /** Search service origin. Production placeholder until a VM is deployed. */
+  apiBaseUrl?: string
 }
 
 export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
@@ -56,6 +59,7 @@ export type ChatEvent =
   | { type: 'token'; messageId: string; text: string }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
+  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' }
   | { type: 'done'; messageId: string; gate: GateName }
   | { type: 'error'; messageId: string; message: string }
 
@@ -83,6 +87,8 @@ export interface ModelStatus {
   sidecars: Record<'chat' | 'embed' | 'whisper', 'stopped' | 'starting' | 'ready' | 'crashed'>
   models: CatalogModel[]
   online: boolean
+  /** Why the pill says online, offline, or offline only. */
+  onlineReason: string
   offlineOnly: boolean
   onboardingComplete: boolean
   /** encrypted = SQLCipher chat.db. session = this launch only, because OS keychain was unavailable. */
@@ -100,6 +106,9 @@ export interface Citation {
   title: string
   url: string
   pack: string
+  kind?: 'document' | 'web'
+  domain?: string
+  published?: string | null
   chunkId?: number
   fileName?: string
   locator?: string | null
@@ -191,5 +200,8 @@ export interface SurfApi {
     remove(attachmentId: string): Promise<void>
     preview(ref: { chunkId?: number; attachmentId?: string }): Promise<ChunkPreview | null>
     onEvent(cb: (e: LibraryEvent) => void): () => void
+  }
+  links: {
+    open(url: string): Promise<void>
   }
 }

@@ -30,7 +30,7 @@ cd apps/desktop
 SURF_MODELS_DIR=~/surf-models npm run selftest
 ```
 
-Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1 is `docs/STEP-1.md`. Document chat (attachments, OCR, local retrieval) is `docs/STEP-2.md`.
+Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1 is `docs/STEP-1.md`. Document chat is `docs/STEP-2.md`. Web search and the offline switch are `docs/STEP-3.md`.
 
 ## Layout
 
@@ -39,7 +39,7 @@ Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1
 | `apps/desktop` | Electron app |
 | `apps/web` | Marketing site. Download is macOS .dmg and Windows .exe only |
 | `apps/host` | Existing OTP / feedback API. The new app and site do not call it |
-| `services/api` | FastAPI (Day 4) |
+| `services/api` | FastAPI search proxy in front of SearXNG |
 | `deploy` | Docker Compose: Caddy, API, Postgres/pgvector, Valkey, SearXNG |
 | `pipelines/ingest` | Day 6 placeholder |
 | `packages/ui` | Theme, jellyfish, seahorse, octopus |

@@ -23,6 +23,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [scope, setScope] = useState<DocScope>('chat')
+  const [chatWeb, setChatWeb] = useState(true)
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
 
   const refresh = useCallback(async () => {
@@ -38,7 +39,7 @@ export default function App() {
     void refresh().catch((e: unknown) => setError((e as Error).message))
     const offChat = api.chat.onEvent((e) => {
       setMessages((prev) => applyEvent(prev, e))
-      if (e.type === 'token' || e.type === 'tool' || e.type === 'sources') setStreaming(true)
+      if (e.type === 'token' || e.type === 'tool' || e.type === 'sources' || e.type === 'status') setStreaming(true)
       if (e.type === 'done' || e.type === 'error') {
         setStreaming(false)
         void api.conversations.list().then(setConversations).catch(() => undefined)
@@ -110,7 +111,7 @@ export default function App() {
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text, agentId: 'general', allowWeb: settings?.webSearchAllowed ?? false, docScope: scope })
+      const res = await api.chat.send({ conversationId, text, agentId: 'general', allowWeb: Boolean(settings?.webSearchAllowed && chatWeb), docScope: scope })
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
     } catch (e) {
@@ -123,6 +124,7 @@ export default function App() {
     const opened = await api.conversations.open(id)
     setConversationId(id)
     setMessages(opened.messages.map((m) => ({ ...m, tools: [] })))
+    setChatWeb(true)
     setView('chat')
   }
 
@@ -130,6 +132,7 @@ export default function App() {
     setConversationId(null)
     setMessages([])
     setPreview(null)
+    setChatWeb(true)
     setView('chat')
   }
 
@@ -172,6 +175,41 @@ export default function App() {
           },
         ])
         setPreview({ chunkId: 1, fileName: 'harbor-ferry.pdf', title: 'harbor-ferry.pdf', heading: null, locator: 'page 1', text: 'The harbor ferry leaves Pier 4 at 06:40. Tickets cost 120 rupees.' })
+      }
+      if (scene === 'searching') {
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: 'u-search', role: 'user', text: 'What is the Surf beacon code for pier 9 today?', sources: [], tools: [] },
+          { id: 'a-search', role: 'assistant', text: '', sources: [], tools: [], pending: true, phase: 'searching' },
+        ])
+      }
+      if (scene === 'web') {
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: 'u-web', role: 'user', text: 'What is the Surf beacon code for pier 9 today?', sources: [], tools: [] },
+          {
+            id: 'a-web', role: 'assistant', tools: [],
+            text: 'The Surf beacon code for pier 9 today is SB-4417. [S1]',
+            sources: [{ kind: 'web', title: 'Pier 9 beacon', url: 'https://example.com/beacon', domain: 'example.com', published: '9 Oct 2026', pack: 'web', excerpt: 'Pier 9 beacon · example.com · 9 Oct 2026' }],
+          },
+        ])
+      }
+      if (scene === 'refusal') {
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: 'u-no', role: 'user', text: 'What is the Surf beacon code for pier 9 today?', sources: [], tools: [] },
+          {
+            id: 'a-no', role: 'assistant', tools: [],
+            text: "I don't have enough information to answer that from the sources on this computer. Add a document. Turn on web search when you are online.",
+            sources: [],
+          },
+        ])
       }
       if (scene === 'library') {
         setView('library')
@@ -229,8 +267,11 @@ export default function App() {
           files={conversationId ? files.filter((file) => file.conversationIds.includes(conversationId)) : []}
           scope={scope}
           preview={preview}
+          webSearchAllowed={settings.webSearchAllowed}
+          chatWeb={chatWeb}
           onSend={(t) => { void send(t) }}
           onToggleOffline={() => { void patch({ offlineOnly: !settings.offlineOnly }) }}
+          onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}
           onPick={() => { void api.library.pick(conversationId, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
           onScope={setScope}

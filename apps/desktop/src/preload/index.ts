@@ -48,6 +48,9 @@ const api: SurfApi = {
     preview: (ref) => ipcRenderer.invoke(IPC.libraryPreview, ref),
     onEvent: (cb) => subscribe<LibraryEvent>(IPC.libraryEvent, cb),
   },
+  links: {
+    open: (url) => ipcRenderer.invoke(IPC.linksOpen, url),
+  },
 }
 
 contextBridge.exposeInMainWorld('surf', api)

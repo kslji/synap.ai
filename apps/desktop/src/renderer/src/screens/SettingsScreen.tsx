@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ThemeSwitch } from '@surf/ui'
 import type { ModelStatus, SettingsPatch } from '../../../shared/ipc-contract'
 
@@ -14,6 +14,9 @@ export function SettingsScreen({
   onCheckUpdates: () => Promise<string>
 }) {
   const [updateNote, setUpdateNote] = useState('')
+  const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
+  useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
+  const apiOk = /^https?:\/\/\S+$/.test(apiBase)
 
   return (
     <section className="flex-1 overflow-auto px-8 py-8">
@@ -27,7 +30,7 @@ export function SettingsScreen({
         />
         <Row
           title="Allow web search"
-          body="When you are online and local sources are thin, Surf may search. The search proxy lands on Day 4. Until then Surf says when it does not know."
+          body="When you are online and local sources are thin, Surf may search the web. Your documents stay on this computer. Only the short search queries are sent."
           on={settings.webSearchAllowed}
           onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
         />
@@ -38,6 +41,21 @@ export function SettingsScreen({
           onToggle={() => onPatch({ telemetryOptIn: !settings.telemetryOptIn })}
         />
         <div className="card px-4 py-4">
+          <div className="text-sm font-semibold">Search service</div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+            Production placeholder is https://api.synap.surf. Local development uses http://127.0.0.1:8000.
+          </p>
+          <input
+            className="field mt-3"
+            value={apiBase}
+            spellCheck={false}
+            aria-label="Search service address"
+            onChange={(e) => setApiBase(e.target.value.trim())}
+            onBlur={() => { if (apiOk && apiBase !== settings.apiBaseUrl) onPatch({ apiBaseUrl: apiBase }) }}
+          />
+          {!apiOk && <p className="mt-2 text-sm text-[var(--muted)]">Use an http or https address.</p>}
+        </div>
+        <div className="card px-4 py-4">
           <div className="text-sm font-semibold">Appearance</div>
           <p className="mt-1 text-sm text-[var(--muted)]">System follows this computer. Your choice is saved on this device.</p>
           <div className="mt-3">
@@ -47,8 +65,8 @@ export function SettingsScreen({
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
-          <p className="mt-1">Local API server: off.</p>
-          <p className="mt-1">Niche agents, document attachments, and signed packs land on later days. See docs/STEP-1.md.</p>
+          <p className="mt-1">Search service: {settings.apiBaseUrl}.</p>
+          <p className="mt-1">Signed knowledge packs land on a later day. See docs/STEP-3.md.</p>
           <button
             className="btn btn-ghost mt-3"
             type="button"

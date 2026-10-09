@@ -1,6 +1,6 @@
 /**
  * Offline-only mode: the main process must not call the network.
- * TODO(Day 2): route every outbound fetch through this guard (web search lands Day 4).
+ * Chat search, page fetch, device registration, and the health probe all call this first.
  */
 export class OfflineOnlyError extends Error {
   constructor() {

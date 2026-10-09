@@ -10,6 +10,7 @@ export interface UiMsg {
   pending?: boolean
   error?: boolean
   gate?: GateName
+  phase?: 'searching' | 'reading'
   tools: { name: string; input: string; output: string }[]
 }
 
@@ -21,6 +22,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
   const m = next[i]
   m.id = e.messageId
   if (e.type === 'token') m.text += e.text
+  if (e.type === 'status') m.phase = e.phase
   if (e.type === 'sources') m.sources = e.sources
   if (e.type === 'tool') m.tools.push({ name: e.name, input: e.input, output: e.output })
   if (e.type === 'error') {

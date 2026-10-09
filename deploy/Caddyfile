@@ -1,0 +1,6 @@
+# Replace :80 with api.yourdomain.com to get automatic HTTPS (Let's Encrypt) once DNS points to the VM.
+:80 {
+	encode zstd gzip
+	reverse_proxy api:8000
+	header -Server
+}

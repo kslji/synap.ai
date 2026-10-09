@@ -1,10 +1,39 @@
-name: check
+name: CI
 
 on:
-  push:
   pull_request:
+  push:
 
 jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - run: npm ci
+      - name: Fetch llama.cpp sidecar for this OS
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
+      - name: Typecheck and build the desktop app
+        run: npm run build -w @surf/desktop
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck and build the website
+        run: npm run build -w @surf/web
+
   host:
     runs-on: ubuntu-latest
     steps:

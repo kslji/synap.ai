@@ -1,0 +1,48 @@
+---
+description: Surf AI project rule - local-first offline AI desktop app (Electron + TypeScript main process, llama.cpp sidecars, encrypted SQLite, Python doc-worker and pipeline, FastAPI backend). Architecture, privacy, security and workflow rules for every change.
+globs: apps/**, services/**, workers/**, pipelines/**, packages/**, scripts/**, deploy/**, docs/**
+alwaysApply: true
+---
+
+# Surf AI - project rule
+
+Source of truth: `docs/ARCHITECTURE-SHORT.md` (read first) and `docs/ARCHITECTURE-FULL.md` (details, DDL, edge cases). Tested reference code: `docs/code-samples/ts/` (TypeScript) and `docs/code-samples/` (Python, SQL). Reuse those samples instead of inventing new designs; if you think the doc is wrong, propose the fix first.
+
+## Stack (do not change without an ADR in docs/adr/)
+- Desktop: Electron 44 + electron-vite + electron-builder; React + TypeScript (strict) + Vite in the renderer; zod at every IPC boundary.
+- Main process (TypeScript) owns: orchestrator, retrieval, relevance gate, token budget, tools, DB, sidecars, packs, models, auth, updates.
+- Sidecars via `child_process.spawn`: llama.cpp `llama-server` (pinned build) for chat (Qwen3.5 2B/4B/9B Q4_K_M + mmproj) and embeddings (EmbeddingGemma 2, llama.cpp ≥ b11452, `--pooling mean`, `-ub` = `-c`); Python doc-worker; whisper.cpp later. Job runner in `utilityProcess`. Calculator in a `worker_threads` worker.
+- Local DB: `better-sqlite3-multiple-ciphers` in SQLCipher mode (`cipher='sqlcipher'`, `legacy=4`, raw hex key) + `sqlite-vec` + FTS5; key wrapped with Electron `safeStorage` (async API). Packs are separate read-only SQLite files.
+- Backend: FastAPI + Postgres 17/pgvector + SearXNG + Caddy in Docker Compose on one GCP e2-medium VM; Supabase Auth; packs on R2 (or GCS); installers on GitHub Releases; models from Hugging Face.
+
+## Workflow
+- Work ONE plan day at a time (docs §15 / short doc §9). At the end of each day: stop, summarise what is done, what is not, test results, and open questions. Do not start the next day without approval.
+- Small, focused commits with clear messages (`feat(desktop): …`, `fix(api): …`). One concern per commit.
+- Before deviating from the architecture or a code sample: explain the problem and the proposed change, then wait.
+- Items marked [VERIFY] in the docs are spikes: test them in isolation first, record the result in `docs/adr/NNNN-*.md`, then build on them.
+- Write tests (vitest / pytest) for core logic: token budget, relevance gate, retrieval ranking, calculator, pack/agent/licence verification, model download/resume, migrations. `npm run typecheck`, lint and tests must pass before a commit.
+- Never commit secrets. Keep `.env.example` complete and up to date; real values only in local `.env` (gitignored) or CI secrets. Only PUBLIC keys go in `resources/keys/`.
+
+## Privacy (non-negotiable)
+- Chats, attachments, prompts and answers never leave the device. No prompt/answer text in logs, telemetry or crash reports - counts and timings only.
+- Telemetry is opt-in, off by default. Web search sends only the query to our own SearXNG proxy; pages are fetched and cleaned on the device. Server never logs query text.
+- Respect "Offline-only" mode: no network calls at all (enforced in `net/offline-guard.ts`).
+
+## Security
+- BrowserWindow: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, `webSecurity: true`; `app.enableSandbox()`; strict CSP; block navigation and `window.open`; permission handler allows only what is needed.
+- Preload exposes only the typed `window.surf` API from `shared/ipc-contract.ts`; every `ipcMain.handle` validates input with zod and checks the sender frame.
+- Sidecars bind to 127.0.0.1 with a random port and random API key. No `eval`, no `new Function`, no shell string interpolation (use `spawn` with arg arrays).
+- Packs, agent manifests, model registry, licences and offline installers are verified (Ed25519 signature + SHA-256) before use. Refuse downgrades.
+
+## Model and token rules
+- Always start llama-server with explicit `-c` (8192 on tiers 0-1, 16384 on tier 2) and `-np 1`; never rely on the model's 262K default.
+- Thinking OFF by default: send `chat_template_kwargs: {"enable_thinking": false}`; non-thinking sampling temp 0.7, top_p 0.8, top_k 20, presence_penalty 1.5.
+- Every chat request goes through the token-budget allocator (`orchestrator/budget.ts`): count with llama-server `/tokenize` (or `@huggingface/tokenizers` with Qwen3.5 `tokenizer.json`), never tiktoken for budgeting. 8 GB tier: 4096 total (~400 system+tools, ~1500 chunks, ~1000 history, ~300 question, >=800 answer); 16 GB tier: 8192.
+- Keep the system prompt stable (cacheable): exactly ONE system message; put SOURCES and the question in the last user message; send tool schemas only when needed; never paste whole attachments; summarise old turns, keep the last 3-4.
+- Numbers come from tools (`calculator`, `unit_convert` via mathjs), never from the model's head. Max 4 tool steps.
+- Grounded answers cite sources as [S1], [S2]; if the gate says insufficient, show the refusal template (no LLM call) or use web search when online and allowed.
+- Model choice comes from `models.registry.json` (licence allow-list: Apache-2.0, MIT) - no hard-coded model paths.
+
+## Code style
+- TypeScript strict, ESM, no `any` without a comment. Shared types in `src/shared/`. Small modules; pure functions for logic so they are testable without Electron.
+- Python 3.12, type hints, ruff. SQL migrations are forward-only and numbered.

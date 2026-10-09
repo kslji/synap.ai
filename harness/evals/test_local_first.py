@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local-first guardrails that do not need a running host."""
+"""Secrets stay out of .env.example. The browser pack that used allowInBrowserLlm is gone."""
 
 from __future__ import annotations
 
@@ -16,23 +16,6 @@ def check(name: str, ok: bool, detail: str, rows: list) -> None:
 
 def run_checks() -> list[dict]:
     rows: list[dict] = []
-    caps = (ROOT / "apps" / "web" / "src" / "lib" / "browserCaps.ts").read_text(encoding="utf-8")
-    fn = caps.split("export function allowInBrowserLlm", 1)[-1]
-    fn = fn.split("export function", 1)[0]
-    check("allow-in-browser-llm-defined", "export function allowInBrowserLlm" in caps, "browserCaps.ts", rows)
-    check(
-        "public-host-browser-llm-stays-off",
-        "return false;" in fn and "synap.surf" in fn,
-        "non-local hostnames return false",
-        rows,
-    )
-    check(
-        "browser-llm-not-forced-on",
-        'NEXT_PUBLIC_ALLOW_BROWSER_LLM === "1"' in fn and "return false;" in fn,
-        "opt-in env only",
-        rows,
-    )
-
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
     for key in ("ADMIN_PASSWORD", "SMTP_PASSWORD", "MOSS_PROJECT_KEY", "MOSS_PROJECT_ID"):
         line = next((row for row in example.splitlines() if row.startswith(f"{key}=")), "")
@@ -41,6 +24,12 @@ def run_checks() -> list[dict]:
         "env-example-has-no-livekit-dev-secret",
         "LIVEKIT_API_SECRET=secret" not in example and "LIVEKIT_API_KEY=devkey" not in example,
         "dev livekit secrets are not active assignments",
+        rows,
+    )
+    check(
+        "env-example-does-not-seal-a-zip",
+        "moss_vault.enc" not in example and "seal:moss" not in example,
+        "zip vault seal removed",
         rows,
     )
     return rows

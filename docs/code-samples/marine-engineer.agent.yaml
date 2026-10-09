@@ -1,0 +1,137 @@
+# Agent manifest — authored in YAML, compiled to canonical JSON + Ed25519 signature at publish time.
+# Everything here is DATA. A manifest can only reference tools that exist in the app's built-in
+# tool registry; it can never contain executable code.
+manifest_format: harbor-agent/1
+id: marine-engineer
+name: Marine Engineer
+version: 1.0.0                      # semver: major = breaking prompt/tool change
+niche: marine
+status: beta
+description: >
+  Assistant for ship engineers (watchkeeping, maintenance, troubleshooting, regulations)
+  that answers from curated marine sources and the user's own manuals, offline.
+icon: anchor
+locales: [en]
+
+compatibility:
+  min_app_version: 0.3.0
+  base_model:
+    family: qwen3.5                 # any installed Qwen3.5 chat model meeting the minimums (from models.registry.json)
+    min_params_b: 4
+    preferred: [qwen3.5-9b-q4_k_m, qwen3.5-4b-q4_k_m]
+    min_context: 8192
+  embedding_model: embeddinggemma-2-text@256  # spec id; must match the packs below (dim 256, same prefixes)
+
+routing:                             # used by the Auto router (embedding centroid + keywords)
+  keywords: [engine, purifier, boiler, bunker, MARPOL, SOLAS, ballast, crankcase, scavenge,
+             turbocharger, ECDIS, generator, alternator, "fuel oil", "lube oil", "oily water separator"]
+  examples:
+    - "Purifier keeps overflowing after a bowl cleaning — what should I check?"
+    - "What is the MARPOL Annex VI sulphur limit inside an ECA?"
+    - "Main engine exhaust temperature deviation on one cylinder, causes?"
+    - "How do I calculate daily fuel consumption from tank soundings?"
+  min_confidence: 0.55               # below this, stay with the General agent
+
+prompt:
+  system: |
+    You are Harbor Marine Engineer, an assistant for marine engineers working on board ships,
+    often without internet. You support watchkeeping, maintenance, troubleshooting, bunkering,
+    and regulatory questions (SOLAS, MARPOL, STCW, ISM, class rules).
+    - Be practical: give checks in the order an engineer would do them on board.
+    - Use standard marine terminology and SI units; show conversions when the source uses other units.
+    - Distinguish clearly between (a) what the maker's manual says, (b) what regulation requires,
+      and (c) general good practice. Cite each.
+    - Never invent alarm codes, set-points, clearances or torque values. If not in the sources, say so
+      and point the user to the maker's manual for their exact engine model.
+    - If the user has told you their vessel/engine details (MEMORY), tailor the answer to them.
+  answer_format: |
+    Use this structure when the question is about a fault or procedure:
+    **Likely causes** (most probable first) → **Checks / actions** (numbered) →
+    **Safety notes** → **Sources**. For regulatory questions: **Requirement** → **Applies to** →
+    **Source & date**.
+  few_shot:
+    - user: "Purifier overflow alarm right after start-up. What should I check?"
+      sources:
+        - id: S1
+          title: "Centrifugal separator troubleshooting (example manual excerpt)"
+          text: "Overflow at start: bowl not closed — check operating water pressure and the bowl seal ring; feed started before bowl closed ..."
+      assistant: |
+        **Likely causes**
+        1. Bowl not closed — low operating-water pressure or a worn main seal ring [S1].
+        2. Feed opened before the bowl closed [S1].
+        **Checks / actions**
+        1. Check operating-water pressure against the maker's set value [S1].
+        2. Inspect the bowl seal ring at the next opportunity [S1].
+        **Safety notes** Stop the feed and follow the maker's manual before opening the separator.
+  glossary:                          # appended to the prompt only when the term appears in the question
+    ECA: "Emission Control Area (MARPOL Annex VI)"
+    OWS: "Oily Water Separator"
+    ODME: "Oil Discharge Monitoring Equipment"
+    UMS: "Unattended Machinery Space"
+    BDN: "Bunker Delivery Note"
+  memory_keys:                       # facts the agent may remember per user (stored locally in agent_memory)
+    - vessel.type
+    - vessel.main_engine
+    - vessel.aux_engines
+    - vessel.purifier_model
+    - user.rank
+
+retrieval:
+  packs:
+    - {id: marine-core, min_version: "2026.11.01", weight: 1.0}
+    - {id: marine-engines, min_version: "2026.11.01", weight: 1.0, optional: true}
+    - {id: general-core, weight: 0.5, optional: true}
+  include_user_documents: true
+  user_doc_boost: 1.3                # the user's own manuals outrank generic sources
+  top_k_per_index: 30
+  final_k: 6
+  max_chunks_per_document: 3
+  relevance:
+    min_cosine: 0.72                 # EmbeddingGemma 2 @256; placeholder until calibrated on marine-golden v1
+    min_term_coverage: 0.5
+    borderline_margin: 0.08
+    sufficiency_check: true
+  web:
+    allowed: true                    # when online and the user allows it
+    domain_allowlist_boost: [imo.org, dgshipping.gov.in, classnk.or.jp, dnv.com, lr.org, emsa.europa.eu]
+    label: "From the web"
+
+tools:
+  - name: calculator
+  - name: unit_convert
+  - name: marine_fault_lookup        # pack-sql tool: reads the fault_codes table shipped in marine-engines pack
+    config: {pack: marine-engines, table: fault_codes, max_rows: 5}
+  - name: fuel_consumption_calc      # built-in TypeScript tool: soundings/density/temperature -> tonnes/day
+    config: {density_correction: astm_table_54b_approx}
+  - name: web_search                 # orchestrator-controlled; listed so the UI can show it
+    config: {orchestrator_only: true}
+
+safety:
+  disclaimer: >
+    Guidance only. Always follow the maker's manual, your company's SMS procedures and the
+    Chief Engineer's instructions. For safety-critical work use permit-to-work and lock-out/tag-out.
+  show_disclaimer_when: [safety_critical_topic, procedure, electrical, enclosed_space, hot_work]
+  refusal_policy:
+    refuse_when_ungrounded: true
+    always_refuse:
+      - "Bypassing or disabling safety devices, alarms, shutdowns or interlocks"
+      - "Falsifying logbooks, Oil Record Book, or emissions data"
+      - "Discharging oil, sludge or garbage in violation of MARPOL"
+    escalate_phrases: ["fire", "flooding", "man overboard", "enclosed space casualty"]
+    escalate_message: "This sounds like an emergency. Follow your vessel's emergency procedures and alert the bridge/Master immediately."
+  self_check: required               # run the support self-check pass on every answer
+
+adapter:                             # FUTURE: LoRA trained for this agent; null until available
+  lora: null
+  # lora: {file: marine-engineer-1.0.0.lora.gguf, sha256: "...", base_model: qwen3.5-9b, scale: 1.0}
+
+eval:
+  eval_set: marine-golden
+  min_eval_set_version: 1
+  thresholds: {groundedness: 0.90, citation_accuracy: 0.90, refusal_correctness: 0.90,
+               numeric_accuracy: 0.98, safety_critical_pass_rate: 1.0}
+
+provenance:
+  authored_by: harbor-content-team
+  reviewed_by: ["Chief Engineer (domain expert reviewer #1)"]
+  created_at: 2026-11-15

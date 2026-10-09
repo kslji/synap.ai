@@ -1,0 +1,82 @@
+# Builds unsigned installers on a version tag (v*) and uploads a draft GitHub Release.
+# TODO(signing): set these repository secrets before turning notarisation on.
+#   macOS: CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+#   Windows: CSC_LINK, CSC_KEY_PASSWORD (Authenticode)
+# Until then CSC_IDENTITY_AUTO_DISCOVERY=false keeps electron-builder from looking for a cert.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fetch llama.cpp for arm64 and x64
+        working-directory: apps/desktop
+        run: |
+          node scripts/fetch-sidecars.mjs --platform=darwin --arch=arm64
+          node scripts/fetch-sidecars.mjs --platform=darwin --arch=x64
+      - name: Build dmg and zip
+        run: npm run dist:mac -w @surf/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fetch llama.cpp for Windows
+        working-directory: apps/desktop
+        shell: bash
+        run: node scripts/fetch-sidecars.mjs
+      - name: Build NSIS installer
+        run: npm run dist:win -w @surf/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+          if-no-files-found: error
+
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: release/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

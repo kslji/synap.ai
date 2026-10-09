@@ -1,39 +1,27 @@
 {
-  "name": "local-ai-web",
+  "name": "@surf/web",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
-    "vendor-llm": "cp node_modules/@mlc-ai/web-llm/lib/index.js public/web-llm.js",
-    "vendor-pdfjs": "node scripts/vendor-pdfjs.mjs",
-    "predev": "npm run vendor-llm && npm run vendor-pdfjs",
-    "prebuild": "npm run vendor-llm && npm run vendor-pdfjs && node scripts/fetch-mlc-wasm.mjs && npm run seal:moss",
-    "build": "next build",
-    "postbuild": "node scripts/write-sw-precache.mjs",
-    "start": "npx --yes serve out -p 3000",
-    "verify:packs": "node scripts/verify-packs.mjs",
-    "verify:agent": "node scripts/verify-local-agent.mjs",
-    "seal:moss": "node scripts/seal-moss-vault.mjs",
-    "verify": "npm run verify:packs && npm run verify:agent"
+    "dev": "vite",
+    "typecheck": "npm run build --prefix ../../packages/ui && npm run build --prefix ../../packages/shared && tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@mlc-ai/web-llm": "^0.2.85",
-    "livekit-client": "^2.15.7",
-    "lucide-react": "^0.544.0",
-    "next": "^15.5.4",
-    "pdfjs-dist": "^4.10.38",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "tailwind-merge": "^3.5.0"
+    "@surf/shared": "0.1.0",
+    "@surf/ui": "0.1.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.1",
-    "@types/node": "^24.5.2",
-    "tailwindcss": "^4.2.1",
-    "@types/react": "^19.1.13",
-    "@types/react-dom": "^19.1.9",
-    "typescript": "^5.9.2"
+    "@tailwindcss/vite": "4.2.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.2.0",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
   }
 }

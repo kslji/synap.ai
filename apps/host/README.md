@@ -22,14 +22,7 @@ cd apps/host
 .venv/bin/gunicorn -c gunicorn.conf.py main:app
 ```
 
-Website, from `apps/web`:
-
-```bash
-npm ci
-npm run dev
-```
-
-`npm run build` writes a static export to `apps/web/out`. Moss keys are optional; without them the pack vault is empty and search falls back to on-device keywords.
+The marketing site is the Vite app at the repo root (`npm run dev:web`). It publishes macOS and Windows installers only. Moss keys are optional for this host; without them search falls back to on-device keywords.
 
 ## Checks
 
@@ -59,8 +52,6 @@ That runs host unit tests and harness evals that do not need a model. With the h
 | Feedback | `GET /v1/feedback` returns only that account's rows. |
 | Purge | `POST /v1/platform/purge` requires an admin token. The timer still calls `purge_platform.py` directly. |
 | Docs | `/docs` is off when `SURF_ENV=production`. |
-
-`allowInBrowserLlm()` in `apps/web/src/lib/browserCaps.ts` stays false for every public hostname, including synap.surf.
 
 ## Deploy notes
 

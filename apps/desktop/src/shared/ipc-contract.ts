@@ -28,12 +28,15 @@ export interface ChatSendReq {
   allowWeb?: boolean
 }
 
+export type ThemeChoice = 'system' | 'light' | 'dark'
+
 export interface SettingsPatch {
   offlineOnly?: boolean
   webSearchAllowed?: boolean
   telemetryOptIn?: boolean
   chatModelId?: string
   onboardingComplete?: boolean
+  theme?: ThemeChoice
 }
 
 export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'

@@ -1,4 +1,4 @@
-"""Draw the Surf AI mark (three original dots) into png, ico, and icns."""
+"""Draw the Surf AI jellyfish mark into png, ico, and icns."""
 from pathlib import Path
 from PIL import Image, ImageDraw
 
@@ -15,21 +15,30 @@ def draw(size: int) -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     pad = size * 0.06
-    radius = size * 0.22
-    d.rounded_rectangle([pad, pad, size - pad, size - pad], radius=radius, fill=INK)
-
-    def dot(cx, cy, r, color):
-        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
-
+    d.rounded_rectangle([pad, pad, size - pad, size - pad], radius=size * 0.22, fill=INK)
+    cx, cy = size * 0.50, size * 0.40
+    rx, ry = size * 0.22, size * 0.16
+    d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=ORANGE, outline=WHITE, width=max(2, int(size * 0.012)))
+    er = max(2, size * 0.018)
+    for dx in (-0.06, 0.06):
+        ex, ey = size * (0.50 + dx), size * 0.40
+        d.ellipse([ex - er, ey - er * 1.15, ex + er, ey + er * 1.15], fill=INK)
+    # Four tentacles. White so they read on the black tile.
+    w = max(2, int(size * 0.018))
+    def tent(x0, y0, x1, y1, x2, y2):
+        # Quadratic via short line segments.
+        pts = []
+        for i in range(13):
+            t = i / 12
+            u = 1 - t
+            pts.append((u * u * x0 + 2 * u * t * x1 + t * t * x2, u * u * y0 + 2 * u * t * y1 + t * t * y2))
+        d.line(pts, fill=WHITE, width=w, joint="curve")
     s = size
-    dot(s * 0.30, s * 0.58, s * 0.13, WHITE)
-    dot(s * 0.52, s * 0.42, s * 0.18, ORANGE)
-    dot(s * 0.74, s * 0.60, s * 0.10, WHITE)
-    eye = INK
-    er = max(2, s * 0.018)
-    for dx in (-0.045, 0.045):
-        cx, cy = s * (0.52 + dx), s * 0.41
-        d.ellipse([cx - er, cy - er * 1.3, cx + er, cy + er * 1.3], fill=eye)
+    y = s * 0.54
+    tent(s * 0.36, y, s * 0.28, s * 0.70, s * 0.40, s * 0.82)
+    tent(s * 0.46, y + s * 0.02, s * 0.44, s * 0.74, s * 0.48, s * 0.86)
+    tent(s * 0.56, y + s * 0.02, s * 0.60, s * 0.74, s * 0.54, s * 0.86)
+    tent(s * 0.66, y, s * 0.76, s * 0.68, s * 0.62, s * 0.80)
     return img
 
 
@@ -48,6 +57,7 @@ def main() -> None:
     WEB.mkdir(parents=True, exist_ok=True)
     mark.save(WEB / "favicon.png")
     mark.resize((180, 180), Image.Resampling.LANCZOS).save(WEB / "apple-touch-icon.png")
+    base.save(ROOT / "resources" / "icon.png")
     print("wrote", OUT / "icon.png")
 
 

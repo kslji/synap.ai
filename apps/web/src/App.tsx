@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { SurfDots, SurfMark } from '@surf/ui'
+import { useState } from 'react'
+import { persistThemeChoice, readThemeChoice, SurfCrew, SurfMark, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import { embeddingModel, modelTiers, product } from '@surf/shared'
 
 const FEATURES = [
@@ -51,37 +51,47 @@ const FAQ = [
 ]
 
 export function App() {
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system')
-  useEffect(() => {
-    const saved = localStorage.getItem('surf-theme')
-    if (saved === 'light' || saved === 'dark') {
-      setTheme(saved)
-      document.documentElement.dataset.theme = saved
-    }
-  }, [])
+  const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
+  const [menu, setMenu] = useState(false)
 
-  function choose(next: 'light' | 'dark' | 'system') {
+  function choose(next: ThemeChoice) {
     setTheme(next)
-    localStorage.setItem('surf-theme', next)
-    if (next === 'system') document.documentElement.removeAttribute('data-theme')
-    else document.documentElement.dataset.theme = next
+    persistThemeChoice(next)
   }
 
   return (
     <div>
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-5">
         <a href="#top" className="flex items-center gap-2 text-[var(--ink)] no-underline">
           <SurfMark size={40} />
           <span className="text-[15px] font-semibold">Surf AI</span>
         </a>
-        <nav className="flex items-center gap-4 text-sm">
+        <nav className="hidden items-center gap-4 text-sm md:flex">
           <a className="text-[var(--muted)] no-underline" href="#how">How it works</a>
           <a className="text-[var(--muted)] no-underline" href="#download">Download</a>
-          <button type="button" className="btn btn-ghost" onClick={() => choose(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? 'Light' : 'Dark'}
-          </button>
+          <ThemeSwitch value={theme} onChange={choose} />
         </nav>
+        <div className="flex items-center gap-2 md:hidden">
+          <ThemeSwitch value={theme} onChange={choose} compact />
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-expanded={menu}
+            aria-controls="site-menu"
+            data-menu-button="site"
+            onClick={() => setMenu((v) => !v)}
+          >
+            Menu
+          </button>
+        </div>
       </header>
+      {menu && (
+        <div id="site-menu" className="mx-auto flex max-w-6xl flex-col gap-4 px-6 pb-4 md:hidden">
+          <a className="text-[var(--muted)] no-underline" href="#how" onClick={() => setMenu(false)}>How it works</a>
+          <a className="text-[var(--muted)] no-underline" href="#download" onClick={() => setMenu(false)}>Download</a>
+          <ThemeSwitch value={theme} onChange={choose} />
+        </div>
+      )}
 
       <main id="top">
         <section className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-8 md:grid-cols-[1.1fr_0.9fr]">
@@ -97,8 +107,8 @@ export function App() {
             </div>
           </div>
           <div className="card flex flex-col items-center px-6 py-10">
-            <SurfDots mood="idle" size={240} />
-            <p className="mt-2 text-center text-sm text-[var(--muted)]">Three dots. One wave. Nothing sent away.</p>
+            <SurfCrew mood="idle" size={320} />
+            <p className="mt-4 text-center text-sm text-[var(--muted)]">A jellyfish, a seahorse, and an octopus. Nothing sent away.</p>
           </div>
         </section>
 

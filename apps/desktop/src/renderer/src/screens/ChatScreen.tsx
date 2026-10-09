@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { SurfDots, type SurfMood } from '@surf/ui'
+import { castFor, SurfCrew, type SurfMood } from '@surf/ui'
 import type { ModelStatus } from '../../../shared/ipc-contract'
 import type { UiMsg } from '../types'
 
@@ -25,8 +25,16 @@ export function ChatScreen({
   const [text, setText] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
-  const waiting = streaming && messages.some((m) => m.pending && !m.text)
-  const mood: SurfMood = streaming ? (waiting ? 'thinking' : 'answering') : status.offlineOnly || !status.online ? 'offline' : 'idle'
+  const pending = messages.find((m) => m.pending && m.role === 'assistant')
+  const mood: SurfMood = streaming
+    ? pending && pending.tools.length > 0 && !pending.text
+      ? 'working'
+      : pending && !pending.text
+        ? 'thinking'
+        : 'answering'
+    : status.offlineOnly || !status.online
+      ? 'offline'
+      : 'idle'
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
@@ -62,7 +70,7 @@ export function ChatScreen({
       <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
         {messages.length === 0 ? (
           <div className="mx-auto flex max-w-lg flex-col items-center pt-16 text-center">
-            <SurfDots mood={mood} size={168} />
+            <SurfCrew mood={mood} size={280} />
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">Ask Surf</h1>
             <p className="mt-2 text-[15px] leading-relaxed text-[var(--muted)]">
               Works offline. Stays up to date when you&apos;re online.
@@ -113,7 +121,7 @@ function Bubble({ msg, mood }: { msg: UiMsg; mood: SurfMood }) {
   }
   return (
     <div className="flex gap-3">
-      <div className="pt-1"><SurfDots mood={msg.pending ? mood : msg.error ? 'error' : 'idle'} size={46} /></div>
+      <div className="pt-1"><SurfCrew mood={msg.pending ? mood : msg.error ? 'error' : 'idle'} who={castFor(msg.pending ? mood : msg.error ? 'error' : 'idle')} size={52} /></div>
       <div className="min-w-0 flex-1">
         <div className="whitespace-pre-wrap text-[15px] leading-relaxed">
           {msg.text || (msg.pending ? 'Thinking' : '')}

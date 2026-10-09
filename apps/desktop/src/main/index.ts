@@ -107,7 +107,7 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     const paths = preloadAndHtml()
@@ -145,7 +145,10 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
   }
   for (const theme of ['light', 'dark'] as const) {
     win.setBackgroundColor(theme === 'dark' ? '#0a0a0a' : '#fafafa')
-    await win.webContents.executeJavaScript(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`)
+    await win.webContents.executeJavaScript(`
+      document.querySelector('[data-theme-choice=${JSON.stringify(theme)}]')?.click();
+      document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+    `)
     await sleep(250)
     await go('onboarding')
     await shot(`onboarding-${theme}`)

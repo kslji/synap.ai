@@ -41,13 +41,13 @@ Mac notes, including the self-test path, are in `apps/desktop/README.md`. What t
 | `services/api` | FastAPI (Day 4) |
 | `deploy` | Docker Compose: Caddy, API, Postgres/pgvector, Valkey, SearXNG |
 | `pipelines/ingest` | Day 6 placeholder |
-| `packages/ui` | Surf dots |
+| `packages/ui` | Theme, jellyfish, seahorse, octopus |
 | `packages/shared` | Product constants |
 | `docs` | Architecture, diagrams, code samples |
 
 ## Design
 
-One theme, in `packages/ui/src/tokens.css`: white and near-black surfaces, black or white text, orange `#F97316` as the only accent. Light and dark both read those variables. The dots and the app icon use the same black, white, and orange. They are SVG and CSS, not a copied mascot, and they respect reduced motion.
+One theme, in `packages/ui/src/tokens.css`: white and near-black surfaces, black or white text, orange `#F97316` as the only accent. Light and dark both read those variables. The jellyfish, seahorse, octopus, and the app icon use the same black, white, and orange. They are SVG and CSS, not a copied mascot, and they respect reduced motion. Light, dark, and system share one control.
 
 The portable zip pack (RAM picker, `LOCAL-SETUP`, `SURF-OPEN`, in-zip `check-pack`) is removed. Model size is chosen in the desktop app's first launch. `build.txt` publishes `apps/web/dist` and drops the old zip pages from the live site.
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { SurfDots } from '@surf/ui'
+import { persistThemeChoice, SurfCrew, type ThemeChoice } from '@surf/ui'
 import type { ConversationSummary, ModelStatus, SettingsPatch } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { Sidebar } from './screens/Sidebar'
@@ -30,8 +30,6 @@ export default function App() {
   }, [api])
 
   useEffect(() => {
-    const saved = localStorage.getItem('surf-theme')
-    if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved
     window.__surfNav = (next) => setView(next)
     void refresh().catch((e: unknown) => setError((e as Error).message))
     const offChat = api.chat.onEvent((e) => {
@@ -61,7 +59,17 @@ export default function App() {
     if (status.onboardingComplete) setView('chat')
   }, [status])
 
+  useEffect(() => {
+    if (settings) persistThemeChoice(settings.theme)
+  }, [settings])
+
+  function chooseTheme(theme: ThemeChoice) {
+    persistThemeChoice(theme)
+    void patch({ theme })
+  }
+
   async function patch(p: SettingsPatch) {
+    if (p.theme) persistThemeChoice(p.theme)
     await api.settings.set(p)
     await refresh()
   }
@@ -119,7 +127,7 @@ export default function App() {
   if (!status || !settings) {
     return (
       <main className="flex h-full flex-col items-center justify-center gap-2" data-ready="no">
-        <SurfDots mood="thinking" size={120} />
+        <SurfCrew mood="thinking" size={180} />
         <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Surf AI'}</p>
       </main>
     )
@@ -132,6 +140,8 @@ export default function App() {
           status={status}
           progress={busyId ? (progress[busyId] ?? 0) : 0}
           error={error}
+          theme={settings.theme}
+          onTheme={chooseTheme}
           onDownload={downloadChatAndEmbed}
           onReady={(chatId) => { void patch({ onboardingComplete: true, chatModelId: chatId }).then(() => setView('chat')) }}
         />
@@ -146,6 +156,8 @@ export default function App() {
         conversations={conversations}
         activeId={conversationId}
         onView={setView}
+        theme={settings.theme}
+        onTheme={chooseTheme}
         onNew={newChat}
         onOpen={(id) => { void openConversation(id) }}
       />

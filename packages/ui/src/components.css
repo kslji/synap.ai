@@ -105,6 +105,52 @@
   transition: width 180ms ease;
 }
 
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+}
+.theme-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.theme-switch button[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.theme-switch button:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.theme-switch.is-compact button { padding: 6px 8px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-ready,
+  html.theme-ready body,
+  html.theme-ready aside,
+  html.theme-ready header,
+  html.theme-ready .card,
+  html.theme-ready .theme-switch,
+  html.theme-ready .theme-switch button {
+    transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .btn, .toggle span, .progress b { transition: none; }
+  .btn, .toggle span, .progress b, .theme-switch button { transition: none; }
 }

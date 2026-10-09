@@ -16,6 +16,7 @@ export const SettingsPatch = z.object({
   telemetryOptIn: z.boolean().optional(),
   chatModelId: z.string().max(64).optional(),
   onboardingComplete: z.boolean().optional(),
+  theme: z.enum(['system', 'light', 'dark']).optional(),
 }).strict()
 
 export const ModelId = z.string().min(1).max(80)

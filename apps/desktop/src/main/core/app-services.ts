@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS: Settings = {
   telemetryOptIn: false,
   chatModelId: '',
   onboardingComplete: false,
+  theme: 'system',
 }
 
 export async function createServices(): Promise<Services> {

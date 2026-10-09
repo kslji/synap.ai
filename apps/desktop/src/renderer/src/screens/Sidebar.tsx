@@ -1,4 +1,4 @@
-import { SurfMark } from '@surf/ui'
+import { SurfMark, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import type { ConversationSummary } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
@@ -16,6 +16,8 @@ export function Sidebar({
   onView,
   onNew,
   onOpen,
+  theme,
+  onTheme,
 }: {
   view: View
   conversations: ConversationSummary[]
@@ -23,6 +25,8 @@ export function Sidebar({
   onView: (v: View) => void
   onNew: () => void
   onOpen: (id: string) => void
+  theme: ThemeChoice
+  onTheme: (theme: ThemeChoice) => void
 }) {
   return (
     <aside className="flex h-full w-[272px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
@@ -63,7 +67,8 @@ export function Sidebar({
           </button>
         ))}
       </div>
-      <div className="mt-2 flex flex-col gap-1 border-t border-[var(--line)] pt-2">
+      <div className="mt-2 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
+        <ThemeSwitch value={theme} onChange={onTheme} />
         <NavButton current={view} id="models" onView={onView}>Models</NavButton>
         <NavButton current={view} id="settings" onView={onView}>Settings</NavButton>
       </div>

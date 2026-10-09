@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { SurfDots } from '@surf/ui'
+import { SurfCrew, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import type { ModelStatus } from '../../../shared/ipc-contract'
 import { formatBytes, tierLabel } from '../format'
 
@@ -7,12 +7,16 @@ export function Onboarding({
   status,
   progress,
   error,
+  theme,
+  onTheme,
   onDownload,
   onReady,
 }: {
   status: ModelStatus
   progress: number
   error: string | null
+  theme: ThemeChoice
+  onTheme: (theme: ThemeChoice) => void
   onDownload: (chatId: string) => Promise<void>
   onReady: (chatId: string) => void
 }) {
@@ -31,9 +35,12 @@ export function Onboarding({
   }
 
   return (
-    <main className="flex h-full items-center justify-center bg-[var(--bg)] px-6" data-screen="onboarding">
+    <main className="relative flex h-full items-center justify-center bg-[var(--bg)] px-6" data-screen="onboarding">
+      <div className="absolute right-4 top-4">
+        <ThemeSwitch value={theme} onChange={onTheme} />
+      </div>
       <div className="card w-full max-w-xl px-8 py-8">
-        <SurfDots mood={step === 3 ? 'answering' : working ? 'thinking' : 'idle'} size={120} />
+        <SurfCrew mood={step === 3 ? 'answering' : working ? 'thinking' : 'idle'} size={220} />
         <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Step {step + 1} of 4</p>
         {step === 0 && (
           <>

@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { ThemeSwitch } from '@surf/ui'
 import type { ModelStatus, SettingsPatch } from '../../../shared/ipc-contract'
-
-type Theme = 'system' | 'light' | 'dark'
 
 export function SettingsScreen({
   status,
@@ -14,20 +13,7 @@ export function SettingsScreen({
   onPatch: (p: SettingsPatch) => void
   onCheckUpdates: () => Promise<string>
 }) {
-  const [theme, setTheme] = useState<Theme>('system')
   const [updateNote, setUpdateNote] = useState('')
-
-  useEffect(() => {
-    const saved = localStorage.getItem('surf-theme')
-    if (saved === 'light' || saved === 'dark' || saved === 'system') setTheme(saved)
-  }, [])
-
-  function chooseTheme(next: Theme) {
-    setTheme(next)
-    localStorage.setItem('surf-theme', next)
-    if (next === 'system') document.documentElement.removeAttribute('data-theme')
-    else document.documentElement.dataset.theme = next
-  }
 
   return (
     <section className="flex-1 overflow-auto px-8 py-8">
@@ -53,12 +39,9 @@ export function SettingsScreen({
         />
         <div className="card px-4 py-4">
           <div className="text-sm font-semibold">Appearance</div>
-          <div className="mt-3 flex gap-2">
-            {(['system', 'light', 'dark'] as Theme[]).map((t) => (
-              <button key={t} type="button" className={`btn ${theme === t ? 'btn-primary' : 'btn-ghost'}`} onClick={() => chooseTheme(t)}>
-                {t}
-              </button>
-            ))}
+          <p className="mt-1 text-sm text-[var(--muted)]">System follows this computer. Your choice is saved on this device.</p>
+          <div className="mt-3">
+            <ThemeSwitch value={settings.theme} onChange={(theme) => onPatch({ theme })} />
           </div>
         </div>
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">

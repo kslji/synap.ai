@@ -1,13 +1,13 @@
 import { useEffect } from 'react'
 
-export type SurfMood = 'idle' | 'thinking' | 'answering' | 'working' | 'offline' | 'error'
+export type SurfMood = 'idle' | 'thinking' | 'answering' | 'working' | 'searching' | 'offline' | 'error'
 
 const CSS = `
 .surf-crew { display: flex; align-items: flex-end; justify-content: center; gap: 2%; }
 .surf-crew svg { overflow: visible; display: block; }
 .surf-crew .eyes { transform-box: fill-box; transform-origin: center; animation: surf-blink 5.4s infinite; }
 .surf-crew .shut { display: none; }
-.surf-crew .anchor, .surf-crew .doze, .surf-crew .bubbles, .surf-crew .juggle { display: none; }
+.surf-crew .anchor, .surf-crew .doze, .surf-crew .bubbles, .surf-crew .juggle, .surf-crew .scope { display: none; }
 .surf-crew.is-idle .jelly { animation: surf-bob 2.8s ease-in-out infinite; }
 .surf-crew.is-idle .tent { transform-box: fill-box; transform-origin: 50% 0%; animation: surf-sway 2.6s ease-in-out infinite; }
 .surf-crew.is-idle .tent.t2 { animation-delay: -0.4s; }
@@ -28,6 +28,8 @@ const CSS = `
 .surf-crew.is-thinking .bubbles .bubble:nth-child(2) { animation-delay: 0.35s; }
 .surf-crew.is-thinking .bubbles .bubble:nth-child(3) { animation-delay: 0.7s; }
 .surf-crew.is-answering .horse { animation: surf-type 0.48s ease-in-out infinite; }
+.surf-crew.is-searching .scope { display: block; }
+.surf-crew.is-searching .horse { animation: surf-look 1.6s ease-in-out infinite; }
 .surf-crew.is-working .octo { animation: surf-pulse 0.9s ease-in-out infinite; }
 .surf-crew.is-working .arm { transform-box: fill-box; transform-origin: 50% 0%; animation: surf-sway 0.7s ease-in-out infinite; }
 .surf-crew.is-working .juggle { display: block; }
@@ -48,6 +50,7 @@ const CSS = `
 @keyframes surf-curl { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(8deg); } }
 @keyframes surf-pulse { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
 @keyframes surf-type { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes surf-look { 0%,100% { transform: translate(0, 0) rotate(0deg); } 50% { transform: translate(2px, -4px) rotate(-3deg); } }
 @keyframes surf-drift { 0%,100% { transform: translate(0, 0); } 50% { transform: translate(4px, 6px); } }
 @keyframes surf-rise { 0% { transform: translateY(8px); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateY(-28px); opacity: 0; } }
 @keyframes surf-juggle { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
@@ -123,6 +126,13 @@ export function Seahorse() {
         <circle cx="74" cy="50" r="18" fill="#F97316" stroke="#141414" strokeWidth="2.5" />
         <ellipse cx="98" cy="52" rx="11" ry="6" fill="#F97316" stroke="#141414" strokeWidth="2" />
         <path d="M56 46 q -16 6 -6 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <g className="scope" transform="translate(86 18)">
+          <circle cx="16" cy="16" r="11" fill="#ffffff" stroke="#141414" strokeWidth="2" />
+          <circle cx="16" cy="16" r="6" fill="none" stroke="#F97316" strokeWidth="2" />
+          <circle cx="16" cy="16" r="2.2" fill="#141414" />
+          <path d="M8 26 L2 38" stroke="#141414" strokeWidth="2.4" strokeLinecap="round" />
+          <path d="M24 26 L30 38" stroke="#141414" strokeWidth="2.4" strokeLinecap="round" />
+        </g>
         <g className="eyes">
           <g className="open">
             <circle cx="80" cy="46" r="5" fill="#ffffff" stroke="#141414" strokeWidth="1.4" />
@@ -184,6 +194,7 @@ const LEAD: Record<SurfMood, string> = {
   idle: 'Jellyfish, seahorse, and octopus resting',
   thinking: 'Jellyfish thinking, bubbles rising',
   answering: 'Seahorse answering',
+  searching: 'Seahorse looking through a telescope',
   working: 'Octopus juggling while a tool runs',
   offline: 'Jellyfish, seahorse, and octopus resting offline',
   error: 'The sea creatures wobble',
@@ -227,7 +238,7 @@ export function SurfCrew({
 }
 
 export function castFor(mood: SurfMood): 'jelly' | 'horse' | 'octo' {
-  if (mood === 'answering') return 'horse'
+  if (mood === 'answering' || mood === 'searching') return 'horse'
   if (mood === 'working') return 'octo'
   return 'jelly'
 }

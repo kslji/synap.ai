@@ -17,6 +17,11 @@ import { shutdownOcr } from './core/ocr'
 import { LIBRARY_MIGRATION } from './core/library-schema'
 import { SESSION_MIGRATION } from './core/session-store'
 import { DOC_TAU } from './core/retrieval'
+import { chunkBlocks } from './core/chunker'
+import { formatWebCitation, rankPassages, rewritePrompt } from './core/web-decision'
+import { searchWeb } from './core/web-client'
+import { OfflineOnlyError } from './core/offline-guard'
+import { BEACON_CODE, BEACON_QUESTION, offlineRefusal, searchBeacon, startSearchFixture } from './core/web-selftest'
 import { searchUser } from './core/user-search'
 import { makeDocx, makePdf, makePng } from './core/samples'
 import { Calculator } from './core/calculator'
@@ -163,13 +168,16 @@ async function selfTest(): Promise<void> {
   const chatGguf = join(models, surfEnv('CHAT_GGUF') ?? 'Qwen3.5-2B-Q4_K_M.gguf')
   await step(r, 'llama-server sidecar: Qwen3.5 chat (thinking off)', async () => {
     if (!existsSync(chatGguf)) throw new Error(`missing ${chatGguf}`)
-    const srv = new LlamaServer({ binPath: bin, modelPath: chatGguf, ctx: 4096, logFile: join(ud, 'chat.log') })
+    const srv = new LlamaServer({ binPath: bin, modelPath: chatGguf, ctx: 4096, logFile: join(ud, 'chat.log'), startupTimeoutMs: 180_000 })
     await srv.start()
     try {
       const c = new LlamaClient({ baseUrl: srv.baseUrl, apiKey: srv.apiKey })
       const res = await c.chat([{ role: 'user', content: 'Reply with exactly one word: surf' }], undefined, undefined, 16)
       const word = String(res.choices[0].message.content).trim()
-      if (!ferrySource) return `answer="${word}" (no document fixture)`
+      if (!ferrySource) {
+        const web = await answerFromWeb(srv, c, chatGguf, embGguf)
+        return `answer="${word}" (no document fixture); ${web}`
+      }
       const grounded = await c.chat([{
         role: 'system',
         content: 'Answer using only the sources. Cite the source as [S1]. Do not invent times or citations.',
@@ -180,7 +188,8 @@ async function selfTest(): Promise<void> {
       const answer = String(grounded.choices[0].message.content ?? '').trim()
       if (!/06:40|6:40|0640/.test(answer)) throw new Error(`grounded answer missing 06:40: ${answer}`)
       if (!/\[S1\]/.test(answer)) throw new Error(`grounded answer missing citation: ${answer}`)
-      return `answer="${word}"; grounded="${answer.replace(/\s+/g, ' ')}"`
+      const web = await answerFromWeb(srv, c, chatGguf, embGguf)
+      return `answer="${word}"; grounded="${answer.replace(/\s+/g, ' ')}"; ${web}`
     } finally { await srv.stop() }
   })
 
@@ -190,10 +199,11 @@ async function selfTest(): Promise<void> {
     ipcMain.handle(IPC.modelsStatus, () => ({
       tier: 0, ramGb: 0, cpuModel: 'selftest', cores: 1, chatModelId: '', installed: [], downloading: null,
       sidecars: { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }, models: [], online: false,
+      onlineReason: 'Offline only is on',
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const, apiBaseUrl: 'https://api.synap.surf' }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     const paths = preloadAndHtml()
@@ -253,8 +263,70 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await demo('processing', 'processing')
     await demo('citation', 'citation')
     await demo('library', 'library')
+    await demo('searching', 'searching')
+    await demo('web', 'web')
+    const offlineBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.getAttribute('data-on') || ''`)
+    if (offlineBefore !== 'yes') {
+      await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
+      await sleep(700)
+    }
+    await demo('refusal', 'refusal')
+    if (offlineBefore !== 'yes') {
+      await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
+      await sleep(400)
+    }
   }
   console.log('[surf] screenshots in', dir)
+  app.exit(0)
+}
+
+async function answerFromWeb(srv: LlamaServer, chat: LlamaClient, chatGguf: string, embGguf: string): Promise<string> {
+  const fixture = await startSearchFixture()
+  try {
+    const rewritten = await chat.chat([{ role: 'user', content: rewritePrompt(BEACON_QUESTION) }], undefined, undefined, 120)
+    const raw = String(rewritten.choices[0]?.message?.content ?? '')
+    const found = await searchBeacon(fixture.base, raw)
+    await srv.restartWith({ modelPath: embGguf, embeddings: true, ctx: 2048, pooling: 'mean' })
+    const embedder = new Embedder(new LlamaClient({ baseUrl: srv.baseUrl, apiKey: srv.apiKey }))
+    const blocks = chunkBlocks([{ text: found.text, heading: found.title }]).slice(0, 2)
+    if (!blocks.length) throw new Error('beacon page produced no chunks')
+    const vecs = await embedder.embedDocs(blocks.map((block) => ({ title: found.title, text: block.text })))
+    const [qvec] = await embedder.embedQueries([BEACON_QUESTION])
+    const ranked = rankPassages(qvec, blocks.map((block, i) => ({
+      text: block.text, title: found.title, url: found.url, published: found.published, vec: vecs[i],
+    })))
+    const top = ranked[0]
+    if (!top || !top.text.includes(BEACON_CODE)) throw new Error(`ranked page missing ${BEACON_CODE}`)
+    await srv.restartWith({ modelPath: chatGguf, embeddings: false, ctx: 4096 })
+    const again = new LlamaClient({ baseUrl: srv.baseUrl, apiKey: srv.apiKey })
+    const cite = formatWebCitation({ title: top.title, url: top.url, published: top.published })
+    const webAnswer = await again.chat([{
+      role: 'system',
+      content: 'Answer using only the sources. Cite the source as [S1]. Quote the beacon code exactly. Do not invent codes.',
+    }, {
+      role: 'user',
+      content: `SOURCES:\n[S1] ${cite}\n${top.text}\n\nQuestion: ${BEACON_QUESTION}`,
+    }], undefined, undefined, 180)
+    const webText = String(webAnswer.choices[0]?.message?.content ?? '').trim()
+    if (!webText.includes(BEACON_CODE)) throw new Error(`web answer missing ${BEACON_CODE}: ${webText}`)
+    if (!/\[S1\]/.test(webText)) throw new Error(`web answer missing citation: ${webText}`)
+    let called = false
+    try {
+      await searchWeb({
+        base: fixture.base, token: 'unused', query: 'beacon', offlineOnly: true,
+        fetchImpl: async () => { called = true; return new Response('no') },
+      })
+      throw new Error('offline only did not throw')
+    } catch (error) {
+      if (!(error instanceof OfflineOnlyError)) throw error
+    }
+    if (called) throw new Error('offline only reached the network')
+    const refusal = offlineRefusal()
+    if (refusal.branch !== 'refuse') throw new Error(`expected refuse, got ${refusal.branch}`)
+    return `web="${webText.replace(/\s+/g, ' ')}"; queries=${found.queries.join(' | ')}; cosine=${top.cosine.toFixed(3)}; offline="${refusal.message}"`
+  } finally {
+    await fixture.stop()
+  }
 }
 
 app.enableSandbox()

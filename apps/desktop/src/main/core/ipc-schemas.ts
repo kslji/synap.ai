@@ -18,7 +18,10 @@ export const SettingsPatch = z.object({
   chatModelId: z.string().max(64).optional(),
   onboardingComplete: z.boolean().optional(),
   theme: z.enum(['system', 'light', 'dark']).optional(),
+  apiBaseUrl: z.string().max(200).regex(/^https?:\/\/\S+$/).optional(),
 }).strict()
+
+export const HttpLink = z.string().max(2000).regex(/^https?:\/\/\S+$/)
 
 export const ModelId = z.string().min(1).max(80)
 export const ConversationId = z.string().uuid()

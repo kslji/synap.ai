@@ -1,10 +1,10 @@
 /**
  * App services: hardware, model registry, chat, and the document index.
  * One llama-server at a time (chat or embeddings). Indexing never blocks the chat IPC.
- * TODO(Day 4): web search via services/api. TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
+ * TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
  * TODO: download Qwen3.5 mmproj and expose "Describe image" (vision.ts). OCR is the image path for now.
  */
-import { app, BrowserWindow, net, dialog } from 'electron'
+import { app, BrowserWindow, net, dialog, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
@@ -25,7 +25,7 @@ import { openUserDb } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
-import { assertNetworkAllowed } from './offline-guard.js'
+import { assertNetworkAllowed, OfflineOnlyError } from './offline-guard.js'
 import { surfEnv } from './surf-env.js'
 import { initAutoUpdate, installOfflineUpdate } from './updater.js'
 import type { ParsedChat } from './ipc-schemas.js'
@@ -35,9 +35,35 @@ import { mimeForName, readAttachment } from './convert.js'
 import { addBytes, countsFor, deleteAttachment, listFiles, markCancelled, previewAttachment, previewChunk, retryJob } from './library-store.js'
 import { searchUser, type UserHit } from './user-search.js'
 import { captionImage, mmprojReady } from './vision.js'
+import { chunkBlocks } from './chunker.js'
+import { describeReach } from './reach.js'
+import { fetchPages, probeHealth, registerDevice, searchWeb } from './web-client.js'
+import {
+  HINT_FAILED,
+  HINT_OFFLINE,
+  decideWeb,
+  domainOf,
+  formatWebCitation,
+  parseSearchQueries,
+  prettyDate,
+  rankPassages,
+  refusalMessage,
+  rewritePrompt,
+  wantsFresh,
+} from './web-decision.js'
 
 type ChatReq = ParsedChat
 type Settings = Required<SettingsPatch>
+
+interface WebPiece {
+  text: string
+  title: string
+  url: string
+  published: string | null
+  cosine: number
+}
+
+const WEB_FLOOR = 0.42
 
 const SYSTEM =
   'You are Surf AI, a calm assistant that runs entirely on this computer. ' +
@@ -48,6 +74,8 @@ const INSUFFICIENT = "I don't have enough information to answer that from the so
 const DOC_REFUSAL = "I don't have enough information in your documents."
 const STILL_READING = "I'm still reading your files. Ask again when they finish."
 
+export const DEFAULT_API_BASE = 'https://api.synap.surf'
+
 const DEFAULT_SETTINGS: Settings = {
   offlineOnly: false,
   webSearchAllowed: false,
@@ -55,6 +83,7 @@ const DEFAULT_SETTINGS: Settings = {
   chatModelId: '',
   onboardingComplete: false,
   theme: 'system',
+  apiBaseUrl: DEFAULT_API_BASE,
 }
 
 export async function createServices(): Promise<Services> {
@@ -67,6 +96,11 @@ export async function createServices(): Promise<Services> {
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; server: LlamaServer } | null = null
   let modelTail: Promise<void> = Promise.resolve()
   let ui: BrowserWindow | null = null
+  let deviceToken: string | null = null
+  let osOnline = isOnline()
+  let stableOnline = osOnline
+  let apiReachable = false
+  let checking = true
   const sidecars: ModelStatus['sidecars'] = { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }
 
   const settingsPath = () => join(app.getPath('userData'), 'settings.json')
@@ -143,7 +177,7 @@ export async function createServices(): Promise<Services> {
       downloading,
       sidecars: { ...sidecars },
       models,
-      online: isOnline() && !settings.offlineOnly,
+      ...reachNow(settings.offlineOnly),
       offlineOnly: settings.offlineOnly,
       onboardingComplete: settings.onboardingComplete,
       chatPersistence: store.mode,
@@ -287,6 +321,59 @@ export async function createServices(): Promise<Services> {
     return { queue, deps }
   })() : null
 
+  async function collectWeb(question: string, signal: AbortSignal, chatModel: ModelEntry, ctx: number, win: BrowserWindow, messageId: string): Promise<WebPiece[]> {
+    const current = readSettings()
+    assertNetworkAllowed(current.offlineOnly)
+    const server = await ensure('chat', chatModel, ctx)
+    const client = new LlamaClient({
+      baseUrl: server.baseUrl,
+      apiKey: server.apiKey,
+      sampling: chatModel.sampling,
+      chatTemplateKwargs: chatModel.chat_template_kwargs,
+    })
+    let raw = ''
+    try {
+      const rewritten = await client.chat([{ role: 'user', content: rewritePrompt(question) }], undefined, signal, 120)
+      raw = String(rewritten.choices[0]?.message?.content ?? '')
+    } catch (error) {
+      if (signal.aborted) throw error
+      raw = ''
+    }
+    const queries = parseSearchQueries(raw, question)
+    const base = apiBase(readSettings())
+    assertNetworkAllowed(readSettings().offlineOnly)
+    if (!deviceToken) deviceToken = await registerDevice({ base, offlineOnly: readSettings().offlineOnly, signal })
+    const picked = new Map<string, { title: string; published: string | null }>()
+    for (const query of queries) {
+      if (signal.aborted) return []
+      assertNetworkAllowed(readSettings().offlineOnly)
+      const rows = await searchWeb({ base, token: deviceToken, offlineOnly: readSettings().offlineOnly, query, k: 4, signal })
+      for (const row of rows) {
+        if (!picked.has(row.url)) picked.set(row.url, { title: row.title, published: row.published })
+      }
+    }
+    const urls = [...picked.keys()].slice(0, 3)
+    if (!urls.length) return []
+    sendEvent(win, { type: 'status', messageId, phase: 'reading' })
+    assertNetworkAllowed(readSettings().offlineOnly)
+    const pages = await fetchPages({ base, token: deviceToken, offlineOnly: readSettings().offlineOnly, urls, signal })
+    const pieces = pages.flatMap((page) => chunkBlocks([{ text: page.text, heading: page.title }]).slice(0, 2).map((chunk) => ({
+      text: chunk.text,
+      title: page.title || picked.get(page.url)?.title || domainOf(page.url),
+      url: page.url,
+      published: page.published ?? picked.get(page.url)?.published ?? null,
+    })))
+    if (!pieces.length) return []
+    const emb = registry().models.find((m) => m.role === 'embedding')
+    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 in Models before searching the web.')
+    const embedServer = await ensure('embed', emb, 2048)
+    const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
+    const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
+    const [qvec] = await embedder.embedQueries([question])
+    return rankPassages(qvec, pieces.map((piece, i) => ({ ...piece, vec: vectors[i] })), 4)
+      .filter((piece) => piece.cosine >= WEB_FLOOR)
+  }
+
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     const settings = readSettings()
     const reg = registry()
@@ -325,11 +412,6 @@ export async function createServices(): Promise<Services> {
         const found = searchUser(store.db, text, qvec, scopeId, 5)
         hits = found.top
         decision = found.decision
-        if (decision === 'insufficient') {
-          await emitText(win, messageId, DOC_REFUSAL)
-          finish(conversationId, messageId, userMessageId, win, DOC_REFUSAL, [], 'insufficient')
-          return
-        }
       } else if (Object.keys(packs).length > 0) {
         const emb = reg.models.find((m) => m.role === 'embedding')
         if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 before searching packs.')
@@ -339,14 +421,23 @@ export async function createServices(): Promise<Services> {
         const found = hybridSearch(packs, text, qvec)
         hits = found.top
         decision = found.decision
-        if (decision === 'insufficient') {
-          const allowWeb = !settings.offlineOnly && settings.webSearchAllowed && req.allowWeb !== false && isOnline()
-          // TODO(Day 4): call services/api POST /v1/search, then fetch and clean pages on device.
-          const message = allowWeb ? `${INSUFFICIENT} Web search is not connected yet.` : INSUFFICIENT
-          await emitText(win, messageId, message)
-          finish(conversationId, messageId, userMessageId, win, message, [], allowWeb ? 'web' : 'insufficient')
-          return
-        }
+      }
+
+      const fresh = wantsFresh(text)
+      const webAllowed = settings.webSearchAllowed && req.allowWeb !== false
+      const connected = reachNow(settings.offlineOnly)
+      const plan = decideWeb({
+        local: decision,
+        fresh,
+        online: connected.online,
+        offlineOnly: settings.offlineOnly,
+        webAllowed,
+      })
+      if (plan.branch === 'refuse') {
+        const message = refusalMessage(plan.hint ?? HINT_FAILED)
+        await emitText(win, messageId, message)
+        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
+        return
       }
 
       const chatModel = await chooseChat(reg, settings.chatModelId)
@@ -355,6 +446,28 @@ export async function createServices(): Promise<Services> {
         throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
       }
       const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      let webHits: WebPiece[] = []
+      if (plan.branch === 'web' || plan.branch === 'blend') {
+        sendEvent(win, { type: 'status', messageId, phase: 'searching' })
+        try {
+          webHits = await collectWeb(text, signal, chatModel, profile.serverCtx, win, messageId)
+        } catch (error) {
+          if (signal.aborted) return
+          if (plan.branch === 'web' || error instanceof OfflineOnlyError) {
+            const message = refusalMessage(error instanceof OfflineOnlyError ? HINT_OFFLINE : HINT_FAILED)
+            await emitText(win, messageId, message)
+            finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
+            return
+          }
+          webHits = []
+        }
+        if (plan.branch === 'web' && webHits.length === 0) {
+          const message = refusalMessage(HINT_FAILED)
+          await emitText(win, messageId, message)
+          finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
+          return
+        }
+      }
       const server = await ensure('chat', chatModel, profile.serverCtx)
       const client = new LlamaClient({
         baseUrl: server.baseUrl,
@@ -362,8 +475,9 @@ export async function createServices(): Promise<Services> {
         sampling: chatModel.sampling,
         chatTemplateKwargs: chatModel.chat_template_kwargs,
       })
+      const stayingLocal = webHits.length === 0
       const refusal = fromDocs ? DOC_REFUSAL : INSUFFICIENT
-      if (decision === 'borderline') {
+      if (stayingLocal && decision === 'borderline') {
         const check = await client.chat([{ role: 'user', content: borderlinePrompt(text, hits) }], undefined, signal, 8)
         const yn = String(check.choices[0]?.message?.content ?? '').trim().toUpperCase()
         if (yn.startsWith('NO')) {
@@ -383,13 +497,25 @@ export async function createServices(): Promise<Services> {
           i++
         }
       }
-      const useTools = needsCalculator(text) && !fromDocs
-      const sources = citationsOf(hits)
+      const useTools = needsCalculator(text) && !fromDocs && stayingLocal
+      const localSources = plan.branch === 'web' ? [] : citationsOf(hits)
+      const webSources: Citation[] = webHits.map((hit) => ({
+        kind: 'web' as const,
+        title: hit.title,
+        url: hit.url,
+        domain: domainOf(hit.url),
+        published: prettyDate(hit.published) || null,
+        pack: 'web',
+        excerpt: formatWebCitation({ title: hit.title, url: hit.url, published: hit.published }),
+      }))
+      const sources = [...localSources, ...webSources]
       if (sources.length) sendEvent(win, { type: 'sources', messageId, sources })
+      const localChunks = plan.branch === 'web' ? [] : hits.slice(0, 4).map((h) => ({ id: String(h.chunkId), text: h.text, title: h.title || h.pack, score: h.cosine }))
+      const webChunks = webHits.map((hit, i) => ({ id: `web-${i + 1}`, text: hit.text, title: formatWebCitation(hit), score: hit.cosine }))
       const budget = await allocate(new LlamaServerTokenizer(server.baseUrl, server.apiKey), profile, {
         system: SYSTEM,
         tools: useTools ? calculatorTools : undefined,
-        chunks: hits.slice(0, 5).map((h) => ({ id: String(h.chunkId), text: h.text, title: h.title || h.pack, score: h.cosine })),
+        chunks: [...localChunks, ...webChunks].slice(0, 5),
         history,
         question: text,
       })
@@ -410,7 +536,7 @@ export async function createServices(): Promise<Services> {
           sendEvent(win, { type: 'token', messageId, text: piece })
         }
       }
-      const gate: GateName = decision === 'skip' ? 'answer' : decision
+      const gate: GateName = webHits.length ? 'web' : decision === 'skip' ? 'answer' : decision
       finish(conversationId, messageId, userMessageId, win, answer, sources, gate)
     })
   }
@@ -460,7 +586,17 @@ export async function createServices(): Promise<Services> {
     },
     settings: {
       get: async () => readSettings(),
-      set: async (p) => { writeSettings({ ...readSettings(), ...p }) },
+      set: async (p) => {
+        const next = { ...readSettings(), ...p }
+        writeSettings(next)
+        if (next.offlineOnly) {
+          apiReachable = false
+          checking = false
+        } else if (p.offlineOnly === false || p.apiBaseUrl) {
+          checking = true
+          void probeApi()
+        }
+      },
       isOfflineOnly: () => offlineOnly,
     },
     updates: {
@@ -508,7 +644,44 @@ export async function createServices(): Promise<Services> {
         return null
       },
     },
+    links: {
+      open: async (url) => { await shell.openExternal(url) },
+    },
   }
+  function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
+    const described = describeReach({ osOnline: stableOnline, apiReachable, offlineOnly, checking: offlineOnly ? false : checking })
+    return { online: described.online, onlineReason: described.reason }
+  }
+
+  function watchNetwork(): void {
+    setInterval(() => {
+      const now = isOnline()
+      if (now === osOnline) return
+      osOnline = now
+      checking = true
+      setTimeout(() => {
+        stableOnline = osOnline
+        void probeApi()
+      }, 1500)
+    }, 500)
+    setInterval(() => { void probeApi() }, 15_000)
+    void probeApi()
+  }
+
+  async function probeApi(): Promise<void> {
+    const settings = readSettings()
+    stableOnline = isOnline()
+    osOnline = stableOnline
+    if (settings.offlineOnly || !stableOnline) {
+      apiReachable = false
+      checking = false
+      return
+    }
+    apiReachable = await probeHealth(apiBase(settings), 3000)
+    checking = false
+  }
+
+  watchNetwork()
   return services
 
   async function ingestPaths(paths: string[], conversationId: string | null, createConversation: boolean, win: BrowserWindow) {
@@ -552,6 +725,7 @@ function citationsOf(hits: Array<Hit | UserHit>): Citation[] {
   return hits.map((hit) => {
     const user = hit as UserHit
     return {
+      kind: 'document' as const,
       title: hit.title || hit.pack,
       url: hit.url || '',
       pack: hit.pack,
@@ -568,6 +742,10 @@ function labelFor(m: ModelEntry): string {
   if (m.role === 'chat') return `Qwen3.5 ${m.params_b ?? ''}B`.replace(' B', 'B')
   if (m.role === 'asr') return m.id
   return m.id
+}
+
+function apiBase(settings: Settings): string {
+  return (surfEnv('API_BASE') || settings.apiBaseUrl || DEFAULT_API_BASE).replace(/\/$/, '')
 }
 
 function isOnline(): boolean {

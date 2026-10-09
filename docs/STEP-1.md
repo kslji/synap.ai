@@ -46,4 +46,4 @@ Kept on purpose: `apps/host` (auth / OTP / feedback / admin), its systemd unit, 
 
 ## Next
 
-Document chat shipped in `docs/STEP-2.md`. After that: web search (Day 4), then login and signed packs.
+Document chat shipped in `docs/STEP-2.md`. Web search shipped in `docs/STEP-3.md`. Next: login and signed packs.

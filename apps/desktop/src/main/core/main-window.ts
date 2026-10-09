@@ -5,7 +5,7 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { IPC, type ChunkPreview, type ConversationSummary, type LibraryFile, type ModelStatus, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, ConversationId, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
+import { AttachmentId, ChatSendReq, ConversationId, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -101,6 +101,9 @@ export interface Services {
     remove(attachmentId: string): Promise<void>
     preview(ref: { chunkId?: number; attachmentId?: string }): Promise<ChunkPreview | null>
   }
+  links: {
+    open(url: string): Promise<void>
+  }
 }
 
 export function registerIpc(win: BrowserWindow, s: Services): void {
@@ -131,6 +134,11 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   ipcMain.handle(IPC.libraryCancel, (e, raw) => { assertTrusted(e); return s.library.cancel(JobId.parse(raw)) })
   ipcMain.handle(IPC.libraryDelete, (e, raw) => { assertTrusted(e); return s.library.remove(AttachmentId.parse(raw)) })
   ipcMain.handle(IPC.libraryPreview, (e, raw) => { assertTrusted(e); return s.library.preview(LibraryPreview.parse(raw)) })
+  ipcMain.handle(IPC.linksOpen, (e, raw) => {
+    assertTrusted(e)
+    const url = HttpLink.parse(raw)
+    return s.links.open(url)
+  })
 }
 
 /** Layout note for electron-vite output: out/main, out/preload, out/renderer. */

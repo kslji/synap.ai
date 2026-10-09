@@ -5,7 +5,16 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    build: { externalizeDeps: true },
+    build: {
+      externalizeDeps: true,
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          'ocr-runner': resolve('src/main/core/ocr-runner.ts'),
+        },
+        output: { entryFileNames: '[name].js' },
+      },
+    },
   },
   preload: {
     build: { externalizeDeps: false },

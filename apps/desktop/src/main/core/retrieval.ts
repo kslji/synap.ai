@@ -9,6 +9,29 @@ import type { DB } from './db.js';
 
 export const RRF_K = 60;
 
+/**
+ * User-document thresholds, measured with EmbeddingGemma 2 @256 on 9 Oct 2026
+ * (see docs/STEP-2.md). On the harbor-ferry fixture: English cosine 0.832,
+ * Hindi "नौका किस घाट से निकलती है?" 0.766, unrelated pizza 0.539.
+ * Latin answers at 0.64 with keyword coverage 0.34, or at 0.75 even when the
+ * wording does not overlap. Devanagari skips coverage (FTS porter is English-centric)
+ * and answers at 0.66, above the old 0.60 placeholder and below the measured 0.766.
+ */
+export const DOC_TAU = { latinCos: 0.64, latinCov: 0.34, latinStrong: 0.75, hindiCos: 0.66 } as const;
+
+/** Reciprocal rank fusion. Ranks are 0-based; null means that list did not return the row. */
+export function rrfScore(ranks: Array<number | null>, k = RRF_K): number {
+  return ranks.reduce<number>((sum, rank) => (rank === null ? sum : sum + 1 / (k + rank + 1)), 0);
+}
+
+export function isDevanagariQuery(query: string): boolean {
+  const letters = query.match(/\p{L}/gu) ?? [];
+  if (!letters.length) return false;
+  let dev = 0;
+  for (const ch of letters) if (/\p{Script=Devanagari}/u.test(ch)) dev++;
+  return dev / letters.length >= 0.4;
+}
+
 export interface Hit {
   pack: string; chunkId: number; text: string; title: string; url: string;
   cosine: number; bm25Rank: number | null; vecRank: number | null; rrf: number;
@@ -18,8 +41,8 @@ export type GateDecision = 'answer' | 'borderline' | 'insufficient';
 const words = (s: string, minLen: number) => (s.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? []).filter((t) => t.length >= minLen);
 
 /** Free text -> safe FTS5 OR-query of quoted terms (prevents FTS5 syntax errors / injection). */
-export function ftsQuery(q: string): string {
-  const terms = words(q, 3).slice(0, 16).map((t) => `"${t.replace(/"/g, '')}"`);
+export function ftsQuery(q: string, minLen = 3): string {
+  const terms = words(q, minLen).slice(0, 16).map((t) => `"${t.replace(/"/g, '')}"`);
   return terms.length ? terms.join(' OR ') : '""';
 }
 
@@ -38,7 +61,7 @@ export function searchPack(name: string, db: DB, query: string, qvec: Float32Arr
   vec.forEach((r, i) => { const h = get(r.id); h.vecRank = i; h.cosine = 1 - r.distance; });
   const row = db.prepare('SELECT c.text, d.title, d.url FROM chunks c JOIN documents d ON d.id = c.doc_id WHERE c.id = ?');
   for (const h of hits.values()) {
-    h.rrf = [h.bm25Rank, h.vecRank].reduce<number>((s, r) => (r === null ? s : s + 1 / (RRF_K + r + 1)), 0);
+    h.rrf = rrfScore([h.bm25Rank, h.vecRank]);
     const r = row.get(h.chunkId) as { text: string; title: string | null; url: string | null };
     h.text = r.text; h.title = r.title ?? ''; h.url = r.url ?? '';
   }
@@ -52,15 +75,29 @@ export function termCoverage(query: string, hits: Hit[]): number {
   return [...terms].filter((t) => blob.includes(t)).length / terms.size;
 }
 
-/** Defaults are placeholders for EmbeddingGemma 2 @256 (unrelated text ~0.5, relevant ~0.85 in our tests);
- *  calibrate on the golden set. Non-English queries get low keyword coverage -> 'borderline' -> LLM check. */
+/** Defaults are for knowledge packs (relevant ~0.85, unrelated ~0.50 on 9 Oct 2026).
+ *  Devanagari queries skip keyword coverage: that term penalised a Hindi SOLAS question at cosine 0.80. */
 export function gate(query: string, hits: Hit[], tauCos = 0.7, tauCov = 0.5): GateDecision {
   if (!hits.length) return 'insufficient';
   const best = Math.max(...hits.map((h) => h.cosine));
+  if (isDevanagariQuery(query)) {
+    if (best >= tauCos) return 'answer';
+    if (best >= tauCos - 0.08) return 'borderline';
+    return 'insufficient';
+  }
   const cov = termCoverage(query, hits.slice(0, 5));
   if (best >= tauCos && cov >= tauCov) return 'answer';
   if (best >= tauCos - 0.08 || cov >= tauCov) return 'borderline'; // -> short yes/no LLM check
   return 'insufficient';
+}
+
+/** Gate for the user's own documents. A strong cosine answers even when the wording does not overlap. */
+export function documentGate(query: string, hits: Hit[]): GateDecision {
+  if (!hits.length) return 'insufficient';
+  if (isDevanagariQuery(query)) return gate(query, hits, DOC_TAU.hindiCos, 0);
+  const best = Math.max(...hits.map((h) => h.cosine));
+  if (best >= DOC_TAU.latinStrong) return 'answer';
+  return gate(query, hits, DOC_TAU.latinCos, DOC_TAU.latinCov);
 }
 
 export function hybridSearch(packs: Record<string, DB>, query: string, qvec: Float32Array, topN = 6,

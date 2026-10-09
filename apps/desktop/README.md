@@ -10,6 +10,7 @@ From the repo root (Node 22):
 npm ci
 cd apps/desktop
 node scripts/fetch-sidecars.mjs
+node scripts/fetch-tessdata.mjs
 # if the Electron binary did not download:
 node node_modules/electron/install.js
 npm run dev
@@ -34,7 +35,8 @@ Older notes used `HARBOR_*`. Those names still work as a fallback.
 
 - Onboarding reads RAM, offers the registry model that fits, and downloads it with resume and SHA-256.
 - Chat streams from `llama-server`. Plain arithmetic and unit conversions go to the calculator worker.
-- Retrieval and the relevance gate run when a verified pack is installed. Pack install is Day 5, so a fresh app chats with the local model directly.
+- Drop a PDF, Word file, spreadsheet, slide deck, or image into the chat, or add it under Documents. Surf reads it in the background and can cite the page, slide, or sheet. Details are in `docs/STEP-2.md`.
+- Retrieval and the relevance gate also run when a verified pack is installed. Pack install is later, so a chat with no documents uses the local model directly.
 - Offline only blocks network calls (downloads, update checks, and the future web search).
 
 ## Scripts

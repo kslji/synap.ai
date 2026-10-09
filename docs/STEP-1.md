@@ -37,13 +37,13 @@ Kept on purpose: `apps/host` (auth / OTP / feedback / admin), its systemd unit, 
 | Empty library | General chat goes to the local model. A failed gate (once packs exist) says "I don't have enough information…" | Decision recorded in `docs/adr/0002-general-chat-without-packs.md` |
 | Web search | Not called. The refusal mentions that search is not connected | Day 4 |
 | Encrypted chat history | `chat.db` via safeStorage when the OS keychain works. Otherwise this session only, never a plaintext file | Day 2 moves this into the full `user.db` schema |
-| Attachments, doc-worker | Not started | Day 3 |
+| Attachments, local retrieval | Done in `docs/STEP-2.md` | Day 2–3 |
 | mmproj / images | Registry entries only. Not downloaded yet | Day 3 |
 | Login, device licence, pack import | Dialog says Day 5 | Day 5 |
 | Pipeline | Placeholder | Day 6 |
 | Signed auto-update | Updater is initialised; macOS signing secrets are a TODO in the release workflow | Day 7 |
 | Whisper | Listed as later in the model manager | Week 2 |
 
-## Next (Day 2, when you say go)
+## Next
 
-Encrypted `user.db` with the full local schema, token-budget tests in vitest, and moving chat rows out of the temporary `chat.db`.
+Document chat shipped in `docs/STEP-2.md`. After that: web search (Day 4), then login and signed packs.

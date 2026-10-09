@@ -1,8 +1,8 @@
 /**
- * Day 1 app services: hardware, model registry, resumable downloads, and the chat orchestrator.
- * One llama-server at a time (chat or embeddings). Retrieval runs when a verified pack is open.
- * TODO(Day 3): attachments into user.db. TODO(Day 4): web search via services/api.
- * TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
+ * App services: hardware, model registry, chat, and the document index.
+ * One llama-server at a time (chat or embeddings). Indexing never blocks the chat IPC.
+ * TODO(Day 4): web search via services/api. TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
+ * TODO: download Qwen3.5 mmproj and expose "Describe image" (vision.ts). OCR is the image path for now.
  */
 import { app, BrowserWindow, net, dialog } from 'electron'
 import { randomUUID } from 'node:crypto'
@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Services } from './main-window.js'
-import { IPC, type ChatEvent, type GateName, type ModelStatus, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
+import { IPC, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { parseRegistry, pick, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { downloadVerified } from './model-download.js'
@@ -24,10 +24,17 @@ import { allocate, BUDGETS, LlamaServerTokenizer, type Turn } from './token-budg
 import { openUserDb } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
+import { LIBRARY_MIGRATION } from './library-schema.js'
 import { assertNetworkAllowed } from './offline-guard.js'
 import { surfEnv } from './surf-env.js'
 import { initAutoUpdate, installOfflineUpdate } from './updater.js'
 import type { ParsedChat } from './ipc-schemas.js'
+import { AttachmentQueue } from './attachment-queue.js'
+import type { IngestDeps } from './ingest.js'
+import { mimeForName, readAttachment } from './convert.js'
+import { addBytes, countsFor, deleteAttachment, listFiles, markCancelled, previewAttachment, previewChunk, retryJob } from './library-store.js'
+import { searchUser, type UserHit } from './user-search.js'
+import { captionImage, mmprojReady } from './vision.js'
 
 type ChatReq = ParsedChat
 type Settings = Required<SettingsPatch>
@@ -38,6 +45,8 @@ const SYSTEM =
   'When a calculator result is provided, use that result exactly. Do not invent numbers, citations, or sources.'
 
 const INSUFFICIENT = "I don't have enough information to answer that from the sources on this computer."
+const DOC_REFUSAL = "I don't have enough information in your documents."
+const STILL_READING = "I'm still reading your files. Ask again when they finish."
 
 const DEFAULT_SETTINGS: Settings = {
   offlineOnly: false,
@@ -55,11 +64,19 @@ export async function createServices(): Promise<Services> {
   const calc = new Calculator(calcWorker)
   const inflight = new Map<string, AbortController>()
   let downloading: { id: string; done: number; total: number } | null = null
-  let active: { role: 'chat' | 'embed'; modelId: string; server: LlamaServer } | null = null
+  let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; server: LlamaServer } | null = null
+  let modelTail: Promise<void> = Promise.resolve()
+  let ui: BrowserWindow | null = null
   const sidecars: ModelStatus['sidecars'] = { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }
 
   const settingsPath = () => join(app.getPath('userData'), 'settings.json')
   const modelsDir = () => surfEnv('MODELS_DIR') ?? join(app.getPath('userData'), 'models')
+
+  function tessdataPath(): string {
+    const packaged = join(process.resourcesPath, 'tessdata')
+    if (app.isPackaged && existsSync(packaged)) return packaged
+    return join(app.getAppPath(), 'resources', 'tessdata')
+  }
 
   function readSettings(): Settings {
     try {
@@ -156,13 +173,20 @@ export async function createServices(): Promise<Services> {
     await current.server.stop()
   }
 
-  async function ensure(role: 'chat' | 'embed', model: ModelEntry, ctx: number): Promise<LlamaServer> {
-    if (active && active.role === role && active.modelId === model.id && active.server.state === 'ready') return active.server
+  function withModel<T>(fn: () => Promise<T>): Promise<T> {
+    const run = modelTail.then(fn, fn)
+    modelTail = run.then(() => undefined, () => undefined)
+    return run
+  }
+
+  async function ensure(role: 'chat' | 'embed', model: ModelEntry, ctx: number, mmproj = ''): Promise<LlamaServer> {
+    if (active && active.role === role && active.modelId === model.id && active.mmproj === mmproj && active.server.state === 'ready') return active.server
     await stopActive()
     const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
     const server = new LlamaServer({
       binPath: bin,
       modelPath: join(modelsDir(), model.file),
+      mmprojPath: mmproj || undefined,
       embeddings: role === 'embed',
       pooling: 'mean',
       ctx,
@@ -172,7 +196,7 @@ export async function createServices(): Promise<Services> {
     sidecars[role] = 'starting'
     server.on('state', (st: SidecarState) => { sidecars[role] = st === 'starting' || st === 'ready' || st === 'crashed' || st === 'stopped' ? st : 'stopped' })
     await server.start()
-    active = { role, modelId: model.id, server }
+    active = { role, modelId: model.id, mmproj, server }
     sidecars[role] = 'ready'
     return server
   }
@@ -217,6 +241,52 @@ export async function createServices(): Promise<Services> {
     }
   }
 
+  function noteFile(file: LibraryFile): void {
+    if (ui && !ui.isDestroyed()) ui.webContents.send(IPC.libraryEvent, { type: 'upsert', file })
+  }
+
+  function requireLibrary(): { queue: AttachmentQueue; deps: IngestDeps } {
+    if (!docs) throw new Error("Encrypted storage isn't available on this computer, so documents can't be indexed.")
+    return docs
+  }
+
+  const docs: { queue: AttachmentQueue; deps: IngestDeps } | null = store.db ? (() => {
+    const root = join(app.getPath('userData'), 'attachments')
+    mkdirSync(root, { recursive: true })
+    const deps: IngestDeps = {
+      db: store.db,
+      root,
+      tessdataDir: tessdataPath(),
+      tessCacheDir: join(app.getPath('userData'), 'tess-cache'),
+      onFile: noteFile,
+      embed: (rows) => withModel(async () => {
+        const emb = registry().models.find((m) => m.role === 'embedding')
+        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 in Models before indexing documents.')
+        const server = await ensure('embed', emb, 2048)
+        return new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey })).embedDocs(rows)
+      }),
+      caption: async (png) => withModel(async () => {
+        const chat = await chooseChat(registry(), readSettings().chatModelId)
+        const file = chat?.mmproj?.file
+        const path = file ? join(modelsDir(), file) : ''
+        if (!chat || !mmprojReady(path)) return null
+        const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+        const server = await ensure('chat', chat, profile.serverCtx, path)
+        const client = new LlamaClient({
+          baseUrl: server.baseUrl,
+          apiKey: server.apiKey,
+          sampling: chat.sampling,
+          chatTemplateKwargs: chat.chat_template_kwargs,
+        })
+        try { return await captionImage(client, png) }
+        catch (error) { console.warn('[surf] image caption skipped:', (error as Error).message); return null }
+      }),
+    }
+    const queue = new AttachmentQueue(deps)
+    queue.kick()
+    return { queue, deps }
+  })() : null
+
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     const settings = readSettings()
     const reg = registry()
@@ -229,97 +299,120 @@ export async function createServices(): Promise<Services> {
       return
     }
 
-    // TODO(Day 5): open packs only after pack-verify.ts. An empty library is not a failed gate.
-    const packs: Record<string, import('./db.js').DB> = {}
-    let hits: Hit[] = []
-    let decision: GateDecision | 'skip' = 'skip'
-    if (Object.keys(packs).length > 0) {
-      const emb = reg.models.find((m) => m.role === 'embedding')
-      if (!emb || !(await installed(emb.file, emb.size_bytes))) {
-        throw new Error('Download EmbeddingGemma 2 before searching packs.')
-      }
-      const embedServer = await ensure('embed', emb, 2048)
-      const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-      const [qvec] = await embedder.embedQueries([text])
-      const found = hybridSearch(packs, text, qvec)
-      hits = found.top
-      decision = found.decision
-      await stopActive()
-      if (decision === 'insufficient') {
-        const allowWeb = !settings.offlineOnly && settings.webSearchAllowed && req.allowWeb !== false && isOnline()
-        // TODO(Day 4): call services/api POST /v1/search, then fetch and clean pages on device.
-        const message = allowWeb
-          ? `${INSUFFICIENT} Web search is not connected yet.`
-          : INSUFFICIENT
-        await emitText(win, messageId, message)
-        finish(conversationId, messageId, userMessageId, win, message, [], allowWeb ? 'web' : 'insufficient')
-        return
-      }
+    const scopeId = req.docScope === 'all' ? null : conversationId
+    const docCounts = store.db ? countsFor(store.db, scopeId) : { ready: 0, pending: 0 }
+    if (docCounts.ready === 0 && docCounts.pending > 0) {
+      await emitText(win, messageId, STILL_READING)
+      finish(conversationId, messageId, userMessageId, win, STILL_READING, [], 'insufficient')
+      return
     }
 
-    const chatModel = await chooseChat(reg, settings.chatModelId)
-    if (!chatModel) {
-      const suggested = pick(reg, 'chat', hw.tier)
-      throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
-    }
-    const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
-    const server = await ensure('chat', chatModel, profile.serverCtx)
-    const client = new LlamaClient({
-      baseUrl: server.baseUrl,
-      apiKey: server.apiKey,
-      sampling: chatModel.sampling,
-      chatTemplateKwargs: chatModel.chat_template_kwargs,
+    await withModel(async () => {
+      // TODO(Day 5): open packs only after pack-verify.ts. An empty pack list is not a failed gate.
+      const packs: Record<string, import('./db.js').DB> = {}
+      let hits: Array<Hit | UserHit> = []
+      let decision: GateDecision | 'skip' = 'skip'
+      let fromDocs = false
+      if (docCounts.ready > 0 && store.db) {
+        fromDocs = true
+        const emb = reg.models.find((m) => m.role === 'embedding')
+        if (!emb || !(await installed(emb.file, emb.size_bytes))) {
+          throw new Error('Download EmbeddingGemma 2 in Models before searching your documents.')
+        }
+        const embedServer = await ensure('embed', emb, 2048)
+        const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
+        const [qvec] = await embedder.embedQueries([text])
+        const found = searchUser(store.db, text, qvec, scopeId, 5)
+        hits = found.top
+        decision = found.decision
+        if (decision === 'insufficient') {
+          await emitText(win, messageId, DOC_REFUSAL)
+          finish(conversationId, messageId, userMessageId, win, DOC_REFUSAL, [], 'insufficient')
+          return
+        }
+      } else if (Object.keys(packs).length > 0) {
+        const emb = reg.models.find((m) => m.role === 'embedding')
+        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 before searching packs.')
+        const embedServer = await ensure('embed', emb, 2048)
+        const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
+        const [qvec] = await embedder.embedQueries([text])
+        const found = hybridSearch(packs, text, qvec)
+        hits = found.top
+        decision = found.decision
+        if (decision === 'insufficient') {
+          const allowWeb = !settings.offlineOnly && settings.webSearchAllowed && req.allowWeb !== false && isOnline()
+          // TODO(Day 4): call services/api POST /v1/search, then fetch and clean pages on device.
+          const message = allowWeb ? `${INSUFFICIENT} Web search is not connected yet.` : INSUFFICIENT
+          await emitText(win, messageId, message)
+          finish(conversationId, messageId, userMessageId, win, message, [], allowWeb ? 'web' : 'insufficient')
+          return
+        }
+      }
+
+      const chatModel = await chooseChat(reg, settings.chatModelId)
+      if (!chatModel) {
+        const suggested = pick(reg, 'chat', hw.tier)
+        throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
+      }
+      const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      const server = await ensure('chat', chatModel, profile.serverCtx)
+      const client = new LlamaClient({
+        baseUrl: server.baseUrl,
+        apiKey: server.apiKey,
+        sampling: chatModel.sampling,
+        chatTemplateKwargs: chatModel.chat_template_kwargs,
+      })
+      const refusal = fromDocs ? DOC_REFUSAL : INSUFFICIENT
+      if (decision === 'borderline') {
+        const check = await client.chat([{ role: 'user', content: borderlinePrompt(text, hits) }], undefined, signal, 8)
+        const yn = String(check.choices[0]?.message?.content ?? '').trim().toUpperCase()
+        if (yn.startsWith('NO')) {
+          await emitText(win, messageId, refusal)
+          finish(conversationId, messageId, userMessageId, win, refusal, [], 'insufficient')
+          return
+        }
+        decision = 'answer'
+      }
+
+      const prior = store.open(conversationId).messages.filter((m) => m.id !== userMessageId)
+      const history: Turn[] = []
+      for (let i = 0; i < prior.length; i++) {
+        const next = prior[i + 1]
+        if (prior[i].role === 'user' && next?.role === 'assistant') {
+          history.push({ user: prior[i].text, assistant: next.text })
+          i++
+        }
+      }
+      const useTools = needsCalculator(text) && !fromDocs
+      const sources = citationsOf(hits)
+      if (sources.length) sendEvent(win, { type: 'sources', messageId, sources })
+      const budget = await allocate(new LlamaServerTokenizer(server.baseUrl, server.apiKey), profile, {
+        system: SYSTEM,
+        tools: useTools ? calculatorTools : undefined,
+        chunks: hits.slice(0, 5).map((h) => ({ id: String(h.chunkId), text: h.text, title: h.title || h.pack, score: h.cosine })),
+        history,
+        question: text,
+      })
+
+      let answer = ''
+      if (useTools) {
+        const ran = await client.runWithTools(budget.messages, calculatorTools, toolHandlers(calc), 4, signal)
+        for (const call of ran.toolCalls) {
+          const out = ran.messages.find((m) => m.role === 'tool' && m.tool_call_id === call.id)
+          sendEvent(win, { type: 'tool', messageId, name: call.function.name, input: call.function.arguments, output: String(out?.content ?? '') })
+        }
+        answer = ran.answer
+        await emitText(win, messageId, answer)
+      } else {
+        for await (const piece of client.chatStream(budget.messages, undefined, signal, budget.maxTokens)) {
+          if (signal.aborted) return
+          answer += piece
+          sendEvent(win, { type: 'token', messageId, text: piece })
+        }
+      }
+      const gate: GateName = decision === 'skip' ? 'answer' : decision
+      finish(conversationId, messageId, userMessageId, win, answer, sources, gate)
     })
-
-    if (decision === 'borderline') {
-      const check = await client.chat([{ role: 'user', content: borderlinePrompt(text, hits) }], undefined, signal, 8)
-      const yn = String(check.choices[0]?.message?.content ?? '').trim().toUpperCase()
-      if (yn.startsWith('NO')) {
-        await emitText(win, messageId, INSUFFICIENT)
-        finish(conversationId, messageId, userMessageId, win, INSUFFICIENT, [], 'insufficient')
-        return
-      }
-      decision = 'answer'
-    }
-
-    const prior = store.open(conversationId).messages.filter((m) => m.id !== userMessageId)
-    const history: Turn[] = []
-    for (let i = 0; i < prior.length; i++) {
-      const next = prior[i + 1]
-      if (prior[i].role === 'user' && next?.role === 'assistant') {
-        history.push({ user: prior[i].text, assistant: next.text })
-        i++
-      }
-    }
-    const useTools = needsCalculator(text)
-    const sources = hits.map((h) => ({ title: h.title || h.pack, url: h.url || '', pack: h.pack }))
-    if (sources.length) sendEvent(win, { type: 'sources', messageId, sources })
-    const budget = await allocate(new LlamaServerTokenizer(server.baseUrl, server.apiKey), profile, {
-      system: SYSTEM,
-      tools: useTools ? calculatorTools : undefined,
-      chunks: hits.map((h) => ({ id: String(h.chunkId), text: h.text, title: h.title || h.pack, score: h.cosine })),
-      history,
-      question: text,
-    })
-
-    let answer = ''
-    if (useTools) {
-      const ran = await client.runWithTools(budget.messages, calculatorTools, toolHandlers(calc), 4, signal)
-      for (const call of ran.toolCalls) {
-        const out = ran.messages.find((m) => m.role === 'tool' && m.tool_call_id === call.id)
-        sendEvent(win, { type: 'tool', messageId, name: call.function.name, input: call.function.arguments, output: String(out?.content ?? '') })
-      }
-      answer = ran.answer
-      await emitText(win, messageId, answer)
-    } else {
-      for await (const piece of client.chatStream(budget.messages, undefined, signal, budget.maxTokens)) {
-        if (signal.aborted) return
-        answer += piece
-        sendEvent(win, { type: 'token', messageId, text: piece })
-      }
-    }
-    const gate: GateName = decision === 'skip' ? 'answer' : decision
-    finish(conversationId, messageId, userMessageId, win, answer, sources, gate)
   }
 
   function finish(conversationId: string, messageId: string, _userMessageId: string, win: BrowserWindow, text: string, sources: StoredMessage['sources'], gate: GateName): void {
@@ -336,6 +429,7 @@ export async function createServices(): Promise<Services> {
         const userMessageId = randomUUID()
         const conversationId = store.ensure(req.conversationId, req.text, req.agentId)
         store.append(conversationId, { id: userMessageId, role: 'user', text: req.text, sources: [] })
+        ui = win
         const ac = new AbortController()
         inflight.set(messageId, ac)
         void reply(req, conversationId, messageId, userMessageId, win, ac.signal)
@@ -377,8 +471,66 @@ export async function createServices(): Promise<Services> {
         return installOfflineUpdate(win, key)
       },
     },
+    library: {
+      add: ingestPaths,
+      pick: async (conversationId, createConversation, win) => {
+        const picked = await dialog.showOpenDialog(win, {
+          title: 'Add documents',
+          properties: ['openFile', 'multiSelections'],
+          filters: [{ name: 'Documents', extensions: ['pdf', 'docx', 'pptx', 'xlsx', 'csv', 'txt', 'md', 'html', 'htm', 'png', 'jpg', 'jpeg'] }],
+        })
+        if (picked.canceled || picked.filePaths.length === 0) return { conversationId, files: [] }
+        return ingestPaths(picked.filePaths, conversationId, createConversation, win)
+      },
+      list: async () => {
+        if (!store.db) return []
+        return listFiles(store.db)
+      },
+      retry: async (jobId) => {
+        const { queue } = requireLibrary()
+        if (!retryJob(store.db!, jobId)) throw new Error('That file is not waiting to be retried.')
+        queue.kick()
+      },
+      cancel: async (jobId) => {
+        requireLibrary()
+        markCancelled(store.db!, jobId)
+        const row = listFiles(store.db!).find((file) => file.jobId === jobId)
+        if (row) noteFile(row)
+      },
+      remove: async (attachmentId) => {
+        const { deps } = requireLibrary()
+        deleteAttachment(deps.db, attachmentId, deps.root)
+      },
+      preview: async (ref) => {
+        if (!store.db) return null
+        if (ref.chunkId) return previewChunk(store.db, ref.chunkId)
+        if (ref.attachmentId) return previewAttachment(store.db, ref.attachmentId)
+        return null
+      },
+    },
   }
   return services
+
+  async function ingestPaths(paths: string[], conversationId: string | null, createConversation: boolean, win: BrowserWindow) {
+    ui = win
+    const { deps, queue } = requireLibrary()
+    let cid = conversationId
+    if (!cid && createConversation) cid = store.ensure(null, 'New chat', 'general')
+    const files: LibraryFile[] = []
+    for (const filePath of paths) {
+      const { bytes, name } = await readAttachment(filePath)
+      const mime = mimeForName(name)
+      if (!mime) throw new Error('Unsupported file.')
+      const added = addBytes(deps.db, deps.root, name, mime, bytes, cid)
+      const file = listFiles(deps.db).find((row) => row.id === added.attachmentId)
+      if (file) {
+        files.push(file)
+        noteFile(file)
+      }
+    }
+    queue.kick()
+    return { conversationId: cid, files }
+  }
 }
 
 export function startUpdater(win: BrowserWindow, services: Services): void {
@@ -388,12 +540,27 @@ export function startUpdater(win: BrowserWindow, services: Services): void {
 async function openStore(): Promise<SessionStore> {
   try {
     const key = await getOrCreateDbKey()
-    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION])
+    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION])
     return new SessionStore(db)
   } catch (e) {
     console.warn('[surf] encrypted chat store unavailable:', (e as Error).message)
     return new SessionStore(null)
   }
+}
+
+function citationsOf(hits: Array<Hit | UserHit>): Citation[] {
+  return hits.map((hit) => {
+    const user = hit as UserHit
+    return {
+      title: hit.title || hit.pack,
+      url: hit.url || '',
+      pack: hit.pack,
+      chunkId: hit.chunkId,
+      fileName: user.fileName,
+      locator: user.locator,
+      excerpt: user.excerpt,
+    }
+  })
 }
 
 function labelFor(m: ModelEntry): string {

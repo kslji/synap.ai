@@ -1,0 +1,1 @@
+English and Hindi Tesseract models (`eng.traineddata`, `hin.traineddata`) are downloaded by `node scripts/fetch-tessdata.mjs`. They are not committed. The desktop build copies this folder next to the app so OCR does not need a network or a Python install.

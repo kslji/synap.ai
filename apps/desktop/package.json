@@ -12,22 +12,32 @@
     "typecheck": "npm run build --prefix ../../packages/ui && npm run build --prefix ../../packages/shared && npm run typecheck:node && npm run typecheck:web",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "test:unit": "tsx --test src/main/core/rag.test.ts",
     "selftest": "electron-vite build && SURF_SELFTEST=1 electron .",
     "dist:linux": "npm run build && electron-builder --linux AppImage --x64",
     "dist:mac": "npm run build && electron-builder --mac --arm64 --x64",
     "dist:win": "npm run build && electron-builder --win --x64"
   },
   "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "@napi-rs/canvas": "0.1.80",
     "better-sqlite3-multiple-ciphers": "13.0.3",
     "electron-updater": "6.8.9",
+    "html-to-text": "9.0.5",
+    "jszip": "3.10.1",
+    "mammoth": "1.9.1",
     "mathjs": "15.2.0",
+    "pdfjs-dist": "4.10.38",
     "sqlite-vec": "0.1.9",
     "systeminformation": "5.33.15",
-    "zod": "4.6.5",
-    "@huggingface/tokenizers": "0.2.0"
+    "tesseract.js": "5.1.1",
+    "xlsx": "0.18.5",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "2.0.0",
+    "@surf/ui": "0.1.0",
+    "@tailwindcss/vite": "4.2.1",
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "22.19.1",
     "@types/react": "19.2.7",
@@ -38,10 +48,9 @@
     "electron-vite": "5.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "typescript": "5.9.3",
-    "vite": "7.3.7",
     "tailwindcss": "4.2.1",
-    "@tailwindcss/vite": "4.2.1",
-    "@surf/ui": "0.1.0"
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
   }
 }

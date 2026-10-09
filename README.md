@@ -12,6 +12,7 @@ Node.js 22.
 npm ci
 cd apps/desktop
 node scripts/fetch-sidecars.mjs
+node scripts/fetch-tessdata.mjs         # English and Hindi OCR models
 node node_modules/electron/install.js   # only if the Electron binary is missing
 npm run dev
 ```
@@ -29,7 +30,7 @@ cd apps/desktop
 SURF_MODELS_DIR=~/surf-models npm run selftest
 ```
 
-Mac notes, including the self-test path, are in `apps/desktop/README.md`. What this step finished, and what is stubbed, is in `docs/STEP-1.md`.
+Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1 is `docs/STEP-1.md`. Document chat (attachments, OCR, local retrieval) is `docs/STEP-2.md`.
 
 ## Layout
 

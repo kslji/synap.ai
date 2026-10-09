@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, SurfCrew, type ThemeChoice } from '@surf/ui'
-import type { ConversationSummary, ModelStatus, SettingsPatch } from '../../shared/ipc-contract'
+import type { ChunkPreview, ConversationSummary, DocScope, LibraryFile, ModelStatus, SettingsPatch } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
 import { ModelsScreen } from './screens/ModelsScreen'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { LibraryScreen } from './screens/LibraryScreen'
 
 export default function App() {
   const api = window.surf
@@ -20,6 +21,9 @@ export default function App() {
   const [progress, setProgress] = useState<Record<string, number>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [files, setFiles] = useState<LibraryFile[]>([])
+  const [scope, setScope] = useState<DocScope>('chat')
+  const [preview, setPreview] = useState<ChunkPreview | null>(null)
 
   const refresh = useCallback(async () => {
     const [st, se, conv] = await Promise.all([api.models.status(), api.settings.get(), api.conversations.list()])
@@ -40,6 +44,10 @@ export default function App() {
         void api.conversations.list().then(setConversations).catch(() => undefined)
       }
     })
+    const offLib = api.library.onEvent((e) => {
+      setFiles((prev) => [e.file, ...prev.filter((file) => file.id !== e.file.id)])
+    })
+    void api.library.list().then(setFiles).catch(() => undefined)
     const offModels = api.models.onEvent((e) => {
       setProgress((p) => ({ ...p, [e.id]: e.total ? e.done / e.total : 0 }))
       if (e.state === 'error' && e.error) setError(e.error)
@@ -49,7 +57,7 @@ export default function App() {
       }
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
-    return () => { offChat(); offModels(); window.clearInterval(timer) }
+    return () => { offChat(); offModels(); offLib(); window.clearInterval(timer) }
   }, [api, refresh])
 
   const booted = useRef(false)
@@ -102,7 +110,7 @@ export default function App() {
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text, agentId: 'general', allowWeb: settings?.webSearchAllowed ?? false })
+      const res = await api.chat.send({ conversationId, text, agentId: 'general', allowWeb: settings?.webSearchAllowed ?? false, docScope: scope })
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
     } catch (e) {
@@ -121,8 +129,60 @@ export default function App() {
   function newChat() {
     setConversationId(null)
     setMessages([])
+    setPreview(null)
     setView('chat')
   }
+
+  async function attach(paths: string[], createConversation: boolean) {
+    const res = await api.library.add(paths, createConversation ? conversationId : null, createConversation)
+    if (res.conversationId) setConversationId(res.conversationId)
+    setFiles(await api.library.list())
+    if (createConversation) setView('chat')
+  }
+
+  async function openCitation(chunkId: number) {
+    setPreview(await api.library.preview({ chunkId }))
+  }
+
+  useEffect(() => {
+    window.__surfDemo = (scene) => {
+      if (scene === 'upload') {
+        setView('chat')
+        setMessages([])
+        setPreview(null)
+        setConversationId('demo')
+        setFiles([{ id: 'demo-upload', name: 'harbor-ferry.pdf', mime: 'application/pdf', sizeBytes: 12000, addedAt: 1, conversationIds: ['demo'], status: 'queued', stage: 'Waiting', progress: 0, error: null, jobId: 'job-upload', chunkCount: 0 }])
+      }
+      if (scene === 'processing') {
+        setView('chat')
+        setMessages([])
+        setPreview(null)
+        setConversationId('demo')
+        setFiles([{ id: 'demo-run', name: 'harbor-ferry.pdf', mime: 'application/pdf', sizeBytes: 12000, addedAt: 1, conversationIds: ['demo'], status: 'running', stage: 'Page 1 of 2', progress: 0.45, error: null, jobId: 'job-run', chunkCount: 0 }])
+      }
+      if (scene === 'citation') {
+        setView('chat')
+        setFiles([])
+        setMessages([
+          { id: 'u1', role: 'user', text: 'What time does the harbor ferry leave?', sources: [], tools: [] },
+          {
+            id: 'a1', role: 'assistant', tools: [],
+            text: 'The harbor ferry leaves Pier 4 at 06:40. [S1]',
+            sources: [{ title: 'harbor-ferry.pdf · page 1', url: '', pack: 'library', chunkId: 1, fileName: 'harbor-ferry.pdf', locator: 'page 1', excerpt: 'The harbor ferry leaves Pier 4 at 06:40.' }],
+          },
+        ])
+        setPreview({ chunkId: 1, fileName: 'harbor-ferry.pdf', title: 'harbor-ferry.pdf', heading: null, locator: 'page 1', text: 'The harbor ferry leaves Pier 4 at 06:40. Tickets cost 120 rupees.' })
+      }
+      if (scene === 'library') {
+        setView('library')
+        setPreview(null)
+        setFiles([
+          { id: 'demo-ready', name: 'northwind-invoice.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', sizeBytes: 8000, addedAt: 2, conversationIds: [], status: 'done', stage: 'Ready', progress: 1, error: null, jobId: 'job-done', chunkCount: 1 },
+          { id: 'demo-run', name: 'shelf.png', mime: 'image/png', sizeBytes: 4000, addedAt: 1, conversationIds: [], status: 'running', stage: 'Reading the image', progress: 0.62, error: null, jobId: 'job-img', chunkCount: 0 },
+        ])
+      }
+    }
+  }, [])
 
   if (!status || !settings) {
     return (
@@ -166,8 +226,28 @@ export default function App() {
           messages={messages}
           streaming={streaming}
           status={status}
+          files={conversationId ? files.filter((file) => file.conversationIds.includes(conversationId)) : []}
+          scope={scope}
+          preview={preview}
           onSend={(t) => { void send(t) }}
           onToggleOffline={() => { void patch({ offlineOnly: !settings.offlineOnly }) }}
+          onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}
+          onPick={() => { void api.library.pick(conversationId, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onScope={setScope}
+          onOpenCitation={(id) => { void openCitation(id) }}
+          onClosePreview={() => setPreview(null)}
+        />
+      )}
+      {view === 'library' && (
+        <LibraryScreen
+          files={files}
+          preview={preview}
+          onAdd={() => { void api.library.pick(null, false).then(() => api.library.list()).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onRetry={(jobId) => { void api.library.retry(jobId).then(() => api.library.list()).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onCancel={(jobId) => { void api.library.cancel(jobId).catch((e: unknown) => setError((e as Error).message)) }}
+          onRemove={(id) => { void api.library.remove(id).then(() => api.library.list()).then((rows) => { setFiles(rows); setPreview(null) }).catch((e: unknown) => setError((e as Error).message)) }}
+          onPreview={(id) => { void api.library.preview({ attachmentId: id }).then(setPreview) }}
+          onClosePreview={() => setPreview(null)}
         />
       )}
       {view === 'models' && (

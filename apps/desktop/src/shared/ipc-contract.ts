@@ -11,13 +11,24 @@ export const IPC = {
   modelsDownload: 'models:download',
   modelsEvent: 'models:event',
   packsList: 'packs:list',
+  packsSync: 'packs:sync',
+  packsRemove: 'packs:remove',
   packsImportFile: 'packs:import-file',
+  authStatus: 'auth:status',
+  authStart: 'auth:start',
+  authVerify: 'auth:verify',
+  authSignOut: 'auth:sign-out',
+  authDevices: 'auth:devices',
+  authRevoke: 'auth:revoke',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   updatesCheck: 'updates:check',
   updatesInstallOffline: 'updates:install-offline',
   conversationsList: 'conversations:list',
   conversationsOpen: 'conversations:open',
+  conversationsDelete: 'conversations:delete',
+  webCacheStatus: 'web-cache:status',
+  webCacheClear: 'web-cache:clear',
   libraryAdd: 'library:add',
   libraryPick: 'library:pick',
   libraryList: 'library:list',
@@ -51,6 +62,8 @@ export interface SettingsPatch {
   theme?: ThemeChoice
   /** Search service origin. Production placeholder until a VM is deployed. */
   apiBaseUrl?: string
+  /** Hours between signed-in pack checks. */
+  packSyncHours?: number
 }
 
 export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
@@ -60,7 +73,7 @@ export type ChatEvent =
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
   | { type: 'status'; messageId: string; phase: 'searching' | 'reading' }
-  | { type: 'done'; messageId: string; gate: GateName }
+  | { type: 'done'; messageId: string; gate: GateName; text?: string }
   | { type: 'error'; messageId: string; message: string }
 
 export interface CatalogModel {
@@ -106,6 +119,7 @@ export interface Citation {
   title: string
   url: string
   pack: string
+  version?: string
   kind?: 'document' | 'web'
   domain?: string
   published?: string | null
@@ -113,6 +127,18 @@ export interface Citation {
   fileName?: string
   locator?: string | null
   excerpt?: string
+  /** When this web passage was stored on this computer. */
+  savedAt?: number
+  /** Set when a fresh-sensitive question is using a passage older than 24 hours. */
+  staleNote?: string
+  /** The passage was left out of the prompt because it contained instructions. */
+  suspicious?: boolean
+}
+
+export interface WebCacheStatus {
+  bytes: number
+  count: number
+  capBytes: number
 }
 
 export type AttachmentStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -162,6 +188,33 @@ export interface ModelEvent {
   error?: string
 }
 
+export interface AuthStatus {
+  signedIn: boolean
+  email: string | null
+  deviceId: string | null
+}
+
+export interface DeviceInfo {
+  id: string
+  name: string
+  os: string
+  status: string
+  current: boolean
+}
+
+export interface PackRow {
+  id: string
+  title: string
+  niche: string
+  version: string | null
+  latestVersion: string | null
+  installed: boolean
+  updateAvailable: boolean
+  syncedAt: number | null
+  progress: number | null
+  error: string | null
+}
+
 /** What window.surf looks like in the renderer. */
 export interface SurfApi {
   chat: {
@@ -175,8 +228,18 @@ export interface SurfApi {
     onEvent(cb: (e: ModelEvent) => void): () => void
   }
   packs: {
-    list(): Promise<{ id: string; version: string; niche: string }[]>
+    list(): Promise<PackRow[]>
+    sync(): Promise<PackRow[]>
+    remove(packId: string): Promise<void>
     importFromFile(): Promise<string | null>
+  }
+  auth: {
+    status(): Promise<AuthStatus>
+    start(email: string): Promise<void>
+    verify(email: string, code: string): Promise<AuthStatus>
+    signOut(): Promise<void>
+    devices(): Promise<DeviceInfo[]>
+    revoke(deviceId: string): Promise<void>
   }
   settings: {
     get(): Promise<Required<SettingsPatch>>
@@ -189,6 +252,11 @@ export interface SurfApi {
   conversations: {
     list(): Promise<ConversationSummary[]>
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
+    remove(id: string): Promise<void>
+  }
+  webCache: {
+    status(): Promise<WebCacheStatus>
+    clear(): Promise<WebCacheStatus>
   }
   library: {
     pathForFile(file: File): string

@@ -4,8 +4,8 @@
  */
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
-import { IPC, type ChunkPreview, type ConversationSummary, type LibraryFile, type ModelStatus, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, ConversationId, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
+import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type WebCacheStatus } from './ipc-contract.js'
+import { AttachmentId, ChatSendReq, ConversationId, DeviceId, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -78,10 +78,25 @@ export interface Services {
   conversations: {
     list(): Promise<ConversationSummary[]>
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
+    remove(id: string): Promise<void>
+  }
+  webCache: {
+    status(): Promise<WebCacheStatus>
+    clear(): Promise<WebCacheStatus>
   }
   packs: {
-    list(): Promise<{ id: string; version: string; niche: string }[]>
-    importFromFile(): Promise<string | null>
+    list(): Promise<PackRow[]>
+    sync(): Promise<PackRow[]>
+    remove(packId: string): Promise<void>
+    importFromFile(win: BrowserWindow): Promise<string | null>
+  }
+  auth: {
+    status(): Promise<AuthStatus>
+    start(email: string): Promise<void>
+    verify(email: string, code: string): Promise<AuthStatus>
+    signOut(): Promise<void>
+    devices(): Promise<DeviceInfo[]>
+    revoke(deviceId: string): Promise<void>
   }
   settings: {
     get(): Promise<Required<SettingsPatch>>
@@ -115,8 +130,19 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   ipcMain.handle(IPC.modelsDownload, (e, raw) => { assertTrusted(e); return s.models.download(ModelId.parse(raw), win) })
   ipcMain.handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
   ipcMain.handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })
+  ipcMain.handle(IPC.conversationsDelete, (e, raw) => { assertTrusted(e); return s.conversations.remove(ConversationId.parse(raw)) })
+  ipcMain.handle(IPC.webCacheStatus, (e) => { assertTrusted(e); return s.webCache.status() })
+  ipcMain.handle(IPC.webCacheClear, (e) => { assertTrusted(e); return s.webCache.clear() })
   ipcMain.handle(IPC.packsList, (e) => { assertTrusted(e); return s.packs.list() })
-  ipcMain.handle(IPC.packsImportFile, (e) => { assertTrusted(e); return s.packs.importFromFile() })
+  ipcMain.handle(IPC.packsSync, (e) => { assertTrusted(e); return s.packs.sync() })
+  ipcMain.handle(IPC.packsRemove, (e, raw) => { assertTrusted(e); return s.packs.remove(PackId.parse(raw)) })
+  ipcMain.handle(IPC.packsImportFile, (e) => { assertTrusted(e); return s.packs.importFromFile(win) })
+  ipcMain.handle(IPC.authStatus, (e) => { assertTrusted(e); return s.auth.status() })
+  ipcMain.handle(IPC.authStart, (e, raw) => { assertTrusted(e); return s.auth.start(EmailBody.parse(raw).email) })
+  ipcMain.handle(IPC.authVerify, (e, raw) => { assertTrusted(e); const body = OtpVerifyBody.parse(raw); return s.auth.verify(body.email, body.code) })
+  ipcMain.handle(IPC.authSignOut, (e) => { assertTrusted(e); return s.auth.signOut() })
+  ipcMain.handle(IPC.authDevices, (e) => { assertTrusted(e); return s.auth.devices() })
+  ipcMain.handle(IPC.authRevoke, (e, raw) => { assertTrusted(e); return s.auth.revoke(DeviceId.parse(raw)) })
   ipcMain.handle(IPC.updatesCheck, (e) => { assertTrusted(e); return s.updates.check() })
   ipcMain.handle(IPC.updatesInstallOffline, (e) => { assertTrusted(e); return s.updates.installOffline(win) })
   ipcMain.handle(IPC.libraryAdd, (e, raw) => {

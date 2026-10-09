@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, SurfCrew, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, ConversationSummary, DocScope, LibraryFile, ModelStatus, SettingsPatch } from '../../shared/ipc-contract'
+import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, LibraryFile, ModelStatus, PackRow, SettingsPatch } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
@@ -8,6 +8,8 @@ import { ModelsScreen } from './screens/ModelsScreen'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { LibraryScreen } from './screens/LibraryScreen'
+import { SignInScreen } from './screens/SignInScreen'
+import { PacksScreen } from './screens/PacksScreen'
 
 export default function App() {
   const api = window.surf
@@ -25,12 +27,29 @@ export default function App() {
   const [scope, setScope] = useState<DocScope>('chat')
   const [chatWeb, setChatWeb] = useState(true)
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
+  const [account, setAccount] = useState<{ email: string; deviceId: string | null } | null>(null)
+  const [devices, setDevices] = useState<DeviceInfo[]>([])
+  const [packs, setPacks] = useState<PackRow[]>([])
+  const [packBusy, setPackBusy] = useState(false)
+  const [demoAccount, setDemoAccount] = useState<{ email: string; deviceId: string | null } | null>(null)
+  const [demoDevices, setDemoDevices] = useState<DeviceInfo[] | null>(null)
+  const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
 
   const refresh = useCallback(async () => {
-    const [st, se, conv] = await Promise.all([api.models.status(), api.settings.get(), api.conversations.list()])
+    const [st, se, conv, auth, listed] = await Promise.all([
+      api.models.status(),
+      api.settings.get(),
+      api.conversations.list(),
+      api.auth.status(),
+      api.packs.list(),
+    ])
     setStatus(st)
     setSettings(se)
     setConversations(conv)
+    setAccount(auth.signedIn && auth.email ? { email: auth.email, deviceId: auth.deviceId } : null)
+    setPacks(listed)
+    if (auth.signedIn) setDevices(await api.auth.devices().catch(() => []))
+    else setDevices([])
     return st
   }, [api])
 
@@ -136,6 +155,16 @@ export default function App() {
     setView('chat')
   }
 
+  async function deleteConversation(id: string) {
+    await api.conversations.remove(id)
+    setConversations(await api.conversations.list())
+    if (conversationId === id) {
+      setConversationId(null)
+      setMessages([])
+      setPreview(null)
+    }
+  }
+
   async function attach(paths: string[], createConversation: boolean) {
     const res = await api.library.add(paths, createConversation ? conversationId : null, createConversation)
     if (res.conversationId) setConversationId(res.conversationId)
@@ -211,6 +240,76 @@ export default function App() {
           },
         ])
       }
+      if (scene === 'signin') {
+        setDemoAccount(null)
+        setView('signin')
+      }
+      if (scene === 'account') {
+        setDemoAccount({ email: 'ada@example.com', deviceId: '11111111-1111-4111-8111-111111111111' })
+        setDemoDevices([
+          { id: '11111111-1111-4111-8111-111111111111', name: 'This computer', os: 'linux', status: 'active', current: true },
+          { id: '22222222-2222-4222-8222-222222222222', name: 'Studio laptop', os: 'macos', status: 'active', current: false },
+        ])
+        setView('settings')
+      }
+      if (scene === 'packs') {
+        setDemoPacks([{
+          id: 'general-starter',
+          title: 'General starter',
+          niche: 'general',
+          version: '2026.10.01',
+          latestVersion: '2026.10.09',
+          installed: true,
+          updateAvailable: true,
+          syncedAt: Date.UTC(2026, 9, 8, 9, 0),
+          progress: null,
+          error: null,
+        }])
+        setView('packs')
+      }
+      if (scene === 'savedweb') {
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: 'u-saved', role: 'user', text: 'What is the price of the pier 9 beacon today?', sources: [], tools: [] },
+          {
+            id: 'a-saved', role: 'assistant', tools: [],
+            text: 'The Surf beacon code for pier 9 is SB-4417. [S1]',
+            sources: [{
+              kind: 'web',
+              title: 'Pier 9 beacon',
+              url: 'https://example.com/beacon',
+              domain: 'example.com',
+              published: '8 Oct 2026',
+              pack: 'Web, saved 8 Oct 2026',
+              savedAt: Date.UTC(2026, 9, 8, 12, 0),
+              staleNote: 'Saved more than 24 hours ago. Prices and news may have changed.',
+              excerpt: 'The Surf beacon code for pier 9 today is SB-4417.',
+            }],
+          },
+        ])
+      }
+      if (scene === 'packcite') {
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: 'u-pack', role: 'user', text: 'What is the harbor lantern code?', sources: [], tools: [] },
+          {
+            id: 'a-pack', role: 'assistant', tools: [],
+            text: 'The harbor lantern code is GL-2201. [S1]',
+            sources: [{
+              kind: 'document',
+              title: 'Harbor lantern',
+              url: 'pack://general-starter/harbor-lantern.txt',
+              pack: 'General starter · 2026.10.09',
+              version: '2026.10.09',
+              excerpt: 'The general starter pack says the harbor lantern code is GL-2201.',
+            }],
+          },
+        ])
+      }
       if (scene === 'library') {
         setView('library')
         setPreview(null)
@@ -228,6 +327,30 @@ export default function App() {
         <SurfCrew mood="thinking" size={180} />
         <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Surf AI'}</p>
       </main>
+    )
+  }
+
+  const shownAccount = demoAccount ?? account
+  const shownDevices = demoDevices ?? devices
+  const shownPacks = demoPacks ?? packs
+
+  if (view === 'signin') {
+    return (
+      <div className="h-full" data-ready="yes" data-screen="signin">
+        <SignInScreen
+          theme={settings.theme}
+          onTheme={chooseTheme}
+          onClose={() => setView('chat')}
+          onStart={(email) => api.auth.start(email)}
+          onVerify={async (email, code) => {
+            await api.auth.verify(email, code)
+            setDemoAccount(null)
+            setDemoDevices(null)
+            await refresh()
+            setView('settings')
+          }}
+        />
+      </div>
     )
   }
 
@@ -256,8 +379,10 @@ export default function App() {
         onView={setView}
         theme={settings.theme}
         onTheme={chooseTheme}
+        signedIn={Boolean(shownAccount)}
         onNew={newChat}
         onOpen={(id) => { void openConversation(id) }}
+        onDelete={(id) => { void deleteConversation(id) }}
       />
       {view === 'chat' && (
         <ChatScreen
@@ -291,6 +416,21 @@ export default function App() {
           onClosePreview={() => setPreview(null)}
         />
       )}
+      {view === 'packs' && (
+        <PacksScreen
+          packs={shownPacks}
+          busy={packBusy}
+          error={error}
+          onSync={() => {
+            setPackBusy(true)
+            setError(null)
+            void api.packs.sync().then((rows) => { setDemoPacks(null); setPacks(rows) }).catch((e: unknown) => setError((e as Error).message)).finally(() => setPackBusy(false))
+          }}
+          onRemove={(id) => {
+            void api.packs.remove(id).then(() => api.packs.list()).then((rows) => { setDemoPacks(null); setPacks(rows) }).catch((e: unknown) => setError((e as Error).message))
+          }}
+        />
+      )}
       {view === 'models' && (
         <ModelsScreen status={status} progress={progress} busyId={busyId} error={error} onDownload={(id) => { void download(id).catch(() => undefined) }} />
       )}
@@ -298,6 +438,21 @@ export default function App() {
         <SettingsScreen
           status={status}
           settings={settings}
+          account={shownAccount}
+          devices={shownDevices}
+          onSignIn={() => setView('signin')}
+          onSignOut={() => {
+            setDemoAccount(null)
+            setDemoDevices(null)
+            void api.auth.signOut().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
+          }}
+          onRevoke={(id) => {
+            if (demoDevices) {
+              setDemoDevices(demoDevices.filter((device) => device.id !== id))
+              return
+            }
+            void api.auth.revoke(id).then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
+          }}
           onPatch={(p) => { void patch(p) }}
           onCheckUpdates={async () => {
             const v = await api.updates.check()

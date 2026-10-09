@@ -19,7 +19,17 @@ export const SettingsPatch = z.object({
   onboardingComplete: z.boolean().optional(),
   theme: z.enum(['system', 'light', 'dark']).optional(),
   apiBaseUrl: z.string().max(200).regex(/^https?:\/\/\S+$/).optional(),
+  packSyncHours: z.number().int().min(1).max(168).optional(),
 }).strict()
+
+const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)
+export const EmailBody = z.object({ email: Email })
+export const OtpVerifyBody = z.object({
+  email: Email,
+  code: z.string().regex(/^\d{6}$/),
+})
+export const DeviceId = z.string().uuid()
+export const PackId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/)
 
 export const HttpLink = z.string().max(2000).regex(/^https?:\/\/\S+$/)
 

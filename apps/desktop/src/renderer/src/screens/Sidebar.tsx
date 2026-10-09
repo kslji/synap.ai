@@ -16,8 +16,10 @@ export function Sidebar({
   onView,
   onNew,
   onOpen,
+  onDelete,
   theme,
   onTheme,
+  signedIn,
 }: {
   view: View
   conversations: ConversationSummary[]
@@ -25,8 +27,10 @@ export function Sidebar({
   onView: (v: View) => void
   onNew: () => void
   onOpen: (id: string) => void
+  onDelete: (id: string) => void
   theme: ThemeChoice
   onTheme: (theme: ThemeChoice) => void
+  signedIn: boolean
 }) {
   return (
     <aside className="flex h-full w-[272px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
@@ -57,20 +61,38 @@ export function Sidebar({
       <div className="mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto">
         {conversations.length === 0 && <p className="px-2 py-2 text-sm text-[var(--muted)]">Nothing saved yet.</p>}
         {conversations.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => onOpen(c.id)}
-            className={`truncate rounded-xl px-2 py-2 text-left text-sm ${c.id === activeId ? 'bg-[var(--bg-elev)]' : 'hover:bg-[var(--bg-elev)]'}`}
-          >
-            {c.title}
-          </button>
+          <div key={c.id} className={`flex items-center rounded-xl ${c.id === activeId ? 'bg-[var(--bg-elev)]' : 'hover:bg-[var(--bg-elev)]'}`}>
+            <button
+              type="button"
+              onClick={() => onOpen(c.id)}
+              className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm"
+            >
+              {c.title}
+            </button>
+            <button
+              type="button"
+              className="shrink-0 px-2 py-2 text-xs text-[var(--muted)]"
+              aria-label={`Delete ${c.title}`}
+              data-delete-chat={c.id}
+              onClick={() => onDelete(c.id)}
+            >
+              Delete
+            </button>
+          </div>
         ))}
       </div>
       <div className="mt-2 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
         <ThemeSwitch value={theme} onChange={onTheme} />
         <NavButton current={view} id="library" onView={onView}>Documents</NavButton>
+        <NavButton current={view} id="packs" onView={onView}>Packs</NavButton>
         <NavButton current={view} id="models" onView={onView}>Models</NavButton>
+        <button
+          type="button"
+          onClick={() => onView(signedIn ? 'settings' : 'signin')}
+          className={`rounded-xl px-2 py-2 text-left text-sm ${view === 'signin' ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'}`}
+        >
+          {signedIn ? 'Account' : 'Sign in'}
+        </button>
         <NavButton current={view} id="settings" onView={onView}>Settings</NavButton>
       </div>
     </aside>

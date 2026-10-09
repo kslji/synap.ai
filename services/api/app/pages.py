@@ -1,42 +1,22 @@
 """Fetch a public HTML page and return cleaned text. Nothing is written to disk or the database."""
 from __future__ import annotations
 
-import re
+import logging
 from urllib.parse import urlsplit
 
 import httpx
 
+from .sanitize import prepare_page
 from .ssrf import MAX_BYTES, SsrfBlocked, guard_url, next_hop, robots_allows
+
+log = logging.getLogger("surf.api")
 
 USER_AGENT = "SurfAI/0.1 (+https://synap.surf)"
 
 
-def _strip_html(raw: str) -> str:
-    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", raw)
-    text = re.sub(r"(?s)<[^>]+>", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:8000]
-
-
 def clean_html(raw: str, url: str) -> tuple[str, str | None, str | None]:
-    title = None
-    published = None
-    try:
-        import trafilatura
-
-        text = trafilatura.extract(raw, url=url, include_comments=False) or ""
-        meta = trafilatura.extract_metadata(raw, default_url=url)
-        if meta is not None:
-            title = meta.title or None
-            published = meta.date or None
-        if text.strip():
-            return text.strip()[:8000], title, published
-    except Exception:
-        pass
-    match = re.search(r"(?is)<title[^>]*>(.*?)</title>", raw)
-    if match:
-        title = re.sub(r"\s+", " ", match.group(1)).strip()[:200] or None
-    return _strip_html(raw), title, published
+    page = prepare_page(raw, url)
+    return page["text"], page["title"], page["published"]
 
 
 def slices(text: str, size: int = 1500, limit: int = 3) -> list[str]:
@@ -93,12 +73,22 @@ async def fetch_one(client: httpx.AsyncClient, url: str, allow: set[str]) -> dic
             if "html" not in ctype and "text/plain" not in ctype:
                 raise SsrfBlocked("html")
             raw = (await _read_limited(response)).decode("utf-8", "replace")
-            text, title, published = clean_html(raw, current)
+            page = prepare_page(raw, current)
+            host = urlsplit(current).netloc
+            log.info(
+                "sanitizer host=%s counts=%s ignored=%s",
+                host,
+                page["sanitizer"],
+                [item["flags"] for item in page["ignored"]],
+            )
             return {
                 "url": current,
-                "title": title,
-                "published": published,
-                "parts": slices(text),
+                "title": page["title"],
+                "published": page["published"],
+                "parts": slices(page["text"]),
+                "sanitizer": page["sanitizer"],
+                "injection": page["injection"],
+                "ignored": page["ignored"],
             }
     raise SsrfBlocked("redirect")
 

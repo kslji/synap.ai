@@ -1,8 +1,8 @@
-"""Surf AI API: health, model registry, pack manifest, and a SearXNG proxy.
+"""Surf AI API: login, devices, pack catalog, and a SearXNG proxy.
 
 Privacy: search query text is never stored. Page text is returned to the device
-and not written to Postgres. Device JWTs from /v1/devices/register are temporary
-until Step 5 login; they are not rows in `devices` because that table requires a user.
+and not written to Postgres. Access tokens are minted at email login. `sub` is
+the device id so search rate limits stay per device.
 """
 import datetime as dt
 import hashlib
@@ -14,13 +14,16 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from .auth_store import AuthError, MemoryAuth, PostgresAuth
 from .limiter import MemoryLimiter, RedisLimiter
+from .mailer import make_mail
+from .pack_catalog import catalog, verify_download
 from .pages import fetch_one
 from .ssrf import SsrfBlocked
-from .tokens import issue_device_token, read_bearer
+from .tokens import issue_access_token, read_bearer
 
 ENV = os.environ
 REGISTRY = json.loads((pathlib.Path(__file__).parent / "models.registry.json").read_text())
@@ -47,6 +50,12 @@ async def lifespan(app: FastAPI):
         await app.state.pg.open()
         app.state.kv = redis.from_url(ENV["VALKEY_URL"])
         app.state.limiter = RedisLimiter(app.state.kv, per_min, per_day)
+    app.state.mail = make_mail()
+    if LITE:
+        app.state.auth = MemoryAuth()
+    else:
+        app.state.auth = PostgresAuth(app.state.pg)
+        await app.state.auth.ensure_schema()
     app.state.http = httpx.AsyncClient(timeout=8)
     yield
     await app.state.http.aclose()
@@ -70,12 +79,15 @@ async def problem_handler(_: Request, problem: Problem):
     return JSONResponse({"error": {"code": problem.code, "message": problem.detail}}, status_code=problem.status, headers=headers)
 
 
-def current_user(authorization: str = Header(default="")) -> dict:
+async def current_user(authorization: str = Header(default="")) -> dict:
     try:
-        return read_bearer(authorization)
+        claims = read_bearer(authorization)
     except Exception as exc:  # noqa: BLE001
         code = "unauthenticated" if "missing" in str(exc) else "invalid_token"
         raise Problem(401, code, "missing bearer token" if code == "unauthenticated" else "invalid token") from exc
+    if claims.get("typ") != "access" or not await app.state.auth.device_active(str(claims.get("sub") or "")):
+        raise Problem(401, "invalid_token", "invalid token")
+    return claims
 
 
 async def rate_limit(request: Request, user: dict = Depends(current_user)) -> dict:
@@ -143,18 +155,132 @@ async def packs_manifest(installed: str = "", user: dict = Depends(current_user)
     return {"packs": packs, "generated_at": dt.datetime.now(dt.UTC).isoformat()}
 
 
-class RegisterIn(BaseModel):
+class OtpStartIn(BaseModel):
+    email: str = Field(max_length=200)
+
+
+class DeviceIn(BaseModel):
+    device_uid: str | None = Field(default=None, max_length=80)
     name: str | None = Field(default=None, max_length=80)
+    os: str = "linux"
+    arch: str = "x64"
+    app_version: str = "0.1.0"
+
+
+class OtpVerifyIn(BaseModel):
+    email: str = Field(max_length=200)
+    code: str = Field(max_length=12)
+    device: DeviceIn = DeviceIn()
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str = Field(min_length=10, max_length=500)
+
+
+def _auth_problem(error: AuthError) -> Problem:
+    return Problem(error.status, error.code, error.detail, error.retry_after)
+
+
+def _session(user: dict, device: dict, refresh: str) -> dict:
+    access = issue_access_token(device["id"], user["id"], user["email"])
+    return {
+        "access_token": access["token"],
+        "token_type": access["token_type"],
+        "expires_in": access["expires_in"],
+        "refresh_token": refresh,
+        "user": {"id": user["id"], "email": user["email"]},
+        "device": {"id": device["id"], "device_uid": device["device_uid"], "name": device["name"], "os": device["os"]},
+    }
+
+
+@app.post("/v1/auth/otp/start")
+async def otp_start(body: OtpStartIn):
+    try:
+        code = await app.state.auth.request_code(body.email)
+    except AuthError as exc:
+        raise _auth_problem(exc) from exc
+    except ValueError as exc:
+        raise Problem(400, "invalid_email", "Enter a valid email address.") from exc
+    app.state.mail.send(
+        body.email.strip().lower(),
+        "Your Surf AI code",
+        f"Your Surf AI sign-in code is {code}. It expires in 10 minutes.",
+        code,
+    )
+    out = {"ok": True}
+    if os.environ.get("MAIL_MODE", "console") != "smtp":
+        out["dev_code"] = code
+    return out
+
+
+@app.post("/v1/auth/otp/verify")
+async def otp_verify(body: OtpVerifyIn):
+    try:
+        user = await app.state.auth.verify_code(body.email, body.code)
+        device = await app.state.auth.activate_device(user, body.device.model_dump())
+        refresh, _family = await app.state.auth.issue_refresh(user["id"], device["id"])
+    except AuthError as exc:
+        raise _auth_problem(exc) from exc
+    except ValueError as exc:
+        raise Problem(400, "invalid_email", "Enter a valid email address.") from exc
+    return _session(user, device, refresh)
+
+
+@app.post("/v1/auth/refresh")
+async def refresh_session(body: RefreshIn):
+    try:
+        refresh, user, device = await app.state.auth.rotate_refresh(body.refresh_token)
+    except AuthError as exc:
+        raise _auth_problem(exc) from exc
+    return _session(user, device, refresh)
+
+
+@app.post("/v1/auth/logout")
+async def logout(body: RefreshIn):
+    await app.state.auth.revoke_refresh(body.refresh_token)
+    return {"ok": True}
+
+
+@app.get("/v1/account")
+async def account(user: dict = Depends(current_user)):
+    row = await app.state.auth.user_by_id(str(user["uid"]))
+    if not row:
+        raise Problem(401, "invalid_token", "invalid token")
+    return {"id": row["id"], "email": row["email"]}
+
+
+@app.get("/v1/devices")
+async def devices(user: dict = Depends(current_user)):
+    rows = await app.state.auth.list_devices(str(user["uid"]))
+    return {"devices": rows}
+
+
+@app.post("/v1/devices/{device_id}/revoke")
+async def revoke_device(device_id: str, user: dict = Depends(current_user)):
+    ok = await app.state.auth.revoke_device(str(user["uid"]), device_id)
+    if not ok:
+        raise Problem(404, "not_found", "That device is not active.")
+    return {"ok": True}
 
 
 @app.post("/v1/devices/register")
-async def register_device(request: Request, body: RegisterIn | None = None):
-    host = request.client.host if request.client else "unknown"
-    status, retry = await app.state.limiter.hit(f"register:{host}")
-    if status != "ok":
-        raise Problem(429, "rate_limited", "too many device registrations", retry_after=retry or 60)
-    # Temporary: not inserted into devices (that row needs a user). Step 5 will.
-    return issue_device_token()
+async def register_device():
+    raise Problem(410, "gone", "Sign in with an email code. Device registration now happens at login.")
+
+
+@app.get("/v1/packs")
+async def packs(request: Request, installed: str = "", user: dict = Depends(current_user)):
+    base = os.environ.get("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
+    return catalog(base, installed)
+
+
+@app.get("/v1/packs/download")
+async def pack_download(path: str, exp: int, sig: str):
+    try:
+        full = verify_download(path, exp, sig)
+    except ValueError as exc:
+        raise Problem(403, "forbidden", "That download link is not valid.") from exc
+    return FileResponse(full)
 
 
 class SearchIn(BaseModel):
@@ -282,6 +408,8 @@ class FetchIn(BaseModel):
 async def fetch_pages(body: FetchIn, user: dict = Depends(rate_limit)):
     chunks = []
     errors = []
+    sanitizer = []
+    ignored = []
     allow = allow_hosts()
     for url in body.urls:
         try:
@@ -292,6 +420,9 @@ async def fetch_pages(body: FetchIn, user: dict = Depends(rate_limit)):
         except (httpx.HTTPError, OSError):
             errors.append({"url": url, "code": "fetch"})
             continue
+        sanitizer.append({"url": page["url"], "report": page.get("sanitizer") or {}})
+        for item in page.get("ignored") or []:
+            ignored.append({"url": page["url"], "score": item.get("score", 0), "flags": item.get("flags") or []})
         if not page["parts"]:
             errors.append({"url": url, "code": "empty"})
             continue
@@ -301,6 +432,7 @@ async def fetch_pages(body: FetchIn, user: dict = Depends(rate_limit)):
                 "title": page["title"],
                 "published": page["published"],
                 "text": part,
+                "injection": page.get("injection") or {"action": "keep", "score": 0, "flags": []},
             })
     await remember(user, None, len(chunks), 0, "ok")
-    return {"chunks": chunks, "errors": errors}
+    return {"chunks": chunks, "errors": errors, "sanitizer": sanitizer, "ignored": ignored}

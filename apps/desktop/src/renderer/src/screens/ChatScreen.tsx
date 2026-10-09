@@ -135,7 +135,7 @@ export function ChatScreen({
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <div role="radiogroup" aria-label="Where to search" className="flex gap-1">
                 <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
-                <ScopeButton current={scope} id="all" onScope={onScope}>All documents</ScopeButton>
+                <ScopeButton current={scope} id="all" onScope={onScope}>All chats</ScopeButton>
               </div>
               <button
                 type="button"
@@ -238,10 +238,12 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
                 type="button"
                 className="pill"
                 data-citation="yes"
+                data-pack-citation={s.version ? 'yes' : 'no'}
                 title={s.excerpt || s.title}
                 onClick={() => { if (s.chunkId) onOpenCitation(s.chunkId) }}
               >
-                [S{i + 1}] {s.fileName || s.title || s.pack}{s.locator ? ` · ${s.locator}` : ''}
+                [S{i + 1}] {s.version ? `${s.pack} · ${s.title}` : (s.fileName || s.title || s.pack)}{s.locator ? ` · ${s.locator}` : ''}
+                {s.suspicious ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]" data-suspicious="yes">This source contained suspicious instructions and was ignored.</span> : null}
               </button>
             ))}
           </div>
@@ -254,10 +256,17 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
                 type="button"
                 className="card px-3 py-2 text-left"
                 data-web-source="yes"
+                data-saved-web={s.savedAt ? 'yes' : 'no'}
                 onClick={() => { void window.surf.links.open(s.url) }}
               >
                 <div className="text-sm font-semibold">[S{i + 1}] {s.title}</div>
-                <div className="text-xs text-[var(--muted)]">{s.domain || s.url}{s.published ? ` · ${s.published}` : ''}</div>
+                <div className="text-xs text-[var(--muted)]">
+                  {s.savedAt ? s.pack : (s.domain || s.url)}
+                  {s.savedAt && s.domain ? ` · ${s.domain}` : ''}
+                  {!s.savedAt && s.published ? ` · ${s.published}` : ''}
+                </div>
+                {s.staleNote && <div className="mt-1 text-xs text-[var(--muted)]" data-stale-note="yes">{s.staleNote}</div>}
+                {s.suspicious && <div className="mt-1 text-xs text-[var(--muted)]" data-suspicious="yes">This source contained suspicious instructions and was ignored.</div>}
               </button>
             ) : null)}
           </div>

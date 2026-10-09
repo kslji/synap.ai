@@ -26,6 +26,14 @@ from platform_store import (
 )
 import mail_queue
 
+import sys
+from pathlib import Path
+
+_API = Path(__file__).resolve().parents[2] / "services" / "api"
+if str(_API) not in sys.path:
+    sys.path.insert(0, str(_API))
+from app.otp_policy import hash_code, judge_otp  # noqa: E402
+
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 OTP_RE = re.compile(r"^\d{6}$")
 _hasher = PasswordHasher()
@@ -74,7 +82,7 @@ def _dummy_password_hash() -> str:
 def _issue_otp(email: str, purpose: str) -> str:
     code = f"{secrets.randbelow(1_000_000):06d}"
     exp = (datetime.now(timezone.utc) + timedelta(minutes=OTP_MINUTES)).isoformat()
-    insert_otp(email, purpose, hash_secret(code), exp)
+    insert_otp(email, purpose, hash_code(code), exp)
     if purpose == "verify":
         subject = "Verify your local.ai email"
         body = f"Your local.ai email verification code is {code}. It expires in {OTP_MINUTES} minutes."
@@ -190,19 +198,26 @@ def _require_otp_shape(otp: str) -> str:
 
 
 def _check_otp(email: str, purpose: str, otp: str) -> None:
+    """Same decisions as services/api (judge_otp): expiry, attempt cap, argon2, one-time consume."""
     code = _require_otp_shape(otp)
     row = get_active_otp(email, purpose)
-    if not row:
+    verdict = judge_otp(
+        None if not row else {"code_hash": row["code_hash"], "expires_at": row["expires_at"], "attempts": int(row["attempts"])},
+        code,
+        datetime.now(timezone.utc),
+        MAX_OTP_TRIES,
+    )
+    if verdict == "missing":
         raise HTTPException(status_code=400, detail="No active OTP. Request a new code.")
-    if row["expires_at"] < datetime.now(timezone.utc).isoformat():
+    if verdict == "expired":
         consume_otp(row["id"])
         raise HTTPException(status_code=400, detail="That OTP expired. Request a new code.")
-    if int(row["attempts"]) >= MAX_OTP_TRIES:
+    if verdict == "locked" and int(row["attempts"]) >= MAX_OTP_TRIES:
         consume_otp(row["id"])
         raise HTTPException(status_code=429, detail="Too many OTP tries. Request a new code.")
-    if not verify_secret(row["code_hash"], code):
+    if verdict in {"wrong", "locked"}:
         tries = bump_otp_attempts(row["id"])
-        if tries >= MAX_OTP_TRIES:
+        if tries >= MAX_OTP_TRIES or verdict == "locked":
             consume_otp(row["id"])
             raise HTTPException(status_code=429, detail="Too many OTP tries. Request a new code.")
         raise HTTPException(status_code=400, detail="That OTP is not correct.")

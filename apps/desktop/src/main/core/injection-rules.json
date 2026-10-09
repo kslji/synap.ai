@@ -1,0 +1,22 @@
+{
+  "high": 6,
+  "medium": 3,
+  "patterns": [
+    {"id": "ignore_instructions", "weight": 8, "flags": "i", "re": "\\bignore\\s+(all\\s+)?(previous|above|prior|earlier)\\s+(instructions|prompts|rules)\\b"},
+    {"id": "disregard_above", "weight": 8, "flags": "i", "re": "\\bdisregard\\s+(the\\s+)?(above|previous|system|prior)\\b"},
+    {"id": "you_are_now", "weight": 6, "flags": "i", "re": "\\byou\\s+are\\s+now\\b"},
+    {"id": "system_prompt", "weight": 6, "flags": "i", "re": "\\bsystem\\s+prompt\\b"},
+    {"id": "developer_mode", "weight": 6, "flags": "i", "re": "\\bdeveloper\\s+mode\\b"},
+    {"id": "new_instructions", "weight": 6, "flags": "i", "re": "\\bnew\\s+instructions\\s*:"},
+    {"id": "reply_only", "weight": 8, "flags": "i", "re": "\\breply\\s+only\\s+with\\b"},
+    {"id": "role_tag", "weight": 8, "flags": "", "re": "<\\|im_start\\|>|<\\|im_end\\|>|\\[INST\\]|<</SYS>>"},
+    {"id": "assistant_role", "weight": 4, "flags": "im", "re": "^\\s*assistant\\s*:"},
+    {"id": "system_role", "weight": 6, "flags": "im", "re": "^\\s*(system|developer)\\s*:"},
+    {"id": "base64_blob", "weight": 4, "flags": "", "re": "(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{80,}={0,2}(?![A-Za-z0-9+/])"},
+    {"id": "exfiltrate", "weight": 6, "flags": "i", "re": "\\b(exfiltrate|send\\s+(the\\s+)?(prompt|conversation|secrets?)\\s+to)\\b"},
+    {"id": "visit_url", "weight": 6, "flags": "i", "re": "\\b(visit|open|browse\\s+to)\\s+(this\\s+)?(url|link|website)\\b"},
+    {"id": "call_tool", "weight": 6, "flags": "i", "re": "\\b(call|invoke|use)\\s+(the\\s+)?(tool|function)\\b"},
+    {"id": "hi_ignore", "weight": 8, "flags": "", "re": "पिछले\\s+निर्देश|ऊपर\\s+के\\s+निर्देश|निर्देशों\\s+को\\s+(अनदेखा|भूल)"},
+    {"id": "hi_role", "weight": 6, "flags": "", "re": "अब\\s+तुम|सिस्टम\\s+प्रॉम्प्ट|डेवलपर\\s+मोड|केवल\\s+यही\\s+उत्तर"}
+  ]
+}

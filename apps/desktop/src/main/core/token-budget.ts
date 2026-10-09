@@ -14,6 +14,7 @@
  */
 import { Tokenizer } from '@huggingface/tokenizers';
 import { readFile } from 'node:fs/promises';
+import { groundedUser } from './injection.js';
 import type { ChatMessage } from './llama-client.js';
 
 export interface TokenCounter { count(text: string): Promise<number>; name: string }
@@ -115,15 +116,15 @@ export async function allocate(c: TokenCounter, p: BudgetProfile, input: BudgetI
   parts.question = await n(question);
 
   // 3) retrieved chunks: best first, whole chunks only, stop at budget or maxChunks
-  const sources: string[] = [];
+  const chosen: Chunk[] = [];
   let used = 0, droppedChunks = 0;
   for (const ch of input.chunks) {
-    const block = `[S${sources.length + 1}] ${ch.title}\n${ch.text}`;
+    const block = `[S${chosen.length + 1}] ${ch.title}\n${ch.text}`;
     const t = await c.count(block);
-    if (sources.length >= p.maxChunks || used + t > p.retrieved) { droppedChunks++; continue; }
-    sources.push(block); used += t;
+    if (chosen.length >= p.maxChunks || used + t > p.retrieved) { droppedChunks++; continue; }
+    chosen.push(ch); used += t;
   }
-  parts.retrieved = sources.length ? used + PER_MESSAGE_OVERHEAD : 0;
+  parts.retrieved = chosen.length ? used + PER_MESSAGE_OVERHEAD : 0;
 
   // 4) history: newest turns first, up to keepTurns, within budget; older turns are represented by the summary
   const histMsgs: ChatMessage[] = [];
@@ -154,8 +155,8 @@ export async function allocate(c: TokenCounter, p: BudgetProfile, input: BudgetI
   // Order matters for caching: [stable system][summary] [history] [sources + question].
   // Qwen3.5's chat template allows ONE system message, at the start (a second one raises a template
   // error), so the summary is appended to it; the unchanged system text stays a cacheable prefix.
-  const user = sources.length
-    ? `SOURCES:\n${sources.join('\n\n')}\n\nAnswer using only the sources above and cite them like [S1]. Question: ${question}`
+  const user = chosen.length
+    ? groundedUser(question, chosen.map((chunk) => ({ title: chunk.title, text: chunk.text })))
     : question;
   const messages: ChatMessage[] = [{ role: 'system', content: input.system + summaryText }, ...histMsgs, { role: 'user', content: user }];
   return {

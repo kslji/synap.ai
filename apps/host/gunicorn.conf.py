@@ -45,3 +45,5 @@ except OSError:
 
 loglevel = os.getenv("LOG_LEVEL", "info")
 capture_output = True
+# Path only (%(U)s). The request line (%(r)s) would log search queries and emails.
+access_log_format = "%(h)s %(m)s %(U)s %(s)s %(b)s %(M)sms"

@@ -52,3 +52,20 @@ One theme, in `packages/ui/src/tokens.css`: white and near-black surfaces, black
 The portable zip pack (RAM picker, `LOCAL-SETUP`, `SURF-OPEN`, in-zip `check-pack`) is removed. Model size is chosen in the desktop app's first launch. `build.txt` publishes `apps/web/dist` and drops the old zip pages from the live site.
 
 No paid services, no bundled model weights. `resources/bin` and `*.gguf` are gitignored.
+
+## Auth host
+
+`apps/host` is the existing OTP, account, and feedback API. The desktop app and the marketing site do not call it. Rate limits, health routes, and the VPS unit files are in `apps/host/README.md`.
+
+```bash
+python3 -m venv apps/host/.venv
+apps/host/.venv/bin/pip install -r apps/host/requirements.txt
+cp .env.example .env
+apps/host/.venv/bin/python -m uvicorn main:app --app-dir apps/host --host 127.0.0.1 --port 18765
+```
+
+Checks that do not need a model:
+
+```bash
+./scripts/check.sh
+```

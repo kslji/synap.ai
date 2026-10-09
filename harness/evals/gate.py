@@ -18,6 +18,7 @@ from test_guardrails import run_checks as guardrail_checks  # noqa: E402
 from test_moss import run_checks as moss_checks  # noqa: E402
 from test_reply_repair import run_checks as reply_repair_checks  # noqa: E402
 from test_convert import run_checks as convert_checks  # noqa: E402
+from test_local_first import run_checks as local_first_checks  # noqa: E402
 
 REPORT = Path(__file__).with_name("last-report.json")
 LOOPBACK = ("127.0.0.1", "localhost")
@@ -39,6 +40,7 @@ def main() -> int:
     rows.extend(guardrail_checks())
     rows.extend(moss_checks())
     rows.extend(reply_repair_checks())
+    rows.extend(local_first_checks())
     rows.extend(convert_checks())
 
     try:

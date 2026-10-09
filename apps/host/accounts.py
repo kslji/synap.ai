@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from platform_store import (
     consume_otp,
+    consume_otp_once,
     bump_otp_attempts,
     get_active_otp,
     get_user_by_email,
@@ -26,9 +27,11 @@ from platform_store import (
 import mail_queue
 
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+OTP_RE = re.compile(r"^\d{6}$")
 _hasher = PasswordHasher()
 OTP_MINUTES = 10
 MAX_OTP_TRIES = 5
+_DUMMY_HASH: str | None = None
 
 
 def normalize_email(raw: str) -> str:
@@ -58,6 +61,14 @@ def verify_secret(stored: str, given: str) -> bool:
         return True
     except VerifyMismatchError:
         return False
+
+
+def _dummy_password_hash() -> str:
+    """Hashed once so a missing account takes about as long as a real check."""
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_secret("surf-dummy-password")
+    return _DUMMY_HASH
 
 
 def _issue_otp(email: str, purpose: str) -> str:
@@ -106,6 +117,7 @@ def register(email: str, password: str, referral_code: str | None = None) -> dic
 
 def verify_email(email: str, otp: str) -> dict:
     email = normalize_email(email)
+    _require_otp_shape(otp)
     user = get_user_by_email(email)
     if not user:
         raise HTTPException(status_code=404, detail="Create an account first.")
@@ -119,7 +131,8 @@ def verify_email(email: str, otp: str) -> dict:
 def login(email: str, password: str) -> dict:
     email = normalize_email(email)
     user = get_user_by_email(email)
-    if not user or not verify_secret(user["password_hash"], password):
+    stored = user["password_hash"] if user else _dummy_password_hash()
+    if not user or not verify_secret(stored, password):
         raise HTTPException(status_code=401, detail="Email or password is wrong.")
     if not user["email_verified"]:
         _issue_otp(email, "verify")
@@ -143,6 +156,7 @@ def reset_password(email: str, otp: str, password: str) -> dict:
     email = normalize_email(email)
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    _require_otp_shape(otp)
     user = get_user_by_email(email)
     if not user:
         raise HTTPException(status_code=404, detail="No account for that email.")
@@ -168,7 +182,15 @@ def resend(email: str, purpose: str) -> dict:
     return {"ok": True}
 
 
+def _require_otp_shape(otp: str) -> str:
+    code = re.sub(r"\s+", "", otp or "")
+    if not OTP_RE.fullmatch(code):
+        raise HTTPException(status_code=400, detail="Enter the 6-digit code from your email.")
+    return code
+
+
 def _check_otp(email: str, purpose: str, otp: str) -> None:
+    code = _require_otp_shape(otp)
     row = get_active_otp(email, purpose)
     if not row:
         raise HTTPException(status_code=400, detail="No active OTP. Request a new code.")
@@ -178,7 +200,11 @@ def _check_otp(email: str, purpose: str, otp: str) -> None:
     if int(row["attempts"]) >= MAX_OTP_TRIES:
         consume_otp(row["id"])
         raise HTTPException(status_code=429, detail="Too many OTP tries. Request a new code.")
-    if not verify_secret(row["code_hash"], otp.strip()):
-        bump_otp_attempts(row["id"])
+    if not verify_secret(row["code_hash"], code):
+        tries = bump_otp_attempts(row["id"])
+        if tries >= MAX_OTP_TRIES:
+            consume_otp(row["id"])
+            raise HTTPException(status_code=429, detail="Too many OTP tries. Request a new code.")
         raise HTTPException(status_code=400, detail="That OTP is not correct.")
-    consume_otp(row["id"])
+    if not consume_otp_once(row["id"], MAX_OTP_TRIES):
+        raise HTTPException(status_code=400, detail="No active OTP. Request a new code.")

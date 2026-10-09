@@ -9,7 +9,7 @@ chmod +x harness/run.sh
 
 The portable zip pack, `LOCAL-SETUP` / `SURF-OPEN`, and the in-zip `check-pack` scripts are removed. These checks cover the auth host that is still in the repo.
 
-Unit evals (`test_guardrails.py`, `test_moss.py`, `test_convert.py`, `test_reply_repair.py`) do not need a model.
+Unit evals (`test_guardrails.py`, `test_moss.py`, `test_convert.py`, `test_reply_repair.py`, `test_local_first.py`) do not need a model.
 
 | File | What it proves |
 |---|---|
@@ -17,6 +17,7 @@ Unit evals (`test_guardrails.py`, `test_moss.py`, `test_convert.py`, `test_reply
 | `evals/test_moss.py` | User-file retrieval; empty hits on unrelated queries; seed README never indexed |
 | `evals/test_convert.py` | txt/csv/docx/xlsx → on-device PDF |
 | `evals/test_reply_repair.py` | Looped light-model replies get deduped before they ship |
+| `evals/test_local_first.py` | `.env.example` has empty secrets and no live LiveKit dev key |
 | `evals/fixtures/` | Invoice, bakery README, payroll handbook (user corpus, not product docs) |
 | `evals/retrieval_cases.json` | Grounded queries + forbidden product strings |
 | `evals/gate.py` | Host up, `platform_bytes=0`, Moss on-device, local LLM URL is loopback, plus unit checks |

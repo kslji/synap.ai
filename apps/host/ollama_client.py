@@ -57,7 +57,7 @@ def cpu_threads() -> int:
 
 def total_ram_gb() -> float:
     try:
-        out = subprocess.check_output(["sysctl", "-n", "hw.memsize"], timeout=1)
+        out = subprocess.check_output(["sysctl", "-n", "hw.memsize"], timeout=1, stderr=subprocess.DEVNULL)
         return round(int(out.strip()) / (1024**3), 1)
     except (OSError, subprocess.SubprocessError, ValueError):
         pass

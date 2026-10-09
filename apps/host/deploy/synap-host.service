@@ -16,6 +16,8 @@ Restart=always
 RestartSec=3
 # Give workers time to finish OTP/mail before SIGKILL
 TimeoutStopSec=25
+# Liveness: curl -fsS http://127.0.0.1:18765/healthz
+# Readiness: curl -fsS http://127.0.0.1:18765/ready
 
 [Install]
 WantedBy=multi-user.target

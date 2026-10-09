@@ -4,6 +4,11 @@ After=network.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/ubuntu/surf.ai/apps/host
-ExecStart=/home/ubuntu/surf.ai/apps/host/.venv/bin/python purge_platform.py
-User=ubuntu
+# Same user and env as synap-host.service so this purges /var/lib/synap/platform,
+# not an empty checkout database.
+User=prajugatmachrayt
+Group=prajugatmachrayt
+WorkingDirectory=/home/prajugatmachrayt/surf.ai/apps/host
+EnvironmentFile=-/home/prajugatmachrayt/surf.ai/.env
+Environment=PLATFORM_DATA_DIR=/var/lib/synap/platform
+ExecStart=/home/prajugatmachrayt/surf.ai/apps/host/.venv/bin/python purge_platform.py

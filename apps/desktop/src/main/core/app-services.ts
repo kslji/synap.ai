@@ -26,6 +26,7 @@ import { openPackDb, openUserDb, type DB } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
+import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, savedWebPack, savedWebStats, searchSavedWeb, staleNote, WEB_CACHE_MIGRATION } from './web-cache.js'
 import { assertNetworkAllowed, OfflineOnlyError } from './offline-guard.js'
 import { surfEnv } from './surf-env.js'
 import { initAutoUpdate, installOfflineUpdate } from './updater.js'
@@ -75,6 +76,7 @@ interface WebPiece {
   url: string
   published: string | null
   cosine: number
+  vec: Float32Array
 }
 
 const WEB_FLOOR = 0.42
@@ -393,6 +395,12 @@ export async function createServices(): Promise<Services> {
       .filter((piece) => piece.cosine >= WEB_FLOOR)
   }
 
+  function hasSavedWeb(conversationId: string | null): boolean {
+    if (!store.db) return false
+    if (!conversationId) return Boolean(store.db.prepare('SELECT 1 AS ok FROM web_passages LIMIT 1').get())
+    return Boolean(store.db.prepare('SELECT 1 AS ok FROM web_passage_links WHERE conversation_id = ? LIMIT 1').get(conversationId))
+  }
+
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     const settings = readSettings()
     const reg = registry()
@@ -436,7 +444,8 @@ export async function createServices(): Promise<Services> {
         }
         const wantDocs = docCounts.ready > 0 && Boolean(store.db)
         const wantPacks = opened.length > 0
-        if (wantDocs || wantPacks) {
+        const wantSaved = hasSavedWeb(scopeId)
+        if (wantDocs || wantPacks || wantSaved) {
           const emb = reg.models.find((m) => m.role === 'embedding')
           if (!emb || !(await installed(emb.file, emb.size_bytes))) {
             throw new Error('Download EmbeddingGemma 2 in Models before searching documents or packs.')
@@ -448,10 +457,14 @@ export async function createServices(): Promise<Services> {
             ? searchUser(store.db, text, qvec, scopeId, 5)
             : { top: [] as UserHit[], decision: 'skip' as const }
           const packFound = wantPacks ? hybridSearch(packDbs, text, qvec) : { top: [] as Hit[], decision: 'skip' as const }
-          const merged = mergeLocal(
+          const savedFound = store.db
+            ? searchSavedWeb(store.db, text, qvec, scopeId)
+            : { top: [], decision: 'skip' as const }
+          const localMerged = mergeLocal(
             { hits: docFound.top, decision: wantDocs ? docFound.decision : 'skip' },
             { hits: packFound.top, decision: wantPacks ? packFound.decision : 'skip' },
           )
+          const merged = mergeLocal(localMerged, { hits: savedFound.top, decision: savedFound.top.length ? savedFound.decision : 'skip' })
           hits = merged.hits
           decision = merged.decision
           fromDocs = merged.fromDocs && hits.some((hit) => Boolean((hit as UserHit).fileName))
@@ -537,7 +550,7 @@ export async function createServices(): Promise<Services> {
         }
       }
       const useTools = needsCalculator(text) && !fromDocs && stayingLocal
-      const localSources = plan.branch === 'web' ? [] : citationsOf(hits, versions)
+      const localSources = plan.branch === 'web' ? [] : citationsOf(hits, versions, text)
       const webSources: Citation[] = webHits.map((hit) => ({
         kind: 'web' as const,
         title: hit.title,
@@ -549,7 +562,10 @@ export async function createServices(): Promise<Services> {
       }))
       const sources = [...localSources, ...webSources]
       if (sources.length) sendEvent(win, { type: 'sources', messageId, sources })
-      const localChunks = plan.branch === 'web' ? [] : hits.slice(0, 4).map((h) => ({ id: String(h.chunkId), text: h.text, title: h.title || h.pack, score: h.cosine }))
+      const localChunks = plan.branch === 'web' ? [] : hits.slice(0, 4).map((h) => {
+        const note = isSavedWebHit(h) ? staleNote(h.fetchedAt, Date.now(), fresh) : null
+        return { id: String(h.chunkId), text: note ? `${note}\n${h.text}` : h.text, title: isSavedWebHit(h) ? savedWebPack(h.fetchedAt) : (h.title || h.pack), score: h.cosine }
+      })
       const webChunks = webHits.map((hit, i) => ({ id: `web-${i + 1}`, text: hit.text, title: formatWebCitation(hit), score: hit.cosine }))
       const budget = await allocate(new LlamaServerTokenizer(server.baseUrl, server.apiKey), profile, {
         system: SYSTEM,
@@ -576,6 +592,16 @@ export async function createServices(): Promise<Services> {
         }
       }
       const gate: GateName = webHits.length ? 'web' : decision === 'skip' ? 'answer' : decision
+      if (webHits.length && store.db && !signal.aborted) {
+        saveCitedPassages(store.db, conversationId, messageId, webHits.map((hit) => ({
+          url: hit.url,
+          title: hit.title,
+          text: hit.text,
+          published: hit.published,
+          fetchedAt: Date.now(),
+          vec: hit.vec,
+        })))
+      }
       finish(conversationId, messageId, userMessageId, win, answer, sources, gate)
     })
   }
@@ -611,6 +637,14 @@ export async function createServices(): Promise<Services> {
     conversations: {
       list: async () => store.list(),
       open: async (id) => store.open(id),
+      remove: async (id) => { store.remove(id) },
+    },
+    webCache: {
+      status: async () => (store.db ? savedWebStats(store.db) : { bytes: 0, count: 0, capBytes: 8 * 1024 * 1024 }),
+      clear: async () => {
+        if (store.db) clearSavedWeb(store.db)
+        return store.db ? savedWebStats(store.db) : { bytes: 0, count: 0, capBytes: 8 * 1024 * 1024 }
+      },
     },
     packs: {
       list: () => listPacks(),
@@ -900,7 +934,7 @@ export function startUpdater(win: BrowserWindow, services: Services): void {
 async function openStore(): Promise<SessionStore> {
   try {
     const key = await getOrCreateDbKey()
-    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION])
+    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION])
     return new SessionStore(db)
   } catch (e) {
     console.warn('[surf] encrypted chat store unavailable:', (e as Error).message)
@@ -908,8 +942,9 @@ async function openStore(): Promise<SessionStore> {
   }
 }
 
-function citationsOf(hits: Array<Hit | UserHit>, versions: Map<string, string>): Citation[] {
+function citationsOf(hits: Array<Hit | UserHit>, versions: Map<string, string>, question: string): Citation[] {
   return hits.map((hit) => {
+    if (isSavedWebHit(hit)) return savedWebCitation(hit, question)
     const user = hit as UserHit
     const version = versions.get(hit.pack)
     const library = Boolean(user.fileName)

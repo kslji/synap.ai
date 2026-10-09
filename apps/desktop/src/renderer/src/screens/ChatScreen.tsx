@@ -135,7 +135,7 @@ export function ChatScreen({
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <div role="radiogroup" aria-label="Where to search" className="flex gap-1">
                 <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
-                <ScopeButton current={scope} id="all" onScope={onScope}>All documents</ScopeButton>
+                <ScopeButton current={scope} id="all" onScope={onScope}>All chats</ScopeButton>
               </div>
               <button
                 type="button"
@@ -255,10 +255,16 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
                 type="button"
                 className="card px-3 py-2 text-left"
                 data-web-source="yes"
+                data-saved-web={s.savedAt ? 'yes' : 'no'}
                 onClick={() => { void window.surf.links.open(s.url) }}
               >
                 <div className="text-sm font-semibold">[S{i + 1}] {s.title}</div>
-                <div className="text-xs text-[var(--muted)]">{s.domain || s.url}{s.published ? ` · ${s.published}` : ''}</div>
+                <div className="text-xs text-[var(--muted)]">
+                  {s.savedAt ? s.pack : (s.domain || s.url)}
+                  {s.savedAt && s.domain ? ` · ${s.domain}` : ''}
+                  {!s.savedAt && s.published ? ` · ${s.published}` : ''}
+                </div>
+                {s.staleNote && <div className="mt-1 text-xs text-[var(--muted)]" data-stale-note="yes">{s.staleNote}</div>}
               </button>
             ) : null)}
           </div>

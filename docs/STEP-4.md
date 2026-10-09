@@ -46,6 +46,14 @@ python3 services/packs/build_pack.py \
 
 When the desktop is online and signed in, it checks the catalog on launch and every `packSyncHours` (default 6). It downloads only changed files, resumes with HTTP Range, pauses when Offline only is on, the network is down, the link is metered (`nmcli`), or a chat is in progress. Installed packs join the hybrid search. A pack citation shows the pack name, version, and source title.
 
+## Saved web passages
+
+When an answer cites a web passage, Surf stores only that passage in the encrypted local database: url, title, domain, fetched time, published date when the page has one, and the EmbeddingGemma 2 vector (256 dimensions). The rows are `web_passages`, `web_passage_links`, an FTS5 table, and a sqlite-vec table. They are not uploaded. Search requests stay `{ query, k }`.
+
+A later question searches those passages the same way it searches documents. The default scope is the current chat. **All chats** also searches saved web passages from other chats. Offline, or with web search off, a strong match stays local and is cited as `Web, saved <date>`. A question about prices or news that uses a passage older than 24 hours also shows: "Saved more than 24 hours ago. Prices and news may have changed."
+
+The same url and passage text is stored once. Deleting a chat deletes its links, and a passage that no chat still cites is removed. Settings shows the stored size and can clear every saved web source. The cap is 8 MB of passage text; the least recently used passages are dropped first.
+
 ## Signing key
 
 Generate a seed and keep it in a secret manager or an environment variable. Do not commit it, do not put it in an image, and do not paste it into a workflow log.
@@ -110,4 +118,4 @@ cd services/api && python3 -m pytest && python3 -m alembic heads
 cd apps/desktop && npm run test:unit
 ```
 
-The desktop self-test signs in with the dev OTP, builds the general starter pack against the local embed server, downloads it from the lite API, verifies the signature, and asks for the lantern code online and again after that API is stopped.
+The desktop self-test signs in with the dev OTP, builds the general starter pack against the local embed server, downloads it from the lite API, verifies the signature, and asks for the lantern code online and again after that API is stopped. The web step answers from the live fixture, turns Offline only on, and answers a follow-up from the saved passage with a `Web, saved <date>` citation.

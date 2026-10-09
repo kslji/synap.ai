@@ -12,7 +12,7 @@
     "typecheck": "npm run build --prefix ../../packages/ui && npm run build --prefix ../../packages/shared && npm run typecheck:node && npm run typecheck:web",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
-    "test:unit": "tsx --test src/main/core/rag.test.ts src/main/core/web.test.ts src/main/core/pack.test.ts",
+    "test:unit": "tsx --test src/main/core/rag.test.ts src/main/core/web.test.ts src/main/core/pack.test.ts src/main/core/web-cache.test.ts",
     "selftest": "electron-vite build && SURF_SELFTEST=1 electron .",
     "dist:linux": "npm run build && electron-builder --linux AppImage --x64",
     "dist:mac": "npm run build && electron-builder --mac --arm64 --x64",

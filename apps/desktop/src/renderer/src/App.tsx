@@ -155,6 +155,16 @@ export default function App() {
     setView('chat')
   }
 
+  async function deleteConversation(id: string) {
+    await api.conversations.remove(id)
+    setConversations(await api.conversations.list())
+    if (conversationId === id) {
+      setConversationId(null)
+      setMessages([])
+      setPreview(null)
+    }
+  }
+
   async function attach(paths: string[], createConversation: boolean) {
     const res = await api.library.add(paths, createConversation ? conversationId : null, createConversation)
     if (res.conversationId) setConversationId(res.conversationId)
@@ -257,6 +267,29 @@ export default function App() {
         }])
         setView('packs')
       }
+      if (scene === 'savedweb') {
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: 'u-saved', role: 'user', text: 'What is the price of the pier 9 beacon today?', sources: [], tools: [] },
+          {
+            id: 'a-saved', role: 'assistant', tools: [],
+            text: 'The Surf beacon code for pier 9 is SB-4417. [S1]',
+            sources: [{
+              kind: 'web',
+              title: 'Pier 9 beacon',
+              url: 'https://example.com/beacon',
+              domain: 'example.com',
+              published: '8 Oct 2026',
+              pack: 'Web, saved 8 Oct 2026',
+              savedAt: Date.UTC(2026, 9, 8, 12, 0),
+              staleNote: 'Saved more than 24 hours ago. Prices and news may have changed.',
+              excerpt: 'The Surf beacon code for pier 9 today is SB-4417.',
+            }],
+          },
+        ])
+      }
       if (scene === 'packcite') {
         setView('chat')
         setPreview(null)
@@ -349,6 +382,7 @@ export default function App() {
         signedIn={Boolean(shownAccount)}
         onNew={newChat}
         onOpen={(id) => { void openConversation(id) }}
+        onDelete={(id) => { void deleteConversation(id) }}
       />
       {view === 'chat' && (
         <ChatScreen

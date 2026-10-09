@@ -4,7 +4,7 @@
  */
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
-import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type WebCacheStatus } from './ipc-contract.js'
 import { AttachmentId, ChatSendReq, ConversationId, DeviceId, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
@@ -78,6 +78,11 @@ export interface Services {
   conversations: {
     list(): Promise<ConversationSummary[]>
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
+    remove(id: string): Promise<void>
+  }
+  webCache: {
+    status(): Promise<WebCacheStatus>
+    clear(): Promise<WebCacheStatus>
   }
   packs: {
     list(): Promise<PackRow[]>
@@ -125,6 +130,9 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   ipcMain.handle(IPC.modelsDownload, (e, raw) => { assertTrusted(e); return s.models.download(ModelId.parse(raw), win) })
   ipcMain.handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
   ipcMain.handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })
+  ipcMain.handle(IPC.conversationsDelete, (e, raw) => { assertTrusted(e); return s.conversations.remove(ConversationId.parse(raw)) })
+  ipcMain.handle(IPC.webCacheStatus, (e) => { assertTrusted(e); return s.webCache.status() })
+  ipcMain.handle(IPC.webCacheClear, (e) => { assertTrusted(e); return s.webCache.clear() })
   ipcMain.handle(IPC.packsList, (e) => { assertTrusted(e); return s.packs.list() })
   ipcMain.handle(IPC.packsSync, (e) => { assertTrusted(e); return s.packs.sync() })
   ipcMain.handle(IPC.packsRemove, (e, raw) => { assertTrusted(e); return s.packs.remove(PackId.parse(raw)) })

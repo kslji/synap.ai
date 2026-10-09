@@ -5,7 +5,7 @@
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { createMainWindow, preloadAndHtml, registerIpc } from './core/main-window'
 import { openUserDb } from './core/db'
@@ -16,6 +16,7 @@ import { indexFile } from './core/ingest'
 import { shutdownOcr } from './core/ocr'
 import { LIBRARY_MIGRATION } from './core/library-schema'
 import { SESSION_MIGRATION } from './core/session-store'
+import { saveCitedPassages, savedWebCitation, searchSavedWeb, WEB_CACHE_MIGRATION } from './core/web-cache'
 import { DOC_TAU } from './core/retrieval'
 import { chunkBlocks } from './core/chunker'
 import { formatWebCitation, rankPassages, rewritePrompt } from './core/web-decision'
@@ -283,6 +284,7 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await demo('account', 'account')
     await demo('packs', 'packs')
     await demo('packcite', 'packcite')
+    await demo('savedweb', 'savedweb')
     const offlineBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.getAttribute('data-on') || ''`)
     if (offlineBefore !== 'yes') {
       await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
@@ -328,6 +330,19 @@ async function answerFromWeb(srv: LlamaServer, chat: LlamaClient, chatGguf: stri
     const webText = String(webAnswer.choices[0]?.message?.content ?? '').trim()
     if (!webText.includes(BEACON_CODE)) throw new Error(`web answer missing ${BEACON_CODE}: ${webText}`)
     if (!/\[S1\]/.test(webText)) throw new Error(`web answer missing citation: ${webText}`)
+    const cachePath = join(app.getPath('userData'), 'selftest-web-cache.db')
+    rmSync(cachePath, { force: true })
+    const cache = openUserDb(cachePath, randomBytes(32).toString('hex'), [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION])
+    let savedText = ''
+    let savedCitePack = ''
+    try {
+    const conversationId = randomUUID()
+    const fetchedAt = Date.now()
+    cache.prepare('INSERT INTO conversations (id, title, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(conversationId, 'Beacon', 'general', fetchedAt, fetchedAt)
+    const savedCount = saveCitedPassages(cache, conversationId, randomUUID(), [{
+      url: top.url, title: top.title, text: top.text, published: top.published, fetchedAt, vec: top.vec,
+    }])
+    if (savedCount !== 1) throw new Error(`expected one saved passage, got ${savedCount}`)
     let called = false
     try {
       await searchWeb({
@@ -339,9 +354,35 @@ async function answerFromWeb(srv: LlamaServer, chat: LlamaClient, chatGguf: stri
       if (!(error instanceof OfflineOnlyError)) throw error
     }
     if (called) throw new Error('offline only reached the network')
+    const followUp = 'What beacon code was posted for pier 9?'
+    await srv.restartWith({ modelPath: embGguf, embeddings: true, ctx: 2048, pooling: 'mean' })
+    const followEmbed = new Embedder(new LlamaClient({ baseUrl: srv.baseUrl, apiKey: srv.apiKey }))
+    const [followVec] = await followEmbed.embedQueries([followUp])
+    const saved = searchSavedWeb(cache, followUp, followVec, conversationId)
+    const savedHit = saved.top.find((hit) => hit.text.includes(BEACON_CODE))
+    if (!savedHit) throw new Error(`saved follow-up missing ${BEACON_CODE}`)
+    if (saved.decision === 'insufficient') throw new Error(`saved follow-up gate ${saved.decision} cos=${savedHit.cosine.toFixed(3)}`)
+    const savedCite = savedWebCitation(savedHit, followUp)
+    if (!savedCite.pack.startsWith('Web, saved ')) throw new Error(`saved citation ${savedCite.pack}`)
+    await srv.restartWith({ modelPath: chatGguf, embeddings: false, ctx: 4096 })
+    const followChat = new LlamaClient({ baseUrl: srv.baseUrl, apiKey: srv.apiKey })
+    const followAnswer = await followChat.chat([{
+      role: 'system',
+      content: 'Answer using only the sources. Cite the source as [S1]. Quote the beacon code exactly. Do not invent codes.',
+    }, {
+      role: 'user',
+      content: `SOURCES:\n[S1] ${savedCite.pack}\n${savedHit.text}\n\nQuestion: ${followUp}`,
+    }], undefined, undefined, 180)
+    savedText = String(followAnswer.choices[0]?.message?.content ?? '').trim()
+    savedCitePack = savedCite.pack
+    if (!savedText.includes(BEACON_CODE)) throw new Error(`saved answer missing ${BEACON_CODE}: ${savedText}`)
+    if (!/\[S1\]/.test(savedText)) throw new Error(`saved answer missing citation: ${savedText}`)
+    } finally {
+      cache.close()
+    }
     const refusal = offlineRefusal()
     if (refusal.branch !== 'refuse') throw new Error(`expected refuse, got ${refusal.branch}`)
-    return `web="${webText.replace(/\s+/g, ' ')}"; queries=${found.queries.join(' | ')}; cosine=${top.cosine.toFixed(3)}; offline="${refusal.message}"`
+    return `web="${webText.replace(/\s+/g, ' ')}"; queries=${found.queries.join(' | ')}; cosine=${top.cosine.toFixed(3)}; offline="${refusal.message}"; saved="${savedText.replace(/\s+/g, ' ')}"; cite="${savedCitePack}"`
   } finally {
     await fixture.stop()
   }

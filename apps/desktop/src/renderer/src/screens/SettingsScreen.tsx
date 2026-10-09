@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ThemeSwitch } from '@surf/ui'
-import type { DeviceInfo, ModelStatus, SettingsPatch } from '../../../shared/ipc-contract'
+import type { DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
 
 export function SettingsScreen({
   status,
@@ -66,6 +66,7 @@ export function SettingsScreen({
           on={settings.webSearchAllowed}
           onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
         />
+        <SavedWebCard />
         <Row
           title="Telemetry"
           body="Off by default. The choice is saved here. Sending counts is not wired yet, and prompts are never included."
@@ -125,6 +126,38 @@ export function SettingsScreen({
       </div>
     </section>
   )
+}
+
+function SavedWebCard() {
+  const [status, setStatus] = useState<WebCacheStatus | null>(null)
+  useEffect(() => {
+    void window.surf.webCache.status().then(setStatus).catch(() => setStatus(null))
+  }, [])
+  return (
+    <div className="card px-4 py-4" data-saved-web-card="yes">
+      <div className="text-sm font-semibold">Saved web sources</div>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+        When an answer cites a web page, Surf keeps that passage on this computer so a later question can use it offline. Passages are not uploaded. The store holds {webSize(status?.capBytes ?? 8 * 1024 * 1024)} and drops the least recently used passages after that.
+      </p>
+      <p className="mt-2 text-sm" data-saved-web-size="yes">
+        {status ? `${status.count} passage${status.count === 1 ? '' : 's'} · ${webSize(status.bytes)}` : 'Checking size…'}
+      </p>
+      <button
+        className="btn btn-ghost mt-3"
+        type="button"
+        data-clear-web="yes"
+        onClick={() => { void window.surf.webCache.clear().then(setStatus).catch(() => undefined) }}
+      >
+        Clear saved web sources
+      </button>
+    </div>
+  )
+}
+
+function webSize(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`
 }
 
 function Row({ title, body, on, onToggle }: { title: string; body: string; on: boolean; onToggle: () => void }) {

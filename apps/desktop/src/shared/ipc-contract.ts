@@ -26,6 +26,9 @@ export const IPC = {
   updatesInstallOffline: 'updates:install-offline',
   conversationsList: 'conversations:list',
   conversationsOpen: 'conversations:open',
+  conversationsDelete: 'conversations:delete',
+  webCacheStatus: 'web-cache:status',
+  webCacheClear: 'web-cache:clear',
   libraryAdd: 'library:add',
   libraryPick: 'library:pick',
   libraryList: 'library:list',
@@ -124,6 +127,16 @@ export interface Citation {
   fileName?: string
   locator?: string | null
   excerpt?: string
+  /** When this web passage was stored on this computer. */
+  savedAt?: number
+  /** Set when a fresh-sensitive question is using a passage older than 24 hours. */
+  staleNote?: string
+}
+
+export interface WebCacheStatus {
+  bytes: number
+  count: number
+  capBytes: number
 }
 
 export type AttachmentStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -237,6 +250,11 @@ export interface SurfApi {
   conversations: {
     list(): Promise<ConversationSummary[]>
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
+    remove(id: string): Promise<void>
+  }
+  webCache: {
+    status(): Promise<WebCacheStatus>
+    clear(): Promise<WebCacheStatus>
   }
   library: {
     pathForFile(file: File): string

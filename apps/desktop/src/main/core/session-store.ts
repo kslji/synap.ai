@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DB } from './db.js'
 import type { ConversationSummary, GateName, StoredMessage } from './ipc-contract.js'
+import { forgetConversation } from './web-cache.js'
 
 export const SESSION_MIGRATION = `
 CREATE TABLE conversations (
@@ -118,6 +119,14 @@ export class SessionStore {
       return
     }
     this.db.prepare(`UPDATE conversations SET title = ? WHERE id = ? AND title = 'New chat'`).run(title, id)
+  }
+
+  remove(id: string): void {
+    if (!this.db) {
+      this.mem.delete(id)
+      return
+    }
+    forgetConversation(this.db, id)
   }
 
   private has(id: string): boolean {

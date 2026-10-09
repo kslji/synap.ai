@@ -6,7 +6,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { fetchPages, registerDevice, searchWeb, type SearchResult } from './web-client.js'
+import { fetchPages, searchWeb, type SearchResult } from './web-client.js'
 import { decideWeb, parseSearchQueries, refusalMessage, refuseHint, rewritePrompt } from './web-decision.js'
 
 export const BEACON_QUESTION = 'What is the Surf beacon code for pier 9 today?'
@@ -126,9 +126,31 @@ export async function startSearchFixture(): Promise<{ base: string; stop: () => 
   }
 }
 
+export async function loginDev(base: string, email: string, deviceUid = 'selftest-web'): Promise<string> {
+  const start = await fetch(`${base}/v1/auth/otp/start`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  const started = await start.json() as { dev_code?: string; error?: { message?: string } }
+  if (!start.ok || !started.dev_code) throw new Error(started.error?.message || `dev OTP missing (${start.status})`)
+  const verify = await fetch(`${base}/v1/auth/otp/verify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      code: started.dev_code,
+      device: { device_uid: deviceUid, name: 'Selftest', os: 'linux', arch: 'x64', app_version: '0.1.0' },
+    }),
+  })
+  const body = await verify.json() as { access_token?: string; error?: { message?: string } }
+  if (!verify.ok || !body.access_token) throw new Error(body.error?.message || `OTP verify failed (${verify.status})`)
+  return body.access_token
+}
+
 export async function searchBeacon(base: string, rewriteRaw: string): Promise<{ queries: string[]; text: string; title: string; url: string; published: string | null }> {
   const queries = parseSearchQueries(rewriteRaw, BEACON_QUESTION)
-  const token = await registerDevice({ base, offlineOnly: false })
+  const token = await loginDev(base, 'beacon@example.com')
   const results: SearchResult[] = []
   for (const query of queries) {
     results.push(...await searchWeb({ base, token, offlineOnly: false, query, k: 3 }))

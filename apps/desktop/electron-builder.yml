@@ -26,6 +26,8 @@ extraResources:
     to: models.registry.json
   - from: resources/tessdata
     to: tessdata
+  - from: resources/pack-keys.json
+    to: pack-keys.json
 # Node-API prebuilds (bsmc) work in Electron as-is; rebuilding would need a C++ toolchain for nothing.
 npmRebuild: false
 

@@ -6,22 +6,23 @@
  */
 import { app, BrowserWindow, net, dialog, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { copyFile, mkdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Services } from './main-window.js'
-import { IPC, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { parseRegistry, pick, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { downloadVerified } from './model-download.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
 import { LlamaClient } from './llama-client.js'
-import { Embedder } from './embedding.js'
+import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
 import { Calculator, calculatorTools } from './calculator.js'
 import calcWorker from './calculator.worker?modulePath'
-import { hybridSearch, borderlinePrompt, type Hit, type GateDecision } from './retrieval.js'
+import { hybridSearch, borderlinePrompt, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
 import { allocate, BUDGETS, LlamaServerTokenizer, type Turn } from './token-budget.js'
-import { openUserDb } from './db.js'
+import { openPackDb, openUserDb, type DB } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
@@ -37,7 +38,20 @@ import { searchUser, type UserHit } from './user-search.js'
 import { captionImage, mmprojReady } from './vision.js'
 import { chunkBlocks } from './chunker.js'
 import { describeReach } from './reach.js'
-import { fetchPages, probeHealth, registerDevice, searchWeb } from './web-client.js'
+import { fetchPages, probeHealth, searchWeb } from './web-client.js'
+import { commitInstall, readInstalled, removePack } from './pack-install.js'
+import { downloadFile, fetchCatalog, shouldSync, type RemotePack } from './pack-sync.js'
+import { verifyPack } from './pack-verify.js'
+import { trustedPackKeys } from './pack-keys.js'
+import {
+  fetchDevices,
+  freshAccess,
+  loadSession,
+  logoutSession,
+  revokeDeviceRemote,
+  startOtp,
+  verifyOtp,
+} from './auth-session.js'
 import {
   HINT_FAILED,
   HINT_OFFLINE,
@@ -84,6 +98,7 @@ const DEFAULT_SETTINGS: Settings = {
   onboardingComplete: false,
   theme: 'system',
   apiBaseUrl: DEFAULT_API_BASE,
+  packSyncHours: 6,
 }
 
 export async function createServices(): Promise<Services> {
@@ -96,8 +111,11 @@ export async function createServices(): Promise<Services> {
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; server: LlamaServer } | null = null
   let modelTail: Promise<void> = Promise.resolve()
   let ui: BrowserWindow | null = null
-  let deviceToken: string | null = null
   let osOnline = isOnline()
+  let catalogCache: RemotePack[] = []
+  let syncing = false
+  let lastSyncAt = readStamp(join(app.getPath('userData'), 'pack-sync.json'))
+  const packState = new Map<string, { progress: number | null; error: string | null }>()
   let stableOnline = osOnline
   let apiReachable = false
   let checking = true
@@ -342,7 +360,8 @@ export async function createServices(): Promise<Services> {
     const queries = parseSearchQueries(raw, question)
     const base = apiBase(readSettings())
     assertNetworkAllowed(readSettings().offlineOnly)
-    if (!deviceToken) deviceToken = await registerDevice({ base, offlineOnly: readSettings().offlineOnly, signal })
+    const deviceToken = await freshAccess({ base, offlineOnly: readSettings().offlineOnly })
+    if (!deviceToken) throw new Error('Sign in to search the web.')
     const picked = new Map<string, { title: string; published: string | null }>()
     for (const query of queries) {
       if (signal.aborted) return []
@@ -395,36 +414,55 @@ export async function createServices(): Promise<Services> {
     }
 
     await withModel(async () => {
-      // TODO(Day 5): open packs only after pack-verify.ts. An empty pack list is not a failed gate.
-      const packs: Record<string, import('./db.js').DB> = {}
       let hits: Array<Hit | UserHit> = []
       let decision: GateDecision | 'skip' = 'skip'
       let fromDocs = false
-      if (docCounts.ready > 0 && store.db) {
-        fromDocs = true
-        const emb = reg.models.find((m) => m.role === 'embedding')
-        if (!emb || !(await installed(emb.file, emb.size_bytes))) {
-          throw new Error('Download EmbeddingGemma 2 in Models before searching your documents.')
+      const versions = new Map<string, string>()
+      const opened: DB[] = []
+      try {
+        const packDbs: Record<string, DB> = {}
+        for (const row of await readInstalled(packsRoot())) {
+          const dbPath = join(packsRoot(), row.id, row.version, 'pack.sqlite')
+          if (!existsSync(dbPath)) continue
+          try {
+            const db = openPackDb(dbPath)
+            const label = `${row.title} · ${row.version}`
+            packDbs[label] = db
+            versions.set(label, row.version)
+            opened.push(db)
+          } catch (error) {
+            console.warn('[surf] pack skipped:', (error as Error).message)
+          }
         }
-        const embedServer = await ensure('embed', emb, 2048)
-        const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-        const [qvec] = await embedder.embedQueries([text])
-        const found = searchUser(store.db, text, qvec, scopeId, 5)
-        hits = found.top
-        decision = found.decision
-      } else if (Object.keys(packs).length > 0) {
-        const emb = reg.models.find((m) => m.role === 'embedding')
-        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 before searching packs.')
-        const embedServer = await ensure('embed', emb, 2048)
-        const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-        const [qvec] = await embedder.embedQueries([text])
-        const found = hybridSearch(packs, text, qvec)
-        hits = found.top
-        decision = found.decision
+        const wantDocs = docCounts.ready > 0 && Boolean(store.db)
+        const wantPacks = opened.length > 0
+        if (wantDocs || wantPacks) {
+          const emb = reg.models.find((m) => m.role === 'embedding')
+          if (!emb || !(await installed(emb.file, emb.size_bytes))) {
+            throw new Error('Download EmbeddingGemma 2 in Models before searching documents or packs.')
+          }
+          const embedServer = await ensure('embed', emb, 2048)
+          const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
+          const [qvec] = await embedder.embedQueries([text])
+          const docFound = wantDocs && store.db
+            ? searchUser(store.db, text, qvec, scopeId, 5)
+            : { top: [] as UserHit[], decision: 'skip' as const }
+          const packFound = wantPacks ? hybridSearch(packDbs, text, qvec) : { top: [] as Hit[], decision: 'skip' as const }
+          const merged = mergeLocal(
+            { hits: docFound.top, decision: wantDocs ? docFound.decision : 'skip' },
+            { hits: packFound.top, decision: wantPacks ? packFound.decision : 'skip' },
+          )
+          hits = merged.hits
+          decision = merged.decision
+          fromDocs = merged.fromDocs && hits.some((hit) => Boolean((hit as UserHit).fileName))
+        }
+      } finally {
+        for (const db of opened) db.close()
       }
 
       const fresh = wantsFresh(text)
-      const webAllowed = settings.webSearchAllowed && req.allowWeb !== false
+      const signedIn = Boolean(await loadSession())
+      const webAllowed = settings.webSearchAllowed && req.allowWeb !== false && signedIn
       const connected = reachNow(settings.offlineOnly)
       const plan = decideWeb({
         local: decision,
@@ -434,7 +472,8 @@ export async function createServices(): Promise<Services> {
         webAllowed,
       })
       if (plan.branch === 'refuse') {
-        const message = refusalMessage(plan.hint ?? HINT_FAILED)
+        const needsSignIn = settings.webSearchAllowed && req.allowWeb !== false && !signedIn && connected.online && !settings.offlineOnly && (fresh || decision === 'insufficient' || decision === 'skip')
+        const message = needsSignIn ? 'Sign in to search the web, or add a document.' : refusalMessage(plan.hint ?? HINT_FAILED)
         await emitText(win, messageId, message)
         finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
         return
@@ -498,7 +537,7 @@ export async function createServices(): Promise<Services> {
         }
       }
       const useTools = needsCalculator(text) && !fromDocs && stayingLocal
-      const localSources = plan.branch === 'web' ? [] : citationsOf(hits)
+      const localSources = plan.branch === 'web' ? [] : citationsOf(hits, versions)
       const webSources: Citation[] = webHits.map((hit) => ({
         kind: 'web' as const,
         title: hit.title,
@@ -574,14 +613,52 @@ export async function createServices(): Promise<Services> {
       open: async (id) => store.open(id),
     },
     packs: {
-      list: async () => [],
-      importFromFile: async () => {
-        await dialog.showMessageBox({
-          type: 'info',
-          message: 'Pack import lands on Day 5.',
-          detail: 'Signed knowledge packs (marine, construction, aviation) are not in this build yet.',
-        })
-        return null
+      list: () => listPacks(),
+      sync: async () => {
+        await syncPacks(true)
+        return listPacks()
+      },
+      remove: async (packId) => {
+        await removePack(packsRoot(), packId)
+        packState.delete(packId)
+      },
+      importFromFile: async (win) => {
+        const picked = await dialog.showOpenDialog(win, { title: 'Install a signed pack', properties: ['openDirectory'] })
+        if (picked.canceled || !picked.filePaths[0]) return null
+        const dir = picked.filePaths[0]
+        const manifest = await verifyPack(dir, { trustedKeys: trustedPackKeys(), expectedEmbedding: EMBEDDINGGEMMA2_256 })
+        const staging = join(packsRoot(), '.staging', manifest.pack_id)
+        await rm(staging, { recursive: true, force: true })
+        await mkdir(staging, { recursive: true })
+        const { cp } = await import('node:fs/promises')
+        await cp(dir, staging, { recursive: true })
+        await commitInstall(staging, packsRoot(), manifest, String((manifest as { title?: string }).title || manifest.pack_id))
+        return manifest.pack_id
+      },
+    },
+    auth: {
+      status: async () => authStatus(),
+      start: async (email) => {
+        const settings = readSettings()
+        await startOtp(apiBase(settings), email, settings.offlineOnly)
+      },
+      verify: async (email, code) => {
+        const settings = readSettings()
+        await verifyOtp(apiBase(settings), email, code, settings.offlineOnly)
+        void syncPacks(true).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message))
+        return authStatus()
+      },
+      signOut: async () => {
+        const settings = readSettings()
+        await logoutSession(apiBase(settings), settings.offlineOnly)
+      },
+      devices: async () => {
+        const settings = readSettings()
+        return fetchDevices(apiBase(settings), settings.offlineOnly)
+      },
+      revoke: async (deviceId) => {
+        const settings = readSettings()
+        await revokeDeviceRemote(apiBase(settings), deviceId, settings.offlineOnly)
       },
     },
     settings: {
@@ -682,7 +759,117 @@ export async function createServices(): Promise<Services> {
   }
 
   watchNetwork()
+  const syncTimer = setInterval(() => { void syncPacks(false).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message)) }, 15 * 60 * 1000)
+  syncTimer.unref?.()
+  setTimeout(() => { void syncPacks(false).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message)) }, 4000)
   return services
+
+  async function authStatus(): Promise<AuthStatus> {
+    const session = await loadSession()
+    if (!session) return { signedIn: false, email: null, deviceId: null }
+    return { signedIn: true, email: session.email, deviceId: session.deviceId }
+  }
+
+  async function listPacks(): Promise<PackRow[]> {
+    const installed = await readInstalled(packsRoot())
+    const byId = new Map(installed.map((row) => [row.id, row]))
+    const ids = new Set<string>([...byId.keys(), ...catalogCache.map((pack) => pack.id)])
+    return [...ids].map((id) => {
+      const local = byId.get(id)
+      const remote = catalogCache.find((pack) => pack.id === id)
+      const state = packState.get(id)
+      const latest = remote?.latest.version ?? null
+      return {
+        id,
+        title: local?.title || remote?.title || id,
+        niche: local?.niche || remote?.niche || 'general',
+        version: local?.version ?? null,
+        latestVersion: latest ?? local?.version ?? null,
+        installed: Boolean(local),
+        updateAvailable: Boolean(remote && local && latest !== local.version),
+        syncedAt: local?.syncedAt ?? null,
+        progress: state?.progress ?? null,
+        error: state?.error ?? null,
+      }
+    })
+  }
+
+  async function installRemote(pack: RemotePack, previous: string | null): Promise<void> {
+    const staging = join(packsRoot(), '.staging', pack.id)
+    await rm(staging, { recursive: true, force: true })
+    await mkdir(staging, { recursive: true })
+    const changed = new Set(pack.changed_files)
+    const files = pack.latest.files
+    packState.set(pack.id, { progress: 0, error: null })
+    try {
+      for (let i = 0; i < files.length; i++) {
+        if (inflight.size > 0) {
+          await rm(staging, { recursive: true, force: true })
+          packState.set(pack.id, { progress: null, error: null })
+          return
+        }
+        const file = files[i]
+        const dest = join(staging, file.name)
+        const prevPath = previous ? join(packsRoot(), pack.id, previous, file.name) : ''
+        if (previous && !changed.has(file.name) && existsSync(prevPath)) await copyFile(prevPath, dest)
+        else await downloadFile(file.url, dest, {})
+        packState.set(pack.id, { progress: (i + 1) / files.length, error: null })
+      }
+      const manifest = await verifyPack(staging, {
+        trustedKeys: trustedPackKeys(),
+        expectedEmbedding: EMBEDDINGGEMMA2_256,
+        installedVersion: previous ?? undefined,
+      })
+      await commitInstall(staging, packsRoot(), manifest, pack.title || manifest.pack_id)
+      packState.set(pack.id, { progress: null, error: null })
+    } catch (error) {
+      await rm(staging, { recursive: true, force: true })
+      packState.set(pack.id, { progress: null, error: (error as Error).message })
+      throw error
+    }
+  }
+
+  async function syncPacks(force: boolean): Promise<void> {
+    if (syncing) return
+    const settings = readSettings()
+    const session = await loadSession()
+    const online = reachNow(settings.offlineOnly).online
+    const allowed = shouldSync({
+      now: Date.now(),
+      lastSyncAt: lastSyncAt,
+      intervalMs: Math.max(1, settings.packSyncHours) * 60 * 60 * 1000,
+      online,
+      signedIn: Boolean(session),
+      chatBusy: inflight.size > 0,
+      offlineOnly: settings.offlineOnly,
+      metered: await isMetered(),
+      force,
+    })
+    if (!allowed) {
+      if (!force) return
+      if (!session) throw new Error('Sign in to sync knowledge packs.')
+      if (settings.offlineOnly || !online) throw new Error('Pack sync waits until you are online.')
+      if (inflight.size > 0) throw new Error('Pack sync waits until the current chat finishes.')
+      throw new Error('Pack sync is paused on a metered connection.')
+    }
+    syncing = true
+    try {
+      const token = await freshAccess({ base: apiBase(settings), offlineOnly: settings.offlineOnly })
+      if (!token) throw new Error('Sign in to sync knowledge packs.')
+      const installed = await readInstalled(packsRoot())
+      catalogCache = await fetchCatalog(apiBase(settings), token, installed.map((row) => `${row.id}@${row.version}`).join(','))
+      for (const pack of catalogCache) {
+        if (inflight.size > 0) return
+        const local = installed.find((row) => row.id === pack.id)
+        if (local && local.version === pack.latest.version) continue
+        await installRemote(pack, local?.version ?? null)
+      }
+      lastSyncAt = Date.now()
+      writeFileSync(join(app.getPath('userData'), 'pack-sync.json'), JSON.stringify({ at: lastSyncAt }))
+    } finally {
+      syncing = false
+    }
+  }
 
   async function ingestPaths(paths: string[], conversationId: string | null, createConversation: boolean, win: BrowserWindow) {
     ui = win
@@ -721,19 +908,44 @@ async function openStore(): Promise<SessionStore> {
   }
 }
 
-function citationsOf(hits: Array<Hit | UserHit>): Citation[] {
+function citationsOf(hits: Array<Hit | UserHit>, versions: Map<string, string>): Citation[] {
   return hits.map((hit) => {
     const user = hit as UserHit
+    const version = versions.get(hit.pack)
+    const library = Boolean(user.fileName)
     return {
       kind: 'document' as const,
       title: hit.title || hit.pack,
       url: hit.url || '',
       pack: hit.pack,
-      chunkId: hit.chunkId,
+      version,
+      chunkId: library ? hit.chunkId : undefined,
       fileName: user.fileName,
       locator: user.locator,
-      excerpt: user.excerpt,
+      excerpt: user.excerpt || (version ? hit.text.slice(0, 240) : undefined),
     }
+  })
+}
+
+function packsRoot(): string {
+  return join(app.getPath('userData'), 'packs')
+}
+
+function readStamp(path: string): number | null {
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as { at?: number }
+    return typeof raw.at === 'number' ? raw.at : null
+  } catch {
+    return null
+  }
+}
+
+function isMetered(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('nmcli', ['-t', '-f', 'GENERAL.METERED', 'dev', 'show'], { timeout: 1500 }, (error, stdout) => {
+      if (error) { resolve(false); return }
+      resolve(/\b(yes|true)\b/i.test(stdout))
+    })
   })
 }
 

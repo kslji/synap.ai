@@ -51,6 +51,9 @@ jobs:
       - name: Search API tests
         working-directory: services/api
         run: python -m pytest
+      - name: Alembic head
+        working-directory: services/api
+        run: python -m alembic heads
       - name: Compose config
         run: |
           cp deploy/.env.example deploy/.env

@@ -116,3 +116,22 @@ export const borderlinePrompt = (q: string, hits: Hit[]) =>
 export const REFUSAL =
   "I don't have reliable information about that in my offline knowledge packs. " +
   'Connect to the internet (and allow web search) or install the relevant pack, and I can look it up.';
+
+const gateRank = (decision: GateDecision | 'skip'): number =>
+  decision === 'answer' ? 3 : decision === 'borderline' ? 2 : decision === 'insufficient' ? 1 : 0;
+
+/** Prefer the stronger local source. Equal strong results are merged, documents first. */
+export function mergeLocal<T>(
+  docs: { hits: T[]; decision: GateDecision | 'skip' },
+  packs: { hits: T[]; decision: GateDecision | 'skip' },
+): { hits: T[]; decision: GateDecision | 'skip'; fromDocs: boolean } {
+  const docRank = gateRank(docs.decision);
+  const packRank = gateRank(packs.decision);
+  if (docRank === 0 && packRank === 0) return { hits: [], decision: 'skip', fromDocs: false };
+  if (docRank === 1 && packRank === 1) return { hits: [], decision: 'insufficient', fromDocs: true };
+  if (docRank >= 2 && docRank === packRank) {
+    return { hits: [...docs.hits, ...packs.hits].slice(0, 6), decision: docs.decision, fromDocs: true };
+  }
+  if (docRank >= packRank) return { hits: docs.hits, decision: docs.decision, fromDocs: docRank > 0 };
+  return { hits: packs.hits, decision: packs.decision, fromDocs: false };
+}

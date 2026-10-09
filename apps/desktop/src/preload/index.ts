@@ -23,7 +23,17 @@ const api: SurfApi = {
   },
   packs: {
     list: () => ipcRenderer.invoke(IPC.packsList),
+    sync: () => ipcRenderer.invoke(IPC.packsSync),
+    remove: (packId) => ipcRenderer.invoke(IPC.packsRemove, packId),
     importFromFile: () => ipcRenderer.invoke(IPC.packsImportFile),
+  },
+  auth: {
+    status: () => ipcRenderer.invoke(IPC.authStatus),
+    start: (email) => ipcRenderer.invoke(IPC.authStart, { email }),
+    verify: (email, code) => ipcRenderer.invoke(IPC.authVerify, { email, code }),
+    signOut: () => ipcRenderer.invoke(IPC.authSignOut),
+    devices: () => ipcRenderer.invoke(IPC.authDevices),
+    revoke: (deviceId) => ipcRenderer.invoke(IPC.authRevoke, deviceId),
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

@@ -30,7 +30,7 @@ cd apps/desktop
 SURF_MODELS_DIR=~/surf-models npm run selftest
 ```
 
-Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1 is `docs/STEP-1.md`. Document chat is `docs/STEP-2.md`. Web search and the offline switch are `docs/STEP-3.md`.
+Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1 is `docs/STEP-1.md`. Document chat is `docs/STEP-2.md`. Web search and the offline switch are `docs/STEP-3.md`. Email login and signed knowledge packs are `docs/STEP-4.md`.
 
 ## Layout
 
@@ -39,7 +39,8 @@ Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1
 | `apps/desktop` | Electron app |
 | `apps/web` | Marketing site. Download is macOS .dmg and Windows .exe only |
 | `apps/host` | Existing OTP / feedback API. The new app and site do not call it |
-| `services/api` | FastAPI search proxy in front of SearXNG |
+| `services/api` | FastAPI search proxy, email OTP login, and the pack catalog |
+| `services/packs` | Build and sign a knowledge pack from a folder of documents |
 | `deploy` | Docker Compose: Caddy, API, Postgres/pgvector, Valkey, SearXNG |
 | `pipelines/ingest` | Day 6 placeholder |
 | `packages/ui` | Theme, jellyfish, seahorse, octopus |
@@ -56,7 +57,7 @@ No paid services, no bundled model weights. `resources/bin` and `*.gguf` are git
 
 ## Auth host
 
-`apps/host` is the existing OTP, account, and feedback API. The desktop app and the marketing site do not call it. Rate limits, health routes, and the VPS unit files are in `apps/host/README.md`.
+`apps/host` is the existing OTP, account, and feedback API. The desktop app and the marketing site do not call it. The desktop signs in through `services/api` (email code, device row, access and refresh tokens). The host reuses the same OTP hash and attempt rules from `services/api/app/otp_policy.py`. Rate limits, health routes, and the VPS unit files are in `apps/host/README.md`.
 
 ```bash
 python3 -m venv apps/host/.venv

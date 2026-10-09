@@ -11,7 +11,15 @@ export const IPC = {
   modelsDownload: 'models:download',
   modelsEvent: 'models:event',
   packsList: 'packs:list',
+  packsSync: 'packs:sync',
+  packsRemove: 'packs:remove',
   packsImportFile: 'packs:import-file',
+  authStatus: 'auth:status',
+  authStart: 'auth:start',
+  authVerify: 'auth:verify',
+  authSignOut: 'auth:sign-out',
+  authDevices: 'auth:devices',
+  authRevoke: 'auth:revoke',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   updatesCheck: 'updates:check',
@@ -51,6 +59,8 @@ export interface SettingsPatch {
   theme?: ThemeChoice
   /** Search service origin. Production placeholder until a VM is deployed. */
   apiBaseUrl?: string
+  /** Hours between signed-in pack checks. */
+  packSyncHours?: number
 }
 
 export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
@@ -106,6 +116,7 @@ export interface Citation {
   title: string
   url: string
   pack: string
+  version?: string
   kind?: 'document' | 'web'
   domain?: string
   published?: string | null
@@ -162,6 +173,33 @@ export interface ModelEvent {
   error?: string
 }
 
+export interface AuthStatus {
+  signedIn: boolean
+  email: string | null
+  deviceId: string | null
+}
+
+export interface DeviceInfo {
+  id: string
+  name: string
+  os: string
+  status: string
+  current: boolean
+}
+
+export interface PackRow {
+  id: string
+  title: string
+  niche: string
+  version: string | null
+  latestVersion: string | null
+  installed: boolean
+  updateAvailable: boolean
+  syncedAt: number | null
+  progress: number | null
+  error: string | null
+}
+
 /** What window.surf looks like in the renderer. */
 export interface SurfApi {
   chat: {
@@ -175,8 +213,18 @@ export interface SurfApi {
     onEvent(cb: (e: ModelEvent) => void): () => void
   }
   packs: {
-    list(): Promise<{ id: string; version: string; niche: string }[]>
+    list(): Promise<PackRow[]>
+    sync(): Promise<PackRow[]>
+    remove(packId: string): Promise<void>
     importFromFile(): Promise<string | null>
+  }
+  auth: {
+    status(): Promise<AuthStatus>
+    start(email: string): Promise<void>
+    verify(email: string, code: string): Promise<AuthStatus>
+    signOut(): Promise<void>
+    devices(): Promise<DeviceInfo[]>
+    revoke(deviceId: string): Promise<void>
   }
   settings: {
     get(): Promise<Required<SettingsPatch>>

@@ -18,6 +18,7 @@ export function Sidebar({
   onOpen,
   theme,
   onTheme,
+  signedIn,
 }: {
   view: View
   conversations: ConversationSummary[]
@@ -27,6 +28,7 @@ export function Sidebar({
   onOpen: (id: string) => void
   theme: ThemeChoice
   onTheme: (theme: ThemeChoice) => void
+  signedIn: boolean
 }) {
   return (
     <aside className="flex h-full w-[272px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
@@ -70,7 +72,15 @@ export function Sidebar({
       <div className="mt-2 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
         <ThemeSwitch value={theme} onChange={onTheme} />
         <NavButton current={view} id="library" onView={onView}>Documents</NavButton>
+        <NavButton current={view} id="packs" onView={onView}>Packs</NavButton>
         <NavButton current={view} id="models" onView={onView}>Models</NavButton>
+        <button
+          type="button"
+          onClick={() => onView(signedIn ? 'settings' : 'signin')}
+          className={`rounded-xl px-2 py-2 text-left text-sm ${view === 'signin' ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'}`}
+        >
+          {signedIn ? 'Account' : 'Sign in'}
+        </button>
         <NavButton current={view} id="settings" onView={onView}>Settings</NavButton>
       </div>
     </aside>

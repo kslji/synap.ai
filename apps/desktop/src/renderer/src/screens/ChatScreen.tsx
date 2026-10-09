@@ -238,10 +238,11 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
                 type="button"
                 className="pill"
                 data-citation="yes"
+                data-pack-citation={s.version ? 'yes' : 'no'}
                 title={s.excerpt || s.title}
                 onClick={() => { if (s.chunkId) onOpenCitation(s.chunkId) }}
               >
-                [S{i + 1}] {s.fileName || s.title || s.pack}{s.locator ? ` · ${s.locator}` : ''}
+                [S{i + 1}] {s.version ? `${s.pack} · ${s.title}` : (s.fileName || s.title || s.pack)}{s.locator ? ` · ${s.locator}` : ''}
               </button>
             ))}
           </div>

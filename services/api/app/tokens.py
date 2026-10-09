@@ -1,32 +1,32 @@
-"""Temporary device tokens.
+"""Access tokens for a signed-in device.
 
-Step 5 replaces this HMAC JWT with the real login session. The claim shape
-(`sub`, `aud`, HS256) matches the verifier already used by /v1/search, so the
-swap is the issuer, not the desktop call.
+`sub` is the devices.id, `aud` stays `authenticated`, algorithm stays HS256.
+Search already verifies that shape. `uid` is the user. Step 3's anonymous
+register issuer is gone; login is the only way to mint these.
 """
 from __future__ import annotations
 
 import os
 import time
-import uuid
 
 import jwt
 
 ENV = os.environ
 
 
-def issue_device_token(secret: str | None = None, audience: str | None = None, ttl_s: int = 30 * 24 * 3600) -> dict:
+def issue_access_token(device_id: str, user_id: str, email: str, secret: str | None = None, audience: str | None = None, ttl_s: int = 15 * 60) -> dict:
     now = int(time.time())
-    device_id = str(uuid.uuid4())
     payload = {
         "sub": device_id,
+        "uid": user_id,
+        "email": email,
         "aud": audience or ENV.get("JWT_AUDIENCE", "authenticated"),
-        "typ": "device",
+        "typ": "access",
         "iat": now,
         "exp": now + ttl_s,
     }
     token = jwt.encode(payload, secret or ENV["JWT_SECRET"], algorithm="HS256")
-    return {"device_id": device_id, "token": token, "token_type": "Bearer", "expires_in": ttl_s}
+    return {"token": token, "token_type": "Bearer", "expires_in": ttl_s}
 
 
 def read_bearer(authorization: str, secret: str | None = None, audience: str | None = None) -> dict:

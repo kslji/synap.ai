@@ -22,6 +22,7 @@ import { formatWebCitation, rankPassages, rewritePrompt } from './core/web-decis
 import { searchWeb } from './core/web-client'
 import { OfflineOnlyError } from './core/offline-guard'
 import { BEACON_CODE, BEACON_QUESTION, offlineRefusal, searchBeacon, startSearchFixture } from './core/web-selftest'
+import { provePack } from './core/pack-selftest'
 import { searchUser } from './core/user-search'
 import { makeDocx, makePdf, makePng } from './core/samples'
 import { Calculator } from './core/calculator'
@@ -193,6 +194,11 @@ async function selfTest(): Promise<void> {
     } finally { await srv.stop() }
   })
 
+  await step(r, 'packs: OTP login, signed install, citation online and offline', async () => {
+    if (!existsSync(embGguf) || !existsSync(chatGguf)) throw new Error(`missing model under ${models}`)
+    return provePack({ bin, embGguf, chatGguf, logDir: ud })
+  })
+
   await step(r, 'renderer: sandboxed window, preload API, no Node', async () => {
     // The shell asks for status on load. Self-test does not start the app services, so answer with empties.
     ipcMain.removeHandler(IPC.modelsStatus)
@@ -203,9 +209,15 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const, apiBaseUrl: 'https://api.synap.surf' }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6 }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
+    ipcMain.removeHandler(IPC.authStatus)
+    ipcMain.handle(IPC.authStatus, () => ({ signedIn: false, email: null, deviceId: null }))
+    ipcMain.removeHandler(IPC.authDevices)
+    ipcMain.handle(IPC.authDevices, () => [])
+    ipcMain.removeHandler(IPC.packsList)
+    ipcMain.handle(IPC.packsList, () => [])
     const paths = preloadAndHtml()
     const win = createMainWindow(paths.preload, paths.html)
     await new Promise<void>((res) => win.webContents.once('did-finish-load', () => res()))
@@ -265,6 +277,10 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await demo('library', 'library')
     await demo('searching', 'searching')
     await demo('web', 'web')
+    await demo('signin', 'signin')
+    await demo('account', 'account')
+    await demo('packs', 'packs')
+    await demo('packcite', 'packcite')
     const offlineBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.getAttribute('data-on') || ''`)
     if (offlineBefore !== 'yes') {
       await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)

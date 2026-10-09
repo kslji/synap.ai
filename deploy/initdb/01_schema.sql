@@ -35,7 +35,7 @@ CREATE TABLE subscriptions (                           -- placeholder for Stripe
 -- People & devices
 -- ---------------------------------------------------------------------
 CREATE TABLE users (                                   -- the "Person" table
-  id              uuid PRIMARY KEY,                     -- = Supabase auth.users.id (JWT "sub")
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email           citext UNIQUE,
   display_name    text,
   country         text,                                 -- ISO-3166 alpha-2, optional
@@ -49,6 +49,18 @@ CREATE TABLE users (                                   -- the "Person" table
   deleted_at      timestamptz                           -- soft delete; hard-delete job after 30 days
 );
 ALTER TABLE subscriptions ADD CONSTRAINT fk_sub_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+CREATE TABLE otp_challenges (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email           citext NOT NULL,
+  purpose         text NOT NULL DEFAULT 'login',
+  code_hash       text NOT NULL,
+  expires_at      timestamptz NOT NULL,
+  attempts        int NOT NULL DEFAULT 0,
+  consumed        boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_otp_email ON otp_challenges (email, created_at DESC);
 
 CREATE TABLE devices (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),

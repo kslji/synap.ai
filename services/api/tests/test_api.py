@@ -45,8 +45,16 @@ def test_search_requires_a_device_token_and_does_not_store_the_query():
         stub = Stub()
         app.state.http = stub
         assert client.post("/v1/search", json={"query": "pier beacon"}).status_code == 401
-        token = client.post("/v1/devices/register", json={}).json()["token"]
-        headers = {"authorization": f"Bearer {token}"}
+        assert client.post("/v1/devices/register", json={}).status_code == 410
+        started = client.post("/v1/auth/otp/start", json={"email": "searcher@example.com"})
+        assert started.status_code == 200
+        verified = client.post("/v1/auth/otp/verify", json={
+            "email": "searcher@example.com",
+            "code": started.json()["dev_code"],
+            "device": {"device_uid": "search-box", "name": "Search", "os": "linux", "arch": "x64", "app_version": "0.1.0"},
+        })
+        assert verified.status_code == 200, verified.text
+        headers = {"authorization": f"Bearer {verified.json()['access_token']}"}
         first = client.post("/v1/search", headers=headers, json={"query": "pier beacon code", "k": 3})
         assert first.status_code == 200
         body = first.json()

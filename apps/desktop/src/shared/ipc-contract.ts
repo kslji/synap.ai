@@ -73,7 +73,7 @@ export type ChatEvent =
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
   | { type: 'status'; messageId: string; phase: 'searching' | 'reading' }
-  | { type: 'done'; messageId: string; gate: GateName }
+  | { type: 'done'; messageId: string; gate: GateName; text?: string }
   | { type: 'error'; messageId: string; message: string }
 
 export interface CatalogModel {
@@ -131,6 +131,8 @@ export interface Citation {
   savedAt?: number
   /** Set when a fresh-sensitive question is using a passage older than 24 hours. */
   staleNote?: string
+  /** The passage was left out of the prompt because it contained instructions. */
+  suspicious?: boolean
 }
 
 export interface WebCacheStatus {

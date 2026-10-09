@@ -33,6 +33,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
   if (e.type === 'done') {
     m.pending = false
     m.gate = e.gate
+    if (e.text) m.text = e.text
   }
   return next
 }

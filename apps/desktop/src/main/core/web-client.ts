@@ -25,6 +25,18 @@ export interface FetchedChunk {
   title: string
   published: string | null
   text: string
+  injection?: { action: string; score: number; flags: string[] }
+}
+
+export interface IgnoredPassage {
+  url: string
+  score: number
+  flags: string[]
+}
+
+export interface SanitizerReport {
+  url: string
+  report: Record<string, number>
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
@@ -72,19 +84,32 @@ export async function searchWeb(opts: WebCall & { query: string; k?: number }): 
     }))
 }
 
-export async function fetchPages(opts: WebCall & { urls: string[] }): Promise<FetchedChunk[]> {
-  if (!opts.urls.length) return []
+export async function fetchPages(opts: WebCall & { urls: string[] }): Promise<{ chunks: FetchedChunk[]; ignored: IgnoredPassage[]; sanitizer: SanitizerReport[] }> {
+  if (!opts.urls.length) return { chunks: [], ignored: [], sanitizer: [] }
   const res = await call('/v1/fetch', opts, { method: 'POST', body: JSON.stringify({ urls: opts.urls.slice(0, 5) }) })
   if (!res.ok) throw new WebClientError('fetch failed', res.status)
-  const body = await res.json() as { chunks?: Array<{ url?: string; title?: string; published?: string | null; text?: string }> }
-  return (body.chunks ?? [])
-    .filter((item) => item.url && item.text)
-    .map((item) => ({
-      url: item.url || '',
-      title: item.title || item.url || '',
-      published: item.published ?? null,
-      text: item.text || '',
-    }))
+  const body = await res.json() as {
+    chunks?: Array<{ url?: string; title?: string; published?: string | null; text?: string; injection?: FetchedChunk['injection'] }>
+    ignored?: Array<{ url?: string; score?: number; flags?: string[] }>
+    sanitizer?: Array<{ url?: string; report?: Record<string, number> }>
+  }
+  return {
+    chunks: (body.chunks ?? [])
+      .filter((item) => item.url && item.text)
+      .map((item) => ({
+        url: item.url || '',
+        title: item.title || item.url || '',
+        published: item.published ?? null,
+        text: item.text || '',
+        injection: item.injection,
+      })),
+    ignored: (body.ignored ?? [])
+      .filter((item) => item.url)
+      .map((item) => ({ url: item.url || '', score: item.score ?? 0, flags: item.flags ?? [] })),
+    sanitizer: (body.sanitizer ?? [])
+      .filter((item) => item.url)
+      .map((item) => ({ url: item.url || '', report: item.report ?? {} })),
+  }
 }
 
 export async function probeHealth(base: string, timeoutMs = 3000, fetchImpl?: FetchLike): Promise<boolean> {

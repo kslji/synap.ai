@@ -16,8 +16,14 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+API_ROOT = Path(__file__).resolve().parents[1] / "api"
+if str(API_ROOT) not in sys.path:
+    sys.path.insert(0, str(API_ROOT))
+from app.injection import filter_paragraphs  # noqa: E402
 
 import httpx
 import sqlite_vec
@@ -88,7 +94,12 @@ def build(src: Path, out: Path, pack_id: str, title: str, niche: str, version: s
     if not files:
         raise SystemExit(f"no text files in {src}")
     for path in files:
-        text = path.read_text(encoding="utf-8").strip()
+        text, _injection, ignored = filter_paragraphs(path.read_text(encoding="utf-8"))
+        text = text.strip()
+        if ignored:
+            print(f"injection ignored flags={','.join(flag for item in ignored for flag in item['flags'])}", file=sys.stderr)
+        if not text:
+            continue
         source_title = " ".join(part.capitalize() for part in path.stem.replace("_", "-").split("-")) or title
         doc_uid = hashlib.sha256(text.encode()).hexdigest()[:32]
         db.execute(
@@ -106,6 +117,8 @@ def build(src: Path, out: Path, pack_id: str, title: str, niche: str, version: s
             "INSERT INTO chunk_vec(chunk_id, embedding) VALUES (?, ?)",
             (chunk_id, sqlite_vec.serialize_float32(vector)),
         )
+    if db.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] == 0:
+        raise SystemExit("no usable text after the injection filter")
     db.execute("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')")
     db.executemany("INSERT INTO pack_meta VALUES (?,?)", {
         "pack_id": pack_id, "version": version, "embedding_model": SPEC["id"],

@@ -13,6 +13,8 @@ import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import * as XLSX from 'xlsx'
 import type { Block } from './chunker.js'
+import { prepareHtml } from './html-sanitize.js'
+import { filterParagraphs } from './injection.js'
 import { recognizeImage } from './ocr.js'
 
 export const MAX_ATTACHMENT_BYTES = 40 * 1024 * 1024
@@ -79,21 +81,28 @@ export async function readAttachment(filePath: string): Promise<{ bytes: Buffer;
 export async function convertBytes(name: string, bytes: Buffer, opts: ConvertOptions): Promise<Block[]> {
   const ext = extensionOf(name)
   opts.onProgress?.(0.05, 'Reading')
+  let blocks: Block[]
   switch (ext) {
-    case 'pdf': return convertPdf(bytes, opts)
-    case 'docx': return convertDocx(bytes)
-    case 'pptx': return convertPptx(bytes)
+    case 'pdf': blocks = await convertPdf(bytes, opts); break
+    case 'docx': blocks = await convertDocx(bytes); break
+    case 'pptx': blocks = await convertPptx(bytes); break
     case 'xlsx':
-    case 'csv': return convertSheet(bytes)
+    case 'csv': blocks = convertSheet(bytes); break
     case 'html':
-    case 'htm': return htmlBlocks(bytes.toString('utf8'))
+    case 'htm': blocks = htmlBlocks(prepareHtml(bytes.toString('utf8')).text); break
     case 'md':
-    case 'txt': return markdownBlocks(bytes.toString('utf8'))
+    case 'txt': blocks = markdownBlocks(bytes.toString('utf8')); break
     case 'png':
     case 'jpg':
-    case 'jpeg': return convertImage(bytes, opts)
+    case 'jpeg': blocks = await convertImage(bytes, opts); break
     default: throw new Error('Use a PDF, Word, PowerPoint, Excel, CSV, text, HTML, PNG, or JPEG file.')
   }
+  const kept = blocks.flatMap((block) => {
+    const filtered = filterParagraphs(block.text)
+    return filtered.text.trim() ? [{ ...block, text: filtered.text }] : []
+  })
+  if (!kept.length) throw new Error('No text found in this file.')
+  return kept
 }
 
 async function convertPdf(bytes: Buffer, opts: ConvertOptions): Promise<Block[]> {
@@ -114,7 +123,7 @@ async function convertPdf(bytes: Buffer, opts: ConvertOptions): Promise<Block[]>
       if (opts.cancelled?.()) throw new ConvertCancelled()
       opts.onProgress?.(0.08 + (0.6 * pageNo) / doc.numPages, `Page ${pageNo} of ${doc.numPages}`)
       const page = await doc.getPage(pageNo)
-      const text = pageText(await page.getTextContent())
+      const text = await visiblePdfText(page)
       if (text.replace(/\s+/g, ' ').trim().length >= 20) {
         blocks.push(...linesToBlocks(text, pageNo))
       } else {
@@ -131,6 +140,51 @@ async function convertPdf(bytes: Buffer, opts: ConvertOptions): Promise<Block[]>
   }
   if (!blocks.length) throw new Error('No text found in this PDF.')
   return blocks
+}
+
+async function visiblePdfText(page: PdfPage): Promise<string> {
+  const walked = await pdfOperatorText(page)
+  if (walked.trim()) return walked
+  return pageText(await page.getTextContent())
+}
+
+/** Drop PDF text painted in render mode 3 (invisible) or in near-white fill. */
+async function pdfOperatorText(page: PdfPage): Promise<string> {
+  if (!page.getOperatorList) return ''
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs') as { OPS: Record<string, number> }
+  const ops = pdfjs.OPS
+  const list = await page.getOperatorList()
+  let mode = 0
+  let fill: [number, number, number] = [0, 0, 0]
+  const stack: { mode: number; fill: [number, number, number] }[] = []
+  const lines: string[] = []
+  for (let i = 0; i < list.fnArray.length; i++) {
+    const fn = list.fnArray[i]
+    const args = list.argsArray[i] as unknown[]
+    if (fn === ops.save) stack.push({ mode, fill: [...fill] })
+    else if (fn === ops.restore) {
+      const prev = stack.pop()
+      if (prev) { mode = prev.mode; fill = prev.fill }
+    } else if (fn === ops.setTextRenderingMode) mode = Number(args[0] ?? 0)
+    else if (fn === ops.setFillRGBColor) fill = [Number(args[0]) * 255, Number(args[1]) * 255, Number(args[2]) * 255]
+    else if (fn === ops.setFillGray) fill = [Number(args[0]) * 255, Number(args[0]) * 255, Number(args[0]) * 255]
+    else if (fn === ops.showText || fn === ops.showSpacedText) {
+      const invisible = mode === 3 || fill.every((channel) => channel >= 250)
+      if (invisible) continue
+      const text = glyphText(args[0]).replace(/\s+/g, ' ').trim()
+      if (text) lines.push(text)
+    }
+  }
+  return lines.join('\n')
+}
+
+function glyphText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) {
+    if (value && typeof value === 'object' && 'unicode' in value) return String((value as { unicode?: string }).unicode ?? '')
+    return ''
+  }
+  return value.map((item) => glyphText(item)).join('')
 }
 
 function pageText(content: { items: unknown[] }): string {
@@ -191,10 +245,25 @@ async function renderPage(page: PdfPage): Promise<Buffer> {
 }
 
 async function convertDocx(bytes: Buffer): Promise<Block[]> {
-  const html = await mammoth.convertToHtml({ buffer: bytes })
+  const html = await mammoth.convertToHtml({ buffer: await stripDocxHidden(bytes) })
   const blocks = htmlBlocks(html.value)
   if (!blocks.length) throw new Error('No text found in this Word file.')
   return blocks
+}
+
+async function stripDocxHidden(bytes: Buffer): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(bytes)
+  const file = zip.file('word/document.xml')
+  if (!file) return bytes
+  const xml = await file.async('string')
+  const stripped = xml.replace(/<w:r\b[\s\S]*?<\/w:r>/g, (run) => {
+    if (/<w:vanish\b/.test(run) || /<w:webHidden\b/.test(run)) return ''
+    if (/<w:color\b[^>]*w:val="(?:FFFFFF|ffffff)"/.test(run)) return ''
+    return run
+  })
+  if (stripped === xml) return bytes
+  zip.file('word/document.xml', stripped)
+  return zip.generateAsync({ type: 'nodebuffer' })
 }
 
 async function convertPptx(bytes: Buffer): Promise<Block[]> {
@@ -317,6 +386,7 @@ interface PdfDoc {
 }
 interface PdfPage {
   getTextContent(): Promise<{ items: unknown[] }>
+  getOperatorList?: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>
   getViewport(params: { scale: number }): { width: number; height: number }
   render(params: { canvasContext: CanvasRenderingContext2D; viewport: { width: number; height: number } }): { promise: Promise<void> }
   cleanup?: () => void

@@ -408,6 +408,8 @@ class FetchIn(BaseModel):
 async def fetch_pages(body: FetchIn, user: dict = Depends(rate_limit)):
     chunks = []
     errors = []
+    sanitizer = []
+    ignored = []
     allow = allow_hosts()
     for url in body.urls:
         try:
@@ -418,6 +420,9 @@ async def fetch_pages(body: FetchIn, user: dict = Depends(rate_limit)):
         except (httpx.HTTPError, OSError):
             errors.append({"url": url, "code": "fetch"})
             continue
+        sanitizer.append({"url": page["url"], "report": page.get("sanitizer") or {}})
+        for item in page.get("ignored") or []:
+            ignored.append({"url": page["url"], "score": item.get("score", 0), "flags": item.get("flags") or []})
         if not page["parts"]:
             errors.append({"url": url, "code": "empty"})
             continue
@@ -427,6 +432,7 @@ async def fetch_pages(body: FetchIn, user: dict = Depends(rate_limit)):
                 "title": page["title"],
                 "published": page["published"],
                 "text": part,
+                "injection": page.get("injection") or {"action": "keep", "score": 0, "flags": []},
             })
     await remember(user, None, len(chunks), 0, "ok")
-    return {"chunks": chunks, "errors": errors}
+    return {"chunks": chunks, "errors": errors, "sanitizer": sanitizer, "ignored": ignored}

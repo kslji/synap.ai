@@ -13,6 +13,7 @@ import { LlamaServer, resolveSidecar } from './core/sidecar-manager'
 import { LlamaClient } from './core/llama-client'
 import { Embedder, EMBEDDINGGEMMA2_256 } from './core/embedding'
 import { indexFile } from './core/ingest'
+import { shutdownOcr } from './core/ocr'
 import { LIBRARY_MIGRATION } from './core/library-schema'
 import { SESSION_MIGRATION } from './core/session-store'
 import { DOC_TAU } from './core/retrieval'
@@ -152,6 +153,7 @@ async function selfTest(): Promise<void> {
       if (!/B7|rope/i.test(imageText)) throw new Error(`image OCR did not read the shelf label: ${imageText.slice(0, 180)}`)
       summary = `ferry ${top.fileName} ${top.locator} cos=${top.cosine.toFixed(3)} gate=${ferry.decision}; hindi cos=${hindiCos.toFixed(3)} gate=${hindi.decision}; unrelated cos=${pizzaCos.toFixed(3)} gate=${pizza.decision}; invoice ${invoice.top[0]?.fileName ?? 'none'} gate=${invoice.decision}; image="${imageText.slice(0, 80)}" chunks=${image.chunkCount}; tau latin ${DOC_TAU.latinCos}/${DOC_TAU.latinCov} strong ${DOC_TAU.latinStrong} hindi ${DOC_TAU.hindiCos}`
     } finally {
+      await shutdownOcr()
       db.close()
       await embedSrv.stop()
     }

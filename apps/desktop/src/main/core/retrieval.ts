@@ -10,13 +10,14 @@ import type { DB } from './db.js';
 export const RRF_K = 60;
 
 /**
- * User-document thresholds, measured with EmbeddingGemma 2 @256 (see docs/STEP-2.md).
- * Latin: cosine 0.64 and keyword coverage 0.34. A cosine of 0.75 still answers when
- * the wording does not overlap. Devanagari skips coverage: FTS porter and the
- * 4-character keyword rule are English-centric, and a Hindi query can sit near 0.80
- * cosine while coverage stays near 0. The old 0.60 figure was an uncalibrated placeholder.
+ * User-document thresholds, measured with EmbeddingGemma 2 @256 on 9 Oct 2026
+ * (see docs/STEP-2.md). On the harbor-ferry fixture: English cosine 0.832,
+ * Hindi "नौका किस घाट से निकलती है?" 0.766, unrelated pizza 0.539.
+ * Latin answers at 0.64 with keyword coverage 0.34, or at 0.75 even when the
+ * wording does not overlap. Devanagari skips coverage (FTS porter is English-centric)
+ * and answers at 0.66, above the old 0.60 placeholder and below the measured 0.766.
  */
-export const DOC_TAU = { latinCos: 0.64, latinCov: 0.34, latinStrong: 0.75, hindiCos: 0.58 } as const;
+export const DOC_TAU = { latinCos: 0.64, latinCov: 0.34, latinStrong: 0.75, hindiCos: 0.66 } as const;
 
 /** Reciprocal rank fusion. Ranks are 0-based; null means that list did not return the row. */
 export function rrfScore(ranks: Array<number | null>, k = RRF_K): number {

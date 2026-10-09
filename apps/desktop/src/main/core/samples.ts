@@ -61,13 +61,16 @@ export async function makePptx(slides: string[][]): Promise<Buffer> {
 }
 
 export function makePng(text: string): Buffer {
-  const canvas = createCanvas(1100, 220)
+  const probe = createCanvas(8, 8).getContext('2d')
+  probe.font = 'bold 48px sans-serif'
+  const width = Math.ceil(probe.measureText(text).width) + 80
+  const canvas = createCanvas(Math.max(width, 640), 220)
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, 1100, 220)
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.fillStyle = '#141414'
-  ctx.font = 'bold 54px sans-serif'
-  ctx.fillText(text, 28, 130)
+  ctx.font = 'bold 48px sans-serif'
+  ctx.fillText(text, 32, 128)
   return canvas.toBuffer('image/png')
 }
 

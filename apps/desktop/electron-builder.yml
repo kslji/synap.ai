@@ -18,6 +18,7 @@ asarUnpack:
   - "node_modules/tesseract.js-core/**"
   - "node_modules/pdfjs-dist/**"
   - "node_modules/@napi-rs/canvas*/**"
+  - "out/main/ocr-runner.js"          # utilityProcess cannot rely on reading this from inside app.asar
 extraResources:
   - from: resources/bin/${platform}-${arch}   # llama-server + libs (scripts/fetch-sidecars.mjs fills these)
     to: bin

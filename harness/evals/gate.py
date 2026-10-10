@@ -13,13 +13,6 @@ HOST_DIR = ROOT / "apps" / "host"
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HOST_DIR))
 
-from http_client import get_json  # noqa: E402
-from test_guardrails import run_checks as guardrail_checks  # noqa: E402
-from test_moss import run_checks as moss_checks  # noqa: E402
-from test_reply_repair import run_checks as reply_repair_checks  # noqa: E402
-from test_convert import run_checks as convert_checks  # noqa: E402
-from test_local_first import run_checks as local_first_checks  # noqa: E402
-
 REPORT = Path(__file__).with_name("last-report.json")
 LOOPBACK = ("127.0.0.1", "localhost")
 
@@ -36,6 +29,15 @@ def loopback_url(url: str | None) -> bool:
 
 
 def main() -> int:
+    # Host checks stay behind this function so `from gate import compare_eval`
+    # does not pull the auth host (the desktop eval job does not install it).
+    from http_client import get_json
+    from test_convert import run_checks as convert_checks
+    from test_guardrails import run_checks as guardrail_checks
+    from test_local_first import run_checks as local_first_checks
+    from test_moss import run_checks as moss_checks
+    from test_reply_repair import run_checks as reply_repair_checks
+
     rows: list[dict] = []
     rows.extend(guardrail_checks())
     rows.extend(moss_checks())

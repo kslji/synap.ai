@@ -26,12 +26,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 if str(HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(HARNESS_ROOT))
-from app.injection import filter_paragraphs  # noqa: E402
 from core.pack_gate import assert_can_sign  # noqa: E402
-
-import httpx
-import sqlite_vec
-from nacl.signing import SigningKey
 
 SPEC = {
     "id": "embeddinggemma-2-text@256",
@@ -68,6 +63,8 @@ def truncate_normalize(values: list[float], dim: int) -> list[float]:
 
 
 def embed_doc(title: str, text: str, url: str, api_key: str) -> list[float]:
+    import httpx
+
     body = SPEC["doc_template"].replace("{title}", title).replace("{text}", text.strip())
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     response = httpx.post(url, json={"input": [body], "encoding_format": "float"}, headers=headers, timeout=120)
@@ -85,6 +82,10 @@ def sha256_file(path: Path) -> str:
 
 
 def build(src: Path, out: Path, pack_id: str, title: str, niche: str, version: str, embed_url: str, api_key: str, key_hex: str, key_id: str) -> None:
+    import sqlite_vec
+    from app.injection import filter_paragraphs
+    from nacl.signing import SigningKey
+
     out.mkdir(parents=True, exist_ok=True)
     db_path = out / "pack.sqlite"
     if db_path.exists():

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { persistThemeChoice, readThemeChoice, SurfCrew, SurfMark, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import { embeddingModel, modelTiers, product } from '@surf/shared'
+import { BETA_UNSIGNED } from './beta'
 
 const FEATURES = [
   {
@@ -44,11 +45,32 @@ const FAQ = [
     q: 'What does it cost?',
     a: 'The app and the models are free and open-source. Installers are published on GitHub Releases. There is no subscription in this build.',
   },
-  {
-    q: 'Why does macOS or Windows warn me?',
-    a: 'The first releases are unsigned. macOS may say the developer cannot be verified; Windows SmartScreen may ask you to choose More info, then Run anyway. Signing is a documented follow-up, not a hidden fee.',
-  },
 ]
+
+const BETA_FAQ = {
+  q: 'Beta: opening on Mac',
+  a: 'Mac users: during the beta, Surf AI isn’t signed by Apple yet, so macOS may say it can’t be opened or is from an unidentified developer. Open Surf AI once so macOS blocks it, then go to System Settings → Privacy & Security, scroll to Security, and click Open Anyway next to Surf AI. You only need to do this once. On Windows, if you see “Windows protected your PC”, click More info, then Run anyway.',
+}
+
+export function BetaUnsignedNote() {
+  return (
+    <aside className="mt-6 border-t border-[var(--line)] pt-6" data-beta-unsigned="yes">
+      <p className="pill">Beta: opening on Mac</p>
+      <p className="mt-3 max-w-3xl text-sm leading-relaxed">
+        Mac users: during the beta, Surf AI isn&apos;t signed by Apple yet, so macOS may say it can&apos;t be opened or is from an unidentified developer. You only need to do this once.
+      </p>
+      <ol className="mt-3 max-w-3xl list-decimal space-y-1 pl-5 text-sm leading-relaxed">
+        <li>Open Surf AI once so macOS blocks it.</li>
+        <li>Go to System Settings → Privacy &amp; Security.</li>
+        <li>Scroll to the Security section.</li>
+        <li>Click Open Anyway next to Surf AI, then confirm.</li>
+      </ol>
+      <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--muted)]">
+        Windows: if you see &quot;Windows protected your PC&quot;, click More info, then Run anyway.
+      </p>
+    </aside>
+  )
+}
 
 export function App() {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -135,18 +157,21 @@ export function App() {
         </section>
 
         <section id="download" className="mx-auto max-w-6xl px-6 pb-16">
-          <div className="card px-8 py-8 md:flex md:items-center md:justify-between">
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight">Download</h2>
-              <p className="mt-2 max-w-lg text-sm leading-relaxed text-[var(--muted)]">
-                macOS gets a .dmg. Windows gets an .exe. On first launch the app checks this computer&apos;s memory and downloads the matching model.
-                Installers are published on GitHub Releases. Until the first tagged release, these buttons open the Releases page.
-              </p>
+          <div className="card px-8 py-8">
+            <div className="md:flex md:items-center md:justify-between">
+              <div>
+                <h2 className="text-3xl font-semibold tracking-tight">Download</h2>
+                <p className="mt-2 max-w-lg text-sm leading-relaxed text-[var(--muted)]">
+                  macOS gets a .dmg. Windows gets an .exe. On first launch the app checks this computer&apos;s memory and downloads the matching model.
+                  Installers are published on GitHub Releases. Until the first tagged release, these buttons open the Releases page.
+                </p>
+              </div>
+              <div className="mt-5 flex flex-col gap-2 md:mt-0">
+                <a className="btn btn-primary no-underline" href={product.releasesUrl}>macOS .dmg</a>
+                <a className="btn btn-ghost no-underline" href={product.releasesUrl}>Windows .exe</a>
+              </div>
             </div>
-            <div className="mt-5 flex flex-col gap-2 md:mt-0">
-              <a className="btn btn-primary no-underline" href={product.releasesUrl}>macOS .dmg</a>
-              <a className="btn btn-ghost no-underline" href={product.releasesUrl}>Windows .exe</a>
-            </div>
+            {BETA_UNSIGNED && <BetaUnsignedNote />}
           </div>
         </section>
 
@@ -177,11 +202,11 @@ export function App() {
           </p>
         </section>
 
-        <section className="mx-auto max-w-3xl px-6 pb-20">
+        <section id="faq" className="mx-auto max-w-3xl px-6 pb-20">
           <h2 className="text-3xl font-semibold tracking-tight">Questions</h2>
           <div className="mt-4 flex flex-col gap-2">
-            {FAQ.map((item) => (
-              <details key={item.q} className="card px-5 py-4">
+            {(BETA_UNSIGNED ? [...FAQ, BETA_FAQ] : FAQ).map((item) => (
+              <details key={item.q} className="card px-5 py-4" open={item.q.startsWith('Beta')}>
                 <summary className="cursor-pointer text-[15px] font-semibold">{item.q}</summary>
                 <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{item.a}</p>
               </details>

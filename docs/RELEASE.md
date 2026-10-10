@@ -26,7 +26,7 @@ git tag v0.2.0-beta.1
 git push origin v0.2.0-beta.1
 ```
 
-The Release workflow builds macOS and Windows, smoke-tests each app (database opens, llama-server starts, the process quits), and publishes a GitHub Release with the installers, `latest*.yml`, `SHA256SUMS`, and generated notes. A tag that contains `-beta` is a prerelease.
+The Release workflow builds macOS and Windows, smoke-tests each app (database opens, llama-server starts, the process quits), and publishes a GitHub Release with the installers, `latest*.yml`, `SHA256SUMS`, and generated notes. A tag that contains `-beta` is a prerelease. Installer builds pass `--publish never`. electron-builder would otherwise try to upload from CI and fail without `GH_TOKEN`. The Release workflow uploads the artifacts itself.
 
 The app version in `apps/desktop/package.json` should match the tag without the leading `v`.
 

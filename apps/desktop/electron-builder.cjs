@@ -40,6 +40,8 @@ const config = {
   ],
   npmRebuild: false,
   mac: {
+    // Keep the checked-in icns. A png conversion is unnecessary on macOS.
+    icon: 'build/icon.icns',
     category: 'public.app-category.productivity',
     target: [
       { target: 'dmg', arch: ['arm64', 'x64'] },
@@ -54,6 +56,9 @@ const config = {
     notarize: signing && Boolean(process.env.APPLE_ID),
   },
   win: {
+    // build/icon.ico is not used: the checked-in ico was 32px and electron-builder rejects that.
+    // The png is 1024 and is converted during the Windows build.
+    icon: 'build/icon.png',
     target: [{ target: 'nsis', arch: ['x64'] }],
   },
   nsis: {

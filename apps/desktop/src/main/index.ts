@@ -457,7 +457,10 @@ async function smoke(): Promise<void> {
 }
 
 if (surfEnv('SMOKE')) app.disableHardwareAcceleration()
-app.enableSandbox()
+// The smoke process only opens a database and a sidecar. The Chromium sandbox
+// deadlocks an x64 build under Rosetta, so the packaged app still sandboxes
+// and the smoke launch does not.
+if (!surfEnv('SMOKE')) app.enableSandbox()
 if (!app.requestSingleInstanceLock()) app.quit()
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !surfEnv('SELFTEST') && !surfEnv('EVAL') && !surfEnv('SMOKE')) app.quit() })
 void app.whenReady().then(async () => {

@@ -39,7 +39,9 @@ jobs:
         run: |
           set -euo pipefail
           export SURF_SMOKE=1
-          smoke() {
+          host="$(uname -m)"
+          echo "host $host"
+          bundle_bin() {
             local app="$1"
             local name
             name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
@@ -49,18 +51,85 @@ jobs:
               ls -la "$app/Contents/MacOS" || true
               exit 1
             fi
-            local archs
-            archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
-            echo "smoke $app ($archs)"
-            if printf '%s\n' "$archs" | grep -q x86_64 && ! printf '%s\n' "$archs" | grep -q arm64; then
-              softwareupdate --install-rosetta --agree-to-license || true
-              arch -x86_64 "$bin" &
-            else
-              "$bin" &
+            printf '%s\n' "$bin"
+          }
+          is_native() {
+            local archs="$1"
+            if [ "$host" = "arm64" ] && printf '%s\n' "$archs" | grep -q arm64; then return 0; fi
+            if [ "$host" = "x86_64" ] && printf '%s\n' "$archs" | grep -q x86_64 && ! printf '%s\n' "$archs" | grep -q arm64; then return 0; fi
+            return 1
+          }
+          # Launch the app that matches this runner. Electron under Rosetta never
+          # reaches app.whenReady, so the other architecture is checked as files
+          # plus llama-server --version instead of a second GUI process.
+          smoke_native() {
+            local app="$1"
+            local bin="$2"
+            local log
+            log="$(mktemp)"
+            echo "smoke $app"
+            "$bin" --no-sandbox --disable-gpu >"$log" 2>&1 &
+            local pid=$!
+            local i code=0
+            for i in $(seq 1 90); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                wait "$pid" || code=$?
+                cat "$log"
+                if [ "$code" -ne 0 ]; then
+                  echo "smoke failed: $app ($code)"
+                  exit 1
+                fi
+                if ! grep -q '\[surf\] smoke ok' "$log"; then
+                  echo "smoke exited without the ok line: $app"
+                  exit 1
+                fi
+                return
+              fi
+              sleep 1
+            done
+            kill "$pid" || true
+            echo "smoke timed out: $app"
+            cat "$log" || true
+            exit 1
+          }
+          verify_other() {
+            local app="$1"
+            local archs="$2"
+            local res="$app/Contents/Resources"
+            echo "verify $app ($archs) without launching Electron under translation"
+            if [ ! -f "$res/tessdata/eng.traineddata" ]; then
+              echo "missing tessdata in $app"
+              exit 1
             fi
+            local node pdf tess
+            node="$(find "$res/app.asar.unpacked" -name '*.node' -print -quit)"
+            pdf="$(find "$res/app.asar.unpacked" -type d -name 'pdfjs-dist' -print -quit)"
+            tess="$(find "$res/app.asar.unpacked" -type d -name '*tesseract*' -print -quit)"
+            if [ -z "$node" ] || [ -z "$pdf" ] || [ -z "$tess" ]; then
+              echo "unpacked addon, pdfjs, or tesseract missing in $app"
+              echo "node=${node:-missing} pdf=${pdf:-missing} tess=${tess:-missing}"
+              exit 1
+            fi
+            local server="$res/bin/llama-server"
+            if [ ! -x "$server" ]; then
+              echo "missing $server"
+              find "$res" -name 'llama-server*' -print || true
+              exit 1
+            fi
+            if printf '%s\n' "$archs" | grep -q x86_64 && [ "$host" != "x86_64" ]; then
+              softwareupdate --install-rosetta --agree-to-license || true
+              run_timed 30 arch -x86_64 "$server" --version
+            else
+              run_timed 30 "$server" --version
+            fi
+          }
+          run_timed() {
+            local secs="$1"
+            shift
+            "$@" &
             local pid=$!
             local i
-            for i in $(seq 1 90); do
+            for i in $(seq 1 "$secs"); do
               if ! kill -0 "$pid" 2>/dev/null; then
                 wait "$pid"
                 return
@@ -68,20 +137,37 @@ jobs:
               sleep 1
             done
             kill "$pid" || true
-            echo "smoke timed out: $app"
+            echo "timed out: $*"
             exit 1
           }
           found=0
+          native_app=""
           shopt -s nullglob
-          for app in dist/mac/*.app dist/mac-arm64/*.app dist/mac-x64/*.app; do
-            smoke "$app"
-            found=$((found + 1))
-          done
-          if [ "$found" -ne 2 ]; then
-            echo "expected two Mac apps, found $found"
+          apps=(dist/mac/*.app dist/mac-arm64/*.app dist/mac-x64/*.app)
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "no Mac apps were built"
             find dist -name '*.app' -maxdepth 3 -print || true
             exit 1
           fi
+          for app in "${apps[@]}"; do
+            bin="$(bundle_bin "$app")"
+            archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
+            echo "found $app ($archs)"
+            if is_native "$archs"; then native_app="$app"; fi
+            found=$((found + 1))
+          done
+          if [ "$found" -ne 2 ] || [ -z "$native_app" ]; then
+            echo "expected two Mac apps including one for $host, found $found native=${native_app:-none}"
+            find dist -name '*.app' -maxdepth 3 -print || true
+            exit 1
+          fi
+          smoke_native "$native_app" "$(bundle_bin "$native_app")"
+          for app in "${apps[@]}"; do
+            if [ "$app" = "$native_app" ]; then continue; fi
+            bin="$(bundle_bin "$app")"
+            archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
+            verify_other "$app" "$archs"
+          done
       - name: Record installer sizes
         working-directory: apps/desktop
         run: |

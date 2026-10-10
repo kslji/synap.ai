@@ -365,8 +365,8 @@ export async function createServices(): Promise<Services> {
     const client = new LlamaClient({
       baseUrl: server.baseUrl,
       apiKey: server.apiKey,
-sampling: chatSampling(chatModel),
-        chatTemplateKwargs: chatModel.chat_template_kwargs,
+      sampling: chatSampling(chatModel),
+      chatTemplateKwargs: chatModel.chat_template_kwargs,
       })
     let raw = ''
     try {

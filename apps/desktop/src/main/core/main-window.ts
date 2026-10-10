@@ -5,7 +5,7 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type WebCacheStatus } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
 import { AttachmentId, ChatSendReq, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
@@ -106,7 +106,8 @@ export interface Services {
     isOfflineOnly(): boolean
   }
   updates: {
-    check(): Promise<string | null>
+    check(): Promise<UpdateOffer | null>
+    apply(): Promise<void>
     installOffline(win: BrowserWindow): Promise<boolean>
   }
   library: {
@@ -168,6 +169,7 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.authDevices, (e) => { assertTrusted(e); return s.auth.devices() })
   handle(IPC.authRevoke, (e, raw) => { assertTrusted(e); return s.auth.revoke(DeviceId.parse(raw)) })
   handle(IPC.updatesCheck, (e) => { assertTrusted(e); return s.updates.check() })
+  handle(IPC.updatesApply, (e) => { assertTrusted(e); return s.updates.apply() })
   handle(IPC.updatesInstallOffline, (e) => { assertTrusted(e); return s.updates.installOffline(win) })
   handle(IPC.libraryAdd, (e, raw) => {
     assertTrusted(e)

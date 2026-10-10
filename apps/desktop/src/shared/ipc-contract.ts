@@ -23,6 +23,7 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   updatesCheck: 'updates:check',
+  updatesApply: 'updates:apply',
   updatesInstallOffline: 'updates:install-offline',
   conversationsList: 'conversations:list',
   conversationsOpen: 'conversations:open',
@@ -70,6 +71,16 @@ export interface SettingsPatch {
   apiBaseUrl?: string
   /** Hours between signed-in pack checks. */
   packSyncHours?: number
+  /** stable hides -beta tags. beta includes them. */
+  updateChannel?: 'stable' | 'beta'
+}
+
+export interface UpdateOffer {
+  kind: 'nsis' | 'manual'
+  version: string
+  url: string
+  notes: string
+  steps: string[]
 }
 
 export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
@@ -110,6 +121,8 @@ export interface ModelStatus {
   cpuModel: string
   cores: number
   chatModelId: string
+  arch: string
+  platform: string
   installed: string[]
   downloading: { id: string; done: number; total: number } | null
   sidecars: Record<'chat' | 'embed' | 'whisper', 'stopped' | 'starting' | 'ready' | 'crashed'>
@@ -297,7 +310,8 @@ export interface SurfApi {
     set(p: SettingsPatch): Promise<void>
   }
   updates: {
-    check(): Promise<string | null>
+    check(): Promise<UpdateOffer | null>
+    apply(): Promise<void>
     installOffline(): Promise<boolean>
   }
   conversations: {

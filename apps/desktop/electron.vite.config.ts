@@ -26,6 +26,7 @@ export default defineConfig({
         { find: '@surf/ui/tokens.css', replacement: resolve('../../packages/ui/src/tokens.css') },
         { find: '@surf/ui/components.css', replacement: resolve('../../packages/ui/src/components.css') },
         { find: '@surf/ui', replacement: resolve('../../packages/ui/src/index.ts') },
+        { find: '@surf/shared', replacement: resolve('../../packages/shared/src/index.ts') },
       ],
     },
     plugins: [react(), tailwindcss()],

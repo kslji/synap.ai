@@ -6,7 +6,8 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { createMainWindow, preloadAndHtml, registerIpc } from './core/main-window'
 import { openUserDb } from './core/db'
 import { LlamaServer, resolveSidecar } from './core/sidecar-manager'
@@ -212,13 +213,13 @@ async function selfTest(): Promise<void> {
     // The shell asks for status on load. Self-test does not start the app services, so answer with empties.
     ipcMain.removeHandler(IPC.modelsStatus)
     ipcMain.handle(IPC.modelsStatus, () => ({
-      tier: 0, ramGb: 0, cpuModel: 'selftest', cores: 1, chatModelId: '', installed: [], downloading: null,
+      tier: 0, ramGb: 0, cpuModel: 'selftest', cores: 1, chatModelId: '', arch: process.arch, platform: process.platform, installed: [], downloading: null,
       sidecars: { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }, models: [], online: false,
       onlineReason: 'Offline only is on',
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6 }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)
@@ -271,6 +272,7 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await sleep(250)
     await go('onboarding')
     await shot(`onboarding-${theme}`)
+    await shot(`first-launch-${theme}`)
     await go('chat')
     await shot(`chat-${theme}`)
     await go('models')
@@ -295,6 +297,7 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await demo('packs', 'packs')
     await demo('packcite', 'packcite')
     await demo('savedweb', 'savedweb')
+    await demo('update', 'update')
     const offlineBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.getAttribute('data-on') || ''`)
     if (offlineBefore !== 'yes') {
       await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
@@ -402,10 +405,66 @@ async function answerFromWeb(srv: LlamaServer, chat: LlamaClient, chatGguf: stri
   }
 }
 
-app.enableSandbox()
+function hasMatch(dir: string, pred: (name: string) => boolean, depth = 0): boolean {
+  if (depth > 6 || !existsSync(dir)) return false
+  for (const name of readdirSync(dir)) {
+    if (pred(name)) return true
+    const path = join(dir, name)
+    try {
+      if (statSync(path).isDirectory() && hasMatch(path, pred, depth + 1)) return true
+    } catch { /* unreadable entry */ }
+  }
+  return false
+}
+
+async function smoke(): Promise<void> {
+  try {
+    const ud = app.getPath('userData')
+    mkdirSync(ud, { recursive: true })
+    const dbPath = join(ud, 'smoke.db')
+    rmSync(dbPath, { force: true })
+    const db = openUserDb(dbPath, randomBytes(32).toString('hex'), ['CREATE TABLE smoke(id INTEGER PRIMARY KEY);'])
+    db.prepare('INSERT INTO smoke(id) VALUES (1)').run()
+    const row = db.prepare('SELECT id FROM smoke').get() as { id: number }
+    db.close()
+    if (row.id !== 1) throw new Error('database did not open')
+    const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
+    if (!existsSync(bin)) throw new Error(`missing sidecar ${bin}`)
+    if (app.isPackaged) {
+      const tess = join(process.resourcesPath, 'tessdata', 'eng.traineddata')
+      if (!existsSync(tess)) throw new Error(`missing ${tess}`)
+      const unpacked = join(process.resourcesPath, 'app.asar.unpacked')
+      if (!hasMatch(unpacked, (name) => name.endsWith('.node'))) throw new Error('no unpacked native addon')
+      if (!hasMatch(unpacked, (name) => name === 'pdfjs-dist')) throw new Error('pdfjs was not unpacked')
+      if (!hasMatch(unpacked, (name) => name.includes('tesseract'))) throw new Error('tesseract was not unpacked')
+    }
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(bin, ['--version'], { stdio: 'ignore' })
+      const timer = setTimeout(() => { child.kill(); reject(new Error('sidecar timed out')) }, 20_000)
+      child.on('error', (error) => { clearTimeout(timer); reject(error) })
+      child.on('exit', (code) => {
+        clearTimeout(timer)
+        if (code === 0) resolve()
+        else reject(new Error(`sidecar exit ${code}`))
+      })
+    })
+    console.log('[surf] smoke ok')
+    app.exit(0)
+  } catch (error) {
+    console.error(error)
+    app.exit(1)
+  }
+}
+
+if (surfEnv('SMOKE')) app.disableHardwareAcceleration()
+// The smoke process only opens a database and a sidecar. The Chromium sandbox
+// deadlocks an x64 build under Rosetta, so the packaged app still sandboxes
+// and the smoke launch does not.
+if (!surfEnv('SMOKE')) app.enableSandbox()
 if (!app.requestSingleInstanceLock()) app.quit()
-app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !surfEnv('SELFTEST') && !surfEnv('EVAL')) app.quit() })
+app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !surfEnv('SELFTEST') && !surfEnv('EVAL') && !surfEnv('SMOKE')) app.quit() })
 void app.whenReady().then(async () => {
+  if (surfEnv('SMOKE')) return smoke()
   if (surfEnv('SELFTEST')) return selfTest()
   if (surfEnv('EVAL')) {
     const { runEval } = await import('./eval-run')
@@ -425,7 +484,7 @@ void app.whenReady().then(async () => {
   const stopStreams = () => services.lifecycle.releaseWindow()
   win.on('closed', stopStreams)
   win.webContents.on('render-process-gone', stopStreams)
-  startUpdater(win, services)
+  startUpdater()
   const shots = surfEnv('CAPTURE_DIR')
   if (shots) win.webContents.once('did-finish-load', () => { void captureShots(win, shots) })
 })

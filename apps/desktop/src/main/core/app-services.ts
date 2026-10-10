@@ -32,7 +32,7 @@ import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, save
 import { assertNetworkAllowed, OfflineOnlyError } from './offline-guard.js'
 import { safeSend } from './safe-send.js'
 import { surfEnv } from './surf-env.js'
-import { initAutoUpdate, installOfflineUpdate } from './updater.js'
+import { applyUpdate, checkAppUpdate, initAutoUpdate, installOfflineUpdate, type UpdateOffer } from './updater.js'
 import type { ParsedChat } from './ipc-schemas.js'
 import { AttachmentQueue } from './attachment-queue.js'
 import type { IngestDeps } from './ingest.js'
@@ -113,6 +113,7 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   apiBaseUrl: DEFAULT_API_BASE,
   packSyncHours: 6,
+  updateChannel: 'stable',
 }
 
 export async function createServices(): Promise<Services> {
@@ -206,6 +207,8 @@ export async function createServices(): Promise<Services> {
       cpuModel: hw.cpuModel,
       cores: hw.physicalCores,
       chatModelId: chosen?.id ?? recommended.id,
+      arch: hw.arch,
+      platform: hw.platform,
       installed: models.filter((m) => m.installed).map((m) => m.id),
       downloading,
       sidecars: { ...sidecars },
@@ -700,6 +703,7 @@ export async function createServices(): Promise<Services> {
 
   readSettings()
 
+  let pendingUpdate: UpdateOffer | null = null
   let released = false
   function releaseWindow(): void {
     if (released) return
@@ -810,7 +814,15 @@ export async function createServices(): Promise<Services> {
       isOfflineOnly: () => offlineOnly,
     },
     updates: {
-      check: async () => null,
+      check: async () => {
+        const settings = readSettings()
+        pendingUpdate = await checkAppUpdate({ offlineOnly: settings.offlineOnly, channel: settings.updateChannel })
+        return pendingUpdate
+      },
+      apply: async () => {
+        if (!pendingUpdate) return
+        await applyUpdate(pendingUpdate, readSettings().updateChannel)
+      },
       installOffline: async (win) => {
         const key = surfEnv('RELEASE_PUBKEY_HEX')
         if (!key) throw new Error('Offline installer checks land on Day 7, when the release signing key is added.')
@@ -1028,8 +1040,8 @@ export async function createServices(): Promise<Services> {
   }
 }
 
-export function startUpdater(win: BrowserWindow, services: Services): void {
-  initAutoUpdate(win, () => services.settings.isOfflineOnly())
+export function startUpdater(): void {
+  initAutoUpdate()
 }
 
 async function openStore(): Promise<SessionStore> {

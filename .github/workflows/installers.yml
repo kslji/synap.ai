@@ -1,0 +1,272 @@
+# Unsigned installers on the free GitHub runners.
+# macOS: separate arm64 and x64 disk images, ad-hoc signed so Apple Silicon launches.
+# Windows: per-user NSIS, no administrator. Each built app is smoke-tested.
+name: Installers
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fetch llama.cpp and OCR data
+        working-directory: apps/desktop
+        run: |
+          node scripts/fetch-sidecars.mjs --platform=darwin --arch=arm64
+          node scripts/fetch-sidecars.mjs --platform=darwin --arch=x64
+          node scripts/fetch-tessdata.mjs
+      - name: Build disk images
+        run: npm run dist:mac -w @surf/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Smoke test each Mac app
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          export SURF_SMOKE=1
+          host="$(uname -m)"
+          echo "host $host"
+          bundle_bin() {
+            local app="$1"
+            local name
+            name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+            local bin="$app/Contents/MacOS/$name"
+            if [ ! -x "$bin" ]; then
+              echo "missing executable $bin from CFBundleExecutable=$name"
+              ls -la "$app/Contents/MacOS" || true
+              exit 1
+            fi
+            printf '%s\n' "$bin"
+          }
+          is_native() {
+            local archs="$1"
+            if [ "$host" = "arm64" ] && printf '%s\n' "$archs" | grep -q arm64; then return 0; fi
+            if [ "$host" = "x86_64" ] && printf '%s\n' "$archs" | grep -q x86_64 && ! printf '%s\n' "$archs" | grep -q arm64; then return 0; fi
+            return 1
+          }
+          # Launch the app that matches this runner. Electron under Rosetta never
+          # reaches app.whenReady, so the other architecture is checked as files
+          # plus llama-server --version instead of a second GUI process.
+          smoke_native() {
+            local app="$1"
+            local bin="$2"
+            local log
+            log="$(mktemp)"
+            echo "smoke $app"
+            "$bin" --no-sandbox --disable-gpu >"$log" 2>&1 &
+            local pid=$!
+            local i code=0
+            for i in $(seq 1 90); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                wait "$pid" || code=$?
+                cat "$log"
+                if [ "$code" -ne 0 ]; then
+                  echo "smoke failed: $app ($code)"
+                  exit 1
+                fi
+                if ! grep -q '\[surf\] smoke ok' "$log"; then
+                  echo "smoke exited without the ok line: $app"
+                  exit 1
+                fi
+                return
+              fi
+              sleep 1
+            done
+            kill "$pid" || true
+            echo "smoke timed out: $app"
+            cat "$log" || true
+            exit 1
+          }
+          verify_other() {
+            local app="$1"
+            local archs="$2"
+            local res="$app/Contents/Resources"
+            echo "verify $app ($archs) without launching Electron under translation"
+            if [ ! -f "$res/tessdata/eng.traineddata" ]; then
+              echo "missing tessdata in $app"
+              exit 1
+            fi
+            local node pdf tess
+            node="$(find "$res/app.asar.unpacked" -name '*.node' -print -quit)"
+            pdf="$(find "$res/app.asar.unpacked" -type d -name 'pdfjs-dist' -print -quit)"
+            tess="$(find "$res/app.asar.unpacked" -type d -name '*tesseract*' -print -quit)"
+            if [ -z "$node" ] || [ -z "$pdf" ] || [ -z "$tess" ]; then
+              echo "unpacked addon, pdfjs, or tesseract missing in $app"
+              echo "node=${node:-missing} pdf=${pdf:-missing} tess=${tess:-missing}"
+              exit 1
+            fi
+            local server="$res/bin/llama-server"
+            if [ ! -x "$server" ]; then
+              echo "missing $server"
+              find "$res" -name 'llama-server*' -print || true
+              exit 1
+            fi
+            if printf '%s\n' "$archs" | grep -q x86_64 && [ "$host" != "x86_64" ]; then
+              softwareupdate --install-rosetta --agree-to-license || true
+              run_timed 30 arch -x86_64 "$server" --version
+            else
+              run_timed 30 "$server" --version
+            fi
+          }
+          run_timed() {
+            local secs="$1"
+            shift
+            "$@" &
+            local pid=$!
+            local i
+            for i in $(seq 1 "$secs"); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                wait "$pid"
+                return
+              fi
+              sleep 1
+            done
+            kill "$pid" || true
+            echo "timed out: $*"
+            exit 1
+          }
+          found=0
+          native_app=""
+          shopt -s nullglob
+          apps=(dist/mac/*.app dist/mac-arm64/*.app dist/mac-x64/*.app)
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "no Mac apps were built"
+            find dist -name '*.app' -maxdepth 3 -print || true
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            bin="$(bundle_bin "$app")"
+            archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
+            echo "found $app ($archs)"
+            if is_native "$archs"; then native_app="$app"; fi
+            found=$((found + 1))
+          done
+          if [ "$found" -ne 2 ] || [ -z "$native_app" ]; then
+            echo "expected two Mac apps including one for $host, found $found native=${native_app:-none}"
+            find dist -name '*.app' -maxdepth 3 -print || true
+            exit 1
+          fi
+          smoke_native "$native_app" "$(bundle_bin "$native_app")"
+          for app in "${apps[@]}"; do
+            if [ "$app" = "$native_app" ]; then continue; fi
+            bin="$(bundle_bin "$app")"
+            archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
+            verify_other "$app" "$archs"
+          done
+      - name: Record installer sizes
+        working-directory: apps/desktop
+        run: |
+          {
+            echo "### macOS"
+            ls -lh dist/*.dmg dist/*.zip
+          } | tee dist/SIZES.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/SIZES.txt
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fetch llama.cpp and OCR data
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          node scripts/fetch-sidecars.mjs
+          node scripts/fetch-tessdata.mjs
+      - name: Build the NSIS installer
+        run: npm run dist:win -w @surf/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Silent install and smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer=$(ls apps/desktop/dist/*.exe | head -n 1)
+          echo "install $installer"
+          win="$(cygpath -w "$installer")"
+          powershell.exe -NoProfile -Command "Start-Process -FilePath '$win' -ArgumentList '/S' -Wait"
+          unpacked=$(find apps/desktop/dist -type d -name '*unpacked*' -print -quit || true)
+          if [ -z "${unpacked:-}" ]; then
+            echo "unpacked app directory was not built"
+            find apps/desktop/dist -maxdepth 3 -type d -print || true
+            exit 1
+          fi
+          built=$(find "$unpacked" -maxdepth 1 -type f -iname '*.exe' ! -iname 'uninstall*' -print -quit || true)
+          if [ -z "${built:-}" ]; then
+            echo "unpacked executable was not built"
+            find apps/desktop/dist -maxdepth 3 -type f -iname '*.exe' -print || true
+            exit 1
+          fi
+          base=$(basename "$built")
+          echo "looking for installed $base"
+          root="$(cygpath "$LOCALAPPDATA")"
+          exe=""
+          for i in $(seq 1 45); do
+            exe=$(find "$root" -iname "$base" -print -quit 2>/dev/null || true)
+            if [ -n "$exe" ]; then break; fi
+            sleep 1
+          done
+          if [ -z "$exe" ]; then
+            echo "$base was not installed"
+            find "$LOCALAPPDATA" -iname "$base" -print || true
+            exit 1
+          fi
+          echo "smoke $exe"
+          SURF_SMOKE=1 "$exe" &
+          pid=$!
+          for i in $(seq 1 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              wait "$pid"
+              exit
+            fi
+            sleep 1
+          done
+          kill "$pid" || true
+          echo "smoke timed out"
+          exit 1
+      - name: Record installer sizes
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          {
+            echo "### Windows"
+            ls -lh dist/*.exe
+          } | tee dist/SIZES.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/SIZES.txt
+          if-no-files-found: error

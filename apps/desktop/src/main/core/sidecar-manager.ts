@@ -55,6 +55,8 @@ export class LlamaServer extends EventEmitter {
 
   get baseUrl(): string { return `http://127.0.0.1:${this.port}`; }
 
+  get pid(): number | undefined { return this.child?.pid; }
+
   args(): string[] {
     const o = this.opts;
     const a = ['-m', o.modelPath, '--host', '127.0.0.1', '--port', String(this.port), '--api-key', this.apiKey,

@@ -1,0 +1,9 @@
+# Marine has no cases yet. Pack signing falls back to the shared suite
+# until this niche lists cases and a passing report.
+suite: marine
+min_score: 0.80
+regression_tolerance: 0.05
+severity_weights:
+  high: 3
+  medium: 2
+  low: 1

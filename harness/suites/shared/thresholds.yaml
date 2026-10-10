@@ -1,0 +1,46 @@
+# Floors and regression tolerances. Score is the weighted pass rate of the suite.
+# Quick Hugging Face rows are a single seeded example, so a miss swings the
+# suite from 1 to 0. Those suites are reported on pull requests and gated on
+# the weekly full run, where the sample is large enough for a 0.05 band.
+quick:
+  regression_tolerance: 0.05
+  suites:
+    shared:
+      min_score: 0.60
+      regression_tolerance: 0.05
+    hf-math:
+      min_score: 0.0
+      regression_tolerance: 1
+    hf-truth:
+      min_score: 0.0
+      regression_tolerance: 1
+    hf-rag:
+      min_score: 0.0
+      regression_tolerance: 1
+    hf-hindi:
+      min_score: 0.0
+      regression_tolerance: 1
+    hf-injection:
+      min_score: 0.0
+      regression_tolerance: 1
+full:
+  regression_tolerance: 0.05
+  suites:
+    shared:
+      min_score: 0.60
+      regression_tolerance: 0.05
+    hf-math:
+      min_score: 0.0
+      regression_tolerance: 0.05
+    hf-truth:
+      min_score: 0.0
+      regression_tolerance: 0.05
+    hf-rag:
+      min_score: 0.0
+      regression_tolerance: 0.05
+    hf-hindi:
+      min_score: 0.0
+      regression_tolerance: 0.05
+    hf-injection:
+      min_score: 0.0
+      regression_tolerance: 0.05

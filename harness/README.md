@@ -29,3 +29,5 @@ Unit evals (`test_guardrails.py`, `test_moss.py`, `test_convert.py`, `test_reply
 | `schemas/trace.schema.json` | Shape of instance `traces/*.json` |
 
 Chat smoke needs the host process. The new Surf AI desktop app does not use this host.
+
+The desktop eval lives beside these checks. `./harness/run.sh quick` and `npm run eval` run the real orchestrator and write `harness/reports/`. See `docs/HARNESS.md`.

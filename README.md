@@ -30,7 +30,12 @@ cd apps/desktop
 SURF_MODELS_DIR=~/surf-models npm run selftest
 ```
 
-Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1 is `docs/STEP-1.md`. Document chat is `docs/STEP-2.md`. Web search and the offline switch are `docs/STEP-3.md`. Email login and signed knowledge packs are `docs/STEP-4.md`.
+Mac notes, including the self-test path, are in `apps/desktop/README.md`. Step 1 is `docs/STEP-1.md`. Document chat is `docs/STEP-2.md`. Web search and the offline switch are `docs/STEP-3.md`. Email login and signed knowledge packs are `docs/STEP-4.md`. The shared eval is `docs/HARNESS.md`.
+
+```bash
+python3 -m pip install -r harness/requirements.txt
+SURF_MODELS_DIR=~/surf-models npm run eval
+```
 
 ## Layout
 

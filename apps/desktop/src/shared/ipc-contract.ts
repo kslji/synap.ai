@@ -73,7 +73,16 @@ export type ChatEvent =
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
   | { type: 'status'; messageId: string; phase: 'searching' | 'reading' }
-  | { type: 'done'; messageId: string; gate: GateName; text?: string }
+  | { type: 'done'; messageId: string; gate: GateName; text?: string; budget?: {
+    counter: string
+    total: number
+    droppedChunks: number
+    droppedTurns: number
+    truncatedQuestion: boolean
+    parts: Record<string, number>
+    retrievedCap: number
+    maxChunks: number
+  } }
   | { type: 'error'; messageId: string; message: string }
 
 export interface CatalogModel {

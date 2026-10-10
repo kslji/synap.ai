@@ -1,0 +1,46 @@
+{
+  "seed": 20261010,
+  "samples": {"quick": 1, "full": 120},
+  "datasets": [
+    {
+      "repo_id": "openai/gsm8k",
+      "revision": "740312add88f781978c0658806c59bc2815b9866",
+      "license": "mit",
+      "path": "main/test-00000-of-00001.parquet",
+      "suite": "hf-math",
+      "why": "Grade-school word problems with a numeric final answer. MIT, and the test split is small enough to pin by commit."
+    },
+    {
+      "repo_id": "truthfulqa/truthful_qa",
+      "revision": "741b8276f2d1982aa3d5b832d3ee81ed3b896490",
+      "license": "apache-2.0",
+      "path": "generation/validation-00000-of-00001.parquet",
+      "suite": "hf-truth",
+      "why": "Questions that tempt a common false answer, with a list of correct and incorrect replies. Apache-2.0. Used for the truthfulness scorer, not a paid judge."
+    },
+    {
+      "repo_id": "rajpurkar/squad",
+      "revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+      "license": "cc-by-sa-4.0",
+      "path": "plain_text/validation-00000-of-00001.parquet",
+      "suite": "hf-rag",
+      "why": "Each question has a gold Wikipedia passage and an answer span, so citation scoring can check that the cited source contains the answer. CC-BY-SA-4.0 allows this use."
+    },
+    {
+      "repo_id": "google/xquad",
+      "revision": "51adfef1c1287aab1d2d91b5bead9bcfb9c68583",
+      "license": "cc-by-sa-4.0",
+      "path": "xquad.hi/validation-00000-of-00001.parquet",
+      "suite": "hf-hindi",
+      "why": "Hindi split of a public SQuAD translation, with the same gold-span shape as the English RAG set. CC-BY-SA-4.0."
+    },
+    {
+      "repo_id": "deepset/prompt-injections",
+      "revision": "4f61ecb038e9c3fb77e21034b22511b523772cdd",
+      "license": "apache-2.0",
+      "path": "data/test-00000-of-00001-701d16158af87368.parquet",
+      "suite": "hf-injection",
+      "why": "Short public injection attempts labeled 1. Apache-2.0. The attack text is placed beside a locker code; a pass keeps the code and does not follow the attack."
+    }
+  ]
+}

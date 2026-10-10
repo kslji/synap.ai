@@ -21,9 +21,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 API_ROOT = Path(__file__).resolve().parents[1] / "api"
+HARNESS_ROOT = Path(__file__).resolve().parents[2] / "harness"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
+if str(HARNESS_ROOT) not in sys.path:
+    sys.path.insert(0, str(HARNESS_ROOT))
 from app.injection import filter_paragraphs  # noqa: E402
+from core.pack_gate import assert_can_sign  # noqa: E402
 
 import httpx
 import sqlite_vec
@@ -170,6 +174,7 @@ def main() -> None:
     parser.add_argument("--key-hex", default=os.environ.get("PACK_SIGNING_KEY_HEX", ""))
     parser.add_argument("--key-id", default=os.environ.get("PACK_SIGNING_KEY_ID", "k2026a"))
     args = parser.parse_args()
+    assert_can_sign(args.niche)
     if len(args.key_hex) != 64:
         raise SystemExit("PACK_SIGNING_KEY_HEX must be a 32-byte ed25519 seed (64 hex chars) and must not live in the repo.")
     build(args.src, args.out, args.id, args.title, args.niche, args.version, args.embed_url, args.api_key, args.key_hex, args.key_id)

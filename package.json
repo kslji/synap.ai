@@ -18,7 +18,8 @@
     "typecheck": "npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
     "build": "npm run build -w @surf/desktop && npm run build -w @surf/web",
     "build:web": "npm run build -w @surf/web",
-    "selftest": "npm run selftest -w @surf/desktop"
+    "selftest": "npm run selftest -w @surf/desktop",
+    "eval": "bash harness/run.sh quick"
   },
   "engines": {
     "node": ">=22"

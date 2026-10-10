@@ -11,6 +11,7 @@ import { siblingCopyPath } from './document-files.js'
 import { applyCalculator, exportFilled, planDocument } from './document-fill.js'
 import type { DB } from './db.js'
 import { IPC, type DocumentEvent, type DocumentResult, type ExportFormat as ContractFormat, type FillPlan, type FillRow } from './ipc-contract.js'
+import { safeSend } from './safe-send.js'
 
 const MAX_BYTES = 40 * 1024 * 1024
 
@@ -44,7 +45,7 @@ export function createDocumentApi(opts: {
   let cancel = false
 
   function emit(win: BrowserWindow, event: DocumentEvent): void {
-    if (!win.isDestroyed()) win.webContents.send(IPC.documentsEvent, event)
+    safeSend(win, IPC.documentsEvent, event)
   }
 
   function load(ref: FileRef): LoadedFile {

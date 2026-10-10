@@ -18,6 +18,7 @@ export function initAutoUpdate(win: BrowserWindow, isOfflineOnly: () => boolean)
   autoUpdater.autoDownload = false; //          ask before downloading ~150 MB
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-available', async (info) => {
+    if (win.isDestroyed()) return
     const { response } = await dialog.showMessageBox(win, {
       type: 'info', buttons: ['Download', 'Later'], defaultId: 0,
       message: `Surf AI ${info.version} is available`, detail: 'Your chats and packs stay on this computer.',
@@ -25,6 +26,7 @@ export function initAutoUpdate(win: BrowserWindow, isOfflineOnly: () => boolean)
     if (response === 0) void autoUpdater.downloadUpdate();
   });
   autoUpdater.on('update-downloaded', async () => {
+    if (win.isDestroyed()) return
     const { response } = await dialog.showMessageBox(win, { buttons: ['Restart now', 'On next launch'], message: 'Update ready' });
     if (response === 0) autoUpdater.quitAndInstall();
   });

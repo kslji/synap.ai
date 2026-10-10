@@ -128,68 +128,83 @@ export interface Services {
     export(win: BrowserWindow, input: { path?: string; attachmentId?: string }, rows: FillRow[], format: ExportFormat | 'same', highlight: boolean): Promise<DocumentResult | null>
     cancel(): void
   }
+  lifecycle: {
+    releaseWindow(): void
+  }
+}
+
+const liveIpc = new Set<string>()
+
+function handle(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
+  liveIpc.add(channel)
+  ipcMain.handle(channel, listener)
+}
+
+export function unregisterIpc(): void {
+  for (const channel of liveIpc) ipcMain.removeHandler(channel)
+  liveIpc.clear()
 }
 
 export function registerIpc(win: BrowserWindow, s: Services): void {
-  ipcMain.handle(IPC.chatSend, (e, raw) => { assertTrusted(e); return s.chat.send(ChatSendReq.parse(raw), win) })
-  ipcMain.handle(IPC.chatCancel, (e, id) => { assertTrusted(e); if (typeof id === 'string') s.chat.cancel(id) })
-  ipcMain.handle(IPC.settingsGet, (e) => { assertTrusted(e); return s.settings.get() })
-  ipcMain.handle(IPC.settingsSet, (e, raw) => { assertTrusted(e); return s.settings.set(SettingsPatchSchema.parse(raw)) })
-  ipcMain.handle(IPC.modelsStatus, (e) => { assertTrusted(e); return s.models.status() })
-  ipcMain.handle(IPC.modelsDownload, (e, raw) => { assertTrusted(e); return s.models.download(ModelId.parse(raw), win) })
-  ipcMain.handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
-  ipcMain.handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })
-  ipcMain.handle(IPC.conversationsDelete, (e, raw) => { assertTrusted(e); return s.conversations.remove(ConversationId.parse(raw)) })
-  ipcMain.handle(IPC.webCacheStatus, (e) => { assertTrusted(e); return s.webCache.status() })
-  ipcMain.handle(IPC.webCacheClear, (e) => { assertTrusted(e); return s.webCache.clear() })
-  ipcMain.handle(IPC.packsList, (e) => { assertTrusted(e); return s.packs.list() })
-  ipcMain.handle(IPC.packsSync, (e) => { assertTrusted(e); return s.packs.sync() })
-  ipcMain.handle(IPC.packsRemove, (e, raw) => { assertTrusted(e); return s.packs.remove(PackId.parse(raw)) })
-  ipcMain.handle(IPC.packsImportFile, (e) => { assertTrusted(e); return s.packs.importFromFile(win) })
-  ipcMain.handle(IPC.authStatus, (e) => { assertTrusted(e); return s.auth.status() })
-  ipcMain.handle(IPC.authStart, (e, raw) => { assertTrusted(e); return s.auth.start(EmailBody.parse(raw).email) })
-  ipcMain.handle(IPC.authVerify, (e, raw) => { assertTrusted(e); const body = OtpVerifyBody.parse(raw); return s.auth.verify(body.email, body.code) })
-  ipcMain.handle(IPC.authSignOut, (e) => { assertTrusted(e); return s.auth.signOut() })
-  ipcMain.handle(IPC.authDevices, (e) => { assertTrusted(e); return s.auth.devices() })
-  ipcMain.handle(IPC.authRevoke, (e, raw) => { assertTrusted(e); return s.auth.revoke(DeviceId.parse(raw)) })
-  ipcMain.handle(IPC.updatesCheck, (e) => { assertTrusted(e); return s.updates.check() })
-  ipcMain.handle(IPC.updatesInstallOffline, (e) => { assertTrusted(e); return s.updates.installOffline(win) })
-  ipcMain.handle(IPC.libraryAdd, (e, raw) => {
+  handle(IPC.chatSend, (e, raw) => { assertTrusted(e); return s.chat.send(ChatSendReq.parse(raw), win) })
+  handle(IPC.chatCancel, (e, id) => { assertTrusted(e); if (typeof id === 'string') s.chat.cancel(id) })
+  handle(IPC.settingsGet, (e) => { assertTrusted(e); return s.settings.get() })
+  handle(IPC.settingsSet, (e, raw) => { assertTrusted(e); return s.settings.set(SettingsPatchSchema.parse(raw)) })
+  handle(IPC.modelsStatus, (e) => { assertTrusted(e); return s.models.status() })
+  handle(IPC.modelsDownload, (e, raw) => { assertTrusted(e); return s.models.download(ModelId.parse(raw), win) })
+  handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
+  handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })
+  handle(IPC.conversationsDelete, (e, raw) => { assertTrusted(e); return s.conversations.remove(ConversationId.parse(raw)) })
+  handle(IPC.webCacheStatus, (e) => { assertTrusted(e); return s.webCache.status() })
+  handle(IPC.webCacheClear, (e) => { assertTrusted(e); return s.webCache.clear() })
+  handle(IPC.packsList, (e) => { assertTrusted(e); return s.packs.list() })
+  handle(IPC.packsSync, (e) => { assertTrusted(e); return s.packs.sync() })
+  handle(IPC.packsRemove, (e, raw) => { assertTrusted(e); return s.packs.remove(PackId.parse(raw)) })
+  handle(IPC.packsImportFile, (e) => { assertTrusted(e); return s.packs.importFromFile(win) })
+  handle(IPC.authStatus, (e) => { assertTrusted(e); return s.auth.status() })
+  handle(IPC.authStart, (e, raw) => { assertTrusted(e); return s.auth.start(EmailBody.parse(raw).email) })
+  handle(IPC.authVerify, (e, raw) => { assertTrusted(e); const body = OtpVerifyBody.parse(raw); return s.auth.verify(body.email, body.code) })
+  handle(IPC.authSignOut, (e) => { assertTrusted(e); return s.auth.signOut() })
+  handle(IPC.authDevices, (e) => { assertTrusted(e); return s.auth.devices() })
+  handle(IPC.authRevoke, (e, raw) => { assertTrusted(e); return s.auth.revoke(DeviceId.parse(raw)) })
+  handle(IPC.updatesCheck, (e) => { assertTrusted(e); return s.updates.check() })
+  handle(IPC.updatesInstallOffline, (e) => { assertTrusted(e); return s.updates.installOffline(win) })
+  handle(IPC.libraryAdd, (e, raw) => {
     assertTrusted(e)
     const body = LibraryAdd.parse(raw)
     return s.library.add(body.paths, body.conversationId, body.createConversation, win)
   })
-  ipcMain.handle(IPC.libraryPick, (e, raw) => {
+  handle(IPC.libraryPick, (e, raw) => {
     assertTrusted(e)
     const body = LibraryPick.parse(raw ?? { conversationId: null })
     return s.library.pick(body.conversationId, body.createConversation, win)
   })
-  ipcMain.handle(IPC.libraryList, (e) => { assertTrusted(e); return s.library.list() })
-  ipcMain.handle(IPC.libraryRetry, (e, raw) => { assertTrusted(e); return s.library.retry(JobId.parse(raw)) })
-  ipcMain.handle(IPC.libraryCancel, (e, raw) => { assertTrusted(e); return s.library.cancel(JobId.parse(raw)) })
-  ipcMain.handle(IPC.libraryDelete, (e, raw) => { assertTrusted(e); return s.library.remove(AttachmentId.parse(raw)) })
-  ipcMain.handle(IPC.libraryPreview, (e, raw) => { assertTrusted(e); return s.library.preview(LibraryPreview.parse(raw)) })
-  ipcMain.handle(IPC.documentsPick, (e, raw) => {
+  handle(IPC.libraryList, (e) => { assertTrusted(e); return s.library.list() })
+  handle(IPC.libraryRetry, (e, raw) => { assertTrusted(e); return s.library.retry(JobId.parse(raw)) })
+  handle(IPC.libraryCancel, (e, raw) => { assertTrusted(e); return s.library.cancel(JobId.parse(raw)) })
+  handle(IPC.libraryDelete, (e, raw) => { assertTrusted(e); return s.library.remove(AttachmentId.parse(raw)) })
+  handle(IPC.libraryPreview, (e, raw) => { assertTrusted(e); return s.library.preview(LibraryPreview.parse(raw)) })
+  handle(IPC.documentsPick, (e, raw) => {
     assertTrusted(e)
     return s.documents.pick(win, z.string().max(80).parse(raw))
   })
-  ipcMain.handle(IPC.documentsConvert, (e, raw) => {
+  handle(IPC.documentsConvert, (e, raw) => {
     assertTrusted(e)
     const body = DocumentConvert.parse(raw)
     return s.documents.convert(win, { path: body.path, attachmentId: body.attachmentId }, body.format)
   })
-  ipcMain.handle(IPC.documentsPlan, (e, raw) => {
+  handle(IPC.documentsPlan, (e, raw) => {
     assertTrusted(e)
     const body = DocumentPlan.parse(raw)
     return s.documents.plan(body)
   })
-  ipcMain.handle(IPC.documentsExport, (e, raw) => {
+  handle(IPC.documentsExport, (e, raw) => {
     assertTrusted(e)
     const body = DocumentExport.parse(raw)
     return s.documents.export(win, { path: body.templatePath, attachmentId: body.templateAttachmentId }, body.rows, body.format, body.highlight)
   })
-  ipcMain.handle(IPC.documentsCancel, (e) => { assertTrusted(e); s.documents.cancel() })
-  ipcMain.handle(IPC.linksOpen, (e, raw) => {
+  handle(IPC.documentsCancel, (e) => { assertTrusted(e); s.documents.cancel() })
+  handle(IPC.linksOpen, (e, raw) => {
     assertTrusted(e)
     const url = HttpLink.parse(raw)
     return s.links.open(url)

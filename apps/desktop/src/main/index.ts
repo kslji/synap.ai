@@ -3,7 +3,7 @@
  * Normal start: secure window + typed IPC.
  * SURF_SELFTEST=1: encrypted DB, safeStorage, calculator, llama-server, sandboxed renderer.
  */
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
@@ -32,10 +32,16 @@ import calcWorker from './core/calculator.worker?modulePath'
 import { surfEnv } from './core/surf-env'
 import { createServices, startUpdater } from './core/app-services'
 import { IPC } from './core/ipc-contract'
+import { installMainLog, installProcessGuards } from './core/main-log'
 
 app.setName('surf-ai')
 if (surfEnv('EVAL')) app.setPath('userData', surfEnv('EVAL_DIR') || join(app.getPath('temp'), 'surf-eval'))
 else app.setPath('userData', join(app.getPath('appData'), 'surf-ai'))
+
+const mainLog = installMainLog(join(app.getPath('userData'), 'logs'))
+installProcessGuards(mainLog, (message) => {
+  dialog.showErrorBox('Surf AI', message)
+})
 
 type Report = Record<string, { ok: boolean; detail: string; ms: number }>
 
@@ -416,6 +422,9 @@ void app.whenReady().then(async () => {
   const paths = preloadAndHtml()
   const win: BrowserWindow = createMainWindow(paths.preload, paths.html)
   registerIpc(win, services)
+  const stopStreams = () => services.lifecycle.releaseWindow()
+  win.on('closed', stopStreams)
+  win.webContents.on('render-process-gone', stopStreams)
   startUpdater(win, services)
   const shots = surfEnv('CAPTURE_DIR')
   if (shots) win.webContents.once('did-finish-load', () => { void captureShots(win, shots) })

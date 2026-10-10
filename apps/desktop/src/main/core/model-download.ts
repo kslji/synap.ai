@@ -45,7 +45,10 @@ export async function downloadVerified(spec: DownloadSpec, onProgress?: Progress
       transform(chunk: Buffer, _enc, cb) {
         hash.update(chunk);
         done += chunk.length;
-        onProgress?.(done, spec.size);
+        if (!signal?.aborted) {
+          try { onProgress?.(done, spec.size); }
+          catch { /* the window may already be gone; keep writing the file */ }
+        }
         cb(null, chunk);
       },
     });

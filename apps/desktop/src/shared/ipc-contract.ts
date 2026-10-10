@@ -44,6 +44,18 @@ export const IPC = {
   documentsExport: 'documents:export',
   documentsCancel: 'documents:cancel',
   documentsEvent: 'documents:event',
+  agentsList: 'agents:list',
+  codeSearch: 'code:search',
+  codeAttach: 'code:attach',
+  codeRun: 'code:run',
+  codeLicenses: 'code:licenses',
+  codePropose: 'code:propose',
+  codeApply: 'code:apply',
+  assistantDesk: 'assistant:desk',
+  assistantSend: 'assistant:send',
+  assistantApprove: 'assistant:approve',
+  assistantCancel: 'assistant:cancel',
+  assistantDelete: 'assistant:delete',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -93,7 +105,7 @@ export type ChatEvent =
 
 export interface CatalogModel {
   id: string
-  role: 'chat' | 'embedding' | 'asr' | 'vad'
+  role: 'chat' | 'embedding' | 'code-embedding' | 'fim' | 'asr' | 'vad'
   label: string
   paramsB: number | null
   sizeBytes: number
@@ -102,6 +114,7 @@ export interface CatalogModel {
   installed: boolean
   recommended: boolean
   fitsRam: boolean
+  optional: boolean
 }
 
 export interface ModelStatus {
@@ -266,6 +279,84 @@ export interface PackRow {
   error: string | null
 }
 
+export interface AgentCardView {
+  id: string
+  name: string
+  description: string
+  note?: string
+  home: boolean
+  scope: string[]
+  outOfScope: string[]
+}
+
+export interface ConnectorView {
+  id: string
+  name: string
+  detail: string
+  classes: Array<'read' | 'write' | 'delete'>
+  connected: false
+}
+
+export interface DeskMail {
+  id: string
+  from: string
+  subject: string
+  body: string
+}
+
+export interface PendingAction {
+  id: string
+  connector: string
+  verb: string
+  summary: string
+  confirms: number
+  state: 'needs-approval' | 'needs-second' | 'wait'
+  countdownSeconds: number
+}
+
+export interface AssistantDesk {
+  connectors: ConnectorView[]
+  inbox: DeskMail[]
+  sent: DeskMail[]
+  trash: DeskMail[]
+  pending: PendingAction | null
+}
+
+export interface SymbolHit {
+  path: string
+  name: string
+  kind: string
+  text: string
+}
+
+export interface LicenseNote {
+  path: string
+  name: string
+  license: string
+  allowed: boolean
+}
+
+export interface CodeRunResult {
+  executed: boolean
+  result?: string
+  error?: string
+  language: string
+}
+
+export interface EditProposalView {
+  id: string
+  path: string
+  before: string
+  after: string
+  diff: string
+}
+
+export interface EditResult {
+  written: boolean
+  text: string
+  note: string
+}
+
 /** What window.surf looks like in the renderer. */
 export interface SurfApi {
   chat: {
@@ -330,5 +421,23 @@ export interface SurfApi {
     export(input: { templatePath?: string; templateAttachmentId?: string; rows: FillRow[]; format: ExportFormat | 'same'; highlight: boolean }): Promise<DocumentResult | null>
     cancel(): Promise<void>
     onEvent(cb: (e: DocumentEvent) => void): () => void
+  }
+  agents: {
+    list(): Promise<AgentCardView[]>
+  }
+  code: {
+    search(query: string): Promise<SymbolHit[]>
+    attach(): Promise<{ root: string; count: number } | null>
+    run(language: string, code: string): Promise<CodeRunResult>
+    licenses(): Promise<LicenseNote[]>
+    propose(path: string, before: string, after: string): Promise<EditProposalView>
+    apply(id: string, approved: boolean): Promise<EditResult>
+  }
+  assistant: {
+    desk(): Promise<AssistantDesk>
+    draft(summary: string): Promise<AssistantDesk>
+    approve(id: string): Promise<AssistantDesk>
+    cancel(id: string): Promise<AssistantDesk>
+    armDelete(): Promise<AssistantDesk>
   }
 }

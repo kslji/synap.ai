@@ -5,9 +5,9 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type WebCacheStatus } from './ipc-contract.js'
+import { IPC, type AgentCardView, type AssistantDesk, type AuthStatus, type ChunkPreview, type CodeRunResult, type ConversationSummary, type DeviceInfo, type DocumentResult, type EditProposalView, type EditResult, type FillPlan, type FillRow, type LibraryFile, type LicenseNote, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type SymbolHit, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
+import { AssistantActionId, AssistantSummary, AttachmentId, ChatSendReq, CodeApply, CodePropose, CodeQuery, CodeRunBody, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -19,6 +19,7 @@ export const CSP = [
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
+  "frame-src 'self' about: blob: data:",
   "frame-ancestors 'none'",
 ].join('; ')
 
@@ -128,6 +129,24 @@ export interface Services {
     export(win: BrowserWindow, input: { path?: string; attachmentId?: string }, rows: FillRow[], format: ExportFormat | 'same', highlight: boolean): Promise<DocumentResult | null>
     cancel(): void
   }
+  agents: {
+    list(): Promise<AgentCardView[]>
+  }
+  code: {
+    search(query: string): Promise<SymbolHit[]>
+    attach(win: BrowserWindow): Promise<{ root: string; count: number } | null>
+    run(language: string, code: string): Promise<CodeRunResult>
+    licenses(): Promise<LicenseNote[]>
+    propose(path: string, before: string, after: string): Promise<EditProposalView>
+    apply(id: string, approved: boolean): Promise<EditResult>
+  }
+  assistant: {
+    desk(): Promise<AssistantDesk>
+    draft(summary: string): Promise<AssistantDesk>
+    approve(id: string): Promise<AssistantDesk>
+    cancel(id: string): Promise<AssistantDesk>
+    armDelete(): Promise<AssistantDesk>
+  }
 }
 
 export function registerIpc(win: BrowserWindow, s: Services): void {
@@ -189,6 +208,18 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
     return s.documents.export(win, { path: body.templatePath, attachmentId: body.templateAttachmentId }, body.rows, body.format, body.highlight)
   })
   ipcMain.handle(IPC.documentsCancel, (e) => { assertTrusted(e); s.documents.cancel() })
+  ipcMain.handle(IPC.agentsList, (e) => { assertTrusted(e); return s.agents.list() })
+  ipcMain.handle(IPC.codeSearch, (e, raw) => { assertTrusted(e); return s.code.search(CodeQuery.parse(raw)) })
+  ipcMain.handle(IPC.codeAttach, (e) => { assertTrusted(e); return s.code.attach(win) })
+  ipcMain.handle(IPC.codeRun, (e, raw) => { assertTrusted(e); const body = CodeRunBody.parse(raw); return s.code.run(body.language, body.code) })
+  ipcMain.handle(IPC.codeLicenses, (e) => { assertTrusted(e); return s.code.licenses() })
+  ipcMain.handle(IPC.codePropose, (e, raw) => { assertTrusted(e); const body = CodePropose.parse(raw); return s.code.propose(body.path, body.before, body.after) })
+  ipcMain.handle(IPC.codeApply, (e, raw) => { assertTrusted(e); const body = CodeApply.parse(raw); return s.code.apply(body.id, body.approved) })
+  ipcMain.handle(IPC.assistantDesk, (e) => { assertTrusted(e); return s.assistant.desk() })
+  ipcMain.handle(IPC.assistantSend, (e, raw) => { assertTrusted(e); return s.assistant.draft(AssistantSummary.parse(raw)) })
+  ipcMain.handle(IPC.assistantApprove, (e, raw) => { assertTrusted(e); return s.assistant.approve(AssistantActionId.parse(raw)) })
+  ipcMain.handle(IPC.assistantCancel, (e, raw) => { assertTrusted(e); return s.assistant.cancel(AssistantActionId.parse(raw)) })
+  ipcMain.handle(IPC.assistantDelete, (e) => { assertTrusted(e); return s.assistant.armDelete() })
   ipcMain.handle(IPC.linksOpen, (e, raw) => {
     assertTrusted(e)
     const url = HttpLink.parse(raw)

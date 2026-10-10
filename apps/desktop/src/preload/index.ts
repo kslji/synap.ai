@@ -74,6 +74,24 @@ const api: SurfApi = {
     cancel: () => ipcRenderer.invoke(IPC.documentsCancel),
     onEvent: (cb) => subscribe<DocumentEvent>(IPC.documentsEvent, cb),
   },
+  agents: {
+    list: () => ipcRenderer.invoke(IPC.agentsList),
+  },
+  code: {
+    search: (query) => ipcRenderer.invoke(IPC.codeSearch, query),
+    attach: () => ipcRenderer.invoke(IPC.codeAttach),
+    run: (language, code) => ipcRenderer.invoke(IPC.codeRun, { language, code }),
+    licenses: () => ipcRenderer.invoke(IPC.codeLicenses),
+    propose: (path, before, after) => ipcRenderer.invoke(IPC.codePropose, { path, before, after }),
+    apply: (id, approved) => ipcRenderer.invoke(IPC.codeApply, { id, approved }),
+  },
+  assistant: {
+    desk: () => ipcRenderer.invoke(IPC.assistantDesk),
+    draft: (summary) => ipcRenderer.invoke(IPC.assistantSend, summary),
+    approve: (id) => ipcRenderer.invoke(IPC.assistantApprove, id),
+    cancel: (id) => ipcRenderer.invoke(IPC.assistantCancel, id),
+    armDelete: () => ipcRenderer.invoke(IPC.assistantDelete),
+  },
 }
 
 contextBridge.exposeInMainWorld('surf', api)

@@ -20,7 +20,7 @@ export function Onboarding({
   onDownload: (chatId: string) => Promise<void>
   onReady: (chatId: string) => void
 }) {
-  const chats = status.models.filter((m) => m.role === 'chat' && m.fitsRam)
+  const chats = status.models.filter((m) => m.role === 'chat' && m.fitsRam && !m.optional)
   const suggested = status.models.find((m) => m.recommended)?.id ?? chats[0]?.id ?? ''
   const [step, setStep] = useState(0)
   const [pick, setPick] = useState(suggested)

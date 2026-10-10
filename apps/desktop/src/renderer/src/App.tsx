@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, SurfCrew, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch } from '../../shared/ipc-contract'
+import type { AgentCardView, ChunkPreview, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
@@ -11,6 +11,9 @@ import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
 import { SignInScreen } from './screens/SignInScreen'
 import { PacksScreen } from './screens/PacksScreen'
+import { HomeScreen } from './screens/HomeScreen'
+import { CodeScreen } from './screens/CodeScreen'
+import { AssistantScreen } from './screens/AssistantScreen'
 
 export default function App() {
   const api = window.surf
@@ -35,6 +38,10 @@ export default function App() {
   const [demoAccount, setDemoAccount] = useState<{ email: string; deviceId: string | null } | null>(null)
   const [demoDevices, setDemoDevices] = useState<DeviceInfo[] | null>(null)
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
+  const [agentId, setAgentId] = useState('general')
+  const [agentCards, setAgentCards] = useState<AgentCardView[]>([])
+  const [codeTab, setCodeTab] = useState<'preview' | 'architecture'>('preview')
+  const [assistantMode, setAssistantMode] = useState<'connectors' | 'approval' | 'delete'>('connectors')
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
 
@@ -53,6 +60,7 @@ export default function App() {
     setPacks(listed)
     if (auth.signedIn) setDevices(await api.auth.devices().catch(() => []))
     else setDevices([])
+    void api.agents.list().then(setAgentCards).catch(() => undefined)
     return st
   }, [api])
 
@@ -138,7 +146,7 @@ export default function App() {
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text, agentId: 'general', allowWeb: Boolean(settings?.webSearchAllowed && chatWeb), docScope: scope })
+      const res = await api.chat.send({ conversationId, text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb), docScope: scope })
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
     } catch (e) {
@@ -150,8 +158,19 @@ export default function App() {
   async function openConversation(id: string) {
     const opened = await api.conversations.open(id)
     setConversationId(id)
+    setAgentId(conversations.find((row) => row.id === id)?.agentId || 'general')
     setMessages(opened.messages.map((m) => ({ ...m, tools: [] })))
     setChatWeb(true)
+    setView('chat')
+  }
+
+  function selectAgent(id: string) {
+    setAgentId(id)
+    setConversationId(null)
+    setMessages([])
+    setPreview(null)
+    if (id === 'code') { setCodeTab('preview'); setView('code'); return }
+    if (id === 'assistant') { setAssistantMode('connectors'); setView('assistant'); return }
     setView('chat')
   }
 
@@ -311,6 +330,35 @@ export default function App() {
     window.__surfDemo = (scene) => {
       setConvertJob(null)
       setFillJob(null)
+      if (scene === 'agents') {
+        setView('home')
+        setAgentId('general')
+      }
+      if (scene === 'code') {
+        setView('code')
+        setAgentId('code')
+        setCodeTab('preview')
+      }
+      if (scene === 'architecture') {
+        setView('code')
+        setAgentId('code')
+        setCodeTab('architecture')
+      }
+      if (scene === 'connectors') {
+        setView('assistant')
+        setAgentId('assistant')
+        setAssistantMode('connectors')
+      }
+      if (scene === 'approval') {
+        setView('assistant')
+        setAgentId('assistant')
+        setAssistantMode('approval')
+      }
+      if (scene === 'delete') {
+        setView('assistant')
+        setAgentId('assistant')
+        setAssistantMode('delete')
+      }
       if (scene === 'upload') {
         setView('chat')
         setMessages([])
@@ -567,11 +615,18 @@ export default function App() {
         onTheme={chooseTheme}
         signedIn={Boolean(shownAccount)}
         onNew={newChat}
+        agents={agentCards}
+        agentId={agentId}
+        onAgent={selectAgent}
         onOpen={(id) => { void openConversation(id) }}
         onDelete={(id) => { void deleteConversation(id) }}
       />
+      {view === 'home' && <HomeScreen cards={agentCards} onOpen={selectAgent} />}
+      {view === 'code' && <CodeScreen tab={codeTab} onTab={setCodeTab} onAsk={(text) => { setAgentId('code'); void send(text) }} />}
+      {view === 'assistant' && <AssistantScreen mode={assistantMode} />}
       {view === 'chat' && (
         <ChatScreen
+          agentName={agentCards.find((card) => card.id === agentId)?.name ?? 'General'}
           messages={messages}
           streaming={streaming}
           status={status}

@@ -1,7 +1,7 @@
 {
   "registry_format": "surf-models/1",
   "updated_at": "2026-10-09",
-  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-09).",
+  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-10). adapter is null until a free LoRA is added. optional models are not the default download.",
   "models": [
     {
       "id": "qwen3.5-4b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 4,
@@ -17,6 +17,7 @@
         "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
       },
       "min_ram_gb": 8, "tiers": [1],
+      "adapter": null,
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
     },
@@ -34,6 +35,17 @@
         "sha256": "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f"
       },
       "min_ram_gb": 16, "tiers": [2, 3],
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    },
+    {
+      "id": "qwen3.6-35b-a3b-ud-q4_k_m", "role": "chat", "family": "qwen3.6", "params_b": 35,
+      "license": "apache-2.0", "context_default": 32768, "context_max": 262144,
+      "file": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "size_bytes": 22134528992,
+      "sha256": "d0f6c2fa907594b8a8322531f188c7c12708db507df3402a18391db1f38eec50",
+      "min_ram_gb": 32, "tiers": [3], "optional": true,
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
     },
@@ -65,6 +77,24 @@
       "sha256": "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc",
       "min_llama_cpp_build": 11452,
       "min_ram_gb": 0, "tiers": [0, 1, 2, 3]
+    },
+    {
+      "id": "qwen2.5-coder-1.5b-q8_0", "role": "fim", "family": "qwen2.5-coder", "params_b": 1.5,
+      "license": "apache-2.0", "context_default": 8192, "context_max": 32768,
+      "file": "Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf",
+      "size_bytes": 1646572576,
+      "sha256": "1e298cddee55662a5291743e286d4ceda688acdeed608f785fa4d6639b6908cd",
+      "min_ram_gb": 4, "tiers": [0, 1, 2, 3], "optional": true
+    },
+    {
+      "id": "qwen3-embedding-0.6b-q8_0", "role": "code-embedding", "family": "qwen3-embedding", "params_b": 0.6,
+      "license": "apache-2.0",
+      "file": "Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf",
+      "size_bytes": 639150592,
+      "sha256": "c07418bff31dfab7ab0754eaa7a376c0cbb0cba7dada80fe4c5adb4d24d44291",
+      "min_ram_gb": 2, "tiers": [1, 2, 3], "optional": true
     },
     {
       "id": "whisper-base-q8_0", "role": "asr", "family": "whisper", "license": "mit",

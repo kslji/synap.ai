@@ -19,6 +19,8 @@ local-ai/
 apps/host/.venv
 harness/traces/*.json
 harness/evals/last-report.json
+harness/.cache/
+harness/reports/
 !.gitkeep
 apps/web/dist
 apps/desktop/out

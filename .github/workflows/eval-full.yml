@@ -1,0 +1,46 @@
+name: eval-full
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compiler tools, Electron libraries, and a display
+        run: sudo apt-get update && sudo apt-get install -y make g++ xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 libx11-xcb1 libxss1
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: .surf-models
+          key: surf-models-qwen2b-embeddinggemma-v1
+      - name: Fetch llama.cpp sidecar for this OS
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
+      - name: Eval dependencies
+        run: python -m pip install -r harness/requirements.txt
+      - name: Full eval
+        env:
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
+          SURF_ELECTRON_ARGS: "--no-sandbox"
+          DISPLAY: ":1"
+        run: |
+          Xvfb :1 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+          ./harness/run.sh full
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-full
+          path: harness/reports/

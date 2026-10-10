@@ -83,6 +83,11 @@ interface WebPiece {
 
 const WEB_FLOOR = 0.42
 
+function chatSampling(model: ModelEntry): Record<string, number> | undefined {
+  if (!surfEnv('EVAL')) return model.sampling
+  return { ...(model.sampling ?? {}), temperature: 0, top_k: 1 }
+}
+
 const SYSTEM =
   'You are Surf AI, a calm assistant that runs entirely on this computer. ' +
   'Answer in plain language. When sources are provided, use only those sources and cite them as [S1], [S2]. ' +
@@ -352,9 +357,9 @@ export async function createServices(): Promise<Services> {
     const client = new LlamaClient({
       baseUrl: server.baseUrl,
       apiKey: server.apiKey,
-      sampling: chatModel.sampling,
-      chatTemplateKwargs: chatModel.chat_template_kwargs,
-    })
+sampling: chatSampling(chatModel),
+        chatTemplateKwargs: chatModel.chat_template_kwargs,
+      })
     let raw = ''
     try {
       const rewritten = await client.chat([{ role: 'user', content: rewritePrompt(question) }], undefined, signal, 120)
@@ -548,7 +553,7 @@ export async function createServices(): Promise<Services> {
       const client = new LlamaClient({
         baseUrl: server.baseUrl,
         apiKey: server.apiKey,
-        sampling: chatModel.sampling,
+        sampling: chatSampling(chatModel),
         chatTemplateKwargs: chatModel.chat_template_kwargs,
       })
       const stayingLocal = webHits.length === 0
@@ -650,13 +655,22 @@ export async function createServices(): Promise<Services> {
           vec: hit.vec,
         })))
       }
-      finish(conversationId, messageId, userMessageId, win, answer, sources, gate, checked.unknownUrls.length > 0 || checked.echoed)
+      finish(conversationId, messageId, userMessageId, win, answer, sources, gate, checked.unknownUrls.length > 0 || checked.echoed, {
+        counter: budget.report.counter,
+        total: budget.report.total,
+        droppedChunks: budget.report.droppedChunks,
+        droppedTurns: budget.report.droppedTurns,
+        truncatedQuestion: budget.report.truncatedQuestion,
+        parts: budget.report.parts,
+        retrievedCap: profile.retrieved,
+        maxChunks: profile.maxChunks,
+      })
     })
   }
 
-  function finish(conversationId: string, messageId: string, _userMessageId: string, win: BrowserWindow, text: string, sources: StoredMessage['sources'], gate: GateName, replaceText = false): void {
+  function finish(conversationId: string, messageId: string, _userMessageId: string, win: BrowserWindow, text: string, sources: StoredMessage['sources'], gate: GateName, replaceText = false, budget?: Extract<ChatEvent, { type: 'done' }>['budget']): void {
     store.append(conversationId, { id: randomUUID(), role: 'assistant', text, sources, gate })
-    sendEvent(win, { type: 'done', messageId, gate, text: replaceText ? text : undefined })
+    sendEvent(win, { type: 'done', messageId, gate, text: replaceText ? text : undefined, ...(surfEnv('EVAL') && budget ? { budget } : {}) })
   }
 
   readSettings()
@@ -980,6 +994,11 @@ export function startUpdater(win: BrowserWindow, services: Services): void {
 }
 
 async function openStore(): Promise<SessionStore> {
+  const evalKey = surfEnv('EVAL_DB_KEY')
+  if (evalKey && /^[0-9a-f]{64}$/i.test(evalKey)) {
+    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), evalKey, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION])
+    return new SessionStore(db)
+  }
   try {
     const key = await getOrCreateDbKey()
     const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION])
@@ -1044,6 +1063,7 @@ function apiBase(settings: Settings): string {
 }
 
 function isOnline(): boolean {
+  if (surfEnv('EVAL_FORCE_ONLINE') === '1') return true
   const probe = net as { isOnline?: () => boolean; online?: boolean }
   if (typeof probe.isOnline === 'function') return probe.isOnline()
   if (typeof probe.online === 'boolean') return probe.online

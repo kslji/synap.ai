@@ -1,0 +1,60 @@
+{
+  "mode": "quick",
+  "chat_model": "qwen3.5-2b-q4_k_m",
+  "suites": {
+    "shared": {
+      "score": 0.8966,
+      "cases": 12,
+      "passed": 10,
+      "weight": 29.0,
+      "passed_weight": 26.0,
+      "min_score": 0.6,
+      "ok": true
+    },
+    "hf-math": {
+      "score": 0.0,
+      "cases": 1,
+      "passed": 0,
+      "weight": 1.0,
+      "passed_weight": 0,
+      "min_score": 0.0,
+      "ok": true
+    },
+    "hf-truth": {
+      "score": 0.0,
+      "cases": 1,
+      "passed": 0,
+      "weight": 1.0,
+      "passed_weight": 0,
+      "min_score": 0.0,
+      "ok": true
+    },
+    "hf-rag": {
+      "score": 1.0,
+      "cases": 1,
+      "passed": 1,
+      "weight": 1.0,
+      "passed_weight": 1.0,
+      "min_score": 0.0,
+      "ok": true
+    },
+    "hf-hindi": {
+      "score": 1.0,
+      "cases": 1,
+      "passed": 1,
+      "weight": 1.0,
+      "passed_weight": 1.0,
+      "min_score": 0.0,
+      "ok": true
+    },
+    "hf-injection": {
+      "score": 1.0,
+      "cases": 1,
+      "passed": 1,
+      "weight": 1.0,
+      "passed_weight": 1.0,
+      "min_score": 0.0,
+      "ok": true
+    }
+  }
+}

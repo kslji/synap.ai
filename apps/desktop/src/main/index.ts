@@ -34,7 +34,8 @@ import { createServices, startUpdater } from './core/app-services'
 import { IPC } from './core/ipc-contract'
 
 app.setName('surf-ai')
-app.setPath('userData', join(app.getPath('appData'), 'surf-ai'))
+if (surfEnv('EVAL')) app.setPath('userData', surfEnv('EVAL_DIR') || join(app.getPath('temp'), 'surf-eval'))
+else app.setPath('userData', join(app.getPath('appData'), 'surf-ai'))
 
 type Report = Record<string, { ok: boolean; detail: string; ms: number }>
 
@@ -395,9 +396,20 @@ async function answerFromWeb(srv: LlamaServer, chat: LlamaClient, chatGguf: stri
 
 app.enableSandbox()
 if (!app.requestSingleInstanceLock()) app.quit()
-app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !surfEnv('SELFTEST')) app.quit() })
+app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !surfEnv('SELFTEST') && !surfEnv('EVAL')) app.quit() })
 void app.whenReady().then(async () => {
   if (surfEnv('SELFTEST')) return selfTest()
+  if (surfEnv('EVAL')) {
+    const { runEval } = await import('./eval-run')
+    try {
+      await runEval()
+      app.exit(0)
+    } catch (error) {
+      console.error(error)
+      app.exit(1)
+    }
+    return
+  }
   const services = await createServices()
   const paths = preloadAndHtml()
   const win: BrowserWindow = createMainWindow(paths.preload, paths.html)

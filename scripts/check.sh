@@ -19,6 +19,7 @@ echo "== harness unit evals =="
 "$PY" harness/evals/test_reply_repair.py
 "$PY" harness/evals/test_local_first.py
 "$PY" harness/evals/test_convert.py
+"$PY" harness/evals/test_eval_gate.py
 
 echo "OK scripts/check.sh"
 echo "With the host on 127.0.0.1:18765, also run ./harness/run.sh"

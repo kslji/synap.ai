@@ -20,6 +20,7 @@ export const SettingsPatch = z.object({
   theme: z.enum(['system', 'light', 'dark']).optional(),
   apiBaseUrl: z.string().max(200).regex(/^https?:\/\/\S+$/).optional(),
   packSyncHours: z.number().int().min(1).max(168).optional(),
+  updateChannel: z.enum(['stable', 'beta']).optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)

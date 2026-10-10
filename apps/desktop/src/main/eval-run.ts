@@ -321,6 +321,7 @@ export async function runEval(): Promise<void> {
       theme: 'system',
       apiBaseUrl: process.env.SURF_API_BASE || 'http://127.0.0.1:9',
       packSyncHours: 168,
+      updateChannel: 'stable',
     }, null, 2))
 
     const services = await createServices()

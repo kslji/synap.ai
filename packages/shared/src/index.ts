@@ -4,6 +4,7 @@ export const product = {
   appId: 'ai.surf.desktop',
   repo: 'https://github.com/kslji/synap.ai',
   releasesUrl: 'https://github.com/kslji/synap.ai/releases/latest',
+  site: 'https://synap.surf',
 } as const
 
 export const modelTiers = [

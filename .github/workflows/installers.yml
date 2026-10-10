@@ -1,0 +1,165 @@
+# Unsigned installers on the free GitHub runners.
+# macOS: separate arm64 and x64 disk images, ad-hoc signed so Apple Silicon launches.
+# Windows: per-user NSIS, no administrator. Each built app is smoke-tested.
+name: Installers
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fetch llama.cpp and OCR data
+        working-directory: apps/desktop
+        run: |
+          node scripts/fetch-sidecars.mjs --platform=darwin --arch=arm64
+          node scripts/fetch-sidecars.mjs --platform=darwin --arch=x64
+          node scripts/fetch-tessdata.mjs
+      - name: Build disk images
+        run: npm run dist:mac -w @surf/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Smoke test each Mac app
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          export SURF_SMOKE=1
+          smoke() {
+            local app="$1"
+            local bin="$app/Contents/MacOS/SurfAI"
+            local archs
+            archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
+            echo "smoke $app ($archs)"
+            if printf '%s\n' "$archs" | grep -q x86_64 && ! printf '%s\n' "$archs" | grep -q arm64; then
+              softwareupdate --install-rosetta --agree-to-license || true
+              arch -x86_64 "$bin" &
+            else
+              "$bin" &
+            fi
+            local pid=$!
+            local i
+            for i in $(seq 1 90); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                wait "$pid"
+                return
+              fi
+              sleep 1
+            done
+            kill "$pid" || true
+            echo "smoke timed out: $app"
+            exit 1
+          }
+          found=0
+          shopt -s nullglob
+          for app in dist/mac/*.app dist/mac-arm64/*.app dist/mac-x64/*.app; do
+            smoke "$app"
+            found=$((found + 1))
+          done
+          if [ "$found" -ne 2 ]; then
+            echo "expected two Mac apps, found $found"
+            find dist -name '*.app' -maxdepth 3 -print || true
+            exit 1
+          fi
+      - name: Record installer sizes
+        working-directory: apps/desktop
+        run: |
+          {
+            echo "### macOS"
+            ls -lh dist/*.dmg dist/*.zip
+          } | tee dist/SIZES.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/SIZES.txt
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Fetch llama.cpp and OCR data
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          node scripts/fetch-sidecars.mjs
+          node scripts/fetch-tessdata.mjs
+      - name: Build the NSIS installer
+        run: npm run dist:win -w @surf/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Silent install and smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer=$(ls apps/desktop/dist/*.exe | head -n 1)
+          echo "install $installer"
+          win="$(cygpath -w "$installer")"
+          powershell.exe -NoProfile -Command "Start-Process -FilePath '$win' -ArgumentList '/S' -Wait"
+          root="$(cygpath "$LOCALAPPDATA")"
+          exe=""
+          for i in $(seq 1 45); do
+            exe=$(find "$root" -iname 'SurfAI.exe' -print -quit 2>/dev/null || true)
+            if [ -n "$exe" ]; then break; fi
+            sleep 1
+          done
+          if [ -z "$exe" ]; then
+            echo "SurfAI.exe was not installed"
+            find "$LOCALAPPDATA" -iname 'SurfAI.exe' -print || true
+            exit 1
+          fi
+          echo "smoke $exe"
+          SURF_SMOKE=1 "$exe" &
+          pid=$!
+          for i in $(seq 1 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              wait "$pid"
+              exit
+            fi
+            sleep 1
+          done
+          kill "$pid" || true
+          echo "smoke timed out"
+          exit 1
+      - name: Record installer sizes
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          {
+            echo "### Windows"
+            ls -lh dist/*.exe
+          } | tee dist/SIZES.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/SIZES.txt
+          if-no-files-found: error

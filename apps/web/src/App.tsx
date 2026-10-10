@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { persistThemeChoice, readThemeChoice, SurfCrew, SurfMark, ThemeSwitch, type ThemeChoice } from '@surf/ui'
+import { SurfCrew } from '@surf/ui'
 import { embeddingModel, modelTiers, product } from '@surf/shared'
 import { BETA_UNSIGNED } from './beta'
+import { ContributePage, DownloadCard, PrivacyPage, SecurityPage, SiteFooter, SiteHeader, useTheme } from './pages'
 
 const FEATURES = [
   {
@@ -73,47 +73,19 @@ export function BetaUnsignedNote() {
 }
 
 export function App() {
-  const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
-  const [menu, setMenu] = useState(false)
+  const path = window.location.pathname.replace(/\/$/, '') || '/'
+  if (path === '/privacy') return <PrivacyPage />
+  if (path === '/security') return <SecurityPage />
+  if (path === '/contribute') return <ContributePage />
+  return <Home />
+}
 
-  function choose(next: ThemeChoice) {
-    setTheme(next)
-    persistThemeChoice(next)
-  }
+function Home() {
+  const [theme, onTheme] = useTheme()
 
   return (
     <div>
-      <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-5">
-        <a href="#top" className="flex items-center gap-2 text-[var(--ink)] no-underline">
-          <SurfMark size={40} />
-          <span className="text-[15px] font-semibold">Surf AI</span>
-        </a>
-        <nav className="hidden items-center gap-4 text-sm md:flex">
-          <a className="text-[var(--muted)] no-underline" href="#how">How it works</a>
-          <a className="text-[var(--muted)] no-underline" href="#download">Download</a>
-          <ThemeSwitch value={theme} onChange={choose} />
-        </nav>
-        <div className="flex items-center gap-2 md:hidden">
-          <ThemeSwitch value={theme} onChange={choose} compact />
-          <button
-            type="button"
-            className="btn btn-ghost"
-            aria-expanded={menu}
-            aria-controls="site-menu"
-            data-menu-button="site"
-            onClick={() => setMenu((v) => !v)}
-          >
-            Menu
-          </button>
-        </div>
-      </header>
-      {menu && (
-        <div id="site-menu" className="mx-auto flex max-w-6xl flex-col gap-4 px-6 pb-4 md:hidden">
-          <a className="text-[var(--muted)] no-underline" href="#how" onClick={() => setMenu(false)}>How it works</a>
-          <a className="text-[var(--muted)] no-underline" href="#download" onClick={() => setMenu(false)}>Download</a>
-          <ThemeSwitch value={theme} onChange={choose} />
-        </div>
-      )}
+      <SiteHeader theme={theme} onTheme={onTheme} />
 
       <main id="top">
         <section className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-8 md:grid-cols-[1.1fr_0.9fr]">
@@ -166,10 +138,7 @@ export function App() {
                   Installers are published on GitHub Releases. Until the first tagged release, these buttons open the Releases page.
                 </p>
               </div>
-              <div className="mt-5 flex flex-col gap-2 md:mt-0">
-                <a className="btn btn-primary no-underline" href={product.releasesUrl}>macOS .dmg</a>
-                <a className="btn btn-ghost no-underline" href={product.releasesUrl}>Windows .exe</a>
-              </div>
+              <DownloadCard />
             </div>
             {BETA_UNSIGNED && <BetaUnsignedNote />}
           </div>
@@ -215,12 +184,7 @@ export function App() {
         </section>
       </main>
 
-      <footer className="border-t border-[var(--line)] px-6 py-8">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 text-sm text-[var(--muted)]">
-          <span>Surf AI · on your computer</span>
-          <a className="text-[var(--muted)]" href={product.repo}>GitHub</a>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   )
 }

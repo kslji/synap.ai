@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ThemeSwitch } from '@surf/ui'
+import { product } from '@surf/shared'
 import type { DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
 
 export function SettingsScreen({
@@ -122,6 +123,33 @@ export function SettingsScreen({
             Check for updates
           </button>
           {updateNote && <p className="mt-2">{updateNote}</p>}
+          <div className="mt-4">
+            <span className="font-semibold text-[var(--ink)]">Update channel</span>
+            <div className="mt-2 flex gap-2">
+              {(['stable', 'beta'] as const).map((channel) => (
+                <button
+                  key={channel}
+                  type="button"
+                  className={settings.updateChannel === channel ? 'btn btn-primary' : 'btn btn-ghost'}
+                  data-update-channel={channel}
+                  onClick={() => onPatch({ updateChannel: channel })}
+                >
+                  {channel === 'stable' ? 'Stable' : 'Beta'}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2">Beta includes tags that contain -beta. Stable does not.</p>
+          </div>
+        </div>
+        <div className="card px-4 py-4 text-sm leading-relaxed" data-about="yes">
+          <div className="font-semibold text-[var(--ink)]">About</div>
+          <p className="mt-2 text-[var(--muted)]">Surf AI runs on this computer. The notes below are drafts, not legal advice.</p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <AboutLink href={`${product.site}/privacy`}>Privacy</AboutLink>
+            <AboutLink href={`${product.site}/security`}>Security</AboutLink>
+            <AboutLink href={`${product.site}/contribute`}>Contribute</AboutLink>
+            <AboutLink href={product.repo}>GitHub</AboutLink>
+          </div>
         </div>
       </div>
     </section>
@@ -158,6 +186,14 @@ function webSize(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`
   return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+function AboutLink({ href, children }: { href: string; children: string }) {
+  return (
+    <button type="button" className="text-[var(--accent-text)]" onClick={() => { void window.surf.links.open(href) }}>
+      {children}
+    </button>
+  )
 }
 
 function Row({ title, body, on, onToggle }: { title: string; body: string; on: boolean; onToggle: () => void }) {

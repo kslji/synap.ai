@@ -41,6 +41,7 @@ const api: SurfApi = {
   },
   updates: {
     check: () => ipcRenderer.invoke(IPC.updatesCheck),
+    apply: () => ipcRenderer.invoke(IPC.updatesApply),
     installOffline: () => ipcRenderer.invoke(IPC.updatesInstallOffline),
   },
   conversations: {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, SurfCrew, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch } from '../../shared/ipc-contract'
+import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
@@ -11,6 +11,7 @@ import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
 import { SignInScreen } from './screens/SignInScreen'
 import { PacksScreen } from './screens/PacksScreen'
+import { UpdateBanner } from './screens/UpdateBanner'
 
 export default function App() {
   const api = window.surf
@@ -23,6 +24,7 @@ export default function App() {
   const [streaming, setStreaming] = useState(false)
   const [progress, setProgress] = useState<Record<string, number>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [scope, setScope] = useState<DocScope>('chat')
@@ -308,9 +310,29 @@ export default function App() {
   }
 
   useEffect(() => {
+    void api.updates.check().then((offer) => { if (offer) setUpdateOffer(offer) }).catch(() => undefined)
+  }, [api])
+
+  useEffect(() => {
     window.__surfDemo = (scene) => {
       setConvertJob(null)
       setFillJob(null)
+      setUpdateOffer(null)
+      if (scene === 'update') {
+        setView('chat')
+        setUpdateOffer({
+          kind: 'manual',
+          version: '0.2.0',
+          url: 'https://github.com/kslji/synap.ai/releases/latest',
+          notes: '',
+          steps: [
+            'Download the new .dmg and open it.',
+            'Drag Surf AI to Applications. Replace the old app when asked.',
+            'If macOS says the app is from an unidentified developer, open it once, then go to System Settings → Privacy & Security and click Open Anyway. You only need to do this once.',
+          ],
+        })
+        return
+      }
       if (scene === 'upload') {
         setView('chat')
         setMessages([])
@@ -557,7 +579,9 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full" data-ready="yes" data-screen={view}>
+    <div className="flex h-full flex-col" data-ready="yes" data-screen={view}>
+      {updateOffer && <UpdateBanner offer={updateOffer} onApply={() => { void api.updates.apply().catch((e: unknown) => setError((e as Error).message)) }} />}
+      <div className="flex min-h-0 flex-1">
       <Sidebar
         view={view}
         conversations={conversations}
@@ -643,8 +667,12 @@ export default function App() {
           }}
           onPatch={(p) => { void patch(p) }}
           onCheckUpdates={async () => {
-            const v = await api.updates.check()
-            return v ? `Update ${v} is available.` : 'You are on 0.1.0. Signed updates land with the first GitHub release.'
+            const offer = await api.updates.check()
+            setUpdateOffer(offer)
+            if (!offer) return 'You are up to date.'
+            return offer.kind === 'manual'
+              ? `Version ${offer.version} is available. Download the disk image from the banner.`
+              : `Version ${offer.version} can install over this copy.`
           }}
         />
       )}
@@ -671,6 +699,7 @@ export default function App() {
           onClose={() => setFillJob(null)}
         />
       )}
+      </div>
     </div>
   )
 }

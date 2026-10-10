@@ -11,6 +11,7 @@ const PROMPTS = [
 ]
 
 export function ChatScreen({
+  agentName,
   messages,
   streaming,
   status,
@@ -28,6 +29,7 @@ export function ChatScreen({
   onOpenCitation,
   onClosePreview,
 }: {
+  agentName: string
   messages: UiMsg[]
   streaming: boolean
   status: ModelStatus
@@ -80,7 +82,7 @@ export function ChatScreen({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-3">
           <div>
-            <div className="text-sm font-semibold">General</div>
+            <div className="text-sm font-semibold">{agentName}</div>
             <div className="text-xs text-[var(--muted)]">{status.onlineReason || 'Answers stay on this computer'}</div>
           </div>
           <div className="flex items-center gap-3">

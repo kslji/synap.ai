@@ -15,7 +15,7 @@ const FileRef = z.object({
 
 export const ModelEntry = FileRef.extend({
   id: z.string(),
-  role: z.enum(['chat', 'embedding', 'asr', 'vad']),
+  role: z.enum(['chat', 'embedding', 'code-embedding', 'fim', 'asr', 'vad']),
   family: z.string(),
   license: z.string(),
   params_b: z.number().optional(),
@@ -31,6 +31,17 @@ export const ModelEntry = FileRef.extend({
   mmproj: FileRef.optional(),
   min_ram_gb: z.number(),
   tiers: z.array(z.number().int().min(0).max(3)),
+  /** Skipped by the default tier pick. The Models screen can still download it. */
+  optional: z.boolean().optional(),
+  /**
+   * Empty until a free LoRA exists. A future adapter is a GGUF beside the base model,
+   * trained on Kaggle or Colab, never downloaded by this build.
+   */
+  adapter: z.object({
+    file: z.string().min(1),
+    base: z.string().min(1),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  }).nullable().optional(),
   chat_template_kwargs: z.record(z.string(), z.unknown()).optional(),
   sampling: z.record(z.string(), z.number()).optional(),
 });
@@ -55,7 +66,7 @@ export function parseRegistry(json: unknown): ModelRegistry {
 }
 
 export function pick(reg: ModelRegistry, role: ModelEntry['role'], tier: number): ModelEntry {
-  const candidates = reg.models.filter((m) => m.role === role && m.tiers.includes(tier));
+  const candidates = reg.models.filter((m) => m.role === role && m.tiers.includes(tier) && !m.optional);
   if (candidates.length === 0) throw new Error(`no ${role} model for tier ${tier}`);
   // largest model that fits the tier wins
   return candidates.sort((a, b) => (b.params_b ?? 0) - (a.params_b ?? 0))[0];

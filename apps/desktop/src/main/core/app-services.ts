@@ -1,6 +1,6 @@
 /**
  * App services: hardware, model registry, chat, and the document index.
- * One llama-server at a time (chat or embeddings). Indexing never blocks the chat IPC.
+ * One llama-server at a time for chat or embeddings. Fill-in-the-middle may start a second small server.
  * TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
  * TODO: download Qwen3.5 mmproj and expose "Describe image" (vision.ts). OCR is the image path for now.
  */
@@ -20,6 +20,13 @@ import { LlamaClient } from './llama-client.js'
 import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
 import { Calculator, calculatorTools } from './calculator.js'
 import { compareFromText, countFromText, numberTools, asksForNumberTool, resolveDirectTool, verbatimAnswer } from './number-tools.js'
+import { agentById, coldEmailRefusal, loadAgents, modelIdFor, resolveAgentsDir, tradingRefusal, type AgentCard } from './agent-registry.js'
+import { readConnectors } from './assistant-desk.js'
+import { createLiveAssistant } from './assistant-live.js'
+import { indexProjectAst } from './syntax-chunk.js'
+import { fimCanStart, fimComplete } from './fim-complete.js'
+import { cosine } from './code-retrieval.js'
+import { applyEdit, insideRoot, proposeEdit, readLicenses, runCode, searchSymbols, type EditProposal, type SymbolChunk } from './code-tools.js'
 import { createDocumentApi } from './document-service.js'
 import calcWorker from './calculator.worker?modulePath'
 import { hybridSearch, borderlinePrompt, documentGate, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
@@ -195,7 +202,8 @@ export async function createServices(): Promise<Services> {
       tiers: m.tiers,
       installed: await installed(m.file, m.size_bytes),
       recommended: m.id === recommended.id,
-      fitsRam: m.role === 'embedding' || m.role === 'vad' || fits(m),
+      fitsRam: m.role === 'embedding' || m.role === 'vad' || m.role === 'fim' || m.role === 'code-embedding' || fits(m),
+      optional: Boolean(m.optional),
     })))
     const chosen = await chooseChat(reg, settings.chatModelId)
     return {
@@ -358,6 +366,29 @@ export async function createServices(): Promise<Services> {
     calc,
   })
 
+  let cachedCards: AgentCard[] | null = null
+  let projectRoot: string | null = null
+  let projectChunks: SymbolChunk[] = []
+  const proposals = new Map<string, EditProposal>()
+  const assistantDesk = createLiveAssistant(readConnectors(loadConnectorJson()))
+  let fimServer: LlamaServer | null = null
+
+  function agentCards(): AgentCard[] {
+    if (!cachedCards) cachedCards = loadAgents(agentsRoot())
+    return cachedCards
+  }
+
+  function loadConnectorJson(): unknown {
+    try { return JSON.parse(readFileSync(join(agentsRoot(), 'assistant', 'connectors.json'), 'utf8')) }
+    catch (error) { console.warn('[surf] connectors', (error as Error).message); return [] }
+  }
+
+  async function codeChunks(): Promise<SymbolChunk[]> {
+    if (projectChunks.length) return projectChunks
+    try { return await indexProjectAst(join(agentsRoot(), 'code', 'sample'), 40) }
+    catch { return [] }
+  }
+
   async function collectWeb(question: string, signal: AbortSignal, chatModel: ModelEntry, ctx: number, win: BrowserWindow, messageId: string): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }> }> {
     const current = readSettings()
     assertNetworkAllowed(current.offlineOnly)
@@ -436,6 +467,23 @@ export async function createServices(): Promise<Services> {
     const settings = readSettings()
     const reg = registry()
     const text = req.text
+    const card = agentById(agentCards(), req.agentId || 'general')
+    if (card.id === 'code') {
+      const refused = tradingRefusal(text)
+      if (refused) {
+        await emitText(win, messageId, refused)
+        finish(conversationId, messageId, userMessageId, win, refused, [], 'answer')
+        return
+      }
+    }
+    if (card.id === 'assistant') {
+      const refused = coldEmailRefusal(text)
+      if (refused) {
+        await emitText(win, messageId, refused)
+        finish(conversationId, messageId, userMessageId, win, refused, [], 'answer')
+        return
+      }
+    }
     const direct = await resolveDirectTool(calc, text)
     if (direct) {
       sendEvent(win, { type: 'tool', messageId, name: direct.name, input: direct.input, output: direct.output })
@@ -532,7 +580,8 @@ export async function createServices(): Promise<Services> {
         return
       }
 
-      const chatModel = await chooseChat(reg, settings.chatModelId)
+      const preferred = card.id === 'general' ? settings.chatModelId : modelIdFor(card, hw.tier)
+      const chatModel = await chooseChat(reg, preferred)
       if (!chatModel) {
         const suggested = pick(reg, 'chat', hw.tier)
         throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
@@ -593,7 +642,8 @@ export async function createServices(): Promise<Services> {
         }
       }
       const localChunksPreview = plan.branch === 'web' ? [] : hits.slice(0, 4)
-      const chatTools = [...calculatorTools, ...numberTools]
+      const allowed = new Set(card.tools)
+      const chatTools = [...calculatorTools, ...numberTools].filter((tool) => allowed.has(tool.function.name))
       const useTools = needsCalculator(text) && localChunksPreview.length === 0 && webHits.length === 0
       const localSources = plan.branch === 'web' ? [] : citationsOf(hits, versions, text)
       const webSources: Citation[] = webHits.map((hit) => ({
@@ -630,7 +680,7 @@ export async function createServices(): Promise<Services> {
       })
       const webChunks = webHits.map((hit, i) => ({ id: `web-${i + 1}`, text: hit.text, title: formatWebCitation(hit), score: hit.cosine }))
       const budget = await allocate(new LlamaServerTokenizer(server.baseUrl, server.apiKey), profile, {
-        system: SYSTEM,
+        system: card.id === 'general' ? SYSTEM : `${card.systemPrompt}\n\n${SYSTEM}`,
         tools: useTools ? chatTools : undefined,
         chunks: [...localChunks, ...webChunks].slice(0, 5),
         history,
@@ -839,6 +889,88 @@ export async function createServices(): Promise<Services> {
       open: async (url) => { await shell.openExternal(url) },
     },
     documents: documentApi,
+    agents: {
+      list: async () => agentCards().filter((card) => card.home).map((card) => ({
+        id: card.id,
+        name: card.name,
+        description: card.description,
+        note: card.note,
+        home: card.home,
+        scope: card.scope,
+        outOfScope: card.outOfScope,
+      })),
+    },
+    code: {
+      search: async (query: string) => {
+        const chunks = await codeChunks()
+        const model = registry().models.find((item) => item.id === 'embeddinggemma-2-text-q8_0')
+        if (model && chunks.length && await installed(model.file, model.size_bytes)) {
+          try {
+            const server = await ensure('embed', model, 2048)
+            const embedder = new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey }))
+            const docs = await embedder.embedDocs(chunks.map((chunk) => ({ title: chunk.name, text: chunk.text })))
+            const [queryVector] = await embedder.embedQueries([query])
+            return chunks
+              .map((chunk, index) => ({ chunk, score: cosine(queryVector, docs[index]) }))
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 12)
+              .map((row) => row.chunk)
+          } catch (error) {
+            console.warn('[surf] code search used symbols:', (error as Error).message)
+          }
+        }
+        return searchSymbols(chunks, query).slice(0, 12)
+      },
+      attach: async (win: BrowserWindow) => {
+        const picked = await dialog.showOpenDialog(win, { title: 'Attach a project folder', properties: ['openDirectory'] })
+        if (picked.canceled || !picked.filePaths[0]) return null
+        projectRoot = picked.filePaths[0]
+        projectChunks = await indexProjectAst(projectRoot)
+        return { root: projectRoot, count: projectChunks.length }
+      },
+      complete: async (prefix: string, suffix: string) => {
+        const modelPath = join(modelsDir(), 'Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf')
+        const hw = await detectHardware()
+        const ready = fimCanStart({ modelPath, totalRamGb: hw.totalRamGb })
+        if (!ready.ok) return { text: '', reason: ready.reason }
+        if (!fimServer) {
+          fimServer = new LlamaServer({ binPath: resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath()), modelPath, ctx: 2048, gpuLayers: 0 })
+          await fimServer.start()
+        }
+        return { text: await fimComplete(fimServer.baseUrl, fimServer.apiKey, prefix, suffix), reason: '' }
+      },
+      run: async (language: string, code: string) => runCode(language, code),
+      licenses: async () => (projectRoot ? readLicenses(projectRoot) : []),
+      propose: async (path: string, before: string, after: string) => {
+        const proposal = proposeEdit(path, before, after)
+        proposals.set(proposal.id, proposal)
+        return proposal
+      },
+      apply: async (id: string, approved: boolean) => {
+        const proposal = proposals.get(id)
+        if (!proposal) return { written: false, text: '', note: 'That edit is no longer waiting.' }
+        const result = applyEdit(proposal, approved)
+        if (!approved) return { written: false, text: result.text, note: 'Cancelled. Nothing was written.' }
+        if (!projectRoot || !insideRoot(projectRoot, proposal.path)) {
+          return { written: false, text: proposal.before, note: 'Not written. Attach a project folder first.' }
+        }
+        const current = readFileSync(proposal.path, 'utf8')
+        if (current !== proposal.before) return { written: false, text: current, note: 'The file changed. Review it again.' }
+        writeFileSync(proposal.path, result.text)
+        projectChunks = await indexProjectAst(projectRoot)
+        return { written: true, text: result.text, note: 'Saved.' }
+      },
+    },
+    assistant: {
+      desk: () => assistantDesk.desk(),
+      draft: (summary: string) => assistantDesk.draft(summary),
+      approve: (id: string) => assistantDesk.approve(id),
+      cancel: (id: string) => assistantDesk.cancel(id),
+      armDelete: () => assistantDesk.armDelete(),
+      connect: (provider: string) => assistantDesk.connect(provider),
+      showOutbox: () => assistantDesk.showOutbox(),
+      showInvoice: () => assistantDesk.showInvoice(),
+    },
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
     const described = describeReach({ osOnline: stableOnline, apiReachable, offlineOnly, checking: offlineOnly ? false : checking })
@@ -1048,6 +1180,16 @@ function citationsOf(hits: Array<Hit | UserHit>, versions: Map<string, string>, 
   })
 }
 
+function agentsRoot(): string {
+  return resolveAgentsDir([
+    join(process.resourcesPath, 'agents'),
+    join(app.getAppPath(), 'agents'),
+    join(app.getAppPath(), '..', '..', 'agents'),
+    join(process.cwd(), 'agents'),
+    join(process.cwd(), '..', '..', 'agents'),
+  ])
+}
+
 function packsRoot(): string {
   return join(app.getPath('userData'), 'packs')
 }
@@ -1071,6 +1213,9 @@ function isMetered(): Promise<boolean> {
 }
 
 function labelFor(m: ModelEntry): string {
+  if (m.id === 'qwen3.6-35b-a3b-ud-q4_k_m') return 'Qwen3.6 35B-A3B'
+  if (m.role === 'fim') return 'Qwen2.5 Coder 1.5B'
+  if (m.role === 'code-embedding') return 'Qwen3 Embedding 0.6B'
   if (m.role === 'embedding') return 'EmbeddingGemma 2'
   if (m.role === 'chat') return `Qwen3.5 ${m.params_b ?? ''}B`.replace(' B', 'B')
   if (m.role === 'asr') return m.id

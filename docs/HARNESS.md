@@ -39,6 +39,8 @@ Numeric comparison, ordering, counting, and arithmetic in the shared cases are a
 
 The `documents` suite does not call the model. `apps/desktop/src/main/core/document-suite.ts` builds fixtures in memory, converts and fills them, and prints measurements. `harness/core/documents.py` scores fill accuracy, citations, the exact string `not found in source`, injection refusal, and formatting (font, size, color, bold, italic, page count, pixel diff outside the filled box, and an unchanged original hash). It runs in quick mode before Electron. See `docs/DOCUMENTS.md`.
 
+The `code` and `assistant` suites are also measured in Node before Electron. They score trading refusal, the JavaScript and Pyodide sandboxes, React preview, tree-sitter chunks, diff approval, the retrieval bake-off, fill-in-the-middle, the MCP client, mail approval, mock OAuth, the outbox, invoice files, and cold-email refusal. Provider tests use local mock servers. They do not download HumanEval, MBPP, BFCL, or LiveCodeBench. See `docs/AGENTS.md`.
+
 ## Add a niche
 
 Copy `harness/suites/niches/marine/`. Put cases in `cases.jsonl` with `"suite": "marine"`. Set `min_score` in that folder's `thresholds.yaml`. Load the file from `harness/core/run_eval.py` next to the shared JSONL. Until the niche has cases, pack signing uses the shared suite.

@@ -1,19 +1,16 @@
 import { SurfMark, ThemeSwitch, type ThemeChoice } from '@surf/ui'
-import type { ConversationSummary } from '../../../shared/ipc-contract'
+import type { AgentCardView, ConversationSummary } from '../../../shared/ipc-contract'
 import type { View } from '../types'
-
-const AGENTS = [
-  { id: 'general', name: 'General', ready: true },
-  { id: 'marine', name: 'Marine', ready: false },
-  { id: 'construction', name: 'Construction', ready: false },
-  { id: 'aviation', name: 'Aviation', ready: false },
-]
+import { FALLBACK_AGENTS } from './HomeScreen'
 
 export function Sidebar({
   view,
   conversations,
   activeId,
   onView,
+  agents,
+  agentId,
+  onAgent,
   onNew,
   onOpen,
   onDelete,
@@ -25,6 +22,9 @@ export function Sidebar({
   conversations: ConversationSummary[]
   activeId: string | null
   onView: (v: View) => void
+  agents: AgentCardView[]
+  agentId: string
+  onAgent: (id: string) => void
   onNew: () => void
   onOpen: (id: string) => void
   onDelete: (id: string) => void
@@ -44,18 +44,21 @@ export function Sidebar({
       <button className="btn btn-primary mt-4 w-full" onClick={onNew} type="button">New chat</button>
       <p className="mt-5 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Agents</p>
       <div className="mt-1 flex flex-col gap-0.5">
-        {AGENTS.map((a) => (
+        {(agents.length ? agents : FALLBACK_AGENTS).map((card) => (
           <button
-            key={a.id}
+            key={card.id}
             type="button"
-            disabled={!a.ready}
-            className="flex items-center justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-[var(--bg-elev)] disabled:cursor-default disabled:opacity-70"
-            onClick={() => { if (a.ready) onView('chat') }}
+            className={`rounded-xl px-2 py-2 text-left text-sm hover:bg-[var(--bg-elev)] ${agentId === card.id ? 'bg-[var(--bg-elev)] font-semibold' : ''}`}
+            onClick={() => onAgent(card.id)}
           >
-            <span>{a.name}</span>
-            {!a.ready && <span className="pill pill-muted">Soon</span>}
+            <span className="block">{card.name}</span>
+            {card.note && <span className="block text-[11px] text-[var(--muted)]">{card.note}</span>}
           </button>
         ))}
+        <div className="flex items-center justify-between rounded-xl px-2 py-2 text-sm opacity-70">
+          <span>Marine</span>
+          <span className="pill pill-muted">Soon</span>
+        </div>
       </div>
       <p className="mt-4 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Chats</p>
       <div className="mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto">
@@ -83,6 +86,7 @@ export function Sidebar({
       </div>
       <div className="mt-2 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
         <ThemeSwitch value={theme} onChange={onTheme} />
+        <NavButton current={view} id="home" onView={onView}>Home</NavButton>
         <NavButton current={view} id="library" onView={onView}>Documents</NavButton>
         <NavButton current={view} id="packs" onView={onView}>Packs</NavButton>
         <NavButton current={view} id="models" onView={onView}>Models</NavButton>

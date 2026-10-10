@@ -26,6 +26,12 @@ quick:
     documents:
       min_score: 1.0
       regression_tolerance: 0
+    code:
+      min_score: 1.0
+      regression_tolerance: 0
+    assistant:
+      min_score: 1.0
+      regression_tolerance: 0
 full:
   regression_tolerance: 0.05
   suites:
@@ -48,5 +54,11 @@ full:
       min_score: 0.0
       regression_tolerance: 0.05
     documents:
+      min_score: 1.0
+      regression_tolerance: 0
+    code:
+      min_score: 1.0
+      regression_tolerance: 0
+    assistant:
       min_score: 1.0
       regression_tolerance: 0

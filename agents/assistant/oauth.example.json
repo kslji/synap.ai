@@ -1,0 +1,12 @@
+{
+  "google": {
+    "clientId": "surf-dev-google"
+  },
+  "microsoft": {
+    "clientId": "surf-dev-microsoft"
+  },
+  "slack": {
+    "clientId": "surf-dev-slack",
+    "clientSecret": ""
+  }
+}

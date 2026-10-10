@@ -1,3 +1,4 @@
+import { copyFileSync, mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
@@ -5,6 +6,13 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
+    plugins: [{
+      name: 'copy-pyodide-worker',
+      writeBundle() {
+        mkdirSync(resolve('out/main'), { recursive: true })
+        copyFileSync(resolve('src/main/core/pyodide-worker.mjs'), resolve('out/main/pyodide-worker.mjs'))
+      },
+    }],
     build: {
       externalizeDeps: true,
       rollupOptions: {

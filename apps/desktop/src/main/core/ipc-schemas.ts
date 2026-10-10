@@ -74,6 +74,28 @@ export const DocumentExport = z.object({
   format: z.union([ExportFormatName, z.literal('same')]),
   highlight: z.boolean(),
 })
+export const CodeQuery = z.string().max(200)
+export const CodeRunBody = z.object({
+  language: z.string().max(32),
+  code: z.string().max(20_000),
+})
+export const AssistantSummary = z.string().min(1).max(500)
+export const AssistantActionId = z.string().min(1).max(80)
+export const AssistantProvider = z.string().min(1).max(40)
+export const FimBody = z.object({
+  prefix: z.string().max(8000),
+  suffix: z.string().max(8000),
+})
+export const CodePropose = z.object({
+  path: z.string().min(1).max(4096),
+  before: z.string().max(200_000),
+  after: z.string().max(200_000),
+})
+export const CodeApply = z.object({
+  id: z.string().min(1).max(80),
+  approved: z.boolean(),
+})
+
 export const LibraryPreview = z.object({
   chunkId: z.number().int().positive().optional(),
   attachmentId: z.string().uuid().optional(),

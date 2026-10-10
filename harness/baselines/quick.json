@@ -2,6 +2,24 @@
   "mode": "quick",
   "chat_model": "qwen3.5-2b-q4_k_m",
   "suites": {
+    "code": {
+      "score": 1.0,
+      "cases": 13,
+      "passed": 13,
+      "weight": 28.0,
+      "passed_weight": 28.0,
+      "min_score": 1.0,
+      "ok": true
+    },
+    "assistant": {
+      "score": 1.0,
+      "cases": 10,
+      "passed": 10,
+      "weight": 25.0,
+      "passed_weight": 25.0,
+      "min_score": 1.0,
+      "ok": true
+    },
     "documents": {
       "score": 1.0,
       "cases": 25,

@@ -1,0 +1,15 @@
+{
+  "winner": "embeddinggemma",
+  "coderank": "not-feasible",
+  "qwenEmbedding": "measured",
+  "scores": {
+    "bm25": 0.125,
+    "gemma": 0.875,
+    "qwen": 0.875,
+    "hybrid": 0.375
+  },
+  "hybridGemma": 0.375,
+  "hybridQwen": 0.375,
+  "queries": 8,
+  "note": "CodeRankEmbed has no official GGUF. EmbeddingGemma uses the product 256-d spec. Qwen3-Embedding-0.6B uses last-token pooling."
+}

@@ -14,7 +14,8 @@ export function ModelsScreen({
   error: string | null
   onDownload: (id: string) => void
 }) {
-  const chat = status.models.filter((m) => m.role === 'chat' || m.role === 'embedding')
+  const chat = status.models.filter((m) => (m.role === 'chat' || m.role === 'embedding') && !m.optional)
+  const optional = status.models.filter((m) => m.optional)
   const later = status.models.filter((m) => m.role === 'asr' || m.role === 'vad')
   return (
     <section className="flex-1 overflow-auto px-8 py-8">
@@ -26,6 +27,13 @@ export function ModelsScreen({
         {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
         <div className="mt-6 flex flex-col gap-3">
           {chat.map((m) => (
+            <ModelCard key={m.id} model={m} progress={progress[m.id]} busy={busyId === m.id} offlineOnly={status.offlineOnly} onDownload={onDownload} />
+          ))}
+        </div>
+        <h2 className="mt-8 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Optional</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">The 35B model is for 32 GB computers. Coder is for later autocomplete. The code embedding is not the index this build ships.</p>
+        <div className="mt-3 flex flex-col gap-3">
+          {optional.map((m) => (
             <ModelCard key={m.id} model={m} progress={progress[m.id]} busy={busyId === m.id} offlineOnly={status.offlineOnly} onDownload={onDownload} />
           ))}
         </div>
@@ -74,7 +82,7 @@ function ModelCard({
         </div>
       )}
       {!model.installed && (
-        <button className="btn btn-primary mt-3" type="button" disabled={busy || offlineOnly || !model.fitsRam && model.role === 'chat' && !model.recommended} onClick={() => onDownload(model.id)}>
+        <button className="btn btn-primary mt-3" type="button" disabled={busy || offlineOnly || (!model.fitsRam && !model.recommended)} onClick={() => onDownload(model.id)}>
           {offlineOnly ? 'Offline only is on' : busy ? 'Downloading' : 'Download'}
         </button>
       )}

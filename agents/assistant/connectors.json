@@ -1,0 +1,44 @@
+[
+  {
+    "id": "gmail",
+    "name": "Gmail",
+    "detail": "Inbox, reply drafts, and sends you approve. One Google sign-in. Mail never leaves this computer for a Surf server.",
+    "classes": ["read", "write", "delete"]
+  },
+  {
+    "id": "gcalendar",
+    "name": "Google Calendar",
+    "detail": "Read your calendar, find conflicts, and create events after you approve.",
+    "classes": ["read", "write", "delete"]
+  },
+  {
+    "id": "gdrive",
+    "name": "Google Drive",
+    "detail": "Search files you can already open. Creating or deleting a file waits for approval.",
+    "classes": ["read", "write", "delete"]
+  },
+  {
+    "id": "outlook",
+    "name": "Outlook",
+    "detail": "Mail and calendar through Microsoft Graph, with the same approval rules as Gmail.",
+    "classes": ["read", "write", "delete"]
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "detail": "Read channels you are in. Posting uses your user token and waits for approval.",
+    "classes": ["read", "write", "delete"]
+  },
+  {
+    "id": "alarms",
+    "name": "Alarms",
+    "detail": "Local reminders through operating-system notifications. Works offline.",
+    "classes": ["read", "write", "delete"]
+  },
+  {
+    "id": "files",
+    "name": "Files",
+    "detail": "Folders you pick. Reads are automatic. Writes wait for a diff you approve.",
+    "classes": ["read", "write", "delete"]
+  }
+]

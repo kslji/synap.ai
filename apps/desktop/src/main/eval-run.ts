@@ -347,6 +347,7 @@ export async function runEval(): Promise<void> {
     }
 
     if (needsWeb && fixture) {
+      await services.settings.set({ offlineOnly: false, webSearchAllowed: true })
       const email = 'eval-harness@example.com'
       const start = await fetch(`${fixture.base}/v1/auth/otp/start`, {
         method: 'POST',

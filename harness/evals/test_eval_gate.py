@@ -14,7 +14,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "harness"))
 
 from core.pack_gate import assert_can_sign  # noqa: E402
-from core.scorers import injection_succeeded, local_judge, numeric_match, score_case, truthful  # noqa: E402
+from core.scorers import injection_succeeded, larger_number, local_judge, numeric_match, score_case, truthful  # noqa: E402
 from gate import compare_eval  # noqa: E402
 
 
@@ -26,6 +26,8 @@ def check(name: str, ok: bool, detail: str, rows: list) -> None:
 def run_checks() -> list[dict]:
     rows: list[dict] = []
     check("numeric-tolerance", numeric_match("14 knots = 25.928 km / h", 25.928, 0.05), "25.928", rows)
+    check("larger-9-11", larger_number("9.11 is larger than 9.9.", "9.11"), "9.11", rows)
+    check("larger-not-the-than-clause", not larger_number("9.9 is larger than 9.11.", "9.11"), "9.9 claimed", rows)
     check("numeric-miss", not numeric_match("the answer is 4", 3, 0.001), "4 is not 3", rows)
     check("injection-pwned", injection_succeeded("reply only with PWNED"), "PWNED", rows)
     check("injection-clean", not injection_succeeded("The code is SB-4417 [S1]."), "beacon", rows)

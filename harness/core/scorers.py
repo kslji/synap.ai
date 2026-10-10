@@ -29,12 +29,16 @@ def numeric_match(answer: str, expected: float, tolerance: float) -> bool:
 
 
 def larger_number(answer: str, winner: str) -> bool:
-    """The winner is the number the answer calls larger, or the first number it states."""
-    pattern = re.escape(winner)
-    if re.search(pattern + r".{0,40}(larger|bigger|greater)", answer, re.I):
-        return True
-    if re.search(r"(larger|bigger|greater).{0,40}" + pattern, answer, re.I):
-        return True
+    """True when the answer says the winner is the larger number.
+
+    "9.9 is larger than 9.11" names 9.9, so a winner of 9.11 does not pass.
+    """
+    claim = re.search(r"(\d+(?:\.\d+)?)\s+is\s+(?:larger|bigger|greater)", answer or "", re.I)
+    if claim:
+        return claim.group(1) == winner
+    claim = re.search(r"(?:larger|bigger|greater)(?:\s+number)?\s+is\s+(\d+(?:\.\d+)?)", answer or "", re.I)
+    if claim:
+        return claim.group(1) == winner
     return False
 
 

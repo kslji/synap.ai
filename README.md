@@ -34,7 +34,7 @@ Mac users: during the beta, Surf AI isn't signed by Apple yet, so macOS may say 
 3. Scroll to the Security section.
 4. Click Open Anyway next to Surf AI, then confirm.
 
-Windows: if you see "Windows protected your PC", click More info, then Run anyway.
+Windows users: if you see "Windows protected your PC", click the small underlined More info link under the warning. The window then shows the app name and Unknown publisher, with a Run anyway button at the bottom right. Click Run anyway to install. You only need to do this once.
 
 Self-test (models not included in git):
 

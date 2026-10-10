@@ -49,7 +49,7 @@ const FAQ = [
 
 const BETA_FAQ = {
   q: 'Beta: opening on Mac',
-  a: 'Mac users: during the beta, Surf AI isn’t signed by Apple yet, so macOS may say it can’t be opened or is from an unidentified developer. Open Surf AI once so macOS blocks it, then go to System Settings → Privacy & Security, scroll to Security, and click Open Anyway next to Surf AI. You only need to do this once. On Windows, if you see “Windows protected your PC”, click More info, then Run anyway.',
+  a: 'Mac users: during the beta, Surf AI isn’t signed by Apple yet, so macOS may say it can’t be opened or is from an unidentified developer. Open Surf AI once so macOS blocks it, then go to System Settings → Privacy & Security, scroll to Security, and click Open Anyway next to Surf AI. You only need to do this once. Windows users: if you see “Windows protected your PC”, click the small underlined More info link under the warning. The window then shows the app name and Unknown publisher, with a Run anyway button at the bottom right. Click Run anyway to install. You only need to do this once.',
 }
 
 export function BetaUnsignedNote() {
@@ -66,7 +66,7 @@ export function BetaUnsignedNote() {
         <li>Click Open Anyway next to Surf AI, then confirm.</li>
       </ol>
       <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--muted)]">
-        Windows: if you see &quot;Windows protected your PC&quot;, click More info, then Run anyway.
+        Windows users: if you see &quot;Windows protected your PC&quot;, click the small underlined More info link under the warning. The window then shows the app name and Unknown publisher, with a Run anyway button at the bottom right. Click Run anyway to install. You only need to do this once.
       </p>
     </aside>
   )

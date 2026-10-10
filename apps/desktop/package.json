@@ -12,12 +12,12 @@
     "typecheck": "npm run build --prefix ../../packages/ui && npm run build --prefix ../../packages/shared && npm run typecheck:node && npm run typecheck:web",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
-    "test:unit": "tsx --test src/main/core/rag.test.ts src/main/core/web.test.ts src/main/core/pack.test.ts src/main/core/web-cache.test.ts src/main/core/injection.test.ts src/main/core/token-budget.test.ts src/main/core/number-tools.test.ts src/main/core/document-plan.test.ts src/main/core/safe-send.test.ts src/main/core/first-launch.test.ts src/main/core/update-plan.test.ts",
+    "test:unit": "tsx --test src/main/core/rag.test.ts src/main/core/web.test.ts src/main/core/pack.test.ts src/main/core/web-cache.test.ts src/main/core/injection.test.ts src/main/core/token-budget.test.ts src/main/core/number-tools.test.ts src/main/core/document-plan.test.ts src/main/core/safe-send.test.ts src/main/core/first-launch.test.ts src/main/core/update-plan.test.ts scripts/fetch-sidecars.test.mjs",
     "eval:electron": "electron-vite build && electron $SURF_ELECTRON_ARGS .",
     "selftest": "electron-vite build && SURF_SELFTEST=1 electron .",
-    "dist:linux": "npm run build && electron-builder --linux AppImage --x64",
-    "dist:mac": "npm run build && electron-builder --mac --arm64 --x64",
-    "dist:win": "npm run build && electron-builder --win --x64"
+    "dist:linux": "npm run build && electron-builder --config electron-builder.cjs --linux AppImage --x64",
+    "dist:mac": "npm run build && electron-builder --config electron-builder.cjs --mac --arm64 --x64",
+    "dist:win": "npm run build && electron-builder --config electron-builder.cjs --win --x64"
   },
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",

@@ -3,14 +3,21 @@
  * macOS disk images are separate arm64 and x64 builds, not one universal image:
  * a universal app would make every download carry both architectures.
  * Windows is a per-user NSIS installer and does not ask for an administrator.
+ *
+ * The filename must be electron-builder.cjs. electron-builder only auto-loads
+ * electron-builder.{yml,yaml,json,json5,toml,js,cjs,ts}. The dist scripts also
+ * pass --config so a package.json "build" key is not required.
+ *
+ * productName is the display name (Synap.surf). executableName has no dot,
+ * because a Windows binary named Synap.surf.exe is treated as a .surf file.
  */
 const signing = Boolean(process.env.CSC_LINK)
 
 const config = {
   appId: 'ai.surf.desktop',
-  productName: 'Surf AI',
-  executableName: 'SurfAI',
-  artifactName: 'SurfAI-${version}-${arch}.${ext}',
+  productName: 'Synap.surf',
+  executableName: 'SynapSurf',
+  artifactName: 'Synap.surf-${version}-${arch}.${ext}',
   directories: { buildResources: 'build', output: 'dist' },
   files: ['out/**', 'package.json', '!**/*.map'],
   asar: true,

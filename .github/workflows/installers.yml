@@ -41,7 +41,14 @@ jobs:
           export SURF_SMOKE=1
           smoke() {
             local app="$1"
-            local bin="$app/Contents/MacOS/SurfAI"
+            local name
+            name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+            local bin="$app/Contents/MacOS/$name"
+            if [ ! -x "$bin" ]; then
+              echo "missing executable $bin from CFBundleExecutable=$name"
+              ls -la "$app/Contents/MacOS" || true
+              exit 1
+            fi
             local archs
             archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
             echo "smoke $app ($archs)"
@@ -121,16 +128,30 @@ jobs:
           echo "install $installer"
           win="$(cygpath -w "$installer")"
           powershell.exe -NoProfile -Command "Start-Process -FilePath '$win' -ArgumentList '/S' -Wait"
+          unpacked=$(find apps/desktop/dist -type d -name '*unpacked*' -print -quit || true)
+          if [ -z "${unpacked:-}" ]; then
+            echo "unpacked app directory was not built"
+            find apps/desktop/dist -maxdepth 3 -type d -print || true
+            exit 1
+          fi
+          built=$(find "$unpacked" -maxdepth 1 -type f -iname '*.exe' ! -iname 'uninstall*' -print -quit || true)
+          if [ -z "${built:-}" ]; then
+            echo "unpacked executable was not built"
+            find apps/desktop/dist -maxdepth 3 -type f -iname '*.exe' -print || true
+            exit 1
+          fi
+          base=$(basename "$built")
+          echo "looking for installed $base"
           root="$(cygpath "$LOCALAPPDATA")"
           exe=""
           for i in $(seq 1 45); do
-            exe=$(find "$root" -iname 'SurfAI.exe' -print -quit 2>/dev/null || true)
+            exe=$(find "$root" -iname "$base" -print -quit 2>/dev/null || true)
             if [ -n "$exe" ]; then break; fi
             sleep 1
           done
           if [ -z "$exe" ]; then
-            echo "SurfAI.exe was not installed"
-            find "$LOCALAPPDATA" -iname 'SurfAI.exe' -print || true
+            echo "$base was not installed"
+            find "$LOCALAPPDATA" -iname "$base" -print || true
             exit 1
           fi
           echo "smoke $exe"

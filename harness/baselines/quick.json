@@ -55,6 +55,15 @@
       "passed_weight": 1.0,
       "min_score": 0.0,
       "ok": true
+    },
+    "documents": {
+      "score": 1.0,
+      "cases": 25,
+      "passed": 25,
+      "weight": 39.0,
+      "passed_weight": 39.0,
+      "min_score": 1.0,
+      "ok": true
     }
   }
 }

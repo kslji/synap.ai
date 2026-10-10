@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, SurfCrew, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, LibraryFile, ModelStatus, PackRow, SettingsPatch } from '../../shared/ipc-contract'
+import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
@@ -8,6 +8,7 @@ import { ModelsScreen } from './screens/ModelsScreen'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { LibraryScreen } from './screens/LibraryScreen'
+import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
 import { SignInScreen } from './screens/SignInScreen'
 import { PacksScreen } from './screens/PacksScreen'
 
@@ -34,6 +35,8 @@ export default function App() {
   const [demoAccount, setDemoAccount] = useState<{ email: string; deviceId: string | null } | null>(null)
   const [demoDevices, setDemoDevices] = useState<DeviceInfo[] | null>(null)
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
+  const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
+  const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
 
   const refresh = useCallback(async () => {
     const [st, se, conv, auth, listed] = await Promise.all([
@@ -67,6 +70,11 @@ export default function App() {
     const offLib = api.library.onEvent((e) => {
       setFiles((prev) => [e.file, ...prev.filter((file) => file.id !== e.file.id)])
     })
+    const offDocs = api.documents.onEvent((event) => {
+      const patch = { progress: event.progress, stage: event.stage, error: event.error ?? null }
+      setConvertJob((job) => (job?.busy ? { ...job, ...patch, busy: !event.done } : job))
+      setFillJob((job) => (job?.busy ? { ...job, ...patch, busy: !event.done } : job))
+    })
     void api.library.list().then(setFiles).catch(() => undefined)
     const offModels = api.models.onEvent((e) => {
       setProgress((p) => ({ ...p, [e.id]: e.total ? e.done / e.total : 0 }))
@@ -77,7 +85,7 @@ export default function App() {
       }
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
-    return () => { offChat(); offModels(); offLib(); window.clearInterval(timer) }
+    return () => { offChat(); offModels(); offLib(); offDocs(); window.clearInterval(timer) }
   }, [api, refresh])
 
   const booted = useRef(false)
@@ -176,8 +184,133 @@ export default function App() {
     setPreview(await api.library.preview({ chunkId }))
   }
 
+  function blankConvert(name: string, path: string | null, attachmentId: string | null): NonNullable<typeof convertJob> {
+    return { name, path, attachmentId, format: 'docx', progress: 0, stage: 'Ready', warnings: [], output: null, error: null, busy: false }
+  }
+
+  async function openConvert(file: LibraryFile) {
+    if (!file.id) {
+      const path = await api.documents.pick('Convert a document')
+      if (!path) return
+      setConvertJob(blankConvert(path.split(/[/\\]/).pop() ?? path, path, null))
+      setView('library')
+      return
+    }
+    setConvertJob(blankConvert(file.name, null, file.id))
+    setView('library')
+  }
+
+  async function runConvert() {
+    if (!convertJob || convertJob.attachmentId === 'demo') return
+    setConvertJob({ ...convertJob, busy: true, error: null, output: null })
+    try {
+      const result = await api.documents.convert(
+        convertJob.attachmentId ? { attachmentId: convertJob.attachmentId } : { path: convertJob.path ?? '' },
+        convertJob.format,
+      )
+      setConvertJob((job) => job && { ...job, busy: false, output: result?.outputPath ?? null, warnings: result?.warnings ?? [] })
+    } catch (e) {
+      setConvertJob((job) => job && { ...job, busy: false, error: (e as Error).message })
+    }
+  }
+
+  function blankFill(name: string, path: string | null, attachmentId: string | null): NonNullable<typeof fillJob> {
+    return {
+      templateName: name,
+      templatePath: path,
+      templateAttachmentId: attachmentId,
+      sourceName: null,
+      sourcePath: null,
+      plan: null,
+      highlight: false,
+      format: 'same',
+      progress: 0,
+      stage: 'Ready',
+      output: null,
+      error: null,
+      busy: false,
+      accepted: {},
+    }
+  }
+
+  async function openFill(file: LibraryFile) {
+    if (!file.id) {
+      const path = await api.documents.pick('Choose the form')
+      if (!path) return
+      setFillJob(blankFill(path.split(/[/\\]/).pop() ?? path, path, null))
+    } else {
+      setFillJob(blankFill(file.name, null, file.id))
+    }
+    setView('library')
+  }
+
+  async function chooseFillSource() {
+    if (!fillJob || fillJob.templateAttachmentId === 'demo') return
+    const path = await api.documents.pick('Choose the source document')
+    if (!path) return
+    setFillJob({ ...fillJob, busy: true, sourcePath: path, sourceName: path.split(/[/\\]/).pop() ?? path, error: null })
+    try {
+      const plan = await api.documents.plan({
+        templatePath: fillJob.templatePath ?? undefined,
+        templateAttachmentId: fillJob.templateAttachmentId ?? undefined,
+        sourcePath: path,
+      })
+      setFillJob((job) => job && { ...job, busy: false, plan, templateName: plan.templateName, sourceName: plan.sourceName, templatePath: plan.templatePath, templateAttachmentId: plan.templateAttachmentId, sourcePath: plan.sourcePath })
+    } catch (e) {
+      setFillJob((job) => job && { ...job, busy: false, error: (e as Error).message })
+    }
+  }
+
+  async function swapFill() {
+    if (!fillJob?.plan || fillJob.templateAttachmentId === 'demo') return
+    const plan = fillJob.plan
+    setFillJob({ ...fillJob, busy: true })
+    try {
+      const next = await api.documents.plan({
+        templatePath: plan.sourcePath ?? undefined,
+        templateAttachmentId: plan.sourceAttachmentId ?? undefined,
+        sourcePath: plan.templatePath ?? undefined,
+        sourceAttachmentId: plan.templateAttachmentId ?? undefined,
+      })
+      setFillJob((job) => job && { ...job, busy: false, plan: next, templateName: next.templateName, sourceName: next.sourceName, templatePath: next.templatePath, templateAttachmentId: next.templateAttachmentId, sourcePath: next.sourcePath })
+    } catch (e) {
+      setFillJob((job) => job && { ...job, busy: false, error: (e as Error).message })
+    }
+  }
+
+  function editFill(id: string, value: string) {
+    setFillJob((job) => {
+      if (!job?.plan) return job
+      const rows = job.plan.rows.map((row) => {
+        if (row.id !== id) return row
+        const found = value.trim() !== '' && value !== 'not found in source'
+        return { ...row, value, found, confidence: found ? 'high' as const : 'none' as const, citation: found ? (row.citation ?? 'edited') : null }
+      })
+      return { ...job, plan: { ...job.plan, rows } }
+    })
+  }
+
+  async function exportFill() {
+    if (!fillJob?.plan || fillJob.templateAttachmentId === 'demo') return
+    setFillJob({ ...fillJob, busy: true, error: null, output: null })
+    try {
+      const result = await api.documents.export({
+        templatePath: fillJob.plan.templatePath ?? undefined,
+        templateAttachmentId: fillJob.plan.templateAttachmentId ?? undefined,
+        rows: fillJob.plan.rows,
+        format: fillJob.format,
+        highlight: fillJob.highlight,
+      })
+      setFillJob((job) => job && { ...job, busy: false, output: result?.outputPath ?? null, plan: job.plan && result ? { ...job.plan, warnings: [...job.plan.warnings, ...result.warnings] } : job.plan })
+    } catch (e) {
+      setFillJob((job) => job && { ...job, busy: false, error: (e as Error).message })
+    }
+  }
+
   useEffect(() => {
     window.__surfDemo = (scene) => {
+      setConvertJob(null)
+      setFillJob(null)
       if (scene === 'upload') {
         setView('chat')
         setMessages([])
@@ -318,6 +451,59 @@ export default function App() {
           { id: 'demo-run', name: 'shelf.png', mime: 'image/png', sizeBytes: 4000, addedAt: 1, conversationIds: [], status: 'running', stage: 'Reading the image', progress: 0.62, error: null, jobId: 'job-img', chunkCount: 0 },
         ])
       }
+      if (scene === 'convert') {
+        setView('library')
+        setPreview(null)
+        setFiles([{ id: 'demo-ready', name: 'harbor-ferry.pdf', mime: 'application/pdf', sizeBytes: 12000, addedAt: 1, conversationIds: [], status: 'done', stage: 'Ready', progress: 1, error: null, jobId: null, chunkCount: 1 }])
+        setConvertJob({
+          name: 'harbor-ferry.pdf',
+          path: null,
+          attachmentId: 'demo',
+          format: 'docx',
+          progress: 0.62,
+          stage: 'Reading page 2',
+          warnings: ['Headings and simple lines are kept. Columns, images, and the original page layout are not.'],
+          output: null,
+          error: null,
+          busy: true,
+        })
+      }
+      if (scene === 'fill') {
+        const plan: FillPlan = {
+          templatePath: null,
+          templateAttachmentId: 'demo',
+          sourcePath: null,
+          sourceAttachmentId: null,
+          templateName: 'berth-form.docx',
+          sourceName: 'harbor-notes.docx',
+          role: 'template-first',
+          warnings: ['Only the blank is replaced. The surrounding font, size, color, and emphasis stay.'],
+          rows: [
+            { id: 'vessel', label: 'Vessel', value: 'Sea Lark', citation: 'line 1', confidence: 'high', found: true, locator: 'line 1' },
+            { id: 'port', label: 'Port', value: 'Bergen', citation: 'line 2', confidence: 'high', found: true, locator: 'line 2' },
+            { id: 'call', label: 'Call sign', value: 'not found in source', citation: null, confidence: 'none', found: false, locator: 'line 3' },
+          ],
+        }
+        setView('library')
+        setPreview(null)
+        setFiles([{ id: 'demo-form', name: 'berth-form.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', sizeBytes: 8000, addedAt: 1, conversationIds: [], status: 'done', stage: 'Ready', progress: 1, error: null, jobId: null, chunkCount: 1 }])
+        setFillJob({
+          templateName: 'berth-form.docx',
+          templatePath: null,
+          templateAttachmentId: 'demo',
+          sourceName: 'harbor-notes.docx',
+          sourcePath: null,
+          plan,
+          highlight: true,
+          format: 'same',
+          progress: 1,
+          stage: 'Ready to save',
+          output: null,
+          error: null,
+          busy: false,
+          accepted: { vessel: true },
+        })
+      }
     }
   }, [])
 
@@ -414,6 +600,8 @@ export default function App() {
           onRemove={(id) => { void api.library.remove(id).then(() => api.library.list()).then((rows) => { setFiles(rows); setPreview(null) }).catch((e: unknown) => setError((e as Error).message)) }}
           onPreview={(id) => { void api.library.preview({ attachmentId: id }).then(setPreview) }}
           onClosePreview={() => setPreview(null)}
+          onConvert={(file) => { void openConvert(file).catch((e: unknown) => setError((e as Error).message)) }}
+          onFill={(file) => { void openFill(file).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
       {view === 'packs' && (
@@ -458,6 +646,29 @@ export default function App() {
             const v = await api.updates.check()
             return v ? `Update ${v} is available.` : 'You are on 0.1.0. Signed updates land with the first GitHub release.'
           }}
+        />
+      )}
+      {convertJob && (
+        <ConvertDialog
+          state={convertJob}
+          onFormat={(format: ExportFormat) => setConvertJob({ ...convertJob, format })}
+          onRun={() => { void runConvert() }}
+          onCancel={() => { void api.documents.cancel(); setConvertJob({ ...convertJob, busy: false, stage: 'Cancelled' }) }}
+          onClose={() => setConvertJob(null)}
+        />
+      )}
+      {fillJob && (
+        <FillReview
+          state={fillJob}
+          onPickSource={() => { void chooseFillSource() }}
+          onSwap={() => { void swapFill() }}
+          onEdit={editFill}
+          onAccept={(id) => setFillJob({ ...fillJob, accepted: { ...fillJob.accepted, [id]: !fillJob.accepted[id] } })}
+          onHighlight={(highlight) => setFillJob({ ...fillJob, highlight })}
+          onFormat={(format) => setFillJob({ ...fillJob, format })}
+          onExport={() => { void exportFill() }}
+          onCancel={() => { void api.documents.cancel(); setFillJob({ ...fillJob, busy: false, stage: 'Cancelled' }) }}
+          onClose={() => setFillJob(null)}
         />
       )}
     </div>

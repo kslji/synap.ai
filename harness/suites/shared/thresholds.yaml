@@ -23,6 +23,9 @@ quick:
     hf-injection:
       min_score: 0.0
       regression_tolerance: 1
+    documents:
+      min_score: 1.0
+      regression_tolerance: 0
 full:
   regression_tolerance: 0.05
   suites:
@@ -44,3 +47,6 @@ full:
     hf-injection:
       min_score: 0.0
       regression_tolerance: 0.05
+    documents:
+      min_score: 1.0
+      regression_tolerance: 0

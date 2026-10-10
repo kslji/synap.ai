@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "harness"))
 sys.path.insert(0, str(ROOT / "harness" / "evals"))
 
 from core.datasets import cases_for  # noqa: E402
+from core.documents import score_documents  # noqa: E402
 from core.report import apply_thresholds, suite_rows, write_report  # noqa: E402
 from core.scorers import score_case  # noqa: E402
 from gate import compare_eval  # noqa: E402
@@ -107,6 +108,23 @@ def run_electron(cases: list[dict], work: Path, phase: str, mode: str) -> dict:
     return payload
 
 
+def run_documents() -> list[dict]:
+    proc = subprocess.run(
+        ["npx", "tsx", "src/main/core/document-suite.ts"],
+        cwd=ROOT / "apps" / "desktop",
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise SystemExit((proc.stderr or proc.stdout)[-2000:])
+    try:
+        return score_documents(json.loads(proc.stdout))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"document suite did not return JSON ({exc})\n{proc.stdout[-500:]}") from exc
+
+
 def score_transcripts(cases: list[dict], payload: dict) -> list[dict]:
     by_id = {item["id"]: item for item in payload.get("cases") or []}
     return [score_case(case, by_id.get(case["id"])) for case in cases]
@@ -133,9 +151,11 @@ def main() -> int:
     phase1 = [case for case in cases if case.get("phase") != 2]
     phase2 = [case for case in cases if case.get("phase") == 2]
     thresholds = thresholds_for(args.mode)
-    print(f"eval {args.mode}: {len(phase1)} cases then {len(phase2)} pack cases", flush=True)
+    print(f"eval {args.mode}: document suite, then {len(phase1)} cases then {len(phase2)} pack cases", flush=True)
+    document_scored = run_documents()
+    print(f"documents {sum(1 for row in document_scored if row['ok'])}/{len(document_scored)}", flush=True)
     first = run_electron(phase1, work, "1", args.mode)
-    scored = score_transcripts(phase1, first)
+    scored = document_scored + score_transcripts(phase1, first)
     suites = suite_rows(scored)
     apply_thresholds(suites, thresholds)
     reports = ROOT / "harness" / "reports"

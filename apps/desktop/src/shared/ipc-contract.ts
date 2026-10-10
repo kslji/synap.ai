@@ -38,6 +38,12 @@ export const IPC = {
   libraryPreview: 'library:preview',
   libraryEvent: 'library:event',
   linksOpen: 'links:open',
+  documentsPick: 'documents:pick',
+  documentsConvert: 'documents:convert',
+  documentsPlan: 'documents:plan',
+  documentsExport: 'documents:export',
+  documentsCancel: 'documents:cancel',
+  documentsEvent: 'documents:event',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -181,6 +187,42 @@ export interface LibraryEvent {
   file: LibraryFile
 }
 
+export type ExportFormat = 'txt' | 'md' | 'html' | 'docx' | 'png' | 'jpeg' | 'csv' | 'xlsx' | 'pdf'
+
+export interface FillRow {
+  id: string
+  label: string
+  value: string
+  citation: string | null
+  confidence: 'high' | 'none'
+  found: boolean
+  locator: string
+}
+
+export interface FillPlan {
+  templatePath: string | null
+  templateAttachmentId: string | null
+  sourcePath: string | null
+  sourceAttachmentId: string | null
+  templateName: string
+  sourceName: string
+  role: 'template-first' | 'source-first' | 'ask'
+  rows: FillRow[]
+  warnings: string[]
+}
+
+export interface DocumentResult {
+  outputPath: string
+  warnings: string[]
+}
+
+export interface DocumentEvent {
+  progress: number
+  stage: string
+  done: boolean
+  error?: string
+}
+
 export interface StoredMessage {
   id: string
   role: 'user' | 'assistant'
@@ -280,5 +322,13 @@ export interface SurfApi {
   }
   links: {
     open(url: string): Promise<void>
+  }
+  documents: {
+    pick(title: string): Promise<string | null>
+    convert(input: { path?: string; attachmentId?: string }, format: ExportFormat): Promise<DocumentResult | null>
+    plan(input: { templatePath?: string; templateAttachmentId?: string; sourcePath?: string; sourceAttachmentId?: string }): Promise<FillPlan>
+    export(input: { templatePath?: string; templateAttachmentId?: string; rows: FillRow[]; format: ExportFormat | 'same'; highlight: boolean }): Promise<DocumentResult | null>
+    cancel(): Promise<void>
+    onEvent(cb: (e: DocumentEvent) => void): () => void
   }
 }

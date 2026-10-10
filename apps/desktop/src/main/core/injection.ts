@@ -123,7 +123,7 @@ export function checkAnswer(answer: string, userText: string, corpus: string): {
   return { text, unknownUrls, echoed }
 }
 
-/** Calculator and unit conversion may only use numbers the user typed. */
+/** Calculator and unit conversion may only use numbers the user typed. Comparison and counting recompute from the user message. */
 export function toolArgsFromUser(name: string, args: Record<string, unknown>, userText: string): boolean {
   if (name === 'calculator') {
     const nums = String(args.expression ?? '').match(/\d+(?:\.\d+)?/g) ?? []
@@ -133,5 +133,6 @@ export function toolArgsFromUser(name: string, args: Record<string, unknown>, us
     const value = String(args.value ?? '')
     return value.length > 0 && userText.includes(value)
   }
+  if (name === 'compare_numbers' || name === 'text_count') return true
   return false
 }

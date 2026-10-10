@@ -10,6 +10,8 @@ export function LibraryScreen({
   onRemove,
   onPreview,
   onClosePreview,
+  onConvert,
+  onFill,
 }: {
   files: LibraryFile[]
   preview: ChunkPreview | null
@@ -19,6 +21,8 @@ export function LibraryScreen({
   onRemove: (id: string) => void
   onPreview: (id: string) => void
   onClosePreview: () => void
+  onConvert: (file: LibraryFile) => void
+  onFill: (file: LibraryFile) => void
 }) {
   const working = files.some((file) => file.status === 'queued' || file.status === 'running')
   return (
@@ -32,7 +36,10 @@ export function LibraryScreen({
                 Files stay on this computer. Surf reads them in the background and can cite the passage it used.
               </p>
             </div>
-            <button type="button" className="btn btn-primary" data-add-documents="yes" onClick={onAdd}>Add files</button>
+            <div className="flex shrink-0 gap-2">
+              <button type="button" className="btn btn-ghost" data-convert-file="yes" onClick={() => onConvert({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 })}>Convert a file</button>
+              <button type="button" className="btn btn-primary" data-add-documents="yes" onClick={onAdd}>Add files</button>
+            </div>
           </div>
           {working && (
             <div className="mt-5 flex items-center gap-3" data-processing="yes">
@@ -57,6 +64,8 @@ export function LibraryScreen({
                       <div className="text-xs text-[var(--muted)]">{statusLine(file)}</div>
                     </div>
                     <div className="flex shrink-0 gap-2">
+                      <button type="button" className="btn btn-ghost" data-convert={file.id} onClick={() => onConvert(file)}>Convert</button>
+                      <button type="button" className="btn btn-ghost" data-fill={file.id} onClick={() => onFill(file)}>Fill</button>
                       {file.chunkCount > 0 && (
                         <button type="button" className="btn btn-ghost" onClick={() => onPreview(file.id)}>Preview</button>
                       )}

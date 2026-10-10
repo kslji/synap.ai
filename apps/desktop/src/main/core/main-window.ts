@@ -4,8 +4,10 @@
  */
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
-import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type WebCacheStatus } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, ConversationId, DeviceId, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
+import { z } from 'zod'
+import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type WebCacheStatus } from './ipc-contract.js'
+import type { ExportFormat } from './ipc-contract.js'
+import { AttachmentId, ChatSendReq, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -119,6 +121,13 @@ export interface Services {
   links: {
     open(url: string): Promise<void>
   }
+  documents: {
+    pick(win: BrowserWindow, title: string): Promise<string | null>
+    convert(win: BrowserWindow, input: { path?: string; attachmentId?: string }, format: ExportFormat): Promise<DocumentResult | null>
+    plan(input: { templatePath?: string; templateAttachmentId?: string; sourcePath?: string; sourceAttachmentId?: string }): Promise<FillPlan>
+    export(win: BrowserWindow, input: { path?: string; attachmentId?: string }, rows: FillRow[], format: ExportFormat | 'same', highlight: boolean): Promise<DocumentResult | null>
+    cancel(): void
+  }
 }
 
 export function registerIpc(win: BrowserWindow, s: Services): void {
@@ -160,6 +169,26 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   ipcMain.handle(IPC.libraryCancel, (e, raw) => { assertTrusted(e); return s.library.cancel(JobId.parse(raw)) })
   ipcMain.handle(IPC.libraryDelete, (e, raw) => { assertTrusted(e); return s.library.remove(AttachmentId.parse(raw)) })
   ipcMain.handle(IPC.libraryPreview, (e, raw) => { assertTrusted(e); return s.library.preview(LibraryPreview.parse(raw)) })
+  ipcMain.handle(IPC.documentsPick, (e, raw) => {
+    assertTrusted(e)
+    return s.documents.pick(win, z.string().max(80).parse(raw))
+  })
+  ipcMain.handle(IPC.documentsConvert, (e, raw) => {
+    assertTrusted(e)
+    const body = DocumentConvert.parse(raw)
+    return s.documents.convert(win, { path: body.path, attachmentId: body.attachmentId }, body.format)
+  })
+  ipcMain.handle(IPC.documentsPlan, (e, raw) => {
+    assertTrusted(e)
+    const body = DocumentPlan.parse(raw)
+    return s.documents.plan(body)
+  })
+  ipcMain.handle(IPC.documentsExport, (e, raw) => {
+    assertTrusted(e)
+    const body = DocumentExport.parse(raw)
+    return s.documents.export(win, { path: body.templatePath, attachmentId: body.templateAttachmentId }, body.rows, body.format, body.highlight)
+  })
+  ipcMain.handle(IPC.documentsCancel, (e) => { assertTrusted(e); s.documents.cancel() })
   ipcMain.handle(IPC.linksOpen, (e, raw) => {
     assertTrusted(e)
     const url = HttpLink.parse(raw)

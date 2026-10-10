@@ -46,6 +46,34 @@ export const LibraryAdd = z.object({
   conversationId: z.string().uuid().nullable(),
   createConversation: z.boolean().default(false),
 })
+export const ExportFormatName = z.enum(['txt', 'md', 'html', 'docx', 'png', 'jpeg', 'csv', 'xlsx', 'pdf'])
+export const DocumentConvert = z.object({
+  path: z.string().min(1).max(4096).optional(),
+  attachmentId: AttachmentId.optional(),
+  format: ExportFormatName,
+})
+export const DocumentPlan = z.object({
+  templatePath: z.string().min(1).max(4096).optional(),
+  templateAttachmentId: AttachmentId.optional(),
+  sourcePath: z.string().min(1).max(4096).optional(),
+  sourceAttachmentId: AttachmentId.optional(),
+})
+export const FillRowBody = z.object({
+  id: z.string().max(80),
+  label: z.string().max(200),
+  value: z.string().max(4000),
+  citation: z.string().max(200).nullable(),
+  confidence: z.enum(['high', 'none']),
+  found: z.boolean(),
+  locator: z.string().max(80),
+})
+export const DocumentExport = z.object({
+  templatePath: z.string().min(1).max(4096).optional(),
+  templateAttachmentId: AttachmentId.optional(),
+  rows: z.array(FillRowBody).max(200),
+  format: z.union([ExportFormatName, z.literal('same')]),
+  highlight: z.boolean(),
+})
 export const LibraryPreview = z.object({
   chunkId: z.number().int().positive().optional(),
   attachmentId: z.string().uuid().optional(),

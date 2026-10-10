@@ -19,6 +19,8 @@ import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manage
 import { LlamaClient } from './llama-client.js'
 import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
 import { Calculator, calculatorTools } from './calculator.js'
+import { compareFromText, countFromText, numberTools, asksForNumberTool, resolveDirectTool, verbatimAnswer } from './number-tools.js'
+import { createDocumentApi } from './document-service.js'
 import calcWorker from './calculator.worker?modulePath'
 import { hybridSearch, borderlinePrompt, documentGate, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
 import { allocate, BUDGETS, LlamaServerTokenizer, type Turn } from './token-budget.js'
@@ -350,6 +352,12 @@ export async function createServices(): Promise<Services> {
     return { queue, deps }
   })() : null
 
+  const documentApi = createDocumentApi({
+    db: () => store.db,
+    attachmentsRoot: () => docs?.deps.root ?? join(app.getPath('userData'), 'attachments'),
+    calc,
+  })
+
   async function collectWeb(question: string, signal: AbortSignal, chatModel: ModelEntry, ctx: number, win: BrowserWindow, messageId: string): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }> }> {
     const current = readSettings()
     assertNetworkAllowed(current.offlineOnly)
@@ -357,8 +365,8 @@ export async function createServices(): Promise<Services> {
     const client = new LlamaClient({
       baseUrl: server.baseUrl,
       apiKey: server.apiKey,
-sampling: chatSampling(chatModel),
-        chatTemplateKwargs: chatModel.chat_template_kwargs,
+      sampling: chatSampling(chatModel),
+      chatTemplateKwargs: chatModel.chat_template_kwargs,
       })
     let raw = ''
     try {
@@ -428,11 +436,17 @@ sampling: chatSampling(chatModel),
     const settings = readSettings()
     const reg = registry()
     const text = req.text
-    const direct = await tryDirectTool(calc, text)
+    const direct = await resolveDirectTool(calc, text)
     if (direct) {
       sendEvent(win, { type: 'tool', messageId, name: direct.name, input: direct.input, output: direct.output })
       await emitText(win, messageId, direct.answer)
       finish(conversationId, messageId, userMessageId, win, direct.answer, [], 'answer')
+      return
+    }
+    const converted = await documentApi.convertChat(conversationId, text, () => signal.aborted)
+    if (converted) {
+      await emitText(win, messageId, converted)
+      finish(conversationId, messageId, userMessageId, win, converted, [], 'answer')
       return
     }
 
@@ -579,6 +593,7 @@ sampling: chatSampling(chatModel),
         }
       }
       const localChunksPreview = plan.branch === 'web' ? [] : hits.slice(0, 4)
+      const chatTools = [...calculatorTools, ...numberTools]
       const useTools = needsCalculator(text) && localChunksPreview.length === 0 && webHits.length === 0
       const localSources = plan.branch === 'web' ? [] : citationsOf(hits, versions, text)
       const webSources: Citation[] = webHits.map((hit) => ({
@@ -616,7 +631,7 @@ sampling: chatSampling(chatModel),
       const webChunks = webHits.map((hit, i) => ({ id: `web-${i + 1}`, text: hit.text, title: formatWebCitation(hit), score: hit.cosine }))
       const budget = await allocate(new LlamaServerTokenizer(server.baseUrl, server.apiKey), profile, {
         system: SYSTEM,
-        tools: useTools ? calculatorTools : undefined,
+        tools: useTools ? chatTools : undefined,
         chunks: [...localChunks, ...webChunks].slice(0, 5),
         history,
         question: text,
@@ -624,12 +639,15 @@ sampling: chatSampling(chatModel),
 
       let answer = ''
       if (useTools) {
-        const ran = await client.runWithTools(budget.messages, calculatorTools, toolHandlers(calc, text), 4, signal)
+        const ran = await client.runWithTools(budget.messages, chatTools, toolHandlers(calc, text), 4, signal)
+        const toolOutputs: { name: string; output: string }[] = []
         for (const call of ran.toolCalls) {
           const out = ran.messages.find((m) => m.role === 'tool' && m.tool_call_id === call.id)
-          sendEvent(win, { type: 'tool', messageId, name: call.function.name, input: call.function.arguments, output: String(out?.content ?? '') })
+          const output = String(out?.content ?? '')
+          toolOutputs.push({ name: call.function.name, output })
+          sendEvent(win, { type: 'tool', messageId, name: call.function.name, input: call.function.arguments, output })
         }
-        answer = ran.answer
+        answer = verbatimAnswer(ran.answer, toolOutputs)
         await emitText(win, messageId, answer)
       } else {
         for await (const piece of client.chatStream(budget.messages, undefined, signal, budget.maxTokens)) {
@@ -820,6 +838,7 @@ sampling: chatSampling(chatModel),
     links: {
       open: async (url) => { await shell.openExternal(url) },
     },
+    documents: documentApi,
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
     const described = describeReach({ osOnline: stableOnline, apiReachable, offlineOnly, checking: offlineOnly ? false : checking })
@@ -1084,6 +1103,8 @@ function toolHandlers(calc: Calculator, userText: string) {
       if (!r.ok) return `error: ${r.error}`
       return r.result
     },
+    compare_numbers: async () => compareFromText(userText)?.answer ?? 'ignored: that comparison is not in your message',
+    text_count: async () => countFromText(userText)?.answer ?? 'ignored: that count is not in your message',
   }
 }
 
@@ -1106,28 +1127,7 @@ function guardRetrieved<T extends Hit>(hits: T[]): { kept: T[]; ignored: T[] } {
   return { kept, ignored }
 }
 
-async function tryDirectTool(calc: Calculator, text: string): Promise<{ name: string; input: string; output: string; answer: string } | null> {
-  const expr = pureExpression(text)
-  if (expr) {
-    const r = await calc.calc(expr)
-    if (!r.ok) return null
-    return { name: 'calculator', input: expr, output: r.result, answer: r.result }
-  }
-  const unit = text.match(/(-?\d+(?:\.\d+)?)\s*([a-zA-Z°/%]+)\s+(?:to|in|into)\s+([a-zA-Z°/%]+)/i)
-  if (!unit) return null
-  const r = await calc.convert(Number(unit[1]), unit[2], unit[3])
-  if (!r.ok) return null
-  return { name: 'unit_convert', input: `${unit[1]} ${unit[2]} -> ${unit[3]}`, output: r.result, answer: `${unit[1]} ${unit[2]} = ${r.result}` }
-}
-
-function pureExpression(text: string): string | null {
-  const t = text.trim().replace(/^(what is|calculate|compute)\s+/i, '').replace(/\?$/, '').trim()
-  if (!t || t.length > 180) return null
-  if (!/^[\d\s.+\-*/%^()]+$/.test(t)) return null
-  if (!/\d/.test(t) || !/[+\-*/%^]/.test(t)) return null
-  return t
-}
-
 export function needsCalculator(text: string): boolean {
+  if (asksForNumberTool(text)) return true
   return /\d/.test(text) && /[+\-*/%=]|percent|calculate|convert|how many|times|divided|multipl|knot|km\/h|\bkg\b|\blb\b|feet|metre|meter|celsius|fahrenheit/i.test(text)
 }

@@ -280,6 +280,8 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await demo('processing', 'processing')
     await demo('citation', 'citation')
     await demo('library', 'library')
+    await demo('convert', 'convert')
+    await demo('fill', 'fill')
     await demo('searching', 'searching')
     await demo('web', 'web')
     await demo('signin', 'signin')

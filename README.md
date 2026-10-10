@@ -23,6 +23,19 @@ The website:
 npm run dev:web
 ```
 
+<!-- BETA_UNSIGNED: delete this section when apps/web/src/beta.ts sets BETA_UNSIGNED to false. -->
+
+### Beta: opening on Mac
+
+Mac users: during the beta, Surf AI isn't signed by Apple yet, so macOS may say it can't be opened or is from an unidentified developer. You only need to do this once.
+
+1. Open Surf AI once so macOS blocks it.
+2. Go to System Settings → Privacy & Security.
+3. Scroll to the Security section.
+4. Click Open Anyway next to Surf AI, then confirm.
+
+Windows users: if you see "Windows protected your PC", click the small underlined More info link under the warning. The window then shows the app name and Unknown publisher, with a Run anyway button at the bottom right. Click Run anyway to install. You only need to do this once.
+
 Self-test (models not included in git):
 
 ```bash

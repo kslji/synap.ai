@@ -35,6 +35,10 @@ Weights are the severity. The suite score is passed weight divided by total weig
 
 `harness/suites/shared/thresholds.yaml` sets `min_score` and `regression_tolerance` per suite, separately for `quick` and `full`. Quick public-dataset suites use a tolerance of 1 because a single row is either pass or fail. The weekly full run uses 0.05. The shared hand-written suite is gated on every pull request.
 
+Numeric comparison, ordering, counting, and arithmetic in the shared cases are answered by tools in the desktop orchestrator. The model text is replaced with the tool sentence. `9.9` is larger than `9.11`. The older shared case expected the digit-wise mistake and was corrected.
+
+The `documents` suite does not call the model. `apps/desktop/src/main/core/document-suite.ts` builds fixtures in memory, converts and fills them, and prints measurements. `harness/core/documents.py` scores fill accuracy, citations, the exact string `not found in source`, injection refusal, and formatting (font, size, color, bold, italic, page count, pixel diff outside the filled box, and an unchanged original hash). It runs in quick mode before Electron. See `docs/DOCUMENTS.md`.
+
 ## Add a niche
 
 Copy `harness/suites/niches/marine/`. Put cases in `cases.jsonl` with `"suite": "marine"`. Set `min_score` in that folder's `thresholds.yaml`. Load the file from `harness/core/run_eval.py` next to the shared JSONL. Until the niche has cases, pack signing uses the shared suite.

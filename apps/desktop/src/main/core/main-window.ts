@@ -31,7 +31,7 @@ export function createMainWindow(preloadPath: string, rendererHtml: string): Bro
     minWidth: 880,
     minHeight: 600,
     show: false,
-    title: 'Surf AI',
+    title: 'Synap.surf',
     backgroundColor: '#fafafa',
     autoHideMenuBar: true,
     webPreferences: {

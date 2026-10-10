@@ -1,6 +1,6 @@
 # Privacy
 
-**Draft — not legal advice.** This note describes how Surf AI is designed. It is not a certification, and it is not a promise that data cannot be leaked. A stolen computer, a bug, or malware on the machine can still expose files.
+**Draft — not legal advice.** This note describes how Synap.surf is designed. It is not a certification, and it is not a promise that data cannot be leaked. A stolen computer, a bug, or malware on the machine can still expose files.
 
 Designed around the India Information Technology Act 2000 and the Digital Personal Data Protection Act 2023, the EU and UK GDPR, and the California CCPA/CPRA. Those names describe the goals of the design. They are not a claim of certified compliance.
 
@@ -11,6 +11,6 @@ Designed around the India Information Technology Act 2000 and the Digital Person
 - Web search is off until you turn it on. A search sends only the short query, not your documents.
 - There are no ads and no sale of data.
 - Crash reports are off by default.
-- To delete everything the app stored, quit Surf AI and remove its data folder: `~/Library/Application Support/surf-ai` on macOS, or `%APPDATA%\surf-ai` on Windows. That removes the encrypted database, downloaded models, and logs.
+- To delete everything the app stored, quit Synap.surf and remove its data folder: `~/Library/Application Support/surf-ai` on macOS, or `%APPDATA%\surf-ai` on Windows. That removes the encrypted database, downloaded models, and logs.
 
 The contact address is the `SITE_CONTACT_EMAIL` value on the website. Until that is set, the site shows `contact@example.com`.

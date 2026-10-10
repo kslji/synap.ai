@@ -31,7 +31,7 @@ export interface UpdateOffer {
 
 const MAC_STEPS = [
   'Download the new .dmg and open it.',
-  'Drag Surf AI to Applications. Replace the old app when asked.',
+  'Drag Synap.surf to Applications. Replace the old app when asked.',
   'If macOS says the app is from an unidentified developer, open it once, then go to System Settings → Privacy & Security and click Open Anyway. You only need to do this once.',
 ]
 

@@ -58,7 +58,7 @@ export interface ChatSendReq {
   docScope?: DocScope
 }
 
-export type ThemeChoice = 'system' | 'light' | 'dark'
+export type ThemeChoice = 'light' | 'dark'
 
 export interface SettingsPatch {
   offlineOnly?: boolean
@@ -113,6 +113,10 @@ export interface CatalogModel {
   installed: boolean
   recommended: boolean
   fitsRam: boolean
+  /** Installer file. Shown only under Settings → Models → Details. */
+  file?: string
+  /** Quant string such as Q4_K_M. Shown only under Details. */
+  quant?: string | null
 }
 
 export interface ModelStatus {

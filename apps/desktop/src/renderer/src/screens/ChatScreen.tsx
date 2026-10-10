@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { castFor, SurfCrew, type SurfMood } from '@surf/ui'
+import { StarSurf, starStateFor } from '@surf/ui'
 import type { ChunkPreview, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import type { UiMsg } from '../types'
 import { Preview } from './LibraryScreen'
@@ -19,6 +19,13 @@ export function ChatScreen({
   preview,
   webSearchAllowed,
   chatWeb,
+  agentName,
+  agentNote,
+  modelLabel,
+  chatChoices,
+  chatModelId,
+  tourAttach,
+  tourOnline,
   onSend,
   onToggleOffline,
   onToggleChatWeb,
@@ -27,6 +34,7 @@ export function ChatScreen({
   onScope,
   onOpenCitation,
   onClosePreview,
+  onSelectModel,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -36,6 +44,13 @@ export function ChatScreen({
   preview: ChunkPreview | null
   webSearchAllowed: boolean
   chatWeb: boolean
+  agentName: string
+  agentNote?: string
+  modelLabel: string
+  chatChoices: { id: string; label: string }[]
+  chatModelId: string
+  tourAttach: boolean
+  tourOnline: boolean
   onSend: (text: string) => void
   onToggleOffline: () => void
   onToggleChatWeb: () => void
@@ -44,6 +59,7 @@ export function ChatScreen({
   onScope: (scope: DocScope) => void
   onOpenCitation: (chunkId: number) => void
   onClosePreview: () => void
+  onSelectModel: (id: string) => void
 }) {
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
@@ -52,7 +68,7 @@ export function ChatScreen({
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
   const searching = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'reading'))
-  const mood: SurfMood = searching
+  const mood = searching
     ? 'searching'
     : streaming
       ? pending && pending.tools.length > 0 && !pending.text
@@ -79,30 +95,29 @@ export function ChatScreen({
     <section className="flex min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-3">
-          <div>
-            <div className="text-sm font-semibold">General</div>
-            <div className="text-xs text-[var(--muted)]">{status.onlineReason || 'Answers stay on this computer'}</div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold" data-chat-agent={agentName}>{agentName}</div>
+            <div className="truncate text-xs text-[var(--muted)]">{modelLabel} · {status.onlineReason || 'Answers stay on this computer'}</div>
           </div>
           <div className="flex items-center gap-3">
+            {chatChoices.length > 0 && (
+              <select className="field w-auto py-1" aria-label="Chat model" value={chatModelId} onChange={(event) => onSelectModel(event.target.value)}>
+                {chatChoices.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+              </select>
+            )}
             <span className={`pill ${status.offlineOnly || !status.online ? 'pill-warn' : 'pill-ok'}`} title={status.onlineReason} data-online-reason={status.onlineReason}>
               <i />
-              {status.offlineOnly ? 'Offline only' : status.online ? 'Online' : 'Offline'}
+              {status.offlineOnly ? 'Offline' : status.online ? 'Online' : 'Offline'}
             </span>
-            <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
-              Offline only
-              <button type="button" className="toggle" data-offline-toggle="yes" data-on={status.offlineOnly ? 'yes' : 'no'} aria-pressed={status.offlineOnly} onClick={onToggleOffline}>
-                <span />
-              </button>
-            </label>
           </div>
         </header>
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
           {messages.length === 0 ? (
             <div className="mx-auto flex max-w-lg flex-col items-center pt-16 text-center">
-              <SurfCrew mood={reading ? 'working' : mood} who={reading ? 'octo' : undefined} size={280} />
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">Ask Surf</h1>
+              <StarSurf state={starStateFor(reading ? 'working' : mood)} size={220} />
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight">{agentName}</h1>
               <p className="mt-2 text-[15px] leading-relaxed text-[var(--muted)]">
-                Drop a document in the box below. Surf reads it here, then answers with the page it used.
+                {agentNote || 'Ask here. Files you attach stay on this computer.'}
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
                 {PROMPTS.map((p) => (
@@ -139,17 +154,31 @@ export function ChatScreen({
               </div>
               <button
                 type="button"
-                className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
-                data-chat-web={webSearchAllowed && chatWeb ? 'yes' : 'no'}
-                aria-pressed={webSearchAllowed && chatWeb}
+                className="toggle"
+                data-offline-toggle="yes"
+                data-on={status.offlineOnly ? 'yes' : 'no'}
+                data-tour="online"
+                data-tour-target={tourOnline ? 'yes' : 'no'}
+                aria-pressed={status.offlineOnly}
+                aria-label={status.offlineOnly ? 'Offline' : 'Online'}
+                onClick={onToggleOffline}
+              >
+                <span />
+              </button>
+              <span className="text-xs text-[var(--muted)]">{status.offlineOnly ? 'Offline' : 'Online'}</span>
+              <button
+                type="button"
+                className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb && !status.offlineOnly ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
+                data-chat-web={webSearchAllowed && chatWeb && !status.offlineOnly ? 'yes' : 'no'}
+                aria-pressed={webSearchAllowed && chatWeb && !status.offlineOnly}
                 title={webSearchAllowed ? 'Search the web for this chat' : 'Turn on web search in Settings'}
                 onClick={onToggleChatWeb}
               >
-                Web {webSearchAllowed && chatWeb ? 'on' : 'off'}
+                Web search
               </button>
               {reading && (
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
-                  <SurfCrew who="octo" mood="working" size={36} />
+                  <StarSurf state="searching" size={36} />
                   Reading files
                 </span>
               )}
@@ -166,11 +195,11 @@ export function ChatScreen({
               </div>
             )}
             <div className="flex items-end gap-2">
-              <button type="button" className="btn btn-ghost h-[52px]" onClick={onPick} disabled={!chatReady}>Attach</button>
+              <button type="button" className="btn btn-ghost h-[52px]" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}>Attach</button>
               <textarea
                 className="field min-h-[52px]"
                 rows={1}
-                placeholder={chatReady ? 'Message Surf, or drop a file' : 'Download a model to start chatting'}
+                placeholder={chatReady ? `Message ${agentName}` : 'The model is still downloading'}
                 value={text}
                 disabled={!chatReady}
                 onChange={(e) => setText(e.target.value)}
@@ -181,12 +210,19 @@ export function ChatScreen({
               <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || !text.trim()}>Send</button>
             </div>
           </div>
-          {!chatReady && <p className="mx-auto mt-2 max-w-2xl text-xs text-[var(--muted)]">Open Models and download the suggested chat model. It stays on this computer.</p>}
+          {!chatReady && <p className="mx-auto mt-2 max-w-2xl text-xs text-[var(--muted)]">Finish setup in Settings → Models. The file stays on this computer.</p>}
         </form>
       </div>
       {preview && <Preview preview={preview} onClose={onClosePreview} />}
     </section>
   )
+}
+
+function chipLabel(source: UiMsg['sources'][number]): string {
+  const place = source.locator ? ` · ${source.locator}` : ''
+  if (source.version && source.pack && !source.pack.includes(source.version)) return `${source.pack} · ${source.version}${place}`
+  if (source.pack) return `${source.pack}${place}`
+  return `${source.fileName || source.title || 'Source'}${place}`
 }
 
 function ScopeButton({ current, id, onScope, children }: { current: DocScope; id: DocScope; onScope: (scope: DocScope) => void; children: string }) {
@@ -205,7 +241,7 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onOpenCitation: (chunkId: number) => void }) {
+function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void }) {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -216,7 +252,7 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
   const creature = msg.pending ? mood : msg.error ? 'error' : 'idle'
   return (
     <div className="flex gap-3">
-      <div className="pt-1"><SurfCrew mood={creature} who={castFor(creature)} size={52} /></div>
+      <div className="pt-1"><StarSurf state={starStateFor(creature)} size={52} /></div>
       <div className="min-w-0 flex-1">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
@@ -242,7 +278,7 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: SurfMood; onO
                 title={s.excerpt || s.title}
                 onClick={() => { if (s.chunkId) onOpenCitation(s.chunkId) }}
               >
-                [S{i + 1}] {s.version ? `${s.pack} · ${s.title}` : (s.fileName || s.title || s.pack)}{s.locator ? ` · ${s.locator}` : ''}
+                {chipLabel(s)}
                 {s.suspicious ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]" data-suspicious="yes">This source contained suspicious instructions and was ignored.</span> : null}
               </button>
             ))}

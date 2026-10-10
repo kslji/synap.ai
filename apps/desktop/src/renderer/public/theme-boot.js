@@ -2,6 +2,13 @@
 ;(function () {
   try {
     var saved = localStorage.getItem('surf-theme')
-    if (saved === 'light' || saved === 'dark') document.documentElement.setAttribute('data-theme', saved)
-  } catch (e) {}
+    if (saved === 'system') {
+      saved = 'light'
+      localStorage.setItem('surf-theme', 'light')
+    }
+    if (saved !== 'dark') saved = 'light'
+    document.documentElement.setAttribute('data-theme', saved)
+  } catch (e) {
+    try { document.documentElement.setAttribute('data-theme', 'light') } catch (err) {}
+  }
 })()

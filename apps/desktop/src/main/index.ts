@@ -41,7 +41,7 @@ else app.setPath('userData', join(app.getPath('appData'), 'surf-ai'))
 
 const mainLog = installMainLog(join(app.getPath('userData'), 'logs'))
 installProcessGuards(mainLog, (message) => {
-  dialog.showErrorBox('Surf AI', message)
+  dialog.showErrorBox('Synap.surf', message)
 })
 
 type Report = Record<string, { ok: boolean; detail: string; ms: number }>
@@ -219,7 +219,7 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'system' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)
@@ -273,17 +273,28 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await go('onboarding')
     await shot(`onboarding-${theme}`)
     await shot(`first-launch-${theme}`)
+    await go('home')
+    await shot(`home-${theme}`)
     await go('chat')
     await shot(`chat-${theme}`)
     await go('models')
+    await win.webContents.executeJavaScript(`document.querySelector('[data-model-details="closed"]')?.click()`)
+    await sleep(200)
     await shot(`models-${theme}`)
     await go('settings')
+    await win.webContents.executeJavaScript(`document.querySelector('[data-settings-group="Models"] [data-model-details="closed"]')?.click()`)
+    await sleep(200)
     await shot(`settings-${theme}`)
+    await shot(`settings-models-${theme}`)
     const demo = async (scene: string, name: string) => {
       await win.webContents.executeJavaScript(`window.__surfDemo && window.__surfDemo(${JSON.stringify(scene)})`)
       await sleep(350)
       await shot(`${name}-${theme}`)
     }
+    await demo('home', 'home-agents')
+    await demo('agent-general', 'chat-general')
+    await demo('agent-code', 'chat-code')
+    await demo('agent-assistant', 'chat-assistant')
     await demo('upload', 'upload')
     await demo('processing', 'processing')
     await demo('citation', 'citation')

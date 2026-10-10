@@ -111,12 +111,12 @@ export async function applyUpdate(offer: UpdateOffer, channel: UpdateChannel): P
 /** RELEASE_PUBKEY_HEX is compiled into the app; the private key lives only in CI secrets. */
 export async function installOfflineUpdate(win: BrowserWindow, releasePubkeyHex: string): Promise<boolean> {
   const ext = process.platform === 'win32' ? ['exe'] : ['dmg']
-  const pick = await dialog.showOpenDialog(win, { title: 'Choose Surf AI installer', filters: [{ name: 'Installer', extensions: ext }], properties: ['openFile'] })
+  const pick = await dialog.showOpenDialog(win, { title: 'Choose Synap.surf installer', filters: [{ name: 'Installer', extensions: ext }], properties: ['openFile'] })
   if (pick.canceled || !pick.filePaths[0]) return false
   const file = pick.filePaths[0]
   const [bytes, sig] = await Promise.all([readFile(file), readFile(file + '.sig').catch(() => null)])
   if (!sig || sig.length !== 64 || !edVerify(null, bytes, ed25519PublicKey(releasePubkeyHex), sig)) {
-    await dialog.showMessageBox(win, { type: 'error', message: 'This installer is not signed by Surf AI. It was not opened.' })
+    await dialog.showMessageBox(win, { type: 'error', message: 'This installer is not signed by Synap.surf. It was not opened.' })
     return false
   }
   const err = await shell.openPath(file)

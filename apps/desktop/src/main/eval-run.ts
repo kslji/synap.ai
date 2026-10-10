@@ -318,7 +318,7 @@ export async function runEval(): Promise<void> {
       telemetryOptIn: false,
       chatModelId: surfEnv('EVAL_CHAT_MODEL') || 'qwen3.5-2b-q4_k_m',
       onboardingComplete: true,
-      theme: 'system',
+      theme: 'light',
       apiBaseUrl: process.env.SURF_API_BASE || 'http://127.0.0.1:9',
       packSyncHours: 168,
       updateChannel: 'stable',

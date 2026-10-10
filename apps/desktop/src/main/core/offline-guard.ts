@@ -4,7 +4,7 @@
  */
 export class OfflineOnlyError extends Error {
   constructor() {
-    super('Offline only is on, so Surf AI will not use the network.')
+    super('Offline only is on, so Synap.surf will not use the network.')
     this.name = 'OfflineOnlyError'
   }
 }

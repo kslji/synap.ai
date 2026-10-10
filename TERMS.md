@@ -4,7 +4,7 @@
 
 Acceptable use:
 
-- Do not use Surf AI to break the law, to attack other people’s systems, or to send spam.
+- Do not use Synap.surf to break the law, to attack other people’s systems, or to send spam.
 - Do not use it for cold email or unsolicited bulk mail.
 - The Code agent is for product and application work. Do not use it to build high-frequency trading or trading systems.
 

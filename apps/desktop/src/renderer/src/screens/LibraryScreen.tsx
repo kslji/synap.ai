@@ -1,4 +1,5 @@
-import { SurfCrew } from '@surf/ui'
+import { useState } from 'react'
+import { StarSurf } from '@surf/ui'
 import type { ChunkPreview, LibraryFile } from '../../../shared/ipc-contract'
 
 export function LibraryScreen({
@@ -24,16 +25,18 @@ export function LibraryScreen({
   onConvert: (file: LibraryFile) => void
   onFill: (file: LibraryFile) => void
 }) {
+  const [query, setQuery] = useState('')
   const working = files.some((file) => file.status === 'queued' || file.status === 'running')
+  const shown = files.filter((file) => file.name.toLowerCase().includes(query.trim().toLowerCase()))
   return (
     <section className="flex min-w-0 flex-1">
       <div className="flex-1 overflow-auto px-8 py-8">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Files</h1>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                Files stay on this computer. Surf reads them in the background and can cite the passage it used.
+                Files stay on this computer. Search the ones you added, fill a form, or convert a format.
               </p>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -41,22 +44,27 @@ export function LibraryScreen({
               <button type="button" className="btn btn-primary" data-add-documents="yes" onClick={onAdd}>Add files</button>
             </div>
           </div>
+          <label className="mt-5 block text-sm font-semibold">
+            Search my files
+            <input className="field mt-2" value={query} aria-label="Search my files" placeholder="Search by name" onChange={(event) => setQuery(event.target.value)} />
+          </label>
           {working && (
             <div className="mt-5 flex items-center gap-3" data-processing="yes">
-              <SurfCrew who="octo" mood="working" size={72} />
+              <StarSurf state="searching" size={72} />
               <p className="text-sm text-[var(--muted)]">Reading your files. You can keep chatting.</p>
             </div>
           )}
-          {files.length === 0 ? (
+          {shown.length === 0 ? (
             <div
-              className="mt-8 rounded-2xl border border-dashed border-[var(--line)] px-6 py-16 text-center"
+              className="mt-8 flex flex-col items-center rounded-2xl border border-dashed border-[var(--line)] px-6 py-16 text-center"
               data-upload="yes"
             >
-              <p className="text-sm text-[var(--muted)]">Drop PDF, Word, PowerPoint, Excel, text, HTML, or images into a chat, or add them here.</p>
+              <StarSurf state="idle" size={96} />
+              <p className="mt-3 text-sm text-[var(--muted)]">{query ? 'No files match that search.' : 'Drop PDF, Word, PowerPoint, Excel, text, HTML, or images into a chat, or add them here.'}</p>
             </div>
           ) : (
             <ul className="mt-6 flex flex-col gap-3">
-              {files.map((file) => (
+              {shown.map((file) => (
                 <li key={file.id} className="card px-4 py-3" data-file-status={file.status}>
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">

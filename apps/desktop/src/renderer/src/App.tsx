@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { persistThemeChoice, SurfCrew, type ThemeChoice } from '@surf/ui'
+import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
 import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
+import { agents } from '../../../../../packages/shared/src/agent-catalog'
+import { agentCanChat } from '../../../../../packages/shared/src/agents'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
-import { ModelsScreen } from './screens/ModelsScreen'
+import { AgentsScreen, ChatsScreen, HomeScreen } from './screens/HomeScreen'
+import { activeChatModel, chatModels, ModelsScreen } from './screens/ModelsScreen'
+import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { LibraryScreen } from './screens/LibraryScreen'
@@ -20,6 +24,8 @@ export default function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [view, setView] = useState<View>('onboarding')
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [agentId, setAgentId] = useState('general')
+  const [tourStep, setTourStep] = useState<number | null>(null)
   const [messages, setMessages] = useState<UiMsg[]>([])
   const [streaming, setStreaming] = useState(false)
   const [progress, setProgress] = useState<Record<string, number>>({})
@@ -94,12 +100,18 @@ export default function App() {
   useEffect(() => {
     if (!status || booted.current) return
     booted.current = true
-    if (status.onboardingComplete) setView('chat')
+    if (status.onboardingComplete) setView('home')
   }, [status])
 
   useEffect(() => {
     if (settings) persistThemeChoice(settings.theme)
   }, [settings])
+
+  useEffect(() => {
+    if (tourStep == null) return
+    const next = TOUR[tourStep]
+    if (next) setView(next.view)
+  }, [tourStep])
 
   function chooseTheme(theme: ThemeChoice) {
     persistThemeChoice(theme)
@@ -140,7 +152,7 @@ export default function App() {
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text, agentId: 'general', allowWeb: Boolean(settings?.webSearchAllowed && chatWeb), docScope: scope })
+      const res = await api.chat.send({ conversationId, text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
     } catch (e) {
@@ -151,18 +163,30 @@ export default function App() {
 
   async function openConversation(id: string) {
     const opened = await api.conversations.open(id)
+    const summary = conversations.find((chat) => chat.id === id)
+    if (summary) setAgentId(summary.agentId)
     setConversationId(id)
     setMessages(opened.messages.map((m) => ({ ...m, tools: [] })))
     setChatWeb(true)
     setView('chat')
   }
 
-  function newChat() {
+  function newChat(nextAgent = agentId) {
+    const agent = agents.find((item) => item.id === nextAgent)
+    if (!agent || !agentCanChat(agent)) return
+    setAgentId(agent.id)
     setConversationId(null)
     setMessages([])
     setPreview(null)
     setChatWeb(true)
     setView('chat')
+  }
+
+  async function chooseChatModel(id: string) {
+    const model = status?.models.find((item) => item.id === id && item.role === 'chat')
+    if (!model) return
+    if (!model.installed) await download(id)
+    await patch({ chatModelId: id })
   }
 
   async function deleteConversation(id: string) {
@@ -318,6 +342,27 @@ export default function App() {
       setConvertJob(null)
       setFillJob(null)
       setUpdateOffer(null)
+      if (scene === 'home') {
+        setView('home')
+        setConversations([
+          { id: 'c-general', title: 'Harbor ferry', agentId: 'general', updatedAt: 3 },
+          { id: 'c-code', title: 'Button spacing', agentId: 'code', updatedAt: 2 },
+          { id: 'c-assistant', title: 'Invoice draft', agentId: 'assistant', updatedAt: 1 },
+        ])
+        return
+      }
+      const agentScene = scene === 'agent-general' ? 'general' : scene === 'agent-code' ? 'code' : scene === 'agent-assistant' ? 'assistant' : null
+      if (agentScene) {
+        setAgentId(agentScene)
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
+          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [] },
+        ])
+        return
+      }
       if (scene === 'update') {
         setView('chat')
         setUpdateOffer({
@@ -327,7 +372,7 @@ export default function App() {
           notes: '',
           steps: [
             'Download the new .dmg and open it.',
-            'Drag Surf AI to Applications. Replace the old app when asked.',
+            'Drag Synap.surf to Applications. Replace the old app when asked.',
             'If macOS says the app is from an unidentified developer, open it once, then go to System Settings → Privacy & Security and click Open Anyway. You only need to do this once.',
           ],
         })
@@ -532,8 +577,8 @@ export default function App() {
   if (!status || !settings) {
     return (
       <main className="flex h-full flex-col items-center justify-center gap-2" data-ready="no">
-        <SurfCrew mood="thinking" size={180} />
-        <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Surf AI'}</p>
+        <StarSurf state="searching" size={160} />
+        <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Synap.surf'}</p>
       </main>
     )
   }
@@ -572,28 +617,47 @@ export default function App() {
           theme={settings.theme}
           onTheme={chooseTheme}
           onDownload={downloadChatAndEmbed}
-          onReady={(chatId) => { void patch({ onboardingComplete: true, chatModelId: chatId }).then(() => setView('chat')) }}
+          onReady={(chatId) => { void patch({ onboardingComplete: true, chatModelId: chatId }).then(() => { setView('home'); setTourStep(0) }) }}
         />
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col" data-ready="yes" data-screen={view}>
+    <div className="relative flex h-full flex-col" data-ready="yes" data-screen={view}>
       {updateOffer && <UpdateBanner offer={updateOffer} onApply={() => { void api.updates.apply().catch((e: unknown) => setError((e as Error).message)) }} />}
       <div className="flex min-h-0 flex-1">
       <Sidebar
         view={view}
         conversations={conversations}
         activeId={conversationId}
+        agentId={agentId}
         onView={setView}
         theme={settings.theme}
         onTheme={chooseTheme}
-        signedIn={Boolean(shownAccount)}
-        onNew={newChat}
+        tourId={tourStep != null ? TOUR[tourStep]?.id ?? null : null}
+        onNew={() => newChat()}
         onOpen={(id) => { void openConversation(id) }}
         onDelete={(id) => { void deleteConversation(id) }}
+        onAgent={(id) => newChat(id)}
       />
+      {view === 'home' && (
+        <HomeScreen
+          agents={agents}
+          conversations={conversations}
+          onStart={(id) => newChat(id)}
+          onOpen={(id) => { void openConversation(id) }}
+          onAsk={() => newChat('general')}
+          onDocument={() => { newChat(agentId); void api.library.pick(null, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onFill={() => { void openFill({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
+          onConvert={() => { void openConvert({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
+          onSearch={() => setView('library')}
+        />
+      )}
+      {view === 'agents' && <AgentsScreen agents={agents} onStart={(id) => newChat(id)} />}
+      {view === 'chats' && (
+        <ChatsScreen agents={agents} conversations={conversations} agentId={agentId} onOpen={(id) => { void openConversation(id) }} onNew={() => newChat()} />
+      )}
       {view === 'chat' && (
         <ChatScreen
           messages={messages}
@@ -604,6 +668,13 @@ export default function App() {
           preview={preview}
           webSearchAllowed={settings.webSearchAllowed}
           chatWeb={chatWeb}
+          agentName={agents.find((agent) => agent.id === agentId)?.name ?? 'General'}
+          agentNote={agents.find((agent) => agent.id === agentId)?.notes}
+          modelLabel={activeChatModel(status)?.label ?? 'Qwen3.5'}
+          chatChoices={chatModels(status).map((model) => ({ id: model.id, label: model.label }))}
+          chatModelId={activeChatModel(status)?.id ?? ''}
+          tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
+          tourOnline={tourStep != null && TOUR[tourStep]?.id === 'online'}
           onSend={(t) => { void send(t) }}
           onToggleOffline={() => { void patch({ offlineOnly: !settings.offlineOnly }) }}
           onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
@@ -612,6 +683,7 @@ export default function App() {
           onScope={setScope}
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}
+          onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
       {view === 'library' && (
@@ -644,7 +716,14 @@ export default function App() {
         />
       )}
       {view === 'models' && (
-        <ModelsScreen status={status} progress={progress} busyId={busyId} error={error} onDownload={(id) => { void download(id).catch(() => undefined) }} />
+        <ModelsScreen
+          status={status}
+          progress={progress}
+          busyId={busyId}
+          error={error}
+          onDownload={(id) => { void download(id).catch(() => undefined) }}
+          onSelect={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
+        />
       )}
       {view === 'settings' && (
         <SettingsScreen
@@ -666,6 +745,11 @@ export default function App() {
             void api.auth.revoke(id).then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
           }}
           onPatch={(p) => { void patch(p) }}
+          progress={progress}
+          busyId={busyId}
+          error={error}
+          onDownload={(id) => { void download(id).catch(() => undefined) }}
+          onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           onCheckUpdates={async () => {
             const offer = await api.updates.check()
             setUpdateOffer(offer)
@@ -684,6 +768,31 @@ export default function App() {
           onCancel={() => { void api.documents.cancel(); setConvertJob({ ...convertJob, busy: false, stage: 'Cancelled' }) }}
           onClose={() => setConvertJob(null)}
         />
+      )}
+      {tourStep != null && TOUR[tourStep] && (
+        <div className="tour-shade" role="dialog" aria-label="Guided tour">
+          <div className="tour-card card px-5 py-5">
+            <StarSurf state="guiding" size={72} />
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Step {tourStep + 1} of {TOUR.length}</p>
+            <h2 className="mt-1 text-lg font-semibold">{TOUR[tourStep].title}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{TOUR[tourStep].body}</p>
+            <div className="mt-4 flex gap-2">
+              <button className="btn btn-ghost" type="button" onClick={() => setTourStep(null)}>Skip</button>
+              <button className="btn btn-primary" type="button" onClick={() => setTourStep((step) => (step == null || step + 1 >= TOUR.length ? null : step + 1))}>
+                {tourStep + 1 >= TOUR.length ? 'Done' : 'Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center px-4">
+          <div className="card pointer-events-auto flex items-center gap-3 px-4 py-3 text-sm" role="alert">
+            <StarSurf state="error" size={40} />
+            <span>{error}</span>
+            <button className="btn btn-ghost" type="button" onClick={() => setError(null)}>Dismiss</button>
+          </div>
+        </div>
       )}
       {fillJob && (
         <FillReview

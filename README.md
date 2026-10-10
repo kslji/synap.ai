@@ -1,4 +1,4 @@
-# Surf AI
+# Synap.surf
 
 A local-first desktop assistant. The model runs on your computer. Chats stay there. When you are online, the app can catch up.
 
@@ -27,12 +27,12 @@ npm run dev:web
 
 ### Beta: opening on Mac
 
-Mac users: during the beta, Surf AI isn't signed by Apple yet, so macOS may say it can't be opened or is from an unidentified developer. You only need to do this once.
+Mac users: during the beta, Synap.surf isn't signed by Apple yet, so macOS may say it can't be opened or is from an unidentified developer. You only need to do this once.
 
-1. Open Surf AI once so macOS blocks it.
+1. Open Synap.surf once so macOS blocks it.
 2. Go to System Settings → Privacy & Security.
 3. Scroll to the Security section.
-4. Click Open Anyway next to Surf AI, then confirm.
+4. Click Open Anyway next to Synap.surf, then confirm.
 
 Windows users: if you see "Windows protected your PC", click the small underlined More info link under the warning. The window then shows the app name and Unknown publisher, with a Run anyway button at the bottom right. Click Run anyway to install. You only need to do this once.
 
@@ -61,13 +61,13 @@ SURF_MODELS_DIR=~/surf-models npm run eval
 | `services/packs` | Build and sign a knowledge pack from a folder of documents |
 | `deploy` | Docker Compose: Caddy, API, Postgres/pgvector, Valkey, SearXNG |
 | `pipelines/ingest` | Day 6 placeholder |
-| `packages/ui` | Theme, jellyfish, seahorse, octopus |
+| `packages/ui` | Theme and Star Surf |
 | `packages/shared` | Product constants |
 | `docs` | Architecture, diagrams, code samples |
 
 ## Design
 
-One theme, in `packages/ui/src/tokens.css`: white and near-black surfaces, black or white text, orange `#F97316` as the only accent. Light and dark both read those variables. The jellyfish, seahorse, octopus, and the app icon use the same black, white, and orange. They are SVG and CSS, not a copied mascot, and they respect reduced motion. Light, dark, and system share one control.
+One theme, in `packages/ui/src/tokens.css`: white and near-black surfaces, black or white text, orange `#F97316` as the only accent. Light and dark both read those variables. The default is Light. Star Surf is the only character. The motion is CSS, and it respects reduced motion.
 
 The portable zip pack (RAM picker, `LOCAL-SETUP`, `SURF-OPEN`, in-zip `check-pack`) is removed. Model size is chosen in the desktop app's first launch. `build.txt` publishes `apps/web/dist` and drops the old zip pages from the live site.
 

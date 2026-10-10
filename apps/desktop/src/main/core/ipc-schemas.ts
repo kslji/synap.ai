@@ -17,7 +17,7 @@ export const SettingsPatch = z.object({
   telemetryOptIn: z.boolean().optional(),
   chatModelId: z.string().max(64).optional(),
   onboardingComplete: z.boolean().optional(),
-  theme: z.enum(['system', 'light', 'dark']).optional(),
+  theme: z.union([z.enum(['light', 'dark']), z.literal('system').transform(() => 'light' as const)]).optional(),
   apiBaseUrl: z.string().max(200).regex(/^https?:\/\/\S+$/).optional(),
   packSyncHours: z.number().int().min(1).max(168).optional(),
   updateChannel: z.enum(['stable', 'beta']).optional(),

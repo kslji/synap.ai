@@ -1,4 +1,4 @@
-# Releasing Surf AI
+# Releasing Synap.surf
 
 Draft notes for the person cutting a build. This is not a legal document.
 

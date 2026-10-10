@@ -4,7 +4,6 @@ import type { ThemeChoice } from './theme'
 const OPTIONS: { id: ThemeChoice; label: string }[] = [
   { id: 'light', label: 'Light' },
   { id: 'dark', label: 'Dark' },
-  { id: 'system', label: 'System' },
 ]
 
 export function ThemeSwitch({
@@ -67,17 +66,9 @@ function ThemeIcon({ id }: { id: ThemeChoice }) {
       </svg>
     )
   }
-  if (id === 'dark') {
-    return (
-      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-        <path fill="currentColor" d="M9.2 1.6a5.8 5.8 0 1 0 5.2 8.4 4.7 4.7 0 0 1-5.2-8.4z" />
-      </svg>
-    )
-  }
   return (
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <rect x="2" y="2.5" width="12" height="8.5" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M6 13.5 H10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path fill="currentColor" d="M9.2 1.6a5.8 5.8 0 1 0 5.2 8.4 4.7 4.7 0 0 1-5.2-8.4z" />
     </svg>
   )
 }

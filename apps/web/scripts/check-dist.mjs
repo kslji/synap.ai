@@ -26,7 +26,7 @@ for (const ref of refs) {
 }
 const js = readdirSync(join(distPath, 'assets')).filter((name) => name.endsWith('.js'))
 const bundle = js.map((name) => readFileSync(join(distPath, 'assets', name), 'utf8')).join('\n')
-for (const route of ['/privacy', '/security', '/contribute']) {
+for (const route of ['/privacy', '/security', '/contribute', '/terms']) {
   if (!bundle.includes(route)) {
     console.error('bundle missing route', route)
     missing += 1
@@ -34,6 +34,20 @@ for (const route of ['/privacy', '/security', '/contribute']) {
 }
 if (!bundle.includes('Draft — not legal advice')) {
   console.error('bundle missing the draft notice')
+  missing += 1
+}
+const agentsRoot = new URL('../../../agents/', import.meta.url).pathname
+for (const id of readdirSync(agentsRoot)) {
+  const file = join(agentsRoot, id, 'agent.json')
+  if (!existsSync(file)) continue
+  const agent = JSON.parse(readFileSync(file, 'utf8'))
+  if (typeof agent.name !== 'string' || !bundle.includes(agent.name)) {
+    console.error('bundle missing agent', agent.name)
+    missing += 1
+  }
+}
+if (!bundle.includes('data-agent-card')) {
+  console.error('bundle missing agent cards')
   missing += 1
 }
 if (missing) process.exit(1)

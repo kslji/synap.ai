@@ -1,5 +1,5 @@
 export const product = {
-  name: 'Surf AI',
+  name: 'Synap.surf',
   tagline: "Works offline. Stays up to date when you're online.",
   appId: 'ai.surf.desktop',
   repo: 'https://github.com/kslji/synap.ai',

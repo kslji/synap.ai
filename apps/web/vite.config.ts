@@ -7,6 +7,7 @@ export default defineConfig({
   base: '/',
   envPrefix: ['VITE_', 'SITE_'],
   plugins: [react(), tailwindcss()],
+  server: { fs: { allow: [resolve('../..')] } },
   resolve: {
     alias: [
       { find: '@surf/ui/tokens.css', replacement: resolve('../../packages/ui/src/tokens.css') },

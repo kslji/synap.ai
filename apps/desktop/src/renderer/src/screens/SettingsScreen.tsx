@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ThemeSwitch } from '@surf/ui'
 import { product } from '@surf/shared'
 import type { DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
+import { activeChatModel, chatModels, ModelPanel } from './ModelsScreen'
 
 export function SettingsScreen({
   status,
@@ -13,6 +14,11 @@ export function SettingsScreen({
   onSignIn,
   onSignOut,
   onRevoke,
+  progress,
+  busyId,
+  error,
+  onDownload,
+  onSelectModel,
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
@@ -23,9 +29,17 @@ export function SettingsScreen({
   onSignIn: () => void
   onSignOut: () => void
   onRevoke: (deviceId: string) => void
+  progress: Record<string, number>
+  busyId: string | null
+  error: string | null
+  onDownload: (id: string) => void
+  onSelectModel: (id: string) => void
 }) {
   const [updateNote, setUpdateNote] = useState('')
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
+  const chats = chatModels(status)
+  const current = activeChatModel(status)
   useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
   const apiOk = /^https?:\/\/\S+$/.test(apiBase)
 
@@ -33,6 +47,7 @@ export function SettingsScreen({
     <section className="flex-1 overflow-auto px-8 py-8">
       <div className="mx-auto flex max-w-xl flex-col gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <Group title="Account">
         <div className="card px-4 py-4" data-account="yes">
           <div className="text-sm font-semibold">Account</div>
           {account ? (
@@ -55,6 +70,24 @@ export function SettingsScreen({
             </>
           )}
         </div>
+        </Group>
+        <Group title="Models">
+          <div className="card px-4 py-4">
+            <ModelPanel
+              status={status}
+              chats={chats}
+              current={current}
+              progress={progress}
+              busyId={busyId}
+              error={error}
+              detailsOpen={detailsOpen}
+              onToggleDetails={() => setDetailsOpen((open) => !open)}
+              onDownload={onDownload}
+              onSelect={onSelectModel}
+            />
+          </div>
+        </Group>
+        <Group title="Privacy and permissions">
         <Row
           title="Offline only"
           body="No network calls for answers, downloads, or update checks."
@@ -63,21 +96,21 @@ export function SettingsScreen({
         />
         <Row
           title="Allow web search"
-          body="When you are online and local sources are thin, Surf may search the web. Your documents stay on this computer. Only the short search queries are sent."
+          body="When you are online and local sources are thin, Synap.surf may search the web. Your documents stay on this computer. Only the short search queries are sent."
           on={settings.webSearchAllowed}
           onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
         />
         <SavedWebCard />
         <Row
           title="Telemetry"
-          body="Off by default. The choice is saved here. Sending counts is not wired yet, and prompts are never included."
+          body="Off unless you turn it on. Prompts stay on this computer."
           on={settings.telemetryOptIn}
           onToggle={() => onPatch({ telemetryOptIn: !settings.telemetryOptIn })}
         />
         <div className="card px-4 py-4">
-          <div className="text-sm font-semibold">Search service</div>
+          <div className="text-sm font-semibold">Web search service</div>
           <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Production placeholder is https://api.synap.surf. Local development uses http://127.0.0.1:8000.
+            Used only when web search is on and you are online. Documents stay on this computer.
           </p>
           <input
             className="field mt-3"
@@ -89,13 +122,14 @@ export function SettingsScreen({
           />
           {!apiOk && <p className="mt-2 text-sm text-[var(--muted)]">Use an http or https address.</p>}
         </div>
-        <div className="card px-4 py-4">
-          <div className="text-sm font-semibold">Appearance</div>
-          <p className="mt-1 text-sm text-[var(--muted)]">System follows this computer. Your choice is saved on this device.</p>
-          <div className="mt-3">
-            <ThemeSwitch value={settings.theme} onChange={(theme) => onPatch({ theme })} />
+        </Group>
+        <Group title="Connectors">
+          <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
+            <p>Assistant can draft email and look at a calendar, Slack, or Drive after those accounts are connected. Connecting accounts is not in this beta. Send and delete still wait for your approval.</p>
+            <p className="mt-2">Code + UI chats about code and the screen you are building. It is not for trading or high-frequency trading. A live code preview is not in this beta.</p>
           </div>
-        </div>
+        </Group>
+        <Group title="Updates">
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
@@ -141,17 +175,35 @@ export function SettingsScreen({
             <p className="mt-2">Beta includes tags that contain -beta. Stable does not.</p>
           </div>
         </div>
+        </Group>
+        <Group title="About">
         <div className="card px-4 py-4 text-sm leading-relaxed" data-about="yes">
-          <div className="font-semibold text-[var(--ink)]">About</div>
-          <p className="mt-2 text-[var(--muted)]">Surf AI runs on this computer. The notes below are drafts, not legal advice.</p>
+          <div className="font-semibold text-[var(--ink)]">Appearance</div>
+          <p className="mt-1 text-[var(--muted)]">Light or dark. Saved on this device.</p>
+          <div className="mt-3">
+            <ThemeSwitch value={settings.theme} onChange={(theme) => onPatch({ theme })} />
+          </div>
+          <div className="mt-4 font-semibold text-[var(--ink)]">About</div>
+          <p className="mt-2 text-[var(--muted)]">Synap.surf runs on this computer. The notes below are drafts, not legal advice.</p>
           <div className="mt-3 flex flex-wrap gap-3">
             <AboutLink href={`${product.site}/privacy`}>Privacy</AboutLink>
             <AboutLink href={`${product.site}/security`}>Security</AboutLink>
             <AboutLink href={`${product.site}/contribute`}>Contribute</AboutLink>
+            <AboutLink href={`${product.site}/terms`}>Terms</AboutLink>
             <AboutLink href={product.repo}>GitHub</AboutLink>
           </div>
         </div>
+        </Group>
       </div>
+    </section>
+  )
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3" data-settings-group={title}>
+      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{title}</h2>
+      {children}
     </section>
   )
 }

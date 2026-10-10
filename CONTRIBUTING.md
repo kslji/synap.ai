@@ -15,3 +15,7 @@ SITE_CONTACT_EMAIL=you@example.com SITE_FORM_KEY=your-web3forms-access-key npm r
 Create the access key at https://web3forms.com with the same inbox you put in `SITE_CONTACT_EMAIL`.
 
 Code changes belong in a pull request against this repository. Please do not add a paid signing certificate or a telemetry default of on.
+
+## Agent cards
+
+To add an agent to the website and the desktop list, add `agents/<id>/agent.json`. The layout does not change. See `docs/AGENTS.md`.

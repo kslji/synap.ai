@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { SurfMark, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { StarSurf, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
-import { allowSubmit, contactEmail, detectClient, DRAFT, footerLinks, formKey, formRoles, pickDownload } from './site'
+import { DownloadButtons } from './download-buttons'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, type ReleaseListItem } from './site'
 
 export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -17,11 +18,12 @@ export function SiteHeader({ theme, onTheme }: { theme: ThemeChoice; onTheme: (n
   return (
     <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-5">
       <a href="/" className="flex items-center gap-2 text-[var(--ink)] no-underline">
-        <SurfMark size={40} />
-        <span className="text-[15px] font-semibold">Surf AI</span>
+        <StarSurf state="idle" size={40} />
+        <span className="text-[15px] font-semibold">{product.name}</span>
       </a>
       <nav className="hidden items-center gap-4 text-sm md:flex">
-        <a className="text-[var(--muted)] no-underline" href="/#how">How it works</a>
+          <a className="text-[var(--muted)] no-underline" href="/#companion">Companion</a>
+        <a className="text-[var(--muted)] no-underline" href="/#agents">Agents</a>
         <a className="text-[var(--muted)] no-underline" href="/#download">Download</a>
         <a className="text-[var(--muted)] no-underline" href="/privacy">Privacy</a>
         <ThemeSwitch value={theme} onChange={onTheme} />
@@ -46,7 +48,7 @@ export function SiteFooter() {
   return (
     <footer className="border-t border-[var(--line)] px-6 py-8">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 text-sm text-[var(--muted)]">
-        <span>Surf AI · on your computer</span>
+        <span>{product.name} · on your computer</span>
         <nav className="flex flex-wrap gap-4">
           {footerLinks.map((link) => (
             <a key={link.href} className="text-[var(--muted)]" href={link.href}>{link.label}</a>
@@ -77,7 +79,7 @@ export function PrivacyPage() {
   return (
     <Page title="Privacy">
       <p data-page="privacy">
-        Surf AI is designed so chats and documents stay on your device in an encrypted database. The model runs locally. This page is a description of that design. It is not a certification, and it does not mean data cannot be leaked. A stolen computer, a bug, or other software on the machine can still expose files.
+        Synap.surf is designed so chats and documents stay on your device in an encrypted database. The model runs locally. This page is a description of that design. It is not a certification, and it does not mean data cannot be leaked. A stolen computer, a bug, or other software on the machine can still expose files.
       </p>
       <p>
         Designed around the India IT Act 2000 and the DPDP Act 2023, the EU and UK GDPR, and the California CCPA/CPRA. Naming those laws is not a claim of certified compliance.
@@ -87,7 +89,7 @@ export function PrivacyPage() {
         <li>Sending, changing, or deleting mail waits for your approval. Delete asks a second time.</li>
         <li>Web search is optional. When you allow it, only the short query is sent, not your documents.</li>
         <li>There are no ads and no sale of data. Crash reports are off by default.</li>
-        <li>To delete everything Surf stored, quit the app and remove its data folder: ~/Library/Application Support/surf-ai on macOS, or %APPDATA%\surf-ai on Windows.</li>
+        <li>To delete everything the app stored, quit Synap.surf and remove its data folder: ~/Library/Application Support/surf-ai on macOS, or %APPDATA%\surf-ai on Windows.</li>
       </ul>
       <p>Questions: <a href={`mailto:${email}`}>{email}</a></p>
     </Page>
@@ -117,50 +119,112 @@ export function SecurityPage() {
   )
 }
 
+export function TermsPage() {
+  return (
+    <Page title="Terms">
+      <p data-page="terms">
+        Draft — not legal advice. Synap.surf is a beta. It is provided as-is, without a warranty. Do not use it for high-frequency trading, and do not use it to send spam or cold email.
+      </p>
+      <ul className="list-disc space-y-2 pl-5">
+        <li>You keep the files on your computer. The project does not take ownership of them.</li>
+        <li>Unsigned beta builds can be blocked by macOS or Windows until you allow them once.</li>
+        <li>Do not use the app to break the law or to attack other people’s systems.</li>
+      </ul>
+    </Page>
+  )
+}
+
+function webglRenderer(): string {
+  try {
+    const canvas = document.createElement('canvas')
+    const gl = canvas.getContext('webgl')
+    if (!gl) return ''
+    const ext = gl.getExtension('WEBGL_debug_renderer_info')
+    if (!ext) return ''
+    return String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '')
+  } catch {
+    return ''
+  }
+}
+
+const MAC_STEPS = [
+  'Open the disk image when it finishes.',
+  'Drag Synap.surf into Applications.',
+  'If macOS blocks the app, choose Open Anyway in Privacy & Security. You only do this once.',
+]
+
+const WINDOWS_STEPS = [
+  'Open the installer when it finishes.',
+  'If Windows asks, choose More info, then Run anyway.',
+  'Finish the prompts. You only do this once.',
+]
+
 export function DownloadCard() {
-  const clientGuess = detectClient({ ua: typeof navigator === 'undefined' ? '' : navigator.userAgent })
-  const [links, setLinks] = useState<{ mac: string; win: string; guess: string }>({ mac: product.releasesUrl, win: product.releasesUrl, guess: clientGuess.os === 'mac' ? `mac-${clientGuess.arch}` : clientGuess.os })
+  const initial = detectClient({ ua: typeof navigator === 'undefined' ? '' : navigator.userAgent })
+  const initialArch = initial.os === 'mac' ? initial.arch : 'arm64'
+  const baked = downloadHrefs(BUNDLED_ASSETS, initial.os, initialArch)
+  const [os, setOs] = useState(initial.os)
+  const [arch, setArch] = useState(initialArch)
+  const [links, setLinks] = useState(baked)
+  const [started, setStarted] = useState<'mac' | 'windows' | null>(null)
+  const preferIntel = useRef(false)
 
   useEffect(() => {
     let gone = false
     async function load() {
       const nav = navigator as Navigator & { userAgentData?: { getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }> } }
       let architecture: string | undefined
-      try { architecture = (await nav.userAgentData?.getHighEntropyValues?.(['architecture']))?.architecture } catch { /* the UA string is enough */ }
-      const client = detectClient({ ua: navigator.userAgent, architecture })
-      const guess = client.os === 'mac' ? `mac-${client.arch}` : client.os
-      let mac: string = product.releasesUrl
-      let win: string = product.releasesUrl
+      try { architecture = (await nav.userAgentData?.getHighEntropyValues?.(['architecture']))?.architecture } catch { /* baked URLs still work */ }
+      const client = detectClient({ ua: navigator.userAgent, architecture, renderer: webglRenderer() })
+      let assets = BUNDLED_ASSETS
       try {
-        const response = await fetch('https://api.github.com/repos/kslji/synap.ai/releases/latest', {
-          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'SurfAI' },
+        const response = await fetch('https://api.github.com/repos/kslji/synap.ai/releases?per_page=5', {
+          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Synap.surf' },
         })
         if (response.ok) {
-          const body = await response.json() as { assets?: Array<{ name?: string; browser_download_url?: string }> }
-          const assets = (body.assets ?? [])
-            .filter((asset) => asset.name && asset.browser_download_url)
-            .map((asset) => ({ name: asset.name as string, url: asset.browser_download_url as string }))
-          mac = pickDownload(assets, 'mac', client.os === 'mac' ? client.arch : 'arm64')?.url ?? mac
-          win = pickDownload(assets, 'windows', 'x64')?.url ?? win
+          const body = await response.json() as ReleaseListItem[]
+          const live = releaseAssets(newestPublishableRelease(Array.isArray(body) ? body : []))
+          if (live.some((asset) => asset.name.endsWith('.dmg') || asset.name.endsWith('.exe'))) assets = live
         }
-      } catch { /* the Releases page is the fallback */ }
-      if (!gone) setLinks({ mac, win, guess })
+      } catch { /* the baked installer URLs stay in the buttons */ }
+      if (gone) return
+      const nextArch = preferIntel.current ? 'x64' : client.os === 'mac' ? client.arch : 'arm64'
+      setOs(client.os)
+      setArch(nextArch)
+      setLinks(downloadHrefs(assets, client.os, nextArch))
     }
     void load()
     return () => { gone = true }
   }, [])
 
+  const macHref = arch === 'x64' ? links.intel : links.mac
+  const macHere = os === 'mac' && arch !== 'x64'
+  const winHere = os === 'windows'
+
   return (
-    <div className="mt-5 flex flex-col gap-2 md:mt-0" data-download-page="yes" data-download-guess={links.guess}>
-      <a className="btn btn-primary no-underline" data-download="mac" data-suggested={links.guess.startsWith('mac') ? 'yes' : 'no'} href={links.mac}>
-        macOS .dmg{links.guess.startsWith('mac') ? ' · this computer' : ''}
-      </a>
-      <a className="btn btn-ghost no-underline" data-download="windows" data-suggested={links.guess === 'windows' ? 'yes' : 'no'} href={links.win}>
-        Windows .exe{links.guess === 'windows' ? ' · this computer' : ''}
-      </a>
-      <p className="max-w-xs text-xs leading-relaxed text-[var(--muted)]">
-        Apple silicon and Intel get separate disk images, so you do not download both. Until a release is published, the buttons open the Releases page.
-      </p>
+    <div className="mt-5 flex flex-col gap-2 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
+      <DownloadButtons
+        mac={macHref}
+        win={links.win}
+        macLabel={`Download for Mac${macHere ? ' · this computer' : arch === 'x64' ? ' · Intel' : ''}`}
+        winLabel={`Download for Windows${winHere ? ' · this computer' : ''}`}
+        macSuggested={macHere}
+        winSuggested={winHere}
+        onStart={setStarted}
+      />
+      <button type="button" className="self-start text-xs text-[var(--muted)] underline" data-download-intel="yes" onClick={() => { preferIntel.current = true; setArch('x64') }}>
+        Intel Mac?
+      </button>
+      <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
+      {started && (
+        <div className="card mt-2 px-4 py-4" data-download-started={started}>
+          <StarSurf state="guiding" size={72} />
+          <p className="mt-2 text-sm font-semibold">Your download has started</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-[var(--muted)]">
+            {(started === 'mac' ? MAC_STEPS : WINDOWS_STEPS).map((step) => <li key={step}>{step}</li>)}
+          </ol>
+        </div>
+      )}
     </div>
   )
 }
@@ -189,7 +253,7 @@ export function ContributePage() {
     const url = String(data.get('url') || '')
     const message = String(data.get('message') || '')
     if (!key) {
-      window.location.href = `mailto:${email}?subject=${encodeURIComponent('Surf AI — ' + role)}&body=${encodeURIComponent(`${name} <${from}>\n${url}\n\n${message}`)}`
+      window.location.href = `mailto:${email}?subject=${encodeURIComponent('Synap.surf — ' + role)}&body=${encodeURIComponent(`${name} <${from}>\n${url}\n\n${message}`)}`
       return
     }
     sessionStorage.setItem('surf-form-at', String(Date.now()))
@@ -198,7 +262,7 @@ export function ContributePage() {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         access_key: key,
-        subject: `Surf AI contribute — ${role}`,
+        subject: `Synap.surf contribute — ${role}`,
         name,
         email: from,
         role,

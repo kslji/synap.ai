@@ -14,6 +14,24 @@ body {
   color: var(--ink);
   letter-spacing: -0.011em;
 }
-button, textarea, input { font: inherit; color: inherit; }
+button, textarea, input, select { font: inherit; color: inherit; }
+.tour-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #0a0a0a 28%, transparent);
+  pointer-events: none;
+}
+.tour-card { pointer-events: auto; width: min(420px, 100%); }
+[data-tour-target="yes"] {
+  position: relative;
+  z-index: 41;
+  box-shadow: 0 0 0 3px var(--accent);
+  border-radius: 12px;
+}
 a { color: var(--accent-text); }
 ::selection { background: var(--accent-soft); }

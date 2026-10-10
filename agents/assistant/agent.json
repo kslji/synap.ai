@@ -1,0 +1,10 @@
+{
+  "name": "Assistant",
+  "tagline": "Email, calendar, and the files you already share",
+  "description": "Drafts email, checks a calendar, and reaches Slack or Drive only after you connect them. It asks before it sends or deletes anything.",
+  "icon": "mail",
+  "accent": "#F97316",
+  "status": "beta",
+  "order": 3,
+  "notes": "Asks before send or delete."
+}

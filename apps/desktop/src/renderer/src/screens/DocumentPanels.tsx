@@ -1,4 +1,4 @@
-import { SurfCrew } from '@surf/ui'
+import { StarSurf } from '@surf/ui'
 import type { ExportFormat, FillPlan, FillRow } from '../../../shared/ipc-contract'
 
 const NOT_FOUND = 'not found in source'
@@ -43,7 +43,7 @@ export function ConvertDialog({
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 px-4" data-convert="yes">
       <div className="card w-full max-w-lg px-5 py-5">
         <div className="flex items-start gap-3">
-          <SurfCrew who="octo" mood="working" size={72} />
+          <StarSurf state="searching" size={72} />
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold tracking-tight">Convert a copy</h2>
             <p className="mt-1 truncate text-sm text-[var(--muted)]">{state.name}</p>
@@ -132,7 +132,7 @@ export function FillReview({
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 px-4 py-6" data-fill="yes">
       <div className="card flex max-h-full w-full max-w-3xl flex-col px-5 py-5">
         <div className="flex items-start gap-3">
-          <SurfCrew who="octo" mood="working" size={72} />
+          <StarSurf state="searching" size={72} />
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold tracking-tight">Fill from another document</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">

@@ -11,7 +11,7 @@ Day 4 of the plan. The desktop still answers from local documents first. When th
 - The desktop decides: local documents, then a relevance gate. A strong hit answers from those documents. A fresh question (words such as latest, today, 2026, price) can add the web even when local hits are decent, and the answer blends both. A weak hit with web allowed searches. A weak hit while offline, or with web turned off, replies with exactly: `I don't have enough information to answer that from the sources on this computer.` plus a hint.
 - Offline only is enforced in the main process before registration, search, fetch, and the health probe. The renderer toggle is not the only check.
 - Search queries are written by the local chat model (1–3 short strings). Page text is chunked and embedded on the device with EmbeddingGemma 2, then reranked. User documents are never uploaded.
-- The chat shows an online/offline pill with a reason, a per-chat web switch, a seahorse-with-telescope state while searching, and web source cards (title, domain, date) that open in the system browser.
+- The chat shows an online/offline pill with a reason, a per-chat web switch, Star Surf searching while the lookup runs, and web source cards (title, domain, date) that open in the system browser.
 
 ## Run the API locally
 

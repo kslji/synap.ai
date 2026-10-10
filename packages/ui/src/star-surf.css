@@ -1,0 +1,175 @@
+.star-surf {
+  --lean-x: 0;
+  --lean-y: 0;
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  user-select: none;
+}
+
+.star-surf-bob {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 62%;
+  will-change: transform;
+}
+
+.star-surf img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  transform-origin: 50% 62%;
+}
+
+.star-surf.is-idle .star-surf-bob {
+  animation: star-float 3.6s ease-in-out infinite;
+}
+
+.star-surf.is-idle img {
+  animation: star-blink 5.8s ease-in-out infinite;
+}
+
+.star-surf.is-arrive .star-surf-bob {
+  animation: star-arrive 1.5s cubic-bezier(0.2, 0.8, 0.2, 1) both, star-float 3.6s ease-in-out 1.5s infinite;
+}
+
+.star-surf.is-arrive img {
+  animation: star-squash 1.5s ease-in-out both, star-blink 5.8s ease-in-out 1.5s infinite;
+}
+
+.star-surf.is-searching .star-surf-bob {
+  animation: star-wiggle 0.7s ease-in-out infinite;
+}
+
+.star-surf.is-guiding .star-surf-bob {
+  animation: star-hop 1.15s ease-in-out infinite;
+}
+
+.star-surf.is-notification .star-surf-bob {
+  animation: star-pop 0.85s ease-in-out infinite;
+}
+
+.star-surf.is-success .star-surf-bob {
+  animation: star-happy 0.9s ease-in-out infinite;
+}
+
+.star-surf.is-error .star-surf-bob {
+  animation: star-droop 0.55s ease-in-out infinite;
+}
+
+.star-bubbles,
+.star-sparkles {
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+}
+
+.star-bubbles i,
+.star-sparkles i {
+  position: absolute;
+  display: block;
+  border-radius: 99px;
+  opacity: 0;
+  background: var(--accent);
+}
+
+.star-bubbles i {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+  border: 2px solid var(--accent);
+  animation: star-rise 1.8s ease-in infinite;
+}
+
+.star-bubbles i:nth-child(1) { left: 18%; bottom: 10%; animation-delay: 0s; }
+.star-bubbles i:nth-child(2) { left: 62%; bottom: 0; animation-delay: 0.35s; }
+.star-bubbles i:nth-child(3) { left: 40%; bottom: 8%; animation-delay: 0.7s; }
+
+.star-sparkles i {
+  width: 6px;
+  height: 6px;
+  animation: star-spark 1.3s ease-in-out infinite;
+}
+
+.star-sparkles i:nth-child(1) { left: 8%; top: 18%; }
+.star-sparkles i:nth-child(2) { right: 6%; top: 30%; animation-delay: 0.25s; }
+.star-sparkles i:nth-child(3) { left: 46%; top: 0; animation-delay: 0.5s; }
+
+@keyframes star-float {
+  0%, 100% { transform: translateY(0) rotate(calc(var(--lean-x) * 1deg - 5deg)); }
+  50% { transform: translateY(-10px) rotate(calc(var(--lean-x) * 1deg + 5deg)); }
+}
+
+@keyframes star-blink {
+  0%, 88%, 100% { transform: scaleY(1); }
+  92% { transform: scale(1.04, 0.82); }
+  96% { transform: scale(0.98, 1.04); }
+}
+
+@keyframes star-arrive {
+  0% { opacity: 0; transform: translateY(56px) rotate(-18deg) scale(0.72); }
+  55% { opacity: 1; transform: translateY(-8px) rotate(14deg) scale(1.06); }
+  100% { opacity: 1; transform: translateY(0) rotate(0) scale(1); }
+}
+
+@keyframes star-squash {
+  0% { transform: scale(0.8, 1.15); }
+  55% { transform: scale(1.12, 0.86); }
+  100% { transform: scale(1); }
+}
+
+@keyframes star-wiggle {
+  0%, 100% { transform: rotate(-10deg) scale(1); }
+  50% { transform: rotate(10deg) scale(1.05); }
+}
+
+@keyframes star-hop {
+  0%, 100% { transform: translate(0, 0) rotate(-8deg); }
+  40% { transform: translate(6px, -16px) rotate(10deg); }
+  70% { transform: translate(2px, -2px) rotate(0); }
+}
+
+@keyframes star-pop {
+  0%, 100% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-12px) scale(1.08); }
+  55% { transform: translateY(0) scale(0.96, 1.04); }
+}
+
+@keyframes star-happy {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-14px) rotate(6deg) scale(1.05); }
+}
+
+@keyframes star-droop {
+  0%, 100% { transform: translateX(0) rotate(8deg); }
+  25% { transform: translateX(-4px) rotate(4deg); }
+  75% { transform: translateX(4px) rotate(12deg); }
+}
+
+@keyframes star-rise {
+  0% { opacity: 0; transform: translateY(8px) scale(0.6); }
+  30% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateY(-36px) scale(1); }
+}
+
+@keyframes star-spark {
+  0%, 100% { opacity: 0; transform: scale(0.4); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .star-surf-bob,
+  .star-surf img,
+  .star-bubbles i,
+  .star-sparkles i {
+    animation: star-fade 2.8s ease-in-out infinite !important;
+  }
+}
+
+@keyframes star-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Code + UI",
+  "tagline": "Languages, frameworks, and the screen in front of you",
+  "description": "Reads official docs and changelogs for the languages and frameworks you use, and can look at a UI you are building.",
+  "icon": "code",
+  "accent": "#F97316",
+  "status": "beta",
+  "order": 2,
+  "notes": "Not for trading or HFT."
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Pilot",
+  "tagline": "Aircraft, routes, and the air around them",
+  "description": "A niche companion for aircraft and flight questions, once its signed knowledge pack is published.",
+  "icon": "plane",
+  "accent": "#F97316",
+  "status": "coming soon",
+  "order": 5
+}

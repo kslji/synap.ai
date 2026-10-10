@@ -41,7 +41,7 @@ The self-test grounded answer from Qwen3.5-2B was: `The harbor ferry leaves at 0
 | sqlite-vec + FTS5, content-hash dedupe, delete cascades | Wired |
 | Hybrid search, scope toggle, citations, source preview | Wired |
 | Relevance gate | Calibrated on the fixture set above |
-| Octopus while files are read; jellyfish while a reply is thought through | Wired |
+| Star Surf searches while files are read and while a reply is written | Wired |
 | Qwen3.5 mmproj image description | Optional only when the projector file is already on disk. It is not downloaded (about 670 MB). TODO: a Models row and a Describe button. OCR is the image path |
 | Page-level resume | The `resume_cursor` column exists. Retry reprocesses the whole file |
 | Knowledge-pack search | Still empty until signed packs exist |

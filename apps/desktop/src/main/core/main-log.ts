@@ -99,7 +99,7 @@ export function installProcessGuards(log: FileLog, notify: (message: string) => 
     log.write(`${new Date().toISOString()} ${kind} ${error.stack || error.message}`)
     return error
   }
-  const friendly = 'Surf AI hit a problem and saved the details in its log. You can keep using the app, or quit and open it again.'
+  const friendly = 'Synap.surf hit a problem and saved the details in its log. You can keep using the app, or quit and open it again.'
   process.on('uncaughtException', (err) => {
     const error = record('uncaughtException', err)
     if (isBenign(error) || dialogShown) return

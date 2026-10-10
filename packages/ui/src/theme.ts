@@ -1,4 +1,4 @@
-export type ThemeChoice = 'system' | 'light' | 'dark'
+export type ThemeChoice = 'light' | 'dark'
 
 /** Shared with theme-boot.js in the desktop and website. */
 export const THEME_STORAGE_KEY = 'surf-theme'
@@ -6,17 +6,16 @@ export const THEME_STORAGE_KEY = 'surf-theme'
 export function readThemeChoice(): ThemeChoice {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY)
-    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved
+    if (saved === 'dark') return 'dark'
+    if (saved === 'system') localStorage.setItem(THEME_STORAGE_KEY, 'light')
   } catch {
     /* private mode or a blocked store */
   }
-  return 'system'
+  return 'light'
 }
 
 export function applyThemeChoice(choice: ThemeChoice): void {
-  const root = document.documentElement
-  if (choice === 'system') root.removeAttribute('data-theme')
-  else root.dataset.theme = choice
+  document.documentElement.dataset.theme = choice === 'dark' ? 'dark' : 'light'
 }
 
 export function persistThemeChoice(choice: ThemeChoice): void {

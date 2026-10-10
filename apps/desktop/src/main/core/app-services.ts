@@ -10,7 +10,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { copyFile, mkdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Services } from './main-window.js'
+import { unregisterIpc, type Services } from './main-window.js'
 import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { parseRegistry, pick, type ModelEntry, type ModelRegistry } from './model-registry.js'
@@ -30,6 +30,7 @@ import { SESSION_MIGRATION, SessionStore } from './session-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
 import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, savedWebPack, savedWebStats, searchSavedWeb, staleNote, WEB_CACHE_MIGRATION } from './web-cache.js'
 import { assertNetworkAllowed, OfflineOnlyError } from './offline-guard.js'
+import { safeSend } from './safe-send.js'
 import { surfEnv } from './surf-env.js'
 import { initAutoUpdate, installOfflineUpdate } from './updater.js'
 import type { ParsedChat } from './ipc-schemas.js'
@@ -121,6 +122,7 @@ export async function createServices(): Promise<Services> {
   const calc = new Calculator(calcWorker)
   const inflight = new Map<string, AbortController>()
   let downloading: { id: string; done: number; total: number } | null = null
+  let downloadAbort: AbortController | null = null
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; server: LlamaServer } | null = null
   let modelTail: Promise<void> = Promise.resolve()
   let ui: BrowserWindow | null = null
@@ -276,38 +278,43 @@ export async function createServices(): Promise<Services> {
     mkdirSync(modelsDir(), { recursive: true })
     const dest = join(modelsDir(), model.file)
     downloading = { id: model.id, done: 0, total: model.size_bytes }
+    const ac = new AbortController()
+    downloadAbort = ac
     const send = (state: string, done: number, error?: string) => {
-      if (!win.isDestroyed()) win.webContents.send(IPC.modelsEvent, { id: model.id, done, total: model.size_bytes, state, error })
+      safeSend(win, IPC.modelsEvent, { id: model.id, done, total: model.size_bytes, state, error })
     }
     try {
       await downloadVerified({ url: model.url, dest, size: model.size_bytes, sha256: model.sha256 }, (done) => {
+        if (ac.signal.aborted) return
         downloading = { id: model.id, done, total: model.size_bytes }
         send('progress', done)
-      })
-      send('done', model.size_bytes)
+      }, ac.signal)
+      if (!ac.signal.aborted) send('done', model.size_bytes)
     } catch (e) {
+      if (ac.signal.aborted || (e as Error).name === 'AbortError') return
       const message = (e as Error).message
       send('error', downloading?.done ?? 0, message)
       throw e
     } finally {
       downloading = null
+      if (downloadAbort === ac) downloadAbort = null
     }
   }
 
-  function sendEvent(win: BrowserWindow, event: ChatEvent): void {
-    if (!win.isDestroyed()) win.webContents.send(IPC.chatEvent, event)
+  function sendEvent(win: BrowserWindow, event: ChatEvent): boolean {
+    return safeSend(win, IPC.chatEvent, event)
   }
 
   async function emitText(win: BrowserWindow, messageId: string, text: string): Promise<void> {
     const size = 32
     for (let i = 0; i < text.length; i += size) {
-      sendEvent(win, { type: 'token', messageId, text: text.slice(i, i + size) })
+      if (!sendEvent(win, { type: 'token', messageId, text: text.slice(i, i + size) })) return
       await new Promise((r) => setTimeout(r, 16))
     }
   }
 
   function noteFile(file: LibraryFile): void {
-    if (ui && !ui.isDestroyed()) ui.webContents.send(IPC.libraryEvent, { type: 'upsert', file })
+    if (ui) safeSend(ui, IPC.libraryEvent, { type: 'upsert', file })
   }
 
   function requireLibrary(): { queue: AttachmentQueue; deps: IngestDeps } {
@@ -653,7 +660,7 @@ export async function createServices(): Promise<Services> {
         for await (const piece of client.chatStream(budget.messages, undefined, signal, budget.maxTokens)) {
           if (signal.aborted) return
           answer += piece
-          sendEvent(win, { type: 'token', messageId, text: piece })
+          if (!sendEvent(win, { type: 'token', messageId, text: piece })) return
         }
       }
       const corpus = [...localChunks, ...webChunks].map((chunk) => `${chunk.title}\n${chunk.text}`).join('\n')
@@ -692,6 +699,18 @@ export async function createServices(): Promise<Services> {
   }
 
   readSettings()
+
+  let released = false
+  function releaseWindow(): void {
+    if (released) return
+    released = true
+    ui = null
+    downloadAbort?.abort()
+    for (const ac of inflight.values()) ac.abort()
+    documentApi.cancel()
+    unregisterIpc()
+    void stopActive().catch(() => undefined)
+  }
 
   const services: Services = {
     chat: {
@@ -839,6 +858,7 @@ export async function createServices(): Promise<Services> {
       open: async (url) => { await shell.openExternal(url) },
     },
     documents: documentApi,
+    lifecycle: { releaseWindow },
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
     const described = describeReach({ osOnline: stableOnline, apiReachable, offlineOnly, checking: offlineOnly ? false : checking })

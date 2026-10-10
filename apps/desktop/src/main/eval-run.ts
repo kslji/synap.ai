@@ -268,7 +268,7 @@ function watch(win: BrowserWindow): (messageId: string, timeoutMs: number) => Pr
         slot.waiters.splice(0).forEach((wake) => wake())
       }
     }
-    return orig(channel, ...args)
+    try { return orig(channel, ...args) } catch { return undefined }
   }) as typeof win.webContents.send
 
   return (messageId, timeoutMs) => new Promise((resolve, reject) => {

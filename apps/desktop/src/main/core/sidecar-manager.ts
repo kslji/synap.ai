@@ -12,6 +12,7 @@ import { createWriteStream, type WriteStream } from 'node:fs';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { dirname } from 'node:path';
+import { isClosedPipe } from './main-log.js';
 
 export async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -44,6 +45,7 @@ export type SidecarState = 'stopped' | 'starting' | 'ready' | 'crashed';
 export class LlamaServer extends EventEmitter {
   private child: ChildProcess | null = null;
   private log: WriteStream | null = null;
+  private detachIO: (() => void) | null = null;
   private restarts = 0;
   private stopping = false;
   private tail: string[] = [];
@@ -75,7 +77,10 @@ export class LlamaServer extends EventEmitter {
     this.port = await freePort();
     this.state = 'starting';
     this.emit('state', this.state);
-    if (this.opts.logFile) this.log ??= createWriteStream(this.opts.logFile, { flags: 'a' });
+    if (this.opts.logFile && !this.log) {
+      this.log = createWriteStream(this.opts.logFile, { flags: 'a' });
+      this.log.on('error', () => undefined);
+    }
     const env = { ...process.env };
     // llama.cpp release builds ship shared libs next to the binary. Windows/macOS find them there;
     // Linux needs LD_LIBRARY_PATH.
@@ -89,6 +94,15 @@ export class LlamaServer extends EventEmitter {
     };
     child.stdout!.on('data', onData);
     child.stderr!.on('data', onData);
+    const swallowPipe = (err: unknown) => { if (!isClosedPipe(err)) throw err; };
+    child.stdout!.on('error', swallowPipe);
+    child.stderr!.on('error', swallowPipe);
+    this.detachIO = () => {
+      child.stdout?.off('data', onData);
+      child.stderr?.off('data', onData);
+      child.stdout?.off('error', swallowPipe);
+      child.stderr?.off('error', swallowPipe);
+    };
     child.on('exit', (code, signal) => this.onExit(code, signal));
     await this.waitHealthy(this.opts.startupTimeoutMs ?? 120_000);
     this.state = 'ready';
@@ -112,6 +126,8 @@ export class LlamaServer extends EventEmitter {
   }
 
   private onExit(code: number | null, signal: NodeJS.Signals | null): void {
+    this.detachIO?.();
+    this.detachIO = null;
     this.child = null;
     if (this.stopping) { this.state = 'stopped'; this.emit('state', this.state); return; }
     this.state = 'crashed';
@@ -125,6 +141,8 @@ export class LlamaServer extends EventEmitter {
 
   async stop(graceMs = 5000): Promise<void> {
     this.stopping = true;
+    this.detachIO?.();
+    this.detachIO = null;
     const child = this.child;
     if (!child) return;
     const exited = new Promise<void>((r) => child.once('exit', () => r()));

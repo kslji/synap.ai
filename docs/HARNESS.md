@@ -39,7 +39,7 @@ Numeric comparison, ordering, counting, and arithmetic in the shared cases are a
 
 The `documents` suite does not call the model. `apps/desktop/src/main/core/document-suite.ts` builds fixtures in memory, converts and fills them, and prints measurements. `harness/core/documents.py` scores fill accuracy, citations, the exact string `not found in source`, injection refusal, and formatting (font, size, color, bold, italic, page count, pixel diff outside the filled box, and an unchanged original hash). It runs in quick mode before Electron. See `docs/DOCUMENTS.md`.
 
-The `code` and `assistant` suites are also measured in Node before Electron. They score trading refusal, the JavaScript sandbox, diff approval, the preview sandbox, symbol search, the code-retrieval decision, mail approval, invoice cents, triage JSON, and cold-email refusal. They do not download HumanEval, MBPP, BFCL, or LiveCodeBench. See `docs/AGENTS.md`.
+The `code` and `assistant` suites are also measured in Node before Electron. They score trading refusal, the JavaScript and Pyodide sandboxes, React preview, tree-sitter chunks, diff approval, the retrieval bake-off, fill-in-the-middle, the MCP client, mail approval, mock OAuth, the outbox, invoice files, and cold-email refusal. Provider tests use local mock servers. They do not download HumanEval, MBPP, BFCL, or LiveCodeBench. See `docs/AGENTS.md`.
 
 ## Add a niche
 

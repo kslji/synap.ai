@@ -13,11 +13,15 @@ export interface ConnectorSpec {
 }
 
 export interface DeskView {
-  connectors: Array<ConnectorSpec & { connected: false }>
+  connectors: Array<ConnectorSpec & { connected: boolean; account: string | null }>
   inbox: Mail[]
   sent: Mail[]
   trash: Mail[]
   pending: ReturnType<ApprovalGate['current']>
+  outbox: { id: string; summary: string; status: string; when: string }[]
+  invoice: { number: string; template: string; total: string; pdfBytes: number } | null
+  loginAtStart: boolean
+  notice: string | null
 }
 
 const SAMPLE: Mail = {
@@ -46,11 +50,15 @@ export function createAssistantDesk(connectors: ConnectorSpec[]) {
 
   function view(now: number): DeskView {
     return {
-      connectors: connectors.map((row) => ({ ...row, connected: false as const })),
+      connectors: connectors.map((row) => ({ ...row, connected: false, account: null })),
       inbox: box.inbox.map(visibleMail),
       sent: box.sent.map(visibleMail),
       trash: box.trash.map(visibleMail),
       pending: gate.current(now),
+      outbox: [],
+      invoice: null,
+      loginAtStart: false,
+      notice: null,
     }
   }
 

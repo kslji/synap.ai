@@ -56,6 +56,10 @@ export const IPC = {
   assistantApprove: 'assistant:approve',
   assistantCancel: 'assistant:cancel',
   assistantDelete: 'assistant:delete',
+  assistantConnect: 'assistant:connect',
+  assistantOutbox: 'assistant:outbox',
+  assistantInvoice: 'assistant:invoice',
+  codeComplete: 'code:complete',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -294,7 +298,22 @@ export interface ConnectorView {
   name: string
   detail: string
   classes: Array<'read' | 'write' | 'delete'>
-  connected: false
+  connected: boolean
+  account: string | null
+}
+
+export interface OutboxRow {
+  id: string
+  summary: string
+  status: string
+  when: string
+}
+
+export interface InvoiceCard {
+  number: string
+  template: string
+  total: string
+  pdfBytes: number
 }
 
 export interface DeskMail {
@@ -320,6 +339,15 @@ export interface AssistantDesk {
   sent: DeskMail[]
   trash: DeskMail[]
   pending: PendingAction | null
+  outbox: OutboxRow[]
+  invoice: InvoiceCard | null
+  loginAtStart: boolean
+  notice: string | null
+}
+
+export interface FimSuggestion {
+  text: string
+  reason: string
 }
 
 export interface SymbolHit {
@@ -432,6 +460,7 @@ export interface SurfApi {
     licenses(): Promise<LicenseNote[]>
     propose(path: string, before: string, after: string): Promise<EditProposalView>
     apply(id: string, approved: boolean): Promise<EditResult>
+    complete(prefix: string, suffix: string): Promise<FimSuggestion>
   }
   assistant: {
     desk(): Promise<AssistantDesk>
@@ -439,5 +468,8 @@ export interface SurfApi {
     approve(id: string): Promise<AssistantDesk>
     cancel(id: string): Promise<AssistantDesk>
     armDelete(): Promise<AssistantDesk>
+    connect(provider: string): Promise<AssistantDesk>
+    showOutbox(): Promise<AssistantDesk>
+    showInvoice(): Promise<AssistantDesk>
   }
 }

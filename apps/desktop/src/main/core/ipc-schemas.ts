@@ -81,6 +81,11 @@ export const CodeRunBody = z.object({
 })
 export const AssistantSummary = z.string().min(1).max(500)
 export const AssistantActionId = z.string().min(1).max(80)
+export const AssistantProvider = z.string().min(1).max(40)
+export const FimBody = z.object({
+  prefix: z.string().max(8000),
+  suffix: z.string().max(8000),
+})
 export const CodePropose = z.object({
   path: z.string().min(1).max(4096),
   before: z.string().max(200_000),

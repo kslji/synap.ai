@@ -84,6 +84,7 @@ const api: SurfApi = {
     licenses: () => ipcRenderer.invoke(IPC.codeLicenses),
     propose: (path, before, after) => ipcRenderer.invoke(IPC.codePropose, { path, before, after }),
     apply: (id, approved) => ipcRenderer.invoke(IPC.codeApply, { id, approved }),
+    complete: (prefix, suffix) => ipcRenderer.invoke(IPC.codeComplete, { prefix, suffix }),
   },
   assistant: {
     desk: () => ipcRenderer.invoke(IPC.assistantDesk),
@@ -91,6 +92,9 @@ const api: SurfApi = {
     approve: (id) => ipcRenderer.invoke(IPC.assistantApprove, id),
     cancel: (id) => ipcRenderer.invoke(IPC.assistantCancel, id),
     armDelete: () => ipcRenderer.invoke(IPC.assistantDelete),
+    connect: (provider) => ipcRenderer.invoke(IPC.assistantConnect, provider),
+    showOutbox: () => ipcRenderer.invoke(IPC.assistantOutbox),
+    showInvoice: () => ipcRenderer.invoke(IPC.assistantInvoice),
   },
 }
 

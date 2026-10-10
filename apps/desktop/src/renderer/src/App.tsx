@@ -41,7 +41,8 @@ export default function App() {
   const [agentId, setAgentId] = useState('general')
   const [agentCards, setAgentCards] = useState<AgentCardView[]>([])
   const [codeTab, setCodeTab] = useState<'preview' | 'architecture'>('preview')
-  const [assistantMode, setAssistantMode] = useState<'connectors' | 'approval' | 'delete'>('connectors')
+  const [codeKind, setCodeKind] = useState<'html' | 'react' | 'python'>('html')
+  const [assistantMode, setAssistantMode] = useState<'connectors' | 'approval' | 'delete' | 'google' | 'outbox' | 'invoice'>('connectors')
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
 
@@ -338,6 +339,19 @@ export default function App() {
         setView('code')
         setAgentId('code')
         setCodeTab('preview')
+        setCodeKind('html')
+      }
+      if (scene === 'react') {
+        setView('code')
+        setAgentId('code')
+        setCodeTab('preview')
+        setCodeKind('react')
+      }
+      if (scene === 'python') {
+        setView('code')
+        setAgentId('code')
+        setCodeTab('preview')
+        setCodeKind('python')
       }
       if (scene === 'architecture') {
         setView('code')
@@ -358,6 +372,21 @@ export default function App() {
         setView('assistant')
         setAgentId('assistant')
         setAssistantMode('delete')
+      }
+      if (scene === 'google') {
+        setView('assistant')
+        setAgentId('assistant')
+        setAssistantMode('google')
+      }
+      if (scene === 'outbox') {
+        setView('assistant')
+        setAgentId('assistant')
+        setAssistantMode('outbox')
+      }
+      if (scene === 'invoice') {
+        setView('assistant')
+        setAgentId('assistant')
+        setAssistantMode('invoice')
       }
       if (scene === 'upload') {
         setView('chat')
@@ -622,7 +651,7 @@ export default function App() {
         onDelete={(id) => { void deleteConversation(id) }}
       />
       {view === 'home' && <HomeScreen cards={agentCards} onOpen={selectAgent} />}
-      {view === 'code' && <CodeScreen tab={codeTab} onTab={setCodeTab} onAsk={(text) => { setAgentId('code'); void send(text) }} />}
+      {view === 'code' && <CodeScreen key={codeKind} tab={codeTab} kind={codeKind} onTab={setCodeTab} onAsk={(text) => { setAgentId('code'); void send(text) }} />}
       {view === 'assistant' && <AssistantScreen mode={assistantMode} />}
       {view === 'chat' && (
         <ChatScreen

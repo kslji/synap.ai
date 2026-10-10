@@ -169,7 +169,8 @@ export interface RunResult {
 export async function runCode(language: string, code: string, timeoutMs = 800): Promise<RunResult> {
   const lang = language.toLowerCase()
   if (lang === 'python' || lang === 'py') {
-    return { executed: false, language: lang, error: 'Python runs in Pyodide when that wasm is bundled. It is not executed in this build.' }
+    const { runPython } = await import('./pyodide-runner.js')
+    return runPython(code, { runTimeoutMs: Math.max(timeoutMs, 1500) })
   }
   if (lang !== 'javascript' && lang !== 'js') {
     return { executed: false, language: lang, error: `${language} is explained, not executed. The sandbox runs JavaScript only.` }

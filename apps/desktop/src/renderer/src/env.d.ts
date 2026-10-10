@@ -7,7 +7,7 @@ declare global {
   interface Window {
     surf: SurfApi
     __surfNav?: (view: SurfView) => void
-    __surfDemo?: (scene: 'upload' | 'processing' | 'citation' | 'library' | 'searching' | 'web' | 'refusal' | 'signin' | 'account' | 'packs' | 'packcite' | 'savedweb' | 'convert' | 'fill' | 'agents' | 'code' | 'architecture' | 'connectors' | 'approval' | 'delete') => void
+    __surfDemo?: (scene: 'upload' | 'processing' | 'citation' | 'library' | 'searching' | 'web' | 'refusal' | 'signin' | 'account' | 'packs' | 'packcite' | 'savedweb' | 'convert' | 'fill' | 'agents' | 'code' | 'architecture' | 'connectors' | 'approval' | 'delete' | 'google' | 'outbox' | 'invoice' | 'react' | 'python') => void
   }
 }
 

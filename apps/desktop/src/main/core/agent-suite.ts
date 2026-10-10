@@ -1,12 +1,14 @@
 /**
  * Measurements for the code and assistant harness suites. No model calls.
  */
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { agentById, coldEmailRefusal, loadAgents, modelIdFor, tradingRefusal } from './agent-registry.js'
 import { ApprovalGate } from './approval-policy.js'
 import { approveSend, deleteMail, queueSend, readMail, type Mailbox } from './assistant-actions.js'
 import { applyEdit, chunkSource, mcpAllowed, pkce, previewDocument, proposeEdit, runCode, searchSymbols } from './code-tools.js'
+import { extraMeasures } from './agent-extra.js'
 import { draftInvoice, invoiceText, scheduleAt } from './invoice.js'
 import { fimPrompt, parseTriage } from './triage.js'
 
@@ -59,7 +61,7 @@ export async function measureAgents(): Promise<Measurement[]> {
     fields: {
       js: added.executed === true && added.result === '4',
       timeout: timed.executed === false && timed.error === 'timed out',
-      python: python.executed === false,
+      python: python.executed === true && python.result === '1',
       rust: rust.executed === false,
     },
   })
@@ -99,14 +101,15 @@ export async function measureAgents(): Promise<Measurement[]> {
     },
   })
   const pair = pkce()
+  const bakeoff = JSON.parse(readFileSync(join(root, 'code/bakeoff.json'), 'utf8')) as { winner: string }
   rows.push({
     id: 'bakeoff-and-fim',
     suite: 'code',
     weight: 2,
     fields: {
-      winner: 'bm25-symbols',
-      coderank: 'not-shipped',
-      qwenEmbedding: 'optional',
+      winner: bakeoff.winner,
+      coderank: 'not-feasible',
+      qwenEmbedding: 'measured',
       fim: fimPrompt('function ', ' {}').includes('<|fim_prefix|>'),
       pkce: pair.challenge.length > 10 && pair.verifier !== pair.challenge,
       mcp: mcpAllowed('http://127.0.0.1:9/mcp', ['127.0.0.1']) && !mcpAllowed('https://evil.example/mcp', ['127.0.0.1']),
@@ -195,6 +198,7 @@ export async function measureAgents(): Promise<Measurement[]> {
       extra: parseTriage('{"priority":"now","summary":"Berth","bypass":true}') === null,
     },
   })
+  rows.push(...await extraMeasures(root))
   return rows
 }
 

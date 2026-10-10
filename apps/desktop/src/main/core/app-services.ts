@@ -1,6 +1,6 @@
 /**
  * App services: hardware, model registry, chat, and the document index.
- * One llama-server at a time (chat or embeddings). Indexing never blocks the chat IPC.
+ * One llama-server at a time for chat or embeddings. Fill-in-the-middle may start a second small server.
  * TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
  * TODO: download Qwen3.5 mmproj and expose "Describe image" (vision.ts). OCR is the image path for now.
  */
@@ -21,8 +21,12 @@ import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
 import { Calculator, calculatorTools } from './calculator.js'
 import { compareFromText, countFromText, numberTools, asksForNumberTool, resolveDirectTool, verbatimAnswer } from './number-tools.js'
 import { agentById, coldEmailRefusal, loadAgents, modelIdFor, resolveAgentsDir, tradingRefusal, type AgentCard } from './agent-registry.js'
-import { createAssistantDesk, readConnectors } from './assistant-desk.js'
-import { applyEdit, indexProject, insideRoot, proposeEdit, readLicenses, runCode, searchSymbols, type EditProposal, type SymbolChunk } from './code-tools.js'
+import { readConnectors } from './assistant-desk.js'
+import { createLiveAssistant } from './assistant-live.js'
+import { indexProjectAst } from './syntax-chunk.js'
+import { fimCanStart, fimComplete } from './fim-complete.js'
+import { cosine } from './code-retrieval.js'
+import { applyEdit, insideRoot, proposeEdit, readLicenses, runCode, searchSymbols, type EditProposal, type SymbolChunk } from './code-tools.js'
 import { createDocumentApi } from './document-service.js'
 import calcWorker from './calculator.worker?modulePath'
 import { hybridSearch, borderlinePrompt, documentGate, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
@@ -366,7 +370,8 @@ export async function createServices(): Promise<Services> {
   let projectRoot: string | null = null
   let projectChunks: SymbolChunk[] = []
   const proposals = new Map<string, EditProposal>()
-  const assistantDesk = createAssistantDesk(readConnectors(loadConnectorJson()))
+  const assistantDesk = createLiveAssistant(readConnectors(loadConnectorJson()))
+  let fimServer: LlamaServer | null = null
 
   function agentCards(): AgentCard[] {
     if (!cachedCards) cachedCards = loadAgents(agentsRoot())
@@ -378,9 +383,9 @@ export async function createServices(): Promise<Services> {
     catch (error) { console.warn('[surf] connectors', (error as Error).message); return [] }
   }
 
-  function codeChunks(): SymbolChunk[] {
+  async function codeChunks(): Promise<SymbolChunk[]> {
     if (projectChunks.length) return projectChunks
-    try { return indexProject(join(agentsRoot(), 'code', 'sample'), 40) }
+    try { return await indexProjectAst(join(agentsRoot(), 'code', 'sample'), 40) }
     catch { return [] }
   }
 
@@ -896,13 +901,43 @@ export async function createServices(): Promise<Services> {
       })),
     },
     code: {
-      search: async (query: string) => searchSymbols(codeChunks(), query).slice(0, 12),
+      search: async (query: string) => {
+        const chunks = await codeChunks()
+        const model = registry().models.find((item) => item.id === 'embeddinggemma-2-text-q8_0')
+        if (model && chunks.length && await installed(model.file, model.size_bytes)) {
+          try {
+            const server = await ensure('embed', model, 2048)
+            const embedder = new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey }))
+            const docs = await embedder.embedDocs(chunks.map((chunk) => ({ title: chunk.name, text: chunk.text })))
+            const [queryVector] = await embedder.embedQueries([query])
+            return chunks
+              .map((chunk, index) => ({ chunk, score: cosine(queryVector, docs[index]) }))
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 12)
+              .map((row) => row.chunk)
+          } catch (error) {
+            console.warn('[surf] code search used symbols:', (error as Error).message)
+          }
+        }
+        return searchSymbols(chunks, query).slice(0, 12)
+      },
       attach: async (win: BrowserWindow) => {
         const picked = await dialog.showOpenDialog(win, { title: 'Attach a project folder', properties: ['openDirectory'] })
         if (picked.canceled || !picked.filePaths[0]) return null
         projectRoot = picked.filePaths[0]
-        projectChunks = indexProject(projectRoot)
+        projectChunks = await indexProjectAst(projectRoot)
         return { root: projectRoot, count: projectChunks.length }
+      },
+      complete: async (prefix: string, suffix: string) => {
+        const modelPath = join(modelsDir(), 'Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf')
+        const hw = await detectHardware()
+        const ready = fimCanStart({ modelPath, totalRamGb: hw.totalRamGb })
+        if (!ready.ok) return { text: '', reason: ready.reason }
+        if (!fimServer) {
+          fimServer = new LlamaServer({ binPath: resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath()), modelPath, ctx: 2048, gpuLayers: 0 })
+          await fimServer.start()
+        }
+        return { text: await fimComplete(fimServer.baseUrl, fimServer.apiKey, prefix, suffix), reason: '' }
       },
       run: async (language: string, code: string) => runCode(language, code),
       licenses: async () => (projectRoot ? readLicenses(projectRoot) : []),
@@ -922,16 +957,19 @@ export async function createServices(): Promise<Services> {
         const current = readFileSync(proposal.path, 'utf8')
         if (current !== proposal.before) return { written: false, text: current, note: 'The file changed. Review it again.' }
         writeFileSync(proposal.path, result.text)
-        projectChunks = indexProject(projectRoot)
+        projectChunks = await indexProjectAst(projectRoot)
         return { written: true, text: result.text, note: 'Saved.' }
       },
     },
     assistant: {
-      desk: async () => assistantDesk.view(Date.now()),
-      draft: async (summary: string) => assistantDesk.armSend(summary, Date.now()),
-      approve: async (id: string) => assistantDesk.approve(id, Date.now()),
-      cancel: async (id: string) => assistantDesk.cancel(id, Date.now()),
-      armDelete: async () => assistantDesk.armDelete(Date.now()),
+      desk: () => assistantDesk.desk(),
+      draft: (summary: string) => assistantDesk.draft(summary),
+      approve: (id: string) => assistantDesk.approve(id),
+      cancel: (id: string) => assistantDesk.cancel(id),
+      armDelete: () => assistantDesk.armDelete(),
+      connect: (provider: string) => assistantDesk.connect(provider),
+      showOutbox: () => assistantDesk.showOutbox(),
+      showInvoice: () => assistantDesk.showInvoice(),
     },
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {

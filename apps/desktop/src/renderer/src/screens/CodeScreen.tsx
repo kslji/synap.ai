@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { LicenseNote, SymbolHit } from '../../../shared/ipc-contract'
 import { previewDocument } from '../../../shared/preview-doc'
+import { reactPreviewDocument } from '../../../shared/react-preview'
 
 const STARTER = `<style>
   body { margin: 0; font-family: sans-serif; background: #fafafa; color: #111; }
@@ -12,6 +13,10 @@ const STARTER = `<style>
   <p>Pier 4 · leaves 06:40</p>
   <button>Reserve</button>
 </div>`
+
+const REACT_STARTER = `function Harbor() {
+  return <div className="card"><h1>Harbor booking</h1><p>Pier 4 · leaves 06:40</p></div>
+}`
 
 const BEFORE = 'export function ferryLeave() {\n  return "06:40"\n}\n'
 const AFTER = 'export function ferryLeave() {\n  return "07:00"\n}\n'
@@ -29,19 +34,30 @@ export function CodeScreen({
   tab,
   onTab,
   onAsk,
+  kind = 'html',
 }: {
   tab: 'preview' | 'architecture'
   onTab: (tab: 'preview' | 'architecture') => void
   onAsk: (text: string) => void
+  kind?: 'html' | 'react' | 'python'
 }) {
-  const [source, setSource] = useState(STARTER)
+  const [source, setSource] = useState(kind === 'react' ? REACT_STARTER : STARTER)
   const [symbols, setSymbols] = useState<SymbolHit[]>([])
   const [query, setQuery] = useState('ferryLeave')
   const [runText, setRunText] = useState<string | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
   const [licenses, setLicenses] = useState<LicenseNote[]>([])
   const [diffNote, setDiffNote] = useState<string | null>(null)
-  const doc = previewDocument(source)
+  const [editor, setEditor] = useState('export function ferryLeave() {\n  ')
+  const [ghost, setGhost] = useState('')
+  const doc = kind === 'react' ? reactPreviewDocument(source) : previewDocument(source)
+
+  useEffect(() => {
+    if (kind !== 'python') return
+    void window.surf.code.run('python', 'print(2 + 2)').then((result) => {
+      setRunText(result.executed ? `Python sandbox: ${result.result}` : (result.error ?? 'Not executed'))
+    }).catch((error: unknown) => setRunText((error as Error).message))
+  }, [kind])
 
   useEffect(() => {
     void window.surf.code.search('ferryLeave').then(setSymbols).catch(() => undefined)
@@ -76,7 +92,7 @@ export function CodeScreen({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Code + UI</h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">Product and SaaS engineering. Python and other languages are explained, not executed.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Product and SaaS engineering. JavaScript and Python run in a sandbox. Symbol search stays on this computer. The retrieval bake-off picked EmbeddingGemma over BM25.</p>
         </div>
         <span className="pill pill-warn">Not for trading or HFT.</span>
       </div>
@@ -87,7 +103,7 @@ export function CodeScreen({
       {tab === 'preview' ? (
         <div className="mt-4 grid min-h-0 gap-4 lg:grid-cols-2">
           <textarea className="field min-h-[280px] font-mono text-xs" value={source} onChange={(event) => setSource(event.target.value)} aria-label="Preview source" />
-          <iframe title="Live preview" sandbox={doc.sandbox} srcDoc={doc.srcdoc} data-preview-frame="yes" className="min-h-[280px] w-full rounded-xl border border-[var(--line)] bg-white" />
+          <iframe title="Live preview" sandbox={doc.sandbox} srcDoc={doc.srcdoc} data-preview-frame="yes" data-react-preview={kind === 'react' ? 'yes' : 'no'} className="min-h-[280px] w-full rounded-xl border border-[var(--line)] bg-white" />
         </div>
       ) : (
         <article className="card mt-4 px-5 py-4" data-architecture="yes">
@@ -114,8 +130,9 @@ export function CodeScreen({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button type="button" className="btn btn-primary" onClick={() => { void run() }}>Run JavaScript</button>
+        <button type="button" className="btn btn-ghost" data-python-run="yes" onClick={() => { void window.surf.code.run('python', 'print(2 + 2)').then((result) => setRunText(result.executed ? `Python sandbox: ${result.result}` : (result.error ?? 'Not executed'))) }}>Run Python</button>
         <button type="button" className="btn btn-ghost" onClick={() => { void attach() }}>Attach a project folder</button>
-        {runText && <span className="text-sm text-[var(--muted)]">{runText}</span>}
+        {runText && <span className="text-sm text-[var(--muted)]" data-python-result={kind === 'python' ? 'yes' : 'no'}>{runText}</span>}
         {folder && <span className="text-sm text-[var(--muted)]">{folder}</span>}
       </div>
       <form className="mt-4 flex gap-2" onSubmit={(event) => { void search(event) }}>
@@ -143,6 +160,13 @@ export function CodeScreen({
         </div>
         {diffNote && <p className="mt-2 text-sm text-[var(--muted)]">{diffNote}</p>}
       </article>
+      <label className="mt-4 block text-sm font-semibold" htmlFor="fim-editor">Inline suggestion</label>
+      <textarea id="fim-editor" className="field mt-2 min-h-[88px] font-mono text-xs" value={editor} aria-label="Code editor" onChange={(event) => {
+        const value = event.target.value
+        setEditor(value)
+        void window.surf.code.complete(value, '\n}').then((result) => setGhost(result.text || result.reason)).catch(() => undefined)
+      }} />
+      {ghost && <p className="mt-2 text-sm text-[var(--muted)]" data-fim-suggestion="yes">{ghost}</p>}
     </section>
   )
 }

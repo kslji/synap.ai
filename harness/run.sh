@@ -27,7 +27,7 @@ if [ "$MODE" != "quick" ] && [ "$MODE" != "full" ]; then
   exit 2
 fi
 shift
-"$PY" -c 'import yaml, pyarrow' 2>/dev/null || {
+"$PY" -c 'import yaml, pyarrow, sqlite_vec, uvicorn' 2>/dev/null || {
   echo "Install harness dependencies: python3 -m pip install -r harness/requirements.txt" >&2
   exit 1
 }

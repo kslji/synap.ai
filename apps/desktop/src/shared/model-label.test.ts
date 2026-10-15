@@ -11,6 +11,8 @@ test('chat model names come from the registry family', () => {
   assert.equal(chatModelLabel({ family: 'gemma4', params_b: 2, label: 'Gemma 4 E2B' }), 'Gemma 4 E2B')
   assert.equal(quantFromFile('Qwen3.5-9B-Q4_K_M.gguf'), 'Q4_K_M')
   assert.equal(quantFromFile('Qwen3.5-2B-Q6_K.gguf'), 'Q6_K')
+  assert.equal(quantFromFile('gemma-4-E2B_q4_0-it.gguf'), 'Q4_0')
+  assert.equal(quantFromFile('gemma-4-12b-it-qat-q4_0.gguf'), 'Q4_0')
   assert.doesNotMatch(chatModelLabel({ family: 'qwen3.5', params_b: 9 }), /Q4_K_M|Q6_K|gguf/)
 })
 

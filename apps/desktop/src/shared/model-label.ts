@@ -16,8 +16,8 @@ export function familyDisplayName(family: string | null | undefined): string {
 }
 
 export function quantFromFile(file: string): string | null {
-  const hit = /(?:^|[-_.])(Q\d(?:_[0-9A-Za-z]+)*)(?:\.|$)/.exec(file)
-  return hit?.[1] ?? null
+  const hit = /(?:^|[-_.])(q\d(?:_[0-9A-Za-z]+)*)(?=[-.]|$)/i.exec(file)
+  return hit?.[1]?.toUpperCase() ?? null
 }
 
 /** Decimal gigabytes, so 1,574,961,408 bytes reads as 1.57 GB. */

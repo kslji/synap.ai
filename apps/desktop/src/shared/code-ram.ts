@@ -35,15 +35,20 @@ export function ramTierForFile(sizeBytes: number): LaptopRamClass | null {
   return hit?.laptopRamGb ?? null
 }
 
+/** A Code row is listed when its RAM tier is this laptop's class or smaller. */
+export function offeredOnLaptop(minRamGb: number, totalRamGb: number): boolean {
+  return minRamGb <= laptopRamClass(totalRamGb)
+}
+
 /**
- * Qwen3.5 2B is Recommended on every laptop. Other files that fit the cap are Fits.
- * A file over the cap is Too big for this laptop, and the user can still pick it.
+ * Qwen3.5 2B is Recommended on every laptop. Other rows for this RAM class are Fits.
+ * A higher tier is Too big and is left off the list. Gemma E2B starts at 8 GB.
  */
 export function codeFitMark(
-  model: { family: string; sizeBytes: number; defaultFor?: readonly string[] },
+  model: { family: string; minRamGb: number; defaultFor?: readonly string[] },
   totalRamGb: number,
 ): CodeFit {
   if (model.family === 'qwen3.5' && model.defaultFor?.includes('code')) return 'recommended'
-  if (model.sizeBytes <= codeFileCapBytes(totalRamGb)) return 'fits'
+  if (offeredOnLaptop(model.minRamGb, totalRamGb)) return 'fits'
   return 'too-big'
 }

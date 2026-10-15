@@ -9,7 +9,8 @@ export function chatModels(status: ModelStatus, agentId = 'general'): CatalogMod
 }
 
 export function codeModels(status: ModelStatus): CatalogModel[] {
-  return chatModels(status, 'code').slice().sort((a, b) => {
+  const laptop = laptopRamClass(status.ramGb)
+  return chatModels(status, 'code').filter((model) => model.minRamGb <= laptop).slice().sort((a, b) => {
     const familyRank = (family: string) => family === 'qwen3.5' ? 0 : 1
     return familyRank(a.family) - familyRank(b.family) || (a.paramsB ?? 0) - (b.paramsB ?? 0)
   })
@@ -119,6 +120,7 @@ export function ModelPanel({
       {heading === 'Code' && (
         <p className="mt-1 text-sm text-[var(--muted)]">
           This computer reports {status.ramGb} GB of RAM ({laptopRamClass(status.ramGb)} GB tier, model file up to {formatModelSize(codeFileCapBytes(status.ramGb))}).
+          {laptopRamClass(status.ramGb) === 4 ? ' A 4 GB laptop lists Qwen3.5 2B only.' : ''}
         </p>
       )}
       {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}

@@ -226,7 +226,7 @@ export async function createServices(): Promise<Services> {
       visionBytes: m.mmproj?.size_bytes ?? null,
       visionInstalled: m.mmproj ? await installed(mmprojDestName(m.id, m.mmproj.file), m.mmproj.size_bytes) : false,
       fitMark: m.agents?.includes('code')
-        ? codeFitMark({ family: m.family, sizeBytes: m.size_bytes, defaultFor: m.default_for }, hw.totalRamGb)
+        ? codeFitMark({ family: m.family, minRamGb: m.min_ram_gb, defaultFor: m.default_for }, hw.totalRamGb)
         : null,
     })))
     const chosen = await chooseChat(reg, settings.chatModelId, 'general')

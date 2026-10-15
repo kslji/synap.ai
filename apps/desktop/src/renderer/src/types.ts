@@ -9,6 +9,7 @@ export interface UiMsg {
   sources: StoredMessage['sources']
   pending?: boolean
   error?: boolean
+  smallerModelId?: string
   gate?: GateName
   phase?: 'searching' | 'reading'
   tools: { name: string; input: string; output: string }[]
@@ -28,6 +29,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
   if (e.type === 'error') {
     m.error = true
     m.pending = false
+    m.smallerModelId = e.smallerModelId
     if (!m.text) m.text = e.message
   }
   if (e.type === 'done') {

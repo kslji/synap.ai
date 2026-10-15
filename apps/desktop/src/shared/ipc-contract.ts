@@ -65,6 +65,8 @@ export interface SettingsPatch {
   webSearchAllowed?: boolean
   telemetryOptIn?: boolean
   chatModelId?: string
+  /** Code agent model. Empty means the smallest Code model. */
+  codeModelId?: string
   onboardingComplete?: boolean
   theme?: ThemeChoice
   /** Search service origin. Production placeholder until a VM is deployed. */
@@ -100,7 +102,7 @@ export type ChatEvent =
     retrievedCap: number
     maxChunks: number
   } }
-  | { type: 'error'; messageId: string; message: string }
+  | { type: 'error'; messageId: string; message: string; smallerModelId?: string }
 
 export interface CatalogModel {
   id: string
@@ -117,6 +119,15 @@ export interface CatalogModel {
   file?: string
   /** Quant string such as Q4_K_M. Shown only under Details. */
   quant?: string | null
+  /** Empty means General and Assistant. `code` is the Code agent list. */
+  agents: string[]
+  defaultFor: string[]
+  peakRamGb: number | null
+  /** false when the RAM figure is a tier, not a measurement. */
+  ramMeasured: boolean
+  note?: string
+  visionBytes: number | null
+  visionInstalled: boolean
 }
 
 export interface ModelStatus {
@@ -125,6 +136,8 @@ export interface ModelStatus {
   cpuModel: string
   cores: number
   chatModelId: string
+  /** Code agent selection. The smallest Code model when the user has not picked. */
+  codeModelId: string
   arch: string
   platform: string
   installed: string[]

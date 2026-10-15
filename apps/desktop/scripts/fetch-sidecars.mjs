@@ -11,20 +11,44 @@ import JSZip from 'jszip'
 
 const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=')
 
+const TAG = 'b11514' // pinned; EmbeddingGemma 2 needs >= b11452
+
+/**
+ * Asset names from the ggml-org/llama.cpp b11514 release.
+ * `--gpu=cuda` selects Windows CUDA. `--gpu=vulkan` selects Vulkan, including Windows ARM.
+ * Linux arm64 is the Ubuntu CPU build unless `--gpu=vulkan`.
+ */
+export function sidecarAsset(platform, arch, gpu, tag = TAG) {
+  const key = `${platform}-${arch}`
+  const table = {
+    'darwin-arm64': `llama-${tag}-bin-macos-arm64.tar.gz`, // Metal built in
+    'darwin-x64': `llama-${tag}-bin-macos-x64.tar.gz`,
+    'win32-x64': gpu === 'cuda'
+      ? `llama-${tag}-bin-win-cuda-12.4-x64.zip`
+      : gpu === 'vulkan'
+        ? `llama-${tag}-bin-win-vulkan-x64.zip`
+        : `llama-${tag}-bin-win-cpu-x64.zip`,
+    'win32-arm64': gpu === 'vulkan'
+      ? `llama-${tag}-bin-win-vulkan-arm64.zip`
+      : gpu === 'cuda'
+        ? `llama-${tag}-bin-win-cuda-13.4-arm64.zip`
+        : `llama-${tag}-bin-win-cpu-arm64.zip`,
+    'linux-x64': gpu === 'vulkan'
+      ? `llama-${tag}-bin-ubuntu-vulkan-x64.tar.gz`
+      : `llama-${tag}-bin-ubuntu-x64.tar.gz`,
+    'linux-arm64': gpu === 'vulkan'
+      ? `llama-${tag}-bin-ubuntu-vulkan-arm64.tar.gz`
+      : `llama-${tag}-bin-ubuntu-arm64.tar.gz`,
+  }
+  return table[key] ?? null
+}
+
 async function main() {
-  const TAG = 'b11514' // pinned; EmbeddingGemma 2 needs >= b11452
   const gpu = arg('gpu')
   const platform = arg('platform') ?? process.platform
   const arch = arg('arch') ?? process.arch
   const key = `${platform}-${arch}`
-  const ASSETS = {
-    'darwin-arm64': `llama-${TAG}-bin-macos-arm64.tar.gz`, // Metal built in
-    'darwin-x64': `llama-${TAG}-bin-macos-x64.tar.gz`,
-    'win32-x64': gpu === 'vulkan' ? `llama-${TAG}-bin-win-vulkan-x64.zip` : `llama-${TAG}-bin-win-cpu-x64.zip`,
-    'win32-arm64': `llama-${TAG}-bin-win-cpu-arm64.zip`,
-    'linux-x64': gpu === 'vulkan' ? `llama-${TAG}-bin-ubuntu-vulkan-x64.tar.gz` : `llama-${TAG}-bin-ubuntu-x64.tar.gz`
-  }
-  const asset = ASSETS[key]
+  const asset = sidecarAsset(platform, arch, gpu)
   if (!asset) throw new Error(`no llama.cpp asset mapped for ${key}`)
   const url = `https://github.com/ggml-org/llama.cpp/releases/download/${TAG}/${asset}`
   const out = resolve('resources', 'bin', key)

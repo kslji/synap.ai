@@ -7,7 +7,8 @@ import { agentCanChat } from '../../../../../packages/shared/src/agents'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
 import { AgentsScreen, ChatsScreen, HomeScreen } from './screens/HomeScreen'
-import { activeChatModel, chatModels, ModelsScreen } from './screens/ModelsScreen'
+import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelsScreen } from './screens/ModelsScreen'
+import { modelChoiceLabel } from '../../shared/model-label'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
@@ -186,8 +187,19 @@ export default function App() {
     const model = status?.models.find((item) => item.id === id && item.role === 'chat')
     if (!model) return
     if (!model.installed) await download(id)
-    await patch({ chatModelId: id })
+    const codeOnly = model.agents.includes('code') && !model.agents.includes('general')
+    await patch(codeOnly ? { codeModelId: id } : { chatModelId: id })
   }
+
+  const codeAuto = useRef(false)
+  useEffect(() => {
+    if (codeAuto.current || agentId !== 'code' || !status || !settings) return
+    if (settings.codeModelId || status.offlineOnly) return
+    const def = status.models.find((model) => model.defaultFor?.includes('code'))
+    if (!def || def.installed) return
+    codeAuto.current = true
+    void download(def.id).catch((e: unknown) => setError((e as Error).message))
+  }, [agentId, status, settings])
 
   async function deleteConversation(id: string) {
     await api.conversations.remove(id)
@@ -670,9 +682,9 @@ export default function App() {
           chatWeb={chatWeb}
           agentName={agents.find((agent) => agent.id === agentId)?.name ?? 'General'}
           agentNote={agents.find((agent) => agent.id === agentId)?.notes}
-          modelLabel={activeChatModel(status)?.label ?? 'Qwen3.5'}
-          chatChoices={chatModels(status).map((model) => ({ id: model.id, label: model.label }))}
-          chatModelId={activeChatModel(status)?.id ?? ''}
+          modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen3.5'}
+          chatChoices={(agentId === 'code' ? codeModels(status) : chatModels(status)).map((model) => ({ id: model.id, label: modelChoiceLabel(model) }))}
+          chatModelId={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.id ?? ''}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           tourOnline={tourStep != null && TOUR[tourStep]?.id === 'online'}
           onSend={(t) => { void send(t) }}
@@ -684,6 +696,7 @@ export default function App() {
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}
           onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
+          onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
       {view === 'library' && (

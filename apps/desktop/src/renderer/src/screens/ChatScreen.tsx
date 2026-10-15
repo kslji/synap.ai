@@ -35,6 +35,7 @@ export function ChatScreen({
   onOpenCitation,
   onClosePreview,
   onSelectModel,
+  onSwitchSmaller,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -60,6 +61,7 @@ export function ChatScreen({
   onOpenCitation: (chunkId: number) => void
   onClosePreview: () => void
   onSelectModel: (id: string) => void
+  onSwitchSmaller: (id: string) => void
 }) {
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
@@ -127,7 +129,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} />)}
             </div>
           )}
         </div>
@@ -241,7 +243,7 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void }) {
+function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void }) {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -256,9 +258,14 @@ function Bubble({ msg, mood, onOpenCitation }: { msg: UiMsg; mood: string; onOpe
       <div className="min-w-0 flex-1">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
-        <div className="whitespace-pre-wrap text-[15px] leading-relaxed">
+        <div className="whitespace-pre-wrap text-[15px] leading-relaxed" data-model-error={msg.error ? 'yes' : 'no'}>
           <CitedText text={msg.text || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
         </div>
+        {msg.error && msg.smallerModelId && (
+          <button className="btn btn-ghost mt-2" type="button" data-switch-smaller="yes" onClick={() => onSwitchSmaller(msg.smallerModelId!)}>
+            Switch to smaller model
+          </button>
+        )}
         {msg.tools.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {msg.tools.map((t, i) => (

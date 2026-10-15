@@ -69,6 +69,9 @@ export class LlamaServer extends EventEmitter {
     if (o.embeddings) a.push('--embeddings', '--pooling', o.pooling ?? 'mean', '-ub', String(o.ctx ?? 2048), '-b', String(o.ctx ?? 2048));
     else a.push('--jinja'); // chat template from the GGUF + OpenAI-style tool calling
     if (o.mmprojPath) a.push('--mmproj', o.mmprojPath);
+    // b11514: --no-repack skips the extra weight buffer; -cram 0 turns the prompt cache off.
+    // Together they cut RAM to about the file size (Qwen3.5-2B Q6_K peaked near 1.74 GB).
+    a.push('--no-repack', '-cram', '0');
     return [...a, ...(o.extraArgs ?? [])];
   }
 

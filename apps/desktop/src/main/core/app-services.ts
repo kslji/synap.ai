@@ -14,7 +14,8 @@ import { unregisterIpc, type Services } from './main-window.js'
 import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
 import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { detectHardware, chatThreads } from './hardware.js'
-import { parseRegistry, pick, type ModelEntry, type ModelRegistry } from './model-registry.js'
+import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
+import { codePackDir, loadCodePack } from './code-pack.js'
 import { downloadVerified } from './model-download.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
 import { LlamaClient } from './llama-client.js'
@@ -105,11 +106,21 @@ const STILL_READING = "I'm still reading your files. Ask again when they finish.
 
 export const DEFAULT_API_BASE = 'https://api.synap.surf'
 
+export class ModelLoadError extends Error {
+  readonly smallerModelId: string | null
+  constructor(message: string, smallerModelId: string | null) {
+    super(message)
+    this.name = 'ModelLoadError'
+    this.smallerModelId = smallerModelId
+  }
+}
+
 const DEFAULT_SETTINGS: Settings = {
   offlineOnly: false,
   webSearchAllowed: false,
   telemetryOptIn: false,
   chatModelId: '',
+  codeModelId: '',
   onboardingComplete: false,
   theme: 'light',
   apiBaseUrl: DEFAULT_API_BASE,
@@ -204,14 +215,23 @@ export async function createServices(): Promise<Services> {
       fitsRam: m.role === 'embedding' || m.role === 'vad' || fits(m),
       file: m.file,
       quant: quantFromFile(m.file),
+      agents: m.agents ?? [],
+      defaultFor: m.default_for ?? [],
+      peakRamGb: m.peak_ram_gb ?? null,
+      ramMeasured: m.ram_measured === true,
+      note: m.note,
+      visionBytes: m.mmproj?.size_bytes ?? null,
+      visionInstalled: m.mmproj ? await installed(mmprojDestName(m.id, m.mmproj.file), m.mmproj.size_bytes) : false,
     })))
-    const chosen = await chooseChat(reg, settings.chatModelId)
+    const chosen = await chooseChat(reg, settings.chatModelId, 'general')
+    const codeDefault = defaultForAgent(reg, 'code')
     return {
       tier: hw.tier,
       ramGb: hw.totalRamGb,
       cpuModel: hw.cpuModel,
       cores: hw.physicalCores,
       chatModelId: chosen?.id ?? recommended.id,
+      codeModelId: settings.codeModelId || codeDefault?.id || '',
       arch: hw.arch,
       platform: hw.platform,
       installed: models.filter((m) => m.installed).map((m) => m.id),
@@ -225,14 +245,20 @@ export async function createServices(): Promise<Services> {
     }
   }
 
-  async function chooseChat(reg: ModelRegistry, preferredId: string): Promise<ModelEntry | null> {
-    const chats = reg.models.filter((m) => m.role === 'chat')
+  async function chooseChat(reg: ModelRegistry, preferredId: string, agentId = 'general'): Promise<ModelEntry | null> {
+    const chats = reg.models.filter((m) => m.role === 'chat' && servesAgent(m, agentId))
     const ready = async (m: ModelEntry) => installed(m.file, m.size_bytes)
     if (preferredId) {
       const pref = chats.find((m) => m.id === preferredId)
       if (pref && await ready(pref)) return pref
+      if (pref && agentId === 'code') return null
     }
-    const recommended = pick(reg, 'chat', hw.tier)
+    if (agentId === 'code') {
+      const fallback = defaultForAgent(reg, 'code')
+      if (fallback && await ready(fallback)) return fallback
+      return null
+    }
+    const recommended = pick(reg, 'chat', hw.tier, agentId)
     if (await ready(recommended)) return recommended
     const have: ModelEntry[] = []
     for (const m of chats) if (await ready(m) && fits(m)) have.push(m)
@@ -254,7 +280,7 @@ export async function createServices(): Promise<Services> {
     return run
   }
 
-  async function ensure(role: 'chat' | 'embed', model: ModelEntry, ctx: number, mmproj = ''): Promise<LlamaServer> {
+  async function ensure(role: 'chat' | 'embed', model: ModelEntry, ctx: number, mmproj = '', agentId = 'general'): Promise<LlamaServer> {
     if (active && active.role === role && active.modelId === model.id && active.mmproj === mmproj && active.server.state === 'ready') return active.server
     await stopActive()
     const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
@@ -270,7 +296,14 @@ export async function createServices(): Promise<Services> {
     })
     sidecars[role] = 'starting'
     server.on('state', (st: SidecarState) => { sidecars[role] = st === 'starting' || st === 'ready' || st === 'crashed' || st === 'stopped' ? st : 'stopped' })
-    await server.start()
+    try {
+      await server.start()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (role !== 'chat') throw error instanceof Error ? error : new Error(message)
+      const smaller = smallerChatModel(registry().models.filter((m) => servesAgent(m, agentId)), model.id)
+      throw new ModelLoadError(message, smaller?.id ?? null)
+    }
     active = { role, modelId: model.id, mmproj, server }
     sidecars[role] = 'ready'
     return server
@@ -280,24 +313,29 @@ export async function createServices(): Promise<Services> {
     const settings = readSettings()
     assertNetworkAllowed(settings.offlineOnly)
     if (downloading) throw new Error('A download is already running.')
-    const model = registry().models.find((m) => m.id === modelId)
+    const vision = modelId.endsWith('#mmproj')
+    const lookupId = vision ? modelId.slice(0, -'#mmproj'.length) : modelId
+    const model = registry().models.find((m) => m.id === lookupId)
     if (!model) throw new Error('Unknown model.')
+    if (vision && !model.mmproj) throw new Error('This model has no screenshot add-on.')
     if (model.role === 'asr') throw new Error('Speech models land in week 2.')
+    const file = vision && model.mmproj ? model.mmproj : model
+    const destName = vision && model.mmproj ? mmprojDestName(model.id, model.mmproj.file) : model.file
     mkdirSync(modelsDir(), { recursive: true })
-    const dest = join(modelsDir(), model.file)
-    downloading = { id: model.id, done: 0, total: model.size_bytes }
+    const dest = join(modelsDir(), destName)
+    downloading = { id: modelId, done: 0, total: file.size_bytes }
     const ac = new AbortController()
     downloadAbort = ac
     const send = (state: string, done: number, error?: string) => {
-      safeSend(win, IPC.modelsEvent, { id: model.id, done, total: model.size_bytes, state, error })
+      safeSend(win, IPC.modelsEvent, { id: modelId, done, total: file.size_bytes, state, error })
     }
     try {
-      await downloadVerified({ url: model.url, dest, size: model.size_bytes, sha256: model.sha256 }, (done) => {
+      await downloadVerified({ url: file.url, dest, size: file.size_bytes, sha256: file.sha256 }, (done) => {
         if (ac.signal.aborted) return
-        downloading = { id: model.id, done, total: model.size_bytes }
+        downloading = { id: modelId, done, total: file.size_bytes }
         send('progress', done)
       }, ac.signal)
-      if (!ac.signal.aborted) send('done', model.size_bytes)
+      if (!ac.signal.aborted) send('done', file.size_bytes)
     } catch (e) {
       if (ac.signal.aborted || (e as Error).name === 'AbortError') return
       const message = (e as Error).message
@@ -346,9 +384,9 @@ export async function createServices(): Promise<Services> {
         return new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey })).embedDocs(rows)
       }),
       caption: async (png) => withModel(async () => {
-        const chat = await chooseChat(registry(), readSettings().chatModelId)
+        const chat = await chooseChat(registry(), readSettings().chatModelId, 'general')
         const file = chat?.mmproj?.file
-        const path = file ? join(modelsDir(), file) : ''
+        const path = chat && file ? join(modelsDir(), mmprojDestName(chat.id, file)) : ''
         if (!chat || !mmprojReady(path)) return null
         const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
         const server = await ensure('chat', chat, profile.serverCtx, path)
@@ -373,10 +411,10 @@ export async function createServices(): Promise<Services> {
     calc,
   })
 
-  async function collectWeb(question: string, signal: AbortSignal, chatModel: ModelEntry, ctx: number, win: BrowserWindow, messageId: string): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }> }> {
+  async function collectWeb(question: string, signal: AbortSignal, chatModel: ModelEntry, ctx: number, win: BrowserWindow, messageId: string, agentId = 'general'): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }> }> {
     const current = readSettings()
     assertNetworkAllowed(current.offlineOnly)
-    const server = await ensure('chat', chatModel, ctx)
+    const server = await ensure('chat', chatModel, ctx, '', agentId)
     const client = new LlamaClient({
       baseUrl: server.baseUrl,
       apiKey: server.apiKey,
@@ -473,6 +511,12 @@ export async function createServices(): Promise<Services> {
       return
     }
 
+    const agentId = req.agentId || 'general'
+    if (agentId === 'code') {
+      const loaded = await loadCodePack(codePackDir(app.getPath('userData')), trustedPackKeys())
+      if (loaded.status === 'invalid') console.warn('[surf] code pack skipped:', loaded.message)
+    }
+
     await withModel(async () => {
       let hits: Array<Hit | UserHit> = []
       let localIgnored: Array<Hit | UserHit> = []
@@ -547,9 +591,12 @@ export async function createServices(): Promise<Services> {
         return
       }
 
-      const chatModel = await chooseChat(reg, settings.chatModelId)
+      const preferred = agentId === 'code' ? settings.codeModelId : settings.chatModelId
+      const chatModel = await chooseChat(reg, preferred, agentId)
       if (!chatModel) {
-        const suggested = pick(reg, 'chat', hw.tier)
+        const suggested = agentId === 'code'
+          ? (reg.models.find((m) => m.id === preferred) ?? defaultForAgent(reg, 'code') ?? pick(reg, 'chat', hw.tier))
+          : pick(reg, 'chat', hw.tier)
         throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
       }
       const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
@@ -558,7 +605,7 @@ export async function createServices(): Promise<Services> {
       if (plan.branch === 'web' || plan.branch === 'blend') {
         sendEvent(win, { type: 'status', messageId, phase: 'searching' })
         try {
-          const collected = await collectWeb(text, signal, chatModel, profile.serverCtx, win, messageId)
+          const collected = await collectWeb(text, signal, chatModel, profile.serverCtx, win, messageId, agentId)
           webHits = collected.pieces
           webIgnored = collected.ignored
         } catch (error) {
@@ -578,7 +625,7 @@ export async function createServices(): Promise<Services> {
           return
         }
       }
-      const server = await ensure('chat', chatModel, profile.serverCtx)
+      const server = await ensure('chat', chatModel, profile.serverCtx, '', agentId)
       const client = new LlamaClient({
         baseUrl: server.baseUrl,
         apiKey: server.apiKey,
@@ -734,7 +781,8 @@ export async function createServices(): Promise<Services> {
         void reply(req, conversationId, messageId, userMessageId, win, ac.signal)
           .catch((e: unknown) => {
             if (ac.signal.aborted) return
-            sendEvent(win, { type: 'error', messageId, message: (e as Error).message })
+            const smallerModelId = e instanceof ModelLoadError ? e.smallerModelId ?? undefined : undefined
+            sendEvent(win, { type: 'error', messageId, message: (e as Error).message, ...(smallerModelId ? { smallerModelId } : {}) })
           })
           .finally(() => inflight.delete(messageId))
         return { conversationId, messageId }
@@ -1109,7 +1157,7 @@ function isMetered(): Promise<boolean> {
 
 function labelFor(m: ModelEntry): string {
   if (m.role === 'embedding') return 'EmbeddingGemma 2'
-  if (m.role === 'chat') return chatModelLabel(m.params_b)
+  if (m.role === 'chat') return chatModelLabel(m)
   if (m.role === 'asr') return m.id
   return m.id
 }

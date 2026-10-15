@@ -8,7 +8,7 @@ import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
 import { AgentsScreen, ChatsScreen, HomeScreen } from './screens/HomeScreen'
 import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelsScreen } from './screens/ModelsScreen'
-import { modelChoiceLabel } from '../../shared/model-label'
+import { codeModelLine, modelChoiceLabel } from '../../shared/model-label'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
@@ -683,7 +683,7 @@ export default function App() {
           agentName={agents.find((agent) => agent.id === agentId)?.name ?? 'General'}
           agentNote={agents.find((agent) => agent.id === agentId)?.notes}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen3.5'}
-          chatChoices={(agentId === 'code' ? codeModels(status) : chatModels(status)).map((model) => ({ id: model.id, label: modelChoiceLabel(model) }))}
+          chatChoices={(agentId === 'code' ? codeModels(status) : chatModels(status)).map((model) => ({ id: model.id, label: agentId === 'code' ? codeModelLine(model) : modelChoiceLabel(model) }))}
           chatModelId={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.id ?? ''}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           tourOnline={tourStep != null && TOUR[tourStep]?.id === 'online'}

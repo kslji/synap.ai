@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CatalogModel, ModelStatus } from '../../../shared/ipc-contract'
-import { formatModelSize, modelChoiceLabel, servesAgent } from '../../../shared/model-label'
+import { codeFileCapBytes, laptopRamClass } from '../../../shared/code-ram'
+import { codeModelLine, fitMarkLabel, formatModelSize, modelChoiceLabel, servesAgent } from '../../../shared/model-label'
 import { formatBytes } from '../format'
 
 export function chatModels(status: ModelStatus, agentId = 'general'): CatalogModel[] {
@@ -8,7 +9,10 @@ export function chatModels(status: ModelStatus, agentId = 'general'): CatalogMod
 }
 
 export function codeModels(status: ModelStatus): CatalogModel[] {
-  return chatModels(status, 'code')
+  return chatModels(status, 'code').slice().sort((a, b) => {
+    const familyRank = (family: string) => family === 'qwen3.5' ? 0 : 1
+    return familyRank(a.family) - familyRank(b.family) || (a.paramsB ?? 0) - (b.paramsB ?? 0)
+  })
 }
 
 export function activeChatModel(status: ModelStatus): CatalogModel | undefined {
@@ -63,7 +67,7 @@ export function ModelsScreen({
           <ModelPanel
             status={status}
             heading="Code"
-            intro="Code keeps its own Qwen list. If you do not pick, the smallest model downloads."
+            intro="Qwen3.5 2B is the default. Gemma 4 is optional. If you do not pick, Qwen3.5 2B downloads."
             chats={code}
             current={codeCurrent}
             progress={progress}
@@ -112,6 +116,11 @@ export function ModelPanel({
     <div data-model-panel="yes">
       <h2 className="text-lg font-semibold tracking-tight">{heading}</h2>
       <p className="mt-1 text-sm text-[var(--muted)]">{intro ?? `The chat model is ${current?.label ?? 'Qwen3.5'}.`}</p>
+      {heading === 'Code' && (
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          This computer reports {status.ramGb} GB of RAM ({laptopRamClass(status.ramGb)} GB tier, model file up to {formatModelSize(codeFileCapBytes(status.ramGb))}).
+        </p>
+      )}
       {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
       <label className="mt-4 block text-sm font-semibold">
         {heading === 'Code' ? 'Code model' : 'Chat model'}
@@ -123,7 +132,9 @@ export function ModelPanel({
           onChange={(event) => onSelect(event.target.value)}
         >
           {chats.map((model) => (
-            <option key={model.id} value={model.id}>{modelChoiceLabel(model)}{model.installed ? '' : ' · not downloaded'}</option>
+            <option key={model.id} value={model.id}>
+              {(heading === 'Code' ? codeModelLine(model) : modelChoiceLabel(model))}{model.installed ? '' : ' · not downloaded'}
+            </option>
           ))}
         </select>
       </label>
@@ -136,8 +147,9 @@ export function ModelPanel({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold">{model.label}</div>
-                  <div className="text-xs text-[var(--muted)]">{modelChoiceLabel(model)}</div>
-                  <div className="text-xs text-[var(--muted)]">{model.recommended ? 'Fits this computer' : model.fitsRam ? 'Also fits' : 'Needs more memory'}</div>
+                  <div className="text-xs text-[var(--muted)]">{heading === 'Code' ? codeModelLine(model) : modelChoiceLabel(model)}</div>
+                  <div className="text-xs text-[var(--muted)]">{model.fitMark ? fitMarkLabel(model.fitMark) : model.recommended ? 'Fits this computer' : model.fitsRam ? 'Also fits' : 'Needs more memory'}</div>
+                  {heading === 'Code' && model.note && <div className="mt-1 text-xs text-[var(--muted)]">{model.note}</div>}
                 </div>
                 {model.installed ? <span className="pill pill-ok"><i />Installed</span> : (
                   <button className="btn btn-primary" type="button" disabled={busy || status.offlineOnly} onClick={() => onDownload(model.id)}>

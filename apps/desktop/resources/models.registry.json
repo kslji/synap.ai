@@ -1,7 +1,7 @@
 {
   "registry_format": "surf-models/1",
   "updated_at": "2026-10-15",
-  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-15 for the Code rows, 2026-10-09 for the rest). Code rows set agents to [code] and are Qwen3.5 only. They are not the General or Assistant default. Qwen3.5-2B Q6_K peak RAM is about 1.74 GB with --no-repack -cram 0. 4B and 9B peak RAM is still unmeasured.",
+  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-15 for the Code rows, 2026-10-09 for the rest). Code rows set agents to [code]. Qwen3.5-2B Q6_K is the default on every laptop. Gemma 4 rows are optional. min_ram_gb is the laptop class whose file cap holds the GGUF: 4 GB laptop up to 2 GB, 8 GB up to 3 GB, 16 GB up to 4 GB, 32 GB up to 8 GB. Measured sizes differ from early estimates: Gemma 4 E2B Q4_K_M is 3.11 GB (not 2.3 GB), E4B Q4_0 is 4.59 GB (not about 4 GB), 12B Q4_K_M is 7.12 GB. Qwen3.5-2B Q6_K peak RAM is about 1.74 GB with --no-repack -cram 0. Other Code peak RAM is still unmeasured.",
   "models": [
     {
       "id": "qwen3.5-4b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 4,
@@ -111,8 +111,10 @@
         "size_bytes": 668227264,
         "sha256": "7035e9cb8d7c6a9681d07eef9a364783e86ea4cd73faab2eabb4f43a101830c7"
       },
-      "min_ram_gb": 2, "peak_ram_gb": 1.74, "ram_measured": true, "tiers": [],
+      "min_ram_gb": 4, "peak_ram_gb": 1.74, "ram_measured": true, "tiers": [],
       "agents": ["code"], "default_for": ["code"],
+      "size_name": "2B",
+      "note": "4 GB tier. The Q6_K file is 1.57 GB, under the 2 GB cap. Measured peak about 1.74 GB.",
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
     },
@@ -129,9 +131,10 @@
         "size_bytes": 672423616,
         "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
       },
-      "min_ram_gb": 4, "ram_measured": false, "tiers": [],
+      "min_ram_gb": 16, "ram_measured": false, "tiers": [],
       "agents": ["code"],
-      "note": "4 GB tier. Peak RAM has not been measured.",
+      "size_name": "4B",
+      "note": "16 GB tier. The Q6_K file is 3.53 GB, over the 3 GB cap for an 8 GB laptop. Peak RAM has not been measured.",
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
     },
@@ -148,11 +151,72 @@
         "size_bytes": 918166080,
         "sha256": "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f"
       },
-      "min_ram_gb": 8, "ram_measured": false, "tiers": [],
+      "min_ram_gb": 32, "ram_measured": false, "tiers": [],
       "agents": ["code"],
-      "note": "8 GB tier. Peak RAM has not been measured. The screenshot file is 0.92 GB, larger than the 2B and 4B projector.",
+      "size_name": "9B",
+      "note": "32 GB tier. The Q6_K file is 7.46 GB, over the 4 GB cap for a 16 GB laptop. Peak RAM has not been measured. The screenshot file is 0.92 GB.",
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    },
+    {
+      "id": "gemma-4-e2b-q4_k_m", "role": "chat", "family": "gemma4", "params_b": 2,
+      "label": "Gemma 4 E2B", "size_name": "E2B",
+      "license": "apache-2.0", "context_default": 8192,
+      "file": "gemma-4-E2B-it-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+      "size_bytes": 3106738272,
+      "sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+      "mmproj": {
+        "file": "mmproj-F16.gguf",
+        "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf",
+        "size_bytes": 985654080,
+        "sha256": "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa"
+      },
+      "min_ram_gb": 16, "ram_measured": false, "tiers": [],
+      "agents": ["code"],
+      "note": "Optional. May be tight on a 4 GB laptop. The Q4_K_M file is 3.11 GB, not about 2.3 GB, so it is over the 2 GB cap and slightly over the 3 GB cap for an 8 GB laptop. No higher quant fits under 3 GB. Peak RAM has not been measured.",
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
+    },
+    {
+      "id": "gemma-4-e4b-q4_0", "role": "chat", "family": "gemma4", "params_b": 4,
+      "label": "Gemma 4 E4B", "size_name": "E4B",
+      "license": "apache-2.0", "context_default": 8192,
+      "file": "gemma-4-E4B-it-Q4_0.gguf",
+      "url": "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
+      "size_bytes": 4590807392,
+      "sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2",
+      "mmproj": {
+        "file": "mmproj-gemma-4-E4B-it-BF16.gguf",
+        "url": "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/mmproj-gemma-4-E4B-it-BF16.gguf",
+        "size_bytes": 991552256,
+        "sha256": "f77995e4b6a569ab8f0d1bfdb7e8da4a0fa5b9e6f309b9bf3bdb76164d75e29f"
+      },
+      "min_ram_gb": 32, "ram_measured": false, "tiers": [],
+      "agents": ["code"],
+      "note": "Optional 16 GB candidate. The smallest Q4_0 file is 4.59 GB (ggml-org), not about 4 GB. Unsloth Q4_0 is 4.84 GB and Q4_K_M is 4.98 GB. All three are over the 4 GB cap, so a 16 GB laptop shows Too big. Peak RAM has not been measured.",
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
+    },
+    {
+      "id": "gemma-4-12b-q4_k_m", "role": "chat", "family": "gemma4", "params_b": 12,
+      "label": "Gemma 4 12B", "size_name": "12B",
+      "license": "apache-2.0", "context_default": 8192,
+      "file": "gemma-4-12b-it-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-4-12B-it-GGUF/resolve/main/gemma-4-12b-it-Q4_K_M.gguf",
+      "size_bytes": 7121861440,
+      "sha256": "0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42",
+      "mmproj": {
+        "file": "mmproj-F16.gguf",
+        "url": "https://huggingface.co/unsloth/gemma-4-12B-it-GGUF/resolve/main/mmproj-F16.gguf",
+        "size_bytes": 175115840,
+        "sha256": "91f086971e56d7a7d8d39e271873fccdb49541bd259d6e02c401a4f1cb7a219e"
+      },
+      "min_ram_gb": 32, "ram_measured": false, "tiers": [],
+      "agents": ["code"],
+      "note": "Optional 32 GB tier. Q4_K_M is 7.12 GB, inside the 6.7 to 7.4 GB range and under the 8 GB cap. Peak RAM has not been measured.",
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
     }
   ]
 }

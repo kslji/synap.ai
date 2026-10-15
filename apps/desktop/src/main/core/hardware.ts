@@ -47,7 +47,7 @@ export async function detectHardware(): Promise<HardwareInfo> {
   return {
     platform: process.platform,
     arch: process.arch,
-    totalRamGb: Math.round(totalRamGb * 10) / 10,
+    totalRamGb: Math.round(totalRamGb * 10) / 10, // os.totalmem(); Code file caps use this figure, not VRAM
     freeRamGb: Math.round(freeRamGb * 10) / 10,
     cpuModel: cpus[0]?.model ?? 'unknown',
     physicalCores,

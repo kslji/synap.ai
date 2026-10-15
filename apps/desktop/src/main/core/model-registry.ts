@@ -40,6 +40,8 @@ export const ModelEntry = FileRef.extend({
   default_for: z.array(z.string()).optional(),
   /** Short name when family + size is not the label to show. */
   label: z.string().optional(),
+  /** Size token in the Code picker, such as E2B. Omitted rows use params_b. */
+  size_name: z.string().optional(),
   note: z.string().optional(),
   chat_template_kwargs: z.record(z.string(), z.unknown()).optional(),
   sampling: z.record(z.string(), z.number()).optional(),
@@ -89,15 +91,18 @@ export function defaultForAgent(reg: ModelRegistry, agentId: string): ModelEntry
   return [...marked].sort((a, b) => (a.params_b ?? 0) - (b.params_b ?? 0) || a.min_ram_gb - b.min_ram_gb)[0];
 }
 
-/** Next smaller Qwen chat model. Code offers only these sizes. */
+/** Next smaller chat model in the same family, then the next smaller Qwen. */
 export function smallerChatModel(models: readonly ModelEntry[], currentId: string): ModelEntry | null {
   const current = models.find((m) => m.id === currentId);
-  if (!current || current.family !== 'qwen3.5') return null;
+  if (!current) return null;
   const rank = (m: ModelEntry) => m.min_ram_gb * 1000 + (m.params_b ?? 0);
   const smaller = models.filter((m) => {
-    if (m.id === current.id || m.role !== 'chat' || m.family !== 'qwen3.5') return false;
+    if (m.id === current.id || m.role !== 'chat') return false;
     if (m.min_ram_gb < current.min_ram_gb) return true;
     return m.min_ram_gb === current.min_ram_gb && (m.params_b ?? 0) < (current.params_b ?? 0);
   });
-  return smaller.sort((a, b) => rank(b) - rank(a))[0] ?? null;
+  const same = smaller.filter((m) => m.family === current.family).sort((a, b) => rank(b) - rank(a));
+  if (same[0]) return same[0];
+  const qwen = smaller.filter((m) => m.family === 'qwen3.5').sort((a, b) => rank(b) - rank(a));
+  return qwen[0] ?? null;
 }

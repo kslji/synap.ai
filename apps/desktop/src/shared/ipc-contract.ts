@@ -108,6 +108,9 @@ export interface CatalogModel {
   id: string
   role: 'chat' | 'embedding' | 'asr' | 'vad'
   label: string
+  family: string
+  /** Picker size token, such as 2B or E2B. */
+  sizeName: string
   paramsB: number | null
   sizeBytes: number
   minRamGb: number
@@ -128,6 +131,8 @@ export interface CatalogModel {
   note?: string
   visionBytes: number | null
   visionInstalled: boolean
+  /** Code list only. Recommended is Qwen3.5 2B. Null on General and Assistant rows. */
+  fitMark: 'recommended' | 'fits' | 'too-big' | null
 }
 
 export interface ModelStatus {

@@ -93,7 +93,7 @@ export function SettingsScreen({
                 <ModelPanel
                   status={status}
                   heading="Code"
-                  intro="Code keeps its own list. If you do not pick, the smallest model downloads."
+                  intro="Qwen3.5 2B is the default. Gemma 4 is optional. If you do not pick, Qwen3.5 2B downloads."
                   chats={code}
                   current={codeCurrent}
                   progress={progress}

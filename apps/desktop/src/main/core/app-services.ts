@@ -12,6 +12,7 @@ import { copyFile, mkdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
 import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
+import { codeFitMark } from '../../shared/code-ram.js'
 import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
@@ -206,6 +207,8 @@ export async function createServices(): Promise<Services> {
       id: m.id,
       role: m.role,
       label: labelFor(m),
+      family: m.family,
+      sizeName: m.size_name ?? (m.params_b != null ? `${m.params_b}B` : ''),
       paramsB: m.params_b ?? null,
       sizeBytes: m.size_bytes,
       minRamGb: m.min_ram_gb,
@@ -222,6 +225,9 @@ export async function createServices(): Promise<Services> {
       note: m.note,
       visionBytes: m.mmproj?.size_bytes ?? null,
       visionInstalled: m.mmproj ? await installed(mmprojDestName(m.id, m.mmproj.file), m.mmproj.size_bytes) : false,
+      fitMark: m.agents?.includes('code')
+        ? codeFitMark({ family: m.family, sizeBytes: m.size_bytes, defaultFor: m.default_for }, hw.totalRamGb)
+        : null,
     })))
     const chosen = await chooseChat(reg, settings.chatModelId, 'general')
     const codeDefault = defaultForAgent(reg, 'code')

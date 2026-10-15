@@ -8,6 +8,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync, cpSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import JSZip from 'jszip'
+import { fetchDownload, httpFailure, withDownloadRetry } from './http-download.mjs'
 
 const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=')
 
@@ -56,9 +57,11 @@ async function main() {
   rmSync(tmp, { recursive: true, force: true }); mkdirSync(tmp, { recursive: true })
 
   console.log('downloading', url)
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
-  const buf = Buffer.from(await res.arrayBuffer())
+  const buf = await withDownloadRetry(async () => {
+    const res = await fetchDownload(url)
+    if (!res.ok) throw httpFailure(url, res.status)
+    return Buffer.from(await res.arrayBuffer())
+  })
   const archive = resolve(tmp, asset)
   writeFileSync(archive, buf)
   const sha = createHash('sha256').update(buf).digest('hex')

@@ -2,7 +2,7 @@
  * Preload (sandboxed, contextIsolation on). Exposes window.surf — never ipcRenderer itself.
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type SurfApi, type ChatEvent, type DocumentEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
+import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T) => cb(payload)
@@ -74,6 +74,12 @@ const api: SurfApi = {
     export: (input) => ipcRenderer.invoke(IPC.documentsExport, input),
     cancel: () => ipcRenderer.invoke(IPC.documentsCancel),
     onEvent: (cb) => subscribe<DocumentEvent>(IPC.documentsEvent, cb),
+  },
+  code: {
+    pick: () => ipcRenderer.invoke(IPC.codePick),
+    status: () => ipcRenderer.invoke(IPC.codeStatus),
+    storage: () => ipcRenderer.invoke(IPC.codeStorage),
+    onEvent: (cb) => subscribe<CodeProjectStatus>(IPC.codeEvent, cb),
   },
 }
 

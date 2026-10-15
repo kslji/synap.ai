@@ -3,11 +3,12 @@
  * Bundle Tesseract language data so OCR works offline after install.
  * eng + hin, the fast LSTM models tesseract.js 5 loads (@tesseract.js-data 4.0.0).
  */
-import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pipeline } from 'node:stream/promises'
 import { createGunzip } from 'node:zlib'
+import { fetchDownload, httpFailure, withDownloadRetry } from './http-download.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'tessdata')
 mkdirSync(root, { recursive: true })
@@ -24,8 +25,17 @@ for (const [lang, url] of files) {
     continue
   }
   console.log('get', lang)
-  const res = await fetch(url)
-  if (!res.ok || !res.body) throw new Error(`${url} HTTP ${res.status}`)
-  await pipeline(res.body, createGunzip(), createWriteStream(dest))
+  const part = `${dest}.part`
+  await withDownloadRetry(async () => {
+    const res = await fetchDownload(url)
+    if (!res.ok || !res.body) throw httpFailure(url, res.status)
+    try {
+      await pipeline(res.body, createGunzip(), createWriteStream(part))
+    } catch (error) {
+      try { unlinkSync(part) } catch { /* nothing written yet */ }
+      throw error
+    }
+  })
+  renameSync(part, dest)
   console.log('wrote', dest, statSync(dest).size)
 }

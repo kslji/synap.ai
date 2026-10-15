@@ -21,6 +21,8 @@ import { downloadVerified } from './model-download.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
 import { LlamaClient } from './llama-client.js'
 import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
+import { gemmaEmbedder } from './code/embed.js'
+import { createCodeService } from './code-service.js'
 import { Calculator, calculatorTools } from './calculator.js'
 import { compareFromText, countFromText, numberTools, asksForNumberTool, resolveDirectTool, verbatimAnswer } from './number-tools.js'
 import { createDocumentApi } from './document-service.js'
@@ -761,6 +763,41 @@ export async function createServices(): Promise<Services> {
 
   readSettings()
 
+  async function codeEmbedder() {
+    const emb = registry().models.find((m) => m.role === 'embedding')
+    if (!emb || !(await installed(emb.file, emb.size_bytes))) return null
+    const run = <T>(fn: (embedder: ReturnType<typeof gemmaEmbedder>) => Promise<T>) => withModel(async () => {
+      const server = await ensure('embed', emb, 2048)
+      return fn(gemmaEmbedder(new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey }))))
+    })
+    return {
+      dim: EMBEDDINGGEMMA2_256.dim,
+      embedDocs: (docs: { title?: string | null; text: string }[]) => run((embedder) => embedder.embedDocs(docs)),
+      embedQueries: (queries: string[]) => run((embedder) => embedder.embedQueries(queries)),
+    }
+  }
+
+  async function codeDbKey(): Promise<string | null> {
+    const evalKey = surfEnv('EVAL_DB_KEY')
+    if (evalKey && /^[0-9a-f]{64}$/i.test(evalKey)) return evalKey
+    try { return await getOrCreateDbKey() }
+    catch { return null }
+  }
+
+  function codeGrammarDir(): string {
+    const packaged = join(process.resourcesPath, 'tree-sitter')
+    if (app.isPackaged && existsSync(packaged)) return packaged
+    return join(app.getAppPath(), 'resources', 'tree-sitter')
+  }
+
+  const codeApi = createCodeService({
+    dataDir: join(app.getPath('userData'), 'code-projects'),
+    keyHex: await codeDbKey(),
+    grammarDir: codeGrammarDir(),
+    embedder: codeEmbedder,
+    notify: (status) => { if (ui) safeSend(ui, IPC.codeEvent, status) },
+  })
+
   let pendingUpdate: UpdateOffer | null = null
   let released = false
   function releaseWindow(): void {
@@ -770,6 +807,7 @@ export async function createServices(): Promise<Services> {
     downloadAbort?.abort()
     for (const ac of inflight.values()) ac.abort()
     documentApi.cancel()
+    codeApi.shutdown()
     unregisterIpc()
     void stopActive().catch(() => undefined)
   }
@@ -929,6 +967,7 @@ export async function createServices(): Promise<Services> {
       open: async (url) => { await shell.openExternal(url) },
     },
     documents: documentApi,
+    code: codeApi,
     lifecycle: { releaseWindow },
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {

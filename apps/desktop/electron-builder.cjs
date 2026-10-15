@@ -30,9 +30,11 @@ const config = {
     'node_modules/pdfjs-dist/**',
     'node_modules/@napi-rs/canvas*/**',
     'out/main/ocr-runner.js',
+    'node_modules/web-tree-sitter/**/*.wasm',
   ],
   extraResources: [
     { from: 'resources/bin/${platform}-${arch}', to: 'bin' },
+    { from: 'resources/tree-sitter', to: 'tree-sitter' },
     { from: 'resources/models.registry.json', to: 'models.registry.json' },
     { from: 'resources/tessdata', to: 'tessdata' },
     { from: 'resources/pack-keys.json', to: 'pack-keys.json' },

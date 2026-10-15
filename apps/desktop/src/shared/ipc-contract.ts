@@ -45,6 +45,10 @@ export const IPC = {
   documentsExport: 'documents:export',
   documentsCancel: 'documents:cancel',
   documentsEvent: 'documents:event',
+  codePick: 'code:pick',
+  codeStatus: 'code:status',
+  codeStorage: 'code:storage',
+  codeEvent: 'code:event',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -301,6 +305,25 @@ export interface PackRow {
   error: string | null
 }
 
+/** One opened project. The index lives in the app private data folder, not in the project. */
+export interface CodeProjectStatus {
+  id: string
+  root: string
+  state: 'idle' | 'indexing' | 'ready' | 'error'
+  files: number
+  done: number
+  symbols: number
+  bytes: number
+  embeddings: 'ready' | 'pending' | 'off'
+  encrypted: boolean
+  error: string | null
+}
+
+export interface CodeStorageUsage {
+  totalBytes: number
+  projects: { id: string; root: string; bytes: number }[]
+}
+
 /** What window.surf looks like in the renderer. */
 export interface SurfApi {
   chat: {
@@ -366,5 +389,11 @@ export interface SurfApi {
     export(input: { templatePath?: string; templateAttachmentId?: string; rows: FillRow[]; format: ExportFormat | 'same'; highlight: boolean }): Promise<DocumentResult | null>
     cancel(): Promise<void>
     onEvent(cb: (e: DocumentEvent) => void): () => void
+  }
+  code: {
+    pick(): Promise<CodeProjectStatus | null>
+    status(): Promise<CodeProjectStatus | null>
+    storage(): Promise<CodeStorageUsage>
+    onEvent(cb: (status: CodeProjectStatus) => void): () => void
   }
 }

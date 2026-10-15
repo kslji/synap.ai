@@ -5,7 +5,7 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type ChunkPreview, type ConversationSummary, type DeviceInfo, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChunkPreview, type CodeProjectStatus, type CodeStorageUsage, type ConversationSummary, type DeviceInfo, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
 import { AttachmentId, ChatSendReq, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
@@ -129,6 +129,11 @@ export interface Services {
     export(win: BrowserWindow, input: { path?: string; attachmentId?: string }, rows: FillRow[], format: ExportFormat | 'same', highlight: boolean): Promise<DocumentResult | null>
     cancel(): void
   }
+  code: {
+    pick(win: BrowserWindow): Promise<CodeProjectStatus | null>
+    status(): Promise<CodeProjectStatus | null>
+    storage(): Promise<CodeStorageUsage>
+  }
   lifecycle: {
     releaseWindow(): void
   }
@@ -206,6 +211,9 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
     return s.documents.export(win, { path: body.templatePath, attachmentId: body.templateAttachmentId }, body.rows, body.format, body.highlight)
   })
   handle(IPC.documentsCancel, (e) => { assertTrusted(e); s.documents.cancel() })
+  handle(IPC.codePick, (e) => { assertTrusted(e); return s.code.pick(win) })
+  handle(IPC.codeStatus, (e) => { assertTrusted(e); return s.code.status() })
+  handle(IPC.codeStorage, (e) => { assertTrusted(e); return s.code.storage() })
   handle(IPC.linksOpen, (e, raw) => {
     assertTrusted(e)
     const url = HttpLink.parse(raw)

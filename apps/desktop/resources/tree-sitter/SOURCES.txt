@@ -1,0 +1,9 @@
+tree-sitter-python@0.25.0 tree-sitter-python.wasm
+tree-sitter-javascript@0.25.0 tree-sitter-javascript.wasm
+tree-sitter-typescript@0.23.2 tree-sitter-typescript.wasm
+tree-sitter-typescript@0.23.2 tree-sitter-tsx.wasm
+tree-sitter-java@0.23.5 tree-sitter-java.wasm
+tree-sitter-go@0.25.0 tree-sitter-go.wasm
+tree-sitter-rust@0.24.0 tree-sitter-rust.wasm
+tree-sitter-c@0.24.1 tree-sitter-c.wasm
+tree-sitter-cpp@0.23.4 tree-sitter-cpp.wasm

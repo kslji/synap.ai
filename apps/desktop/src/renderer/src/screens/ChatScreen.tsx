@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { StarSurf, starStateFor } from '@surf/ui'
-import type { ChunkPreview, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { Preview } from './LibraryScreen'
 import { ModelGuideButton } from './ModelGuide'
+
+function folderName(root: string): string {
+  const parts = root.split(/[/\\]/).filter(Boolean)
+  return parts[parts.length - 1] ?? root
+}
 
 const PROMPTS = [
   'What is 14 knots in km/h?',
@@ -38,6 +44,8 @@ export function ChatScreen({
   onClosePreview,
   onSelectModel,
   onSwitchSmaller,
+  project,
+  onOpenProject,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -65,6 +73,9 @@ export function ChatScreen({
   onClosePreview: () => void
   onSelectModel: (id: string) => void
   onSwitchSmaller: (id: string) => void
+  /** Set for the Code agent. Null means no folder has been opened yet. */
+  project?: CodeProjectStatus | null
+  onOpenProject?: () => void
 }) {
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
@@ -119,6 +130,29 @@ export function ChatScreen({
             </span>
           </div>
         </header>
+        {project !== undefined && (
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-2" data-code-project="yes">
+            <div className="min-w-0 text-xs text-[var(--muted)]">
+              {project ? (
+                <>
+                  <span className="font-semibold text-[var(--ink)]">{folderName(project.root)}</span>
+                  {' · '}
+                  {project.state === 'indexing' ? `Indexing ${project.done}/${project.files}` : `${project.files} files`}
+                  {' · '}
+                  {formatIndexBytes(project.bytes)}
+                  {' · '}
+                  {project.embeddings === 'ready' ? 'keywords + embeddings' : project.embeddings === 'pending' ? 'embeddings catching up' : 'keyword index'}
+                  {project.error ? ` · ${project.error}` : ''}
+                </>
+              ) : (
+                'No project open. The index stays in this app private data folder.'
+              )}
+            </div>
+            <button type="button" className="btn btn-ghost shrink-0" onClick={onOpenProject}>
+              {project ? 'Change folder' : 'Open folder'}
+            </button>
+          </div>
+        )}
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
           {messages.length === 0 ? (
             <div className="mx-auto flex max-w-lg flex-col items-center pt-16 text-center">

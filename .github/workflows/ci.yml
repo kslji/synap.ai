@@ -15,7 +15,21 @@ jobs:
           cache: npm
       - name: Compiler tools for native prebuilds
         run: sudo apt-get update && sudo apt-get install -y make g++
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The registry sometimes resets the connection (ECONNRESET).
+          # node-gyp on Windows sometimes exits with
+          # "Completion callback never invoked" while building better-sqlite3.
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs
@@ -35,7 +49,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The registry sometimes resets the connection (ECONNRESET).
+          # node-gyp on Windows sometimes exits with
+          # "Completion callback never invoked" while building better-sqlite3.
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
       - name: Typecheck and build the website
         run: npm run build -w @surf/web
       - name: Website link check
@@ -89,7 +117,21 @@ jobs:
           python-version: "3.12"
       - name: Compiler tools, Electron libraries, and a display
         run: sudo apt-get update && sudo apt-get install -y make g++ xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 libx11-xcb1 libxss1
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The registry sometimes resets the connection (ECONNRESET).
+          # node-gyp on Windows sometimes exits with
+          # "Completion callback never invoked" while building better-sqlite3.
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
       - uses: actions/cache@v4
         with:
           path: .surf-models

@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ThemeSwitch } from '@surf/ui'
 import { product } from '@surf/shared'
-import type { DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
+import type { CodeStorageUsage, DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
+import { formatIndexBytes } from '../format'
 import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
 
 export function SettingsScreen({
@@ -122,6 +123,7 @@ export function SettingsScreen({
           onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
         />
         <SavedWebCard />
+        <CodeIndexCard />
         <Row
           title="Telemetry"
           body="Off unless you turn it on. Prompts stay on this computer."
@@ -253,6 +255,36 @@ function SavedWebCard() {
       </button>
     </div>
   )
+}
+
+function CodeIndexCard() {
+  const [usage, setUsage] = useState<CodeStorageUsage | null>(null)
+  useEffect(() => {
+    void window.surf.code.storage().then(setUsage).catch(() => setUsage(null))
+  }, [])
+  return (
+    <div className="card px-4 py-4" data-code-index-card="yes">
+      <div className="text-sm font-semibold">Code project indexes</div>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+        Opening a project folder indexes it on this computer. The index stays in the app private data folder. Source files are not uploaded.
+      </p>
+      <p className="mt-2 text-sm" data-code-index-size="yes">
+        {usage ? `${usage.projects.length} project${usage.projects.length === 1 ? '' : 's'} · ${formatIndexBytes(usage.totalBytes)}` : 'Checking size…'}
+      </p>
+      {usage && usage.projects.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1 text-sm text-[var(--muted)]">
+          {usage.projects.map((project) => (
+            <li key={project.id}>{folderLabel(project.root)} · {formatIndexBytes(project.bytes)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function folderLabel(root: string): string {
+  const parts = root.split(/[/\\]/).filter(Boolean)
+  return parts[parts.length - 1] ?? root
 }
 
 function webSize(n: number): string {

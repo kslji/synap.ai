@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChunkPreview, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
@@ -26,6 +26,7 @@ export default function App() {
   const [view, setView] = useState<View>('onboarding')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [agentId, setAgentId] = useState('general')
+  const [codeProject, setCodeProject] = useState<CodeProjectStatus | null>(null)
   const [tourStep, setTourStep] = useState<number | null>(null)
   const [messages, setMessages] = useState<UiMsg[]>([])
   const [streaming, setStreaming] = useState(false)
@@ -79,6 +80,7 @@ export default function App() {
     const offLib = api.library.onEvent((e) => {
       setFiles((prev) => [e.file, ...prev.filter((file) => file.id !== e.file.id)])
     })
+    const offCode = api.code.onEvent(setCodeProject)
     const offDocs = api.documents.onEvent((event) => {
       const patch = { progress: event.progress, stage: event.stage, error: event.error ?? null }
       setConvertJob((job) => (job?.busy ? { ...job, ...patch, busy: !event.done } : job))
@@ -94,7 +96,7 @@ export default function App() {
       }
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
-    return () => { offChat(); offModels(); offLib(); offDocs(); window.clearInterval(timer) }
+    return () => { offChat(); offModels(); offLib(); offDocs(); offCode(); window.clearInterval(timer) }
   }, [api, refresh])
 
   const booted = useRef(false)
@@ -103,6 +105,11 @@ export default function App() {
     booted.current = true
     if (status.onboardingComplete) setView('home')
   }, [status])
+
+  useEffect(() => {
+    if (agentId !== 'code') return
+    void api.code.status().then(setCodeProject).catch(() => setCodeProject(null))
+  }, [agentId, api])
 
   useEffect(() => {
     if (settings) persistThemeChoice(settings.theme)
@@ -698,6 +705,8 @@ export default function App() {
           modelGuide={agentId === 'code'}
           onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
+          project={agentId === 'code' ? codeProject : undefined}
+          onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
       {view === 'library' && (

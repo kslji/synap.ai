@@ -4,8 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { markdownHrefs, sourceUrls } from '../../../packages/ui/src/markdown.ts'
-import { Markdown } from '../../../packages/ui/src/Markdown.tsx'
+import { Markdown, markdownHrefs, sourceUrls } from '../../../packages/ui/src/markdown.tsx'
 
 const root = new URL('../../..', import.meta.url).pathname
 const article = readFileSync(join(root, 'agents/code/blog/qwen35-vs-gemma4.md'), 'utf8')

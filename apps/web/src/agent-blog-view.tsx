@@ -1,6 +1,6 @@
 import React from 'react'
 import type { AgentMeta } from '../../../packages/shared/src/agents'
-import { Markdown } from '../../../packages/ui/src/Markdown'
+import { Markdown } from '../../../packages/ui/src/markdown'
 import type { AgentPost } from './agent-posts'
 
 export function AgentBlog({ agent, posts }: { agent: AgentMeta; posts: AgentPost[] }) {

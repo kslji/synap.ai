@@ -3,6 +3,7 @@ import { ThemeSwitch } from '@surf/ui'
 import { product } from '@surf/shared'
 import type { CodeStorageUsage, DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
+import { DevWebPanel } from './DevWebPanel'
 import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
 
 export function SettingsScreen({
@@ -69,7 +70,7 @@ export function SettingsScreen({
             </>
           ) : (
             <>
-              <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Sign in to search the web and sync packs. Local chat and documents work without an account.</p>
+              <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{status.devWeb ? 'Dev web search does not need an account. Sign in is still required to sync packs. Local chat and documents work without an account.' : 'Sign in to search the web and sync packs. Local chat and documents work without an account.'}</p>
               <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
             </>
           )}
@@ -130,21 +131,25 @@ export function SettingsScreen({
           on={settings.telemetryOptIn}
           onToggle={() => onPatch({ telemetryOptIn: !settings.telemetryOptIn })}
         />
-        <div className="card px-4 py-4">
-          <div className="text-sm font-semibold">Web search service</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Used only when web search is on and you are online. Documents stay on this computer.
-          </p>
-          <input
-            className="field mt-3"
-            value={apiBase}
-            spellCheck={false}
-            aria-label="Search service address"
-            onChange={(e) => setApiBase(e.target.value.trim())}
-            onBlur={() => { if (apiOk && apiBase !== settings.apiBaseUrl) onPatch({ apiBaseUrl: apiBase }) }}
-          />
-          {!apiOk && <p className="mt-2 text-sm text-[var(--muted)]">Use an http or https address.</p>}
-        </div>
+        {status.devWeb ? (
+          <DevWebPanel apiUrl={status.devApiUrl || 'http://127.0.0.1:8000'} />
+        ) : (
+          <div className="card px-4 py-4">
+            <div className="text-sm font-semibold">Web search service</div>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+              Used only when web search is on and you are online. Documents stay on this computer.
+            </p>
+            <input
+              className="field mt-3"
+              value={apiBase}
+              spellCheck={false}
+              aria-label="Search service address"
+              onChange={(e) => setApiBase(e.target.value.trim())}
+              onBlur={() => { if (apiOk && apiBase !== settings.apiBaseUrl) onPatch({ apiBaseUrl: apiBase }) }}
+            />
+            {!apiOk && <p className="mt-2 text-sm text-[var(--muted)]">Use an http or https address.</p>}
+          </div>
+        )}
         </Group>
         <Group title="Connectors">
           <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
@@ -156,7 +161,7 @@ export function SettingsScreen({
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
-          <p className="mt-1">Search service: {settings.apiBaseUrl}.</p>
+          <p className="mt-1">Search service: {status.devApiUrl || settings.apiBaseUrl}.</p>
           <label className="mt-3 block">
             <span className="font-semibold text-[var(--ink)]">Pack check interval (hours)</span>
             <input

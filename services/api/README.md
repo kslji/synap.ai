@@ -2,11 +2,13 @@
 
 Search proxy and page fetch. The desktop calls it only when web search is allowed and Offline only is off. User documents are not uploaded. Query text is not stored.
 
+Laptop stack (SearXNG + this API on localhost): from the repo root, `npm run dev:search`. That uses `deploy/docker-compose.dev.yml`. Mac, Windows, and a pip fallback are in the root README under "Web search on your laptop". `SURF_DEV_OPEN=1` (set by that compose file) skips sign-in and search quota, and only while lite mode is on.
+
 Local lite mode (no Postgres):
 
 ```bash
 python3 -m pip install -r requirements.txt
-SURF_API_LITE=1 SEARXNG_URL=http://127.0.0.1:8080/search \
+SURF_API_LITE=1 SURF_DEV_OPEN=1 SEARXNG_URL=http://127.0.0.1:8080/search \
   JWT_SECRET=dev-only-secret-change-me-at-least-32-bytes \
   python3 -m uvicorn app.main:app --app-dir . --host 127.0.0.1 --port 8000
 ```

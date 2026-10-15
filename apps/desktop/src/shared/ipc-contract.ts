@@ -52,6 +52,7 @@ export const IPC = {
   codeAgentRoot: 'code-agent:root',
   codeAgentPick: 'code-agent:pick',
   codeAgentDecide: 'code-agent:decide',
+  devWebRun: 'dev-web:run',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -82,6 +83,16 @@ export interface SettingsPatch {
   packSyncHours?: number
   /** stable hides -beta tags. beta includes them. */
   updateChannel?: 'stable' | 'beta'
+}
+
+export interface DevWebRunReq {
+  tool: 'web_search' | 'fetch_page'
+  query?: string
+  url?: string
+}
+
+export interface DevWebRunResult {
+  text: string
 }
 
 export interface UpdateOffer {
@@ -197,6 +208,10 @@ export interface ModelStatus {
   onboardingComplete: boolean
   /** encrypted = SQLCipher chat.db. session = this launch only, because OS keychain was unavailable. */
   chatPersistence: 'encrypted' | 'session'
+  /** True only when NODE_ENV=development or SYNAP_DEV_WEB=1. Omitted tools stay off. */
+  devWeb?: boolean
+  /** Search origin while dev web is on. Omitted in production builds. */
+  devApiUrl?: string
 }
 
 export interface ConversationSummary {
@@ -437,5 +452,8 @@ export interface SurfApi {
     status(): Promise<CodeProjectStatus | null>
     storage(): Promise<CodeStorageUsage>
     onEvent(cb: (status: CodeProjectStatus) => void): () => void
+  }
+  devWeb: {
+    run(req: DevWebRunReq): Promise<DevWebRunResult>
   }
 }

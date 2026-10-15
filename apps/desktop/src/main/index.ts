@@ -213,13 +213,13 @@ async function selfTest(): Promise<void> {
     // The shell asks for status on load. Self-test does not start the app services, so answer with empties.
     ipcMain.removeHandler(IPC.modelsStatus)
     ipcMain.handle(IPC.modelsStatus, () => ({
-      tier: 0, ramGb: 0, cpuModel: 'selftest', cores: 1, chatModelId: '', arch: process.arch, platform: process.platform, installed: [], downloading: null,
+      tier: 0, ramGb: 0, cpuModel: 'selftest', cores: 1, chatModelId: '', codeModelId: '', arch: process.arch, platform: process.platform, installed: [], downloading: null,
       sidecars: { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }, models: [], online: false,
       onlineReason: 'Offline only is on',
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)

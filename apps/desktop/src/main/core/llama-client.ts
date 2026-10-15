@@ -3,6 +3,8 @@
  * Qwen3.5 thinks by default; for snappy chat on laptops we turn thinking OFF per request with
  * chat_template_kwargs.enable_thinking=false and use Qwen's recommended non-thinking sampling.
  */
+import { parseModelJson } from '../../shared/model-output.js';
+
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 export interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
@@ -13,6 +15,16 @@ export interface ChatMessage {
   tool_call_id?: string;
 }
 export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
+
+const QWEN_SAMPLING = { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 };
+
+/** Sampling and template flags sent with every chat request. Registry values win over the Qwen fallback. */
+export function chatRequestFields(o: { sampling?: Record<string, number>; chatTemplateKwargs?: Record<string, unknown> }): Record<string, unknown> {
+  return {
+    ...(o.sampling ?? QWEN_SAMPLING),
+    chat_template_kwargs: o.chatTemplateKwargs ?? { enable_thinking: false },
+  };
+}
 
 export interface LlamaClientOptions {
   baseUrl: string;
@@ -49,8 +61,7 @@ export class LlamaClient {
       tools,
       stream,
       max_tokens: maxTokens,
-      ...(this.o.sampling ?? { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 }),
-      chat_template_kwargs: this.o.chatTemplateKwargs ?? { enable_thinking: false },
+      ...chatRequestFields(this.o),
     };
   }
 
@@ -110,7 +121,9 @@ export class LlamaClient {
         const h = handlers[call.function.name];
         let out: string;
         try {
-          out = h ? await h(JSON.parse(call.function.arguments || '{}')) : `error: unknown tool ${call.function.name}`;
+          const parsed = parseModelJson(call.function.arguments || '{}');
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('tool arguments were not a JSON object');
+          out = h ? await h(parsed as Record<string, unknown>) : `error: unknown tool ${call.function.name}`;
         } catch (e) {
           out = `error: ${(e as Error).message}`;
         }

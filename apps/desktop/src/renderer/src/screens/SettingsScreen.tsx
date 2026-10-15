@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ThemeSwitch } from '@surf/ui'
 import { product } from '@surf/shared'
 import type { DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
-import { activeChatModel, chatModels, ModelPanel } from './ModelsScreen'
+import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
 
 export function SettingsScreen({
   status,
@@ -37,9 +37,12 @@ export function SettingsScreen({
 }) {
   const [updateNote, setUpdateNote] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [codeOpen, setCodeOpen] = useState(false)
   const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
   const chats = chatModels(status)
+  const code = codeModels(status)
   const current = activeChatModel(status)
+  const codeCurrent = activeCodeModel(status)
   useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
   const apiOk = /^https?:\/\/\S+$/.test(apiBase)
 
@@ -85,6 +88,24 @@ export function SettingsScreen({
               onDownload={onDownload}
               onSelect={onSelectModel}
             />
+            {code.length > 0 && (
+              <div className="mt-6">
+                <ModelPanel
+                  status={status}
+                  heading="Code"
+                  intro="Qwen3.5 2B is the default. Gemma 4 is optional. If you do not pick, Qwen3.5 2B downloads."
+                  chats={code}
+                  current={codeCurrent}
+                  progress={progress}
+                  busyId={busyId}
+                  error={null}
+                  detailsOpen={codeOpen}
+                  onToggleDetails={() => setCodeOpen((open) => !open)}
+                  onDownload={onDownload}
+                  onSelect={onSelectModel}
+                />
+              </div>
+            )}
           </div>
         </Group>
         <Group title="Privacy and permissions">
@@ -126,7 +147,7 @@ export function SettingsScreen({
         <Group title="Connectors">
           <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
             <p>Assistant can draft email and look at a calendar, Slack, or Drive after those accounts are connected. Connecting accounts is not in this beta. Send and delete still wait for your approval.</p>
-            <p className="mt-2">Code + UI chats about code and the screen you are building. It is not for trading or high-frequency trading. A live code preview is not in this beta.</p>
+            <p className="mt-2">Code chats about the code you are writing. You can attach a screenshot. It is not for trading or high-frequency trading. A live code preview is not in this beta.</p>
           </div>
         </Group>
         <Group title="Updates">

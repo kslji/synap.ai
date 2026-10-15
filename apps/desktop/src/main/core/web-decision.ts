@@ -3,6 +3,8 @@
  * Local documents are never part of a search body. Only short rewritten queries leave the machine.
  */
 
+import { stripMarkdownFences } from '../../shared/model-output.js'
+
 export const SOURCE_REFUSAL = "I don't have enough information to answer that from the sources on this computer."
 export const HINT_OFFLINE = 'Add a document. Turn on web search when you are online.'
 export const HINT_WEB_OFF = 'Turn on web search, or add a document.'
@@ -68,8 +70,7 @@ function cleanQuery(value: string): string {
 }
 
 function fromJson(raw: string): string[] | null {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const body = fenced?.[1] ?? raw
+  const body = stripMarkdownFences(raw)
   const start = body.indexOf('{')
   const end = body.lastIndexOf('}')
   const slice = start >= 0 && end > start ? body.slice(start, end + 1) : body.match(/\[[\s\S]*\]/)?.[0]

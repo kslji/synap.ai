@@ -3,6 +3,7 @@ import { StarSurf, starStateFor } from '@surf/ui'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
+import { CodeTrace } from './CodeTrace'
 import { Preview } from './LibraryScreen'
 import { ModelGuideButton } from './ModelGuide'
 
@@ -46,6 +47,7 @@ export function ChatScreen({
   onSwitchSmaller,
   project,
   onOpenProject,
+  onCodeDecide,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -76,6 +78,7 @@ export function ChatScreen({
   /** Set for the Code agent. Null means no folder has been opened yet. */
   project?: CodeProjectStatus | null
   onOpenProject?: () => void
+  onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void
 }) {
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
@@ -87,7 +90,7 @@ export function ChatScreen({
   const mood = searching
     ? 'searching'
     : streaming
-      ? pending && pending.tools.length > 0 && !pending.text
+      ? pending && (pending.tools.length > 0 || (pending.steps?.length ?? 0) > 0) && !pending.text
         ? 'working'
         : pending && !pending.text
           ? 'thinking'
@@ -169,7 +172,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} />)}
             </div>
           )}
         </div>
@@ -283,7 +286,7 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void }) {
+function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void }) {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -306,6 +309,7 @@ function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller }: { msg: UiMsg; mo
             Switch to smaller model
           </button>
         )}
+        <CodeTrace messageId={msg.id} steps={msg.steps ?? []} diffs={msg.diffs ?? []} onDecide={onCodeDecide} />
         {msg.tools.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {msg.tools.map((t, i) => (

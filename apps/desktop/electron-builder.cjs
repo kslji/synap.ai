@@ -39,6 +39,7 @@ const config = {
     { from: 'resources/tessdata', to: 'tessdata' },
     { from: 'resources/pack-keys.json', to: 'pack-keys.json' },
     { from: 'resources/release-mode.json', to: 'release-mode.json' },
+    { from: 'resources/code/system.md', to: 'code/system.md' },
   ],
   npmRebuild: false,
   mac: {

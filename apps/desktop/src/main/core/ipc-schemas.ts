@@ -1,6 +1,6 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
@@ -80,7 +80,15 @@ export const LibraryPreview = z.object({
   chunkId: z.number().int().positive().optional(),
   attachmentId: z.string().uuid().optional(),
 }).strict()
+export const CodeAgentDecideReq = z.object({
+  messageId: z.string().uuid(),
+  id: z.string().min(1).max(80),
+  allow: z.boolean(),
+  remember: z.boolean().optional(),
+}).strict()
+
 export type ParsedChat = z.output<typeof ChatSendReq>
 
 export const _chatCheck = (x: z.output<typeof ChatSendReq>): ChatSendReqT => x
 export const _settingsCheck = (x: z.output<typeof SettingsPatch>): SettingsPatchT => x
+export const _codeDecideCheck = (x: z.output<typeof CodeAgentDecideReq>): CodeAgentDecideReqT => x

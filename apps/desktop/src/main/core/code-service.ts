@@ -25,6 +25,10 @@ export interface CodeApi {
   pick(win: BrowserWindow): Promise<CodeProjectStatus | null>
   status(): Promise<CodeProjectStatus | null>
   storage(): Promise<CodeStorageUsage>
+  /** Open folder, including while the first index pass is still running. */
+  root(): string | null
+  /** The open index after a successful pass. Null until the project is indexed. */
+  indexed(): CodeIndex | null
   shutdown(): void
 }
 
@@ -131,6 +135,17 @@ export function createCodeService(opts: {
       return {
         totalBytes: projects.reduce((sum, project) => sum + project.bytes, 0),
         projects,
+      }
+    },
+    root() {
+      return current?.root ?? null
+    },
+    indexed() {
+      if (!current) return null
+      try {
+        return current.status().state === 'ready' ? current : null
+      } catch {
+        return null
       }
     },
     shutdown() {

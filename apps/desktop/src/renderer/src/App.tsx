@@ -71,7 +71,7 @@ export default function App() {
     void refresh().catch((e: unknown) => setError((e as Error).message))
     const offChat = api.chat.onEvent((e) => {
       setMessages((prev) => applyEvent(prev, e))
-      if (e.type === 'token' || e.type === 'tool' || e.type === 'sources' || e.type === 'status') setStreaming(true)
+      if (e.type === 'token' || e.type === 'tool' || e.type === 'sources' || e.type === 'status' || e.type === 'code-step' || e.type === 'code-diff') setStreaming(true)
       if (e.type === 'done' || e.type === 'error') {
         setStreaming(false)
         void api.conversations.list().then(setConversations).catch(() => undefined)
@@ -707,6 +707,7 @@ export default function App() {
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
+          onCodeDecide={(messageId, id, allow, remember) => { void api.codeAgent.decide({ messageId, id, allow, remember }).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
       {view === 'library' && (

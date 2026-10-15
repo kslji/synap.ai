@@ -26,7 +26,7 @@ for (const ref of refs) {
 }
 const js = readdirSync(join(distPath, 'assets')).filter((name) => name.endsWith('.js'))
 const bundle = js.map((name) => readFileSync(join(distPath, 'assets', name), 'utf8')).join('\n')
-for (const route of ['/privacy', '/security', '/contribute', '/terms']) {
+for (const route of ['/privacy', '/security', '/contribute', '/terms', '/agents/']) {
   if (!bundle.includes(route)) {
     console.error('bundle missing route', route)
     missing += 1
@@ -45,6 +45,14 @@ for (const id of readdirSync(agentsRoot)) {
     console.error('bundle missing agent', agent.name)
     missing += 1
   }
+}
+if (!bundle.includes('Qwen3.5 vs Gemma 4')) {
+  console.error('bundle missing the Code model guide')
+  missing += 1
+}
+if (!bundle.includes('data-agent-blog')) {
+  console.error('bundle missing the agent blog section')
+  missing += 1
 }
 if (!bundle.includes('data-agent-card')) {
   console.error('bundle missing agent cards')

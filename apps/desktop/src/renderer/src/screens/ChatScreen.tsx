@@ -3,6 +3,7 @@ import { StarSurf, starStateFor } from '@surf/ui'
 import type { ChunkPreview, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import type { UiMsg } from '../types'
 import { Preview } from './LibraryScreen'
+import { ModelGuideButton } from './ModelGuide'
 
 const PROMPTS = [
   'What is 14 knots in km/h?',
@@ -24,6 +25,7 @@ export function ChatScreen({
   modelLabel,
   chatChoices,
   chatModelId,
+  modelGuide = false,
   tourAttach,
   tourOnline,
   onSend,
@@ -50,6 +52,7 @@ export function ChatScreen({
   modelLabel: string
   chatChoices: { id: string; label: string }[]
   chatModelId: string
+  modelGuide?: boolean
   tourAttach: boolean
   tourOnline: boolean
   onSend: (text: string) => void
@@ -103,9 +106,12 @@ export function ChatScreen({
           </div>
           <div className="flex items-center gap-3">
             {chatChoices.length > 0 && (
-              <select className="field w-auto py-1" aria-label="Chat model" value={chatModelId} onChange={(event) => onSelectModel(event.target.value)}>
-                {chatChoices.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-              </select>
+              <div className="flex flex-col items-end gap-1">
+                <select className="field w-auto py-1" aria-label="Chat model" value={chatModelId} onChange={(event) => onSelectModel(event.target.value)}>
+                  {chatChoices.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                </select>
+                {modelGuide && <ModelGuideButton />}
+              </div>
             )}
             <span className={`pill ${status.offlineOnly || !status.online ? 'pill-warn' : 'pill-ok'}`} title={status.onlineReason} data-online-reason={status.onlineReason}>
               <i />

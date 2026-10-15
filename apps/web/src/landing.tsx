@@ -3,6 +3,7 @@ import { StarSurf } from '@surf/ui'
 import { embeddingModel, modelTiers, product } from '@surf/shared'
 import { agents } from '../../../packages/shared/src/agent-catalog'
 import { AgentCards } from './AgentCards'
+import { agentPosts } from './agent-blog'
 import { BETA_UNSIGNED } from './beta'
 import { BetaUnsignedNote } from './beta-note'
 import { DownloadCard, SiteFooter, SiteHeader, useTheme } from './pages'
@@ -117,7 +118,10 @@ export function Landing() {
           <p className="mt-3 max-w-2xl text-[var(--muted)]">
             Each card comes from that agent’s folder. General is the one you can download today. The others are listed so you can see what is planned. They do not open in this build.
           </p>
-          <AgentCards agents={agents} />
+          <AgentCards
+            agents={agents}
+            guides={Object.fromEntries([...new Set(agentPosts.map((post) => post.agentId))].map((id) => [id, `/agents/${id}`]))}
+          />
         </Block>
 
         <Block id="documents">

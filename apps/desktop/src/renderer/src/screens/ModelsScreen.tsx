@@ -3,6 +3,7 @@ import type { CatalogModel, ModelStatus } from '../../../shared/ipc-contract'
 import { codeFileCapBytes, laptopRamClass } from '../../../shared/code-ram'
 import { codeModelLine, fitMarkLabel, formatModelSize, modelChoiceLabel, servesAgent } from '../../../shared/model-label'
 import { formatBytes } from '../format'
+import { ModelGuideButton } from './ModelGuide'
 
 export function chatModels(status: ModelStatus, agentId = 'general'): CatalogModel[] {
   return status.models.filter((model) => model.role === 'chat' && servesAgent(model.agents, agentId))
@@ -122,6 +123,9 @@ export function ModelPanel({
           This computer reports {status.ramGb} GB of RAM ({laptopRamClass(status.ramGb)} GB tier, model file up to {formatModelSize(codeFileCapBytes(status.ramGb))}).
           {laptopRamClass(status.ramGb) === 4 ? ' A 4 GB laptop lists Qwen3.5 2B only.' : ''}
         </p>
+      )}
+      {heading === 'Code' && (
+        <p className="mt-2"><ModelGuideButton /></p>
       )}
       {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
       <label className="mt-4 block text-sm font-semibold">

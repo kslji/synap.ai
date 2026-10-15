@@ -7,6 +7,7 @@
     "src/shared/**/*"
   ],
   "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
     "composite": true,
     "jsx": "react-jsx",
     "baseUrl": ".",

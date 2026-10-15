@@ -20,6 +20,7 @@ export default defineConfig({
     build: { externalizeDeps: false },
   },
   renderer: {
+    server: { fs: { allow: [resolve('../..')] } },
     resolve: {
       alias: [
         { find: '@renderer', replacement: resolve('src/renderer/src') },

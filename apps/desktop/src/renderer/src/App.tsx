@@ -695,6 +695,7 @@ export default function App() {
           onScope={setScope}
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}
+          modelGuide={agentId === 'code'}
           onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
         />

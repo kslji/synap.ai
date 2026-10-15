@@ -1,7 +1,7 @@
 import React from 'react'
 import { agentCanOpen, type AgentMeta } from '../../../packages/shared/src/agents'
 
-export function AgentCards({ agents, onOpen }: { agents: AgentMeta[]; onOpen?: (id: string) => void }) {
+export function AgentCards({ agents, onOpen, guides = {} }: { agents: AgentMeta[]; onOpen?: (id: string) => void; guides?: Record<string, string> }) {
   return (
     <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {agents.map((agent) => {
@@ -27,6 +27,9 @@ export function AgentCards({ agents, onOpen }: { agents: AgentMeta[]; onOpen?: (
             )}
             {open && !onOpen && (
               <a className="btn btn-primary mt-4 no-underline" href="#download">Download</a>
+            )}
+            {guides[agent.id] && (
+              <a className="mt-4 text-sm font-semibold text-[var(--accent-text)]" href={guides[agent.id]} data-agent-guide={agent.id}>Model guide</a>
             )}
           </article>
         )

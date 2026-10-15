@@ -23,7 +23,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The registry sometimes resets the connection (ECONNRESET).
+          # node-gyp on Windows sometimes exits with
+          # "Completion callback never invoked" while building better-sqlite3.
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
       - name: Fetch llama.cpp and OCR data
         working-directory: apps/desktop
         run: |
@@ -199,6 +213,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The registry sometimes resets the connection (ECONNRESET).
           # node-gyp on the Windows runner sometimes exits with
           # "Completion callback never invoked" while building better-sqlite3.
           for attempt in 1 2 3; do

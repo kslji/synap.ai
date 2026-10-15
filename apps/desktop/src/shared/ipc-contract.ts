@@ -49,6 +49,9 @@ export const IPC = {
   codeStatus: 'code:status',
   codeStorage: 'code:storage',
   codeEvent: 'code:event',
+  codeAgentRoot: 'code-agent:root',
+  codeAgentPick: 'code-agent:pick',
+  codeAgentDecide: 'code-agent:decide',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -106,7 +109,41 @@ export type ChatEvent =
     retrievedCap: number
     maxChunks: number
   } }
+  | { type: 'code-step'; messageId: string; step: CodeStepView }
+  | { type: 'code-diff'; messageId: string; diff: CodeDiffView }
   | { type: 'error'; messageId: string; message: string; smallerModelId?: string }
+
+export type CodeStepStatus = 'running' | 'ok' | 'error' | 'waiting' | 'rejected' | 'applied'
+
+export interface CodeStepView {
+  id: string
+  index: number
+  tool: string
+  status: CodeStepStatus
+  title: string
+  detail: string
+}
+
+export type CodeDiffStatus = 'pending' | 'applied' | 'rejected' | 'error'
+
+export interface CodeDiffView {
+  id: string
+  stepId: string
+  path: string
+  diff: string
+  status: CodeDiffStatus
+}
+
+export interface CodeAgentRoot {
+  root: string | null
+}
+
+export interface CodeAgentDecideReq {
+  messageId: string
+  id: string
+  allow: boolean
+  remember?: boolean
+}
 
 export interface CatalogModel {
   id: string
@@ -381,6 +418,11 @@ export interface SurfApi {
   }
   links: {
     open(url: string): Promise<void>
+  }
+  codeAgent: {
+    root(): Promise<CodeAgentRoot>
+    pick(): Promise<CodeAgentRoot>
+    decide(req: CodeAgentDecideReq): Promise<{ ok: boolean }>
   }
   documents: {
     pick(title: string): Promise<string | null>

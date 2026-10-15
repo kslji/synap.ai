@@ -33,6 +33,11 @@ export interface LlamaClientOptions {
   chatTemplateKwargs?: Record<string, unknown>;
 }
 
+export interface ChatCompletionExtras {
+  response_format?: unknown;
+  grammar?: string;
+}
+
 export class LlamaClient {
   constructor(private readonly o: LlamaClientOptions) {}
 
@@ -54,22 +59,24 @@ export class LlamaClient {
     return j.data.sort((a, b) => a.index - b.index).map((d) => Float32Array.from(d.embedding));
   }
 
-  private chatBody(messages: ChatMessage[], tools: readonly unknown[] | undefined, maxTokens: number, stream: boolean) {
+  private chatBody(messages: ChatMessage[], tools: readonly unknown[] | undefined, maxTokens: number, stream: boolean, extras?: ChatCompletionExtras) {
     return {
       model: 'chat',
       messages,
-      tools,
+      ...(tools && tools.length ? { tools } : {}),
       stream,
       max_tokens: maxTokens,
       ...chatRequestFields(this.o),
+      ...(extras?.response_format ? { response_format: extras.response_format } : {}),
+      ...(extras?.grammar ? { grammar: extras.grammar } : {}),
     };
   }
 
-  async chat(messages: ChatMessage[], tools?: readonly unknown[], signal?: AbortSignal, maxTokens = 1024) {
+  async chat(messages: ChatMessage[], tools?: readonly unknown[], signal?: AbortSignal, maxTokens = 1024, extras?: ChatCompletionExtras) {
     return this.post<{ choices: { message: ChatMessage; finish_reason: string }[]; usage?: Record<string, number> }>(
       '/v1/chat/completions',
       {
-        ...this.chatBody(messages, tools, maxTokens, false),
+        ...this.chatBody(messages, tools, maxTokens, false, extras),
       },
       signal,
     );

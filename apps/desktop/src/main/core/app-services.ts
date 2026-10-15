@@ -17,6 +17,11 @@ import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { codePackDir, loadCodePack } from './code-pack.js'
+import { llamaCompleter } from './code-agent/llama.js'
+import { runCodeAgent } from './code-agent/loop.js'
+import { currentPermissionMode } from './code-agent/permission.js'
+import { projectSearchFor } from './code-agent/project-search.js'
+import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
 import { downloadVerified } from './model-download.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
 import { LlamaClient } from './llama-client.js'
@@ -28,7 +33,7 @@ import { compareFromText, countFromText, numberTools, asksForNumberTool, resolve
 import { createDocumentApi } from './document-service.js'
 import calcWorker from './calculator.worker?modulePath'
 import { hybridSearch, borderlinePrompt, documentGate, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
-import { allocate, BUDGETS, LlamaServerTokenizer, type Turn } from './token-budget.js'
+import { allocate, BUDGETS, heuristicCounter, LlamaServerTokenizer, type Turn } from './token-budget.js'
 import { openPackDb, openUserDb, type DB } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
@@ -137,6 +142,7 @@ export async function createServices(): Promise<Services> {
   const store = await openStore()
   const calc = new Calculator(calcWorker)
   const inflight = new Map<string, AbortController>()
+  const decisions = new Map<string, (value: { allow: boolean; remember?: boolean }) => void>()
   let downloading: { id: string; done: number; total: number } | null = null
   let downloadAbort: AbortController | null = null
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; server: LlamaServer } | null = null
@@ -493,7 +499,130 @@ export async function createServices(): Promise<Services> {
     return Boolean(store.db.prepare('SELECT 1 AS ok FROM web_passage_links WHERE conversation_id = ? LIMIT 1').get(conversationId))
   }
 
+  function codeAgentDir(): string {
+    return join(app.getPath('userData'), 'code-agent')
+  }
+
+  function readAllowed(root: string): string[] {
+    try {
+      const parsed = JSON.parse(readFileSync(join(codeAgentDir(), 'allowed.json'), 'utf8')) as Record<string, unknown>
+      const list = parsed[root]
+      return Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : []
+    } catch {
+      return []
+    }
+  }
+
+  function writeAllowed(root: string, command: string): void {
+    const file = join(codeAgentDir(), 'allowed.json')
+    let raw: Record<string, string[]> = {}
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+      for (const [key, value] of Object.entries(parsed)) {
+        if (Array.isArray(value)) raw[key] = value.filter((item): item is string => typeof item === 'string')
+      }
+    } catch {
+      raw = {}
+    }
+    raw[root] = [...new Set([...(raw[root] ?? []), command])]
+    mkdirSync(codeAgentDir(), { recursive: true })
+    writeFileSync(file, JSON.stringify(raw), { mode: 0o600 })
+  }
+
+  function waitDecision(messageId: string, id: string, signal: AbortSignal): Promise<{ allow: boolean; remember?: boolean }> {
+    const key = `${messageId}:${id}`
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (error: Error | null, value?: { allow: boolean; remember?: boolean }) => {
+        if (settled) return
+        settled = true
+        signal.removeEventListener('abort', onAbort)
+        decisions.delete(key)
+        if (error) reject(error)
+        else resolve(value ?? { allow: false })
+      }
+      const onAbort = () => {
+        const error = new Error('aborted')
+        error.name = 'AbortError'
+        finish(error)
+      }
+      if (signal.aborted) { onAbort(); return }
+      signal.addEventListener('abort', onAbort, { once: true })
+      decisions.set(key, (value) => finish(null, value))
+    })
+  }
+
+  async function replyCode(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+    const root = codeApi.root()
+    if (!root) {
+      const message = 'Open a project folder to use the Code agent. Files stay on this computer.'
+      await emitText(win, messageId, message)
+      finish(conversationId, messageId, userMessageId, win, message, [], 'answer')
+      return
+    }
+    const loaded = await loadCodePack(codePackDir(app.getPath('userData')), trustedPackKeys())
+    if (loaded.status === 'invalid') console.warn('[surf] code pack skipped:', loaded.message)
+    await withModel(async () => {
+      const settings = readSettings()
+      const reg = registry()
+      const chatModel = await chooseChat(reg, settings.codeModelId, 'code')
+      if (!chatModel) {
+        const suggested = reg.models.find((m) => m.id === settings.codeModelId) ?? defaultForAgent(reg, 'code') ?? pick(reg, 'chat', hw.tier)
+        throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
+      }
+      const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      const server = await ensure('chat', chatModel, profile.serverCtx, '', 'code')
+      const client = new LlamaClient({
+        baseUrl: server.baseUrl,
+        apiKey: server.apiKey,
+        sampling: chatSampling(chatModel),
+        chatTemplateKwargs: chatModel.chat_template_kwargs,
+      })
+      let counter = heuristicCounter
+      try {
+        const live = new LlamaServerTokenizer(server.baseUrl, server.apiKey)
+        await live.count('ok')
+        counter = live
+      } catch { /* the heuristic counter stays inside the same budget */ }
+      const rules = loadSystemRulesSync(root, bundledSystemRulesPath(app.isPackaged, process.resourcesPath, app.getAppPath()))
+      const prior = store.open(conversationId).messages.filter((m) => m.id !== userMessageId)
+      const history: { user: string; assistant: string }[] = []
+      for (let i = 0; i < prior.length; i++) {
+        const next = prior[i + 1]
+        if (prior[i].role === 'user' && next?.role === 'assistant') {
+          history.push({ user: prior[i].text, assistant: next.text })
+          i++
+        }
+      }
+      const started = Date.now()
+      const result = await runCodeAgent(req.text, {
+        complete: llamaCompleter(client),
+        search: projectSearchFor(root, codeApi.indexed()),
+        root,
+        rules: rules.text,
+        counter,
+        promptBudget: Math.max(512, profile.total - profile.answerMin),
+        searchBudget: profile.retrieved,
+        answerTokens: profile.answerMin,
+        mode: currentPermissionMode(),
+        allowedCommands: readAllowed(root),
+        signal,
+        onStep: (step) => { sendEvent(win, { type: 'code-step', messageId, step }) },
+        onDiff: (diff) => { sendEvent(win, { type: 'code-diff', messageId, diff }) },
+        ask: (request) => waitDecision(messageId, request.id, signal),
+        onRememberCommand: (command) => writeAllowed(root, command),
+      }, history)
+      console.info(`[surf] code agent stopped=${result.stopped} steps=${result.steps.length} ms=${Date.now() - started}`)
+      await emitText(win, messageId, result.answer)
+      finish(conversationId, messageId, userMessageId, win, result.answer, [], 'answer')
+    })
+  }
+
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+    if ((req.agentId || 'general') === 'code') {
+      await replyCode(req, conversationId, messageId, userMessageId, win, signal)
+      return
+    }
     const settings = readSettings()
     const reg = registry()
     const text = req.text
@@ -965,6 +1094,19 @@ export async function createServices(): Promise<Services> {
     },
     links: {
       open: async (url) => { await shell.openExternal(url) },
+    },
+    codeAgent: {
+      root: async () => ({ root: codeApi.root() }),
+      async pick(win) {
+        const status = await codeApi.pick(win)
+        return { root: status?.root ?? codeApi.root() }
+      },
+      decide: async (body) => {
+        const resolve = decisions.get(`${body.messageId}:${body.id}`)
+        if (!resolve) return { ok: false }
+        resolve({ allow: body.allow, remember: body.remember })
+        return { ok: true }
+      },
     },
     documents: documentApi,
     code: codeApi,

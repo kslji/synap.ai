@@ -1,7 +1,7 @@
 {
   "registry_format": "surf-models/1",
   "updated_at": "2026-10-15",
-  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-15 for the Code rows, 2026-10-09 for the rest). Code rows set agents to [code] and are not the General or Assistant default. Qwen3.5-2B Q6_K peak RAM is about 1.74 GB with --no-repack -cram 0. 4B and 9B peak RAM is still unmeasured. Gemma 4 E2B uses Q4_K_M because the Q6_K file is 4.50 GB and does not fit the 4 GB tier.",
+  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-15 for the Code rows, 2026-10-09 for the rest). Code rows set agents to [code] and are Qwen3.5 only. They are not the General or Assistant default. Qwen3.5-2B Q6_K peak RAM is about 1.74 GB with --no-repack -cram 0. 4B and 9B peak RAM is still unmeasured.",
   "models": [
     {
       "id": "qwen3.5-4b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 4,
@@ -153,72 +153,6 @@
       "note": "8 GB tier. Peak RAM has not been measured. The screenshot file is 0.92 GB, larger than the 2B and 4B projector.",
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
-    },
-    {
-      "id": "gemma-4-e2b-q4_k_m", "role": "chat", "family": "gemma4", "params_b": 2,
-      "label": "Gemma 4 E2B",
-      "license": "apache-2.0", "context_default": 8192,
-      "file": "gemma-4-E2B-it-Q4_K_M.gguf",
-      "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
-      "size_bytes": 3106738272,
-      "sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
-      "mmproj": {
-        "file": "mmproj-F16.gguf",
-        "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf",
-        "size_bytes": 985654080,
-        "sha256": "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa"
-      },
-      "min_ram_gb": 4, "ram_measured": false, "tiers": [],
-      "agents": ["code"],
-      "note": "4 GB tier alternative. Q6_K is 4.50 GB, so this tier uses Q4_K_M. Not the Code default.",
-      "chat_template_kwargs": {"enable_thinking": false},
-      "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
-    },
-    {
-      "id": "gemma-4-e4b-q6_k", "role": "chat", "family": "gemma4", "params_b": 4,
-      "label": "Gemma 4 E4B",
-      "license": "apache-2.0", "context_default": 8192,
-      "file": "gemma-4-E4B-it-Q6_K.gguf",
-      "url": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q6_K.gguf",
-      "size_bytes": 7074929792,
-      "sha256": "fd83f3ef44d22e00ff0f638753dde9a66a83e8ccf79c11024f47d383c489531b",
-      "mmproj": {
-        "file": "mmproj-F16.gguf",
-        "url": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf",
-        "size_bytes": 990372672,
-        "sha256": "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51"
-      },
-      "min_ram_gb": 8, "ram_measured": false, "tiers": [],
-      "agents": ["code"],
-      "note": "8 GB tier alternative. Peak RAM has not been measured. Not the Code default.",
-      "chat_template_kwargs": {"enable_thinking": false},
-      "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
-    },
-    {
-      "id": "granite-4.2-3b-q6_k", "role": "chat", "family": "granite-4.2", "params_b": 3,
-      "license": "apache-2.0", "context_default": 8192,
-      "file": "granite-4.2-3b-Q6_K.gguf",
-      "url": "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/granite-4.2-3b-Q6_K.gguf",
-      "size_bytes": 3006359072,
-      "sha256": "2e08e2790489162105be79b7f26a81fde28ea30119fa6df12594acd59f12dd96",
-      "min_ram_gb": 4, "ram_measured": false, "tiers": [],
-      "agents": ["code"],
-      "note": "4 GB tier alternative. Text only. Peak RAM has not been measured.",
-      "chat_template_kwargs": {"enable_thinking": false},
-      "sampling": {"temperature": 1.0, "top_p": 0.95}
-    },
-    {
-      "id": "granite-4.2-8b-q6_k", "role": "chat", "family": "granite-4.2", "params_b": 8,
-      "license": "apache-2.0", "context_default": 8192,
-      "file": "granite-4.2-8b-Q6_K.gguf",
-      "url": "https://huggingface.co/ibm-granite/granite-4.2-8b-GGUF/resolve/main/granite-4.2-8b-Q6_K.gguf",
-      "size_bytes": 7216480384,
-      "sha256": "5ad3d67f6fe09a448031029bead7f6a088697ca2787c0c5640bf964c59df1a21",
-      "min_ram_gb": 8, "ram_measured": false, "tiers": [],
-      "agents": ["code"],
-      "note": "8 GB tier alternative. Text only. Peak RAM has not been measured.",
-      "chat_template_kwargs": {"enable_thinking": false},
-      "sampling": {"temperature": 1.0, "top_p": 0.95}
     }
   ]
 }

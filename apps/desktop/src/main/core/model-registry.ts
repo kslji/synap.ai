@@ -38,7 +38,7 @@ export const ModelEntry = FileRef.extend({
   agents: z.array(z.string()).optional(),
   /** Agents that auto-select this file when the user has not picked. */
   default_for: z.array(z.string()).optional(),
-  /** Short name when family + size is not enough (Gemma 4 E2B). */
+  /** Short name when family + size is not the label to show. */
   label: z.string().optional(),
   note: z.string().optional(),
   chat_template_kwargs: z.record(z.string(), z.unknown()).optional(),
@@ -82,25 +82,22 @@ export function pick(reg: ModelRegistry, role: ModelEntry['role'], tier: number,
   return candidates.sort((a, b) => (b.params_b ?? 0) - (a.params_b ?? 0))[0];
 }
 
-/** Smallest non-Gemma model marked as the default for an agent. Code uses this when the user has not picked. */
+/** Smallest model marked as the default for an agent. Code uses this when the user has not picked. */
 export function defaultForAgent(reg: ModelRegistry, agentId: string): ModelEntry | null {
-  const marked = reg.models.filter((m) => m.role === 'chat' && servesAgent(m, agentId) && m.default_for?.includes(agentId) && !m.family.startsWith('gemma'));
+  const marked = reg.models.filter((m) => m.role === 'chat' && servesAgent(m, agentId) && m.default_for?.includes(agentId));
   if (!marked.length) return null;
   return [...marked].sort((a, b) => (a.params_b ?? 0) - (b.params_b ?? 0) || a.min_ram_gb - b.min_ram_gb)[0];
 }
 
-/** Next smaller chat model, same family first. Gemma is never the automatic fallback. */
+/** Next smaller Qwen chat model. Code offers only these sizes. */
 export function smallerChatModel(models: readonly ModelEntry[], currentId: string): ModelEntry | null {
   const current = models.find((m) => m.id === currentId);
-  if (!current) return null;
+  if (!current || current.family !== 'qwen3.5') return null;
+  const rank = (m: ModelEntry) => m.min_ram_gb * 1000 + (m.params_b ?? 0);
   const smaller = models.filter((m) => {
-    if (m.id === current.id || m.role !== 'chat') return false;
+    if (m.id === current.id || m.role !== 'chat' || m.family !== 'qwen3.5') return false;
     if (m.min_ram_gb < current.min_ram_gb) return true;
     return m.min_ram_gb === current.min_ram_gb && (m.params_b ?? 0) < (current.params_b ?? 0);
   });
-  const rank = (m: ModelEntry) => m.min_ram_gb * 1000 + (m.params_b ?? 0);
-  const same = smaller.filter((m) => m.family === current.family).sort((a, b) => rank(b) - rank(a));
-  if (same[0]) return same[0];
-  const qwen = smaller.filter((m) => m.family === 'qwen3.5').sort((a, b) => rank(b) - rank(a));
-  return qwen[0] ?? null;
+  return smaller.sort((a, b) => rank(b) - rank(a))[0] ?? null;
 }

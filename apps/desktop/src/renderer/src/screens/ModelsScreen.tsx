@@ -63,7 +63,7 @@ export function ModelsScreen({
           <ModelPanel
             status={status}
             heading="Code"
-            intro="Code keeps its own list. If you do not pick, the smallest model downloads. Gemma 4 is on the list, and it is not the default."
+            intro="Code keeps its own Qwen list. If you do not pick, the smallest model downloads."
             chats={code}
             current={codeCurrent}
             progress={progress}

@@ -11,8 +11,6 @@ export function chatModelLabel(model: { family?: string | null; params_b?: numbe
 function familyLabel(family: string | null | undefined): string {
   if (!family) return ''
   if (family === 'qwen3.5') return 'Qwen3.5'
-  if (family === 'gemma4' || family === 'gemma-4') return 'Gemma 4'
-  if (family === 'granite-4.2' || family === 'granite4.2') return 'Granite 4.2'
   return family
 }
 

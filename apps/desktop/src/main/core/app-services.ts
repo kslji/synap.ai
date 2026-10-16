@@ -7,7 +7,7 @@
 import { app, BrowserWindow, desktopCapturer, dialog, net, shell, systemPreferences } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { copyFile, mkdir, rm, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
@@ -60,7 +60,7 @@ import { Calculator, calculatorTools } from './calculator.js'
 import { compareFromText, countFromText, numberTools, asksForNumberTool, resolveDirectTool, verbatimAnswer } from './number-tools.js'
 import { createDocumentApi } from './document-service.js'
 import calcWorker from './calculator.worker?modulePath'
-import { hybridSearch, borderlinePrompt, documentGate, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
+import { hybridSearch, borderlinePrompt, documentGate, gate as relevanceGate, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
 import { allocate, BUDGETS, heuristicCounter, LlamaServerTokenizer, type Turn } from './token-budget.js'
 import { openPackDb, openUserDb, type DB } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
@@ -76,6 +76,7 @@ import { composeRouted, gatherOnline } from './search/run.js'
 import { historyHits, planRoute } from './search/router.js'
 import type { LocalHit, RegionChoice } from './search/types.js'
 import { classifyIntent } from './search/intent.js'
+import { decryptDelta, packContentKeys, searchDelta } from './search/delta.js'
 import { quoteFromHits, sectionNumber } from './search/legal.js'
 import { assertNetworkAllowed, OfflineOnlyError } from './offline-guard.js'
 import { safeSend } from './safe-send.js'
@@ -1038,24 +1039,52 @@ export async function createServices(): Promise<Services> {
       const opened: DB[] = []
       try {
         const packDbs: Record<string, DB> = {}
+        const deltaDbs: { name: string; db: DB }[] = []
         const packAllowed = await licences.allowsUse()
         const packKey = await licences.contentKey()
         for (const row of await readInstalled(packsRoot())) {
-          const dbPath = join(packsRoot(), row.id, row.version, 'pack.sqlite')
-          if (!existsSync(dbPath)) continue
-          const packGate = gatePackDecrypt(true, { allowed: packAllowed, contentKey: packKey, encrypted: false })
+          const dir = join(packsRoot(), row.id, row.version)
+          const dbPath = join(dir, 'pack.sqlite')
+          const encPath = join(dir, 'delta.sqlite.enc')
+          const hasSqlite = existsSync(dbPath)
+          const hasEnc = existsSync(encPath)
+          if (!hasSqlite && !hasEnc) continue
+          const packGate = gatePackDecrypt(true, { allowed: packAllowed, contentKey: packKey, encrypted: hasEnc && !hasSqlite })
           if (packGate.status !== 'ready') {
             console.warn('[surf] pack skipped: licence required')
             continue
           }
+          const label = `${row.title} · ${row.version}`
+          if (hasSqlite) {
+            try {
+              const db = openPackDb(dbPath)
+              packDbs[label] = db
+              versions.set(label, row.version)
+              opened.push(db)
+            } catch (error) {
+              console.warn('[surf] pack skipped:', (error as Error).message)
+            }
+          }
+          if (!hasEnc || packGate.status !== 'ready') continue
           try {
-            const db = openPackDb(dbPath)
-            const label = `${row.title} · ${row.version}`
-            packDbs[label] = db
-            versions.set(label, row.version)
+            await verifyPack(dir, { trustedKeys: trustedPackKeys(), expectedEmbedding: EMBEDDINGGEMMA2_256 })
+            const plain = decryptDelta(readFileSync(encPath), packContentKeys(packGate.contentKey, surfEnv('PACK_CONTENT_KEY')))
+            if (!plain) {
+              console.warn('[surf] pack delta left sealed')
+              continue
+            }
+            const dest = join(app.getPath('userData'), 'pack-opened', row.id, row.version, 'delta.sqlite')
+            mkdirSync(join(dest, '..'), { recursive: true })
+            const tmp = `${dest}.tmp`
+            writeFileSync(tmp, plain, { mode: 0o600 })
+            renameSync(tmp, dest)
+            const db = openPackDb(dest)
+            const name = `${label} delta`
+            deltaDbs.push({ name, db })
+            versions.set(name, row.version)
             opened.push(db)
           } catch (error) {
-            console.warn('[surf] pack skipped:', (error as Error).message)
+            console.warn('[surf] pack delta skipped:', (error as Error).message)
           }
         }
         const wantDocs = docCounts.ready > 0 && Boolean(store.db)
@@ -1072,13 +1101,21 @@ export async function createServices(): Promise<Services> {
           const docFound = wantDocs && store.db
             ? searchUser(store.db, text, qvec, scopeId, 5)
             : { top: [] as UserHit[], decision: 'skip' as const }
-          const packFound = wantPacks ? hybridSearch(packDbs, text, qvec) : { top: [] as Hit[], decision: 'skip' as const }
+          const plainPacks = Object.keys(packDbs).length > 0
+          const packFound = plainPacks ? hybridSearch(packDbs, text, qvec) : { top: [] as Hit[], decision: 'skip' as const }
+          const deltaHits = deltaDbs.flatMap((item) => searchDelta(item.name, item.db, text, qvec))
+          const packSide = deltaHits.length
+            ? mergeLocal(
+              { hits: packFound.top, decision: plainPacks ? packFound.decision : 'skip' },
+              { hits: deltaHits, decision: relevanceGate(text, deltaHits) },
+            )
+            : { hits: packFound.top, decision: plainPacks ? packFound.decision : 'skip' }
           const savedFound = store.db
             ? searchSavedWeb(store.db, text, qvec, scopeId)
             : { top: [], decision: 'skip' as const }
           const localMerged = mergeLocal(
             { hits: docFound.top, decision: wantDocs ? docFound.decision : 'skip' },
-            { hits: packFound.top, decision: wantPacks ? packFound.decision : 'skip' },
+            { hits: packSide.hits, decision: wantPacks ? packSide.decision : 'skip' },
           )
           const merged = mergeLocal(localMerged, { hits: savedFound.top, decision: savedFound.top.length ? savedFound.decision : 'skip' })
           const guarded = guardRetrieved(merged.hits)

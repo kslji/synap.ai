@@ -51,7 +51,9 @@ Web-derived answers keep an `[S1]` marker. Pack citations can include a pack ver
 
 `--fixture-embed` uses a SHA-256 hash vector so tests do not need llama-server. That is not EmbeddingGemma. A real build passes `--embed-url` to a local llama-server. Keys are `PACK_SIGNING_KEY_HEX` and `PACK_CONTENT_KEY_HEX`. They are empty in `.env.example`.
 
-The desktop still opens plaintext `pack.sqlite` for chat. A delta-only version can be verified and downloaded by the existing sync. This step does not decrypt the delta into the chat index.
+Chat still opens plaintext `pack.sqlite` when that file is present. That path is unchanged.
+
+When `delta.sqlite.enc` is in the installed folder, chat checks the manifest signature and the file hash again, then tries to decrypt the NaCl secretbox. Keys tried, in order: `SURF_PACK_CONTENT_KEY` (64 hex characters), then the licence-derived pack key. The builder's `PACK_CONTENT_KEY_HEX` is not in the app, so a normal install cannot open a delta sealed with that private key. A wrong key leaves the delta sealed and still uses `pack.sqlite` if it is there. A decrypted copy is written under the app's data folder, outside the signed directory. Delta search uses the float32 embedding blobs plus keyword overlap, because that file has no FTS5 or vec0 index.
 
 ## Not in this step
 

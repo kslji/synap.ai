@@ -128,6 +128,9 @@ export function ModelPanel({
         <p className="mt-2"><ModelGuideButton /></p>
       )}
       {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
+      {status.mmprojRuntime === false && (
+        <p className="mt-3 text-sm text-[var(--muted)]" data-mmproj-runtime="off">This llama.cpp build cannot load the screenshot add-on. Images are read as text on this computer.</p>
+      )}
       <label className="mt-4 block text-sm font-semibold">
         {heading === 'Code' ? 'Code model' : 'Chat model'}
         <select
@@ -165,7 +168,7 @@ export function ModelPanel({
               </div>
               {model.visionBytes != null && (
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="text-xs text-[var(--muted)]">Screenshot add-on · {formatModelSize(model.visionBytes)}</div>
+                  <div className="text-xs text-[var(--muted)]">Screenshot add-on · {formatModelSize(model.visionBytes)} · optional, downloaded only when you ask</div>
                   {model.visionInstalled ? <span className="pill pill-ok"><i />Installed</span> : (
                     <button className="btn btn-ghost" type="button" disabled={busyId === `${model.id}#mmproj` || status.offlineOnly} onClick={() => onDownload(`${model.id}#mmproj`)}>
                       {busyId === `${model.id}#mmproj` ? 'Downloading' : 'Download'}

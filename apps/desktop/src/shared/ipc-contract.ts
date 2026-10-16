@@ -70,6 +70,9 @@ export const IPC = {
   storageReport: 'storage:report',
   storageClear: 'storage:clear',
   storageOpen: 'storage:open',
+  screenshotCapture: 'screenshot:capture',
+  screenshotSave: 'screenshot:save',
+  imagesPrepare: 'images:prepare',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -78,7 +81,7 @@ export interface ChatSendReq {
   conversationId: string | null
   text: string
   agentId?: string
-  images?: { mime: 'image/png' | 'image/jpeg'; base64: string }[]
+  images?: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }[]
   allowWeb?: boolean
   docScope?: DocScope
 }
@@ -365,6 +368,24 @@ export interface ModelStatus {
     draftModelId: string
     draftInstalled: boolean
   }
+  /** null until llama-server --help has been read. */
+  mmprojRuntime: boolean | null
+}
+
+export interface PreparedChatImage {
+  mime: 'image/png' | 'image/jpeg'
+  base64: string
+}
+
+export interface ScreenshotCaptureResult {
+  pngBase64?: string
+  mime?: 'image/png' | 'image/jpeg'
+  error?: string
+}
+
+export interface ScreenshotSaveResult {
+  saved: boolean
+  path?: string
 }
 
 export interface ConversationSummary {
@@ -679,6 +700,13 @@ export interface SurfApi {
     report(): Promise<StorageReport>
     clear(req: StorageClearReq): Promise<StorageReport>
     open(category: StorageCategoryId): Promise<void>
+  }
+  screenshot: {
+    capture(explicit: true): Promise<ScreenshotCaptureResult>
+    save(pngBase64: string): Promise<ScreenshotSaveResult>
+  }
+  images: {
+    prepare(req: { explicit: true; images?: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }[]; paths?: string[] }): Promise<{ images: PreparedChatImage[] }>
   }
   library: {
     pathForFile(file: File): string

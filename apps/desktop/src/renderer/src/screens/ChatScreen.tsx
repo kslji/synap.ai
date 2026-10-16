@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { StarSurf, starStateFor } from '@surf/ui'
-import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus, PreparedChatImage } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { CodeModeBar, CodeTrace } from './CodeTrace'
@@ -11,6 +11,37 @@ import { ModelGuideButton } from './ModelGuide'
 function folderName(root: string): string {
   const parts = root.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? root
+}
+
+export interface ComposerImage extends PreparedChatImage {
+  id: string
+  name: string
+  captured: boolean
+}
+
+function isImageFile(file: File): boolean {
+  const type = file.type.toLowerCase()
+  if (type === 'image/png' || type === 'image/jpeg' || type === 'image/webp') return true
+  return /\.(png|jpe?g|webp)$/i.test(file.name)
+}
+
+function fileMime(file: File): 'image/png' | 'image/jpeg' | 'image/webp' {
+  const type = file.type.toLowerCase()
+  if (type === 'image/png' || type === 'image/jpeg' || type === 'image/webp') return type
+  const name = file.name.toLowerCase()
+  if (name.endsWith('.png')) return 'image/png'
+  if (name.endsWith('.webp')) return 'image/webp'
+  return 'image/jpeg'
+}
+
+async function readImageFile(file: File): Promise<{ mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string; name: string }> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  const step = 0x8000
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + step))
+  }
+  return { mime: fileMime(file), base64: btoa(binary), name: file.name || 'Image' }
 }
 
 const PROMPTS = [
@@ -37,6 +68,7 @@ export function ChatScreen({
   tourAttach,
   tourOnline,
   onSend,
+  onImageError,
   onToggleOffline,
   onToggleChatWeb,
   onAttach,
@@ -75,7 +107,8 @@ export function ChatScreen({
   modelGuide?: boolean
   tourAttach: boolean
   tourOnline: boolean
-  onSend: (text: string) => void
+  onSend: (text: string, images: PreparedChatImage[]) => void
+  onImageError?: (message: string) => void
   onToggleOffline: () => void
   onToggleChatWeb: () => void
   onAttach: (paths: string[]) => void
@@ -102,6 +135,8 @@ export function ChatScreen({
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
+  const [images, setImages] = useState<ComposerImage[]>([])
+  const imagePicker = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
@@ -125,9 +160,50 @@ export function ChatScreen({
 
   function submit(value = text) {
     const t = value.trim()
-    if (!t || streaming) return
+    if ((!t && images.length === 0) || streaming) return
+    const attached = images.map(({ mime, base64 }) => ({ mime, base64 }))
     setText('')
-    onSend(t)
+    setImages([])
+    onSend(t, attached)
+  }
+
+  async function addImageFiles(files: File[]) {
+    const picked = files.filter(isImageFile).slice(0, 4)
+    if (!picked.length) return
+    try {
+      const encoded = await Promise.all(picked.map(readImageFile))
+      const prepared = await window.surf.images.prepare({ explicit: true, images: encoded.map(({ mime, base64 }) => ({ mime, base64 })) })
+      setImages((current) => [
+        ...current,
+        ...prepared.images.map((image, index) => ({
+          ...image,
+          id: `${Date.now()}-${index}`,
+          name: encoded[index]?.name || 'Image',
+          captured: false,
+        })),
+      ].slice(0, 4))
+    } catch (error) {
+      onImageError?.((error as Error).message)
+    }
+  }
+
+  async function captureScreenshot() {
+    try {
+      const shot = await window.surf.screenshot.capture(true)
+      if (shot.error || !shot.pngBase64 || !shot.mime) {
+        onImageError?.(shot.error || 'Could not capture the screen.')
+        return
+      }
+      setImages((current) => [...current, {
+        id: `shot-${Date.now()}`,
+        name: 'Screenshot',
+        mime: shot.mime || 'image/png',
+        base64: shot.pngBase64 || '',
+        captured: true,
+      }].slice(0, 4))
+    } catch (error) {
+      onImageError?.((error as Error).message)
+    }
   }
 
   return (
@@ -223,7 +299,11 @@ export function ChatScreen({
           onDrop={(e) => {
             e.preventDefault()
             setOver(false)
-            const paths = [...e.dataTransfer.files].map((file) => window.surf.library.pathForFile(file)).filter(Boolean)
+            const dropped = [...e.dataTransfer.files]
+            const pictures = dropped.filter(isImageFile)
+            const rest = dropped.filter((file) => !isImageFile(file))
+            if (pictures.length) void addImageFiles(pictures)
+            const paths = rest.map((file) => window.surf.library.pathForFile(file)).filter(Boolean)
             if (paths.length) onAttach(paths)
           }}
         >
@@ -278,8 +358,36 @@ export function ChatScreen({
                 ))}
               </div>
             )}
+            {images.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2" data-pending-images="yes">
+                {images.map((image) => (
+                  <span key={image.id} className="pill gap-2" data-pending-image={image.captured ? 'screenshot' : 'file'}>
+                    <img className="h-8 w-8 rounded object-cover" alt="" src={`data:${image.mime};base64,${image.base64}`} />
+                    {image.name}
+                    {image.captured && (
+                      <button type="button" className="underline" data-save-screenshot="yes" onClick={() => { void window.surf.screenshot.save(image.base64).catch((error: unknown) => onImageError?.((error as Error).message)) }}>Save</button>
+                    )}
+                    <button type="button" aria-label={`Remove ${image.name}`} onClick={() => setImages((current) => current.filter((item) => item.id !== image.id))}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="flex items-end gap-2">
               <button type="button" className="btn btn-ghost h-[52px]" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}>Attach</button>
+              <button type="button" className="btn btn-ghost h-[52px]" data-image-attach="yes" onClick={() => imagePicker.current?.click()} disabled={!chatReady}>Image</button>
+              <button type="button" className="btn btn-ghost h-[52px]" data-capture-screenshot="yes" onClick={() => { void captureScreenshot() }}>Screenshot</button>
+              <input
+                ref={imagePicker}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+                className="hidden"
+                data-image-picker="yes"
+                onChange={(event) => {
+                  const picked = [...(event.target.files ?? [])]
+                  event.target.value = ''
+                  void addImageFiles(picked)
+                }}
+              />
               <textarea
                 className="field min-h-[52px]"
                 rows={1}
@@ -287,6 +395,14 @@ export function ChatScreen({
                 value={text}
                 disabled={!chatReady}
                 onChange={(e) => setText(e.target.value)}
+                onPaste={(event) => {
+                  const fromFiles = [...event.clipboardData.files]
+                  const fromItems = [...event.clipboardData.items].map((item) => item.getAsFile()).filter((file): file is File => Boolean(file))
+                  const pictures = [...fromFiles, ...fromItems].filter(isImageFile)
+                  if (!pictures.length) return
+                  event.preventDefault()
+                  void addImageFiles(pictures)
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
                 }}
@@ -294,7 +410,7 @@ export function ChatScreen({
               {streaming && onStop ? (
                 <button className="btn btn-ghost h-[52px] px-5" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (
-                <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || !text.trim()}>Send</button>
+                <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || (!text.trim() && images.length === 0)}>Send</button>
               )}
             </div>
           </div>

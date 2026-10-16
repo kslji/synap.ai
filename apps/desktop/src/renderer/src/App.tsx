@@ -173,14 +173,16 @@ export default function App() {
     await refresh()
   }
 
-  async function send(text: string) {
-    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text, sources: [], tools: [] }
+  async function send(text: string, images: { mime: 'image/png' | 'image/jpeg'; base64: string }[] = []) {
+    const body = text.trim() || (images.length ? 'What is in this screenshot?' : '')
+    if (!body) return
+    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
     const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      const res = await api.chat.send({ conversationId, text: body, agentId, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
     } catch (e) {
@@ -749,7 +751,8 @@ export default function App() {
           chatModelId={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.id ?? ''}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           tourOnline={tourStep != null && TOUR[tourStep]?.id === 'online'}
-          onSend={(t) => { void send(t) }}
+          onSend={(t, images) => { void send(t, images) }}
+          onImageError={(message) => setError(message)}
           onToggleOffline={() => { void patch({ offlineOnly: !settings.offlineOnly }) }}
           onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}

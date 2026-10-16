@@ -6,7 +6,7 @@ export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
   text: z.string().min(1).max(20_000),
   agentId: z.string().max(64).default('general'),
-  images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg']), base64: z.string().max(14_000_000) })).max(4).default([]),
+  images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg', 'image/webp']), base64: z.string().max(18_000_000) })).max(4).default([]),
   allowWeb: z.boolean().default(false),
   docScope: z.enum(['chat', 'all']).default('chat'),
 })
@@ -137,6 +137,24 @@ export const StorageClearReq = z.object({
   itemId: z.string().trim().min(1).max(200).optional(),
 }).strict()
 export const StorageCategoryId = z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs'])
+
+export const ScreenshotCaptureReq = z.object({
+  explicit: z.literal(true),
+}).strict()
+
+export const ScreenshotSaveReq = z.object({
+  explicit: z.literal(true),
+  pngBase64: z.string().min(32).max(8_000_000),
+}).strict()
+
+export const ImagePrepareReq = z.object({
+  explicit: z.literal(true),
+  images: z.array(z.object({
+    mime: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+    base64: z.string().max(18_000_000),
+  })).max(4).default([]),
+  paths: z.array(z.string().min(1).max(4096)).max(4).default([]),
+}).strict()
 
 export const CodeFileSave = z.object({
   path: z.string().min(1).max(4096),

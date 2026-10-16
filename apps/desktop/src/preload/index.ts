@@ -2,7 +2,7 @@
  * Preload (sandboxed, contextIsolation on). Exposes window.surf — never ipcRenderer itself.
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
+import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type LibraryEvent, type ModelEvent, type PreparedChatImage, type ScreenshotCaptureResult, type ScreenshotSaveResult } from '../shared/ipc-contract'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T) => cb(payload)
@@ -67,6 +67,13 @@ const api: SurfApi = {
     report: () => ipcRenderer.invoke(IPC.storageReport),
     clear: (req) => ipcRenderer.invoke(IPC.storageClear, req),
     open: (category) => ipcRenderer.invoke(IPC.storageOpen, category),
+  },
+  screenshot: {
+    capture: (explicit) => ipcRenderer.invoke(IPC.screenshotCapture, { explicit }) as Promise<ScreenshotCaptureResult>,
+    save: (pngBase64) => ipcRenderer.invoke(IPC.screenshotSave, { explicit: true, pngBase64 }) as Promise<ScreenshotSaveResult>,
+  },
+  images: {
+    prepare: (req) => ipcRenderer.invoke(IPC.imagesPrepare, req) as Promise<{ images: PreparedChatImage[] }>,
   },
   library: {
     pathForFile: (file) => webUtils.getPathForFile(file),

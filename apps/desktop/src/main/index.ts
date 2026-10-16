@@ -216,7 +216,7 @@ async function selfTest(): Promise<void> {
       tier: 0, ramGb: 0, cpuModel: 'selftest', cores: 1, chatModelId: '', codeModelId: '', arch: process.arch, platform: process.platform, installed: [], downloading: null,
       sidecars: { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }, models: [], online: false,
       onlineReason: 'Offline only is on',
-      offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
+      offlineOnly: true, onboardingComplete: true, chatPersistence: 'session', mmprojRuntime: null,
     }))
     ipcMain.removeHandler(IPC.settingsGet)
     ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false }))

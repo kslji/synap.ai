@@ -2,13 +2,13 @@
  * App services: hardware, model registry, chat, and the document index.
  * One llama-server at a time (chat or embeddings). Indexing never blocks the chat IPC.
  * TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
- * TODO: download Qwen3.5 mmproj and expose "Describe image" (vision.ts). OCR is the image path for now.
+ * The Qwen screenshot add-on is a separate download. Images are prepared in code.
  */
 import { app, BrowserWindow, net, dialog, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { copyFile, mkdir, rm, stat, statfs } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
 import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage } from './ipc-contract.js'
@@ -78,6 +78,13 @@ import { mimeForName, readAttachment } from './convert.js'
 import { addBytes, countsFor, deleteAttachment, listFiles, markCancelled, previewAttachment, previewChunk, retryJob } from './library-store.js'
 import { searchUser, type UserHit } from './user-search.js'
 import { captionImage, mmprojReady } from './vision.js'
+import { screenshotAddonOffer, screenshotStorageLabel, visionPairFits } from './vision-offer.js'
+import { preprocessImage, type PreparedImage } from './vision-preprocess.js'
+import { imagePathsAllowed, saveScreenshot } from './vision-capture.js'
+import { mmprojArg, runtimeSupportsMmproj, visionBlockReason } from './vision-runtime.js'
+import { attachPreparedImages, readScreenshots, type ScreenshotRead } from './vision-route.js'
+import { captureUserScreenshot } from './screenshot-desktop.js'
+import { recognizeImage } from './ocr.js'
 import { chunkBlocks } from './chunker.js'
 import { describeReach } from './reach.js'
 import { fetchPages, probeHealth, searchWeb } from './web-client.js'
@@ -189,6 +196,7 @@ export async function createServices(): Promise<Services> {
   let prefixModelId: string | null = null
   let draftRuntime = false
   let draftRuntimeKnown = false
+  let mmprojRuntime: boolean | null = null
   let draftBlocked = false
   let idleTimer: ReturnType<typeof setInterval> | null = null
   const metrics = new MetricsLog(join(app.getPath('userData'), 'usage.json'), join(app.getPath('userData'), 'logs', 'live.log'))
@@ -297,8 +305,7 @@ export async function createServices(): Promise<Services> {
       peakRamGb: m.peak_ram_gb ?? null,
       ramMeasured: m.ram_measured === true,
       note: m.note,
-      visionBytes: m.mmproj?.size_bytes ?? null,
-      visionInstalled: m.mmproj ? await installed(mmprojDestName(m.id, m.mmproj.file), m.mmproj.size_bytes) : false,
+      ...visionFields(m, await installed(m.file, m.size_bytes), m.mmproj ? await installed(mmprojDestName(m.id, m.mmproj.file), m.mmproj.size_bytes) : false),
       fitMark: m.agents?.includes('code')
         ? codeFitMark({ family: m.family, minRamGb: m.min_ram_gb, defaultFor: m.default_for }, hw.totalRamGb)
         : null,
@@ -325,6 +332,24 @@ export async function createServices(): Promise<Services> {
       devWeb: devWebEnabled(),
       ...(devWebEnabled() ? { devApiUrl: apiBase(settings) } : {}),
       live: liveStatus(reg, settings, new Set(models.filter((model) => model.installed).map((model) => model.id))),
+      mmprojRuntime,
+    }
+  }
+
+  function visionFields(model: ModelEntry, modelInstalled: boolean, visionInstalled: boolean): { visionBytes: number | null; visionInstalled: boolean } {
+    const offer = screenshotAddonOffer({
+      family: model.family,
+      modelInstalled,
+      modelBytes: model.size_bytes,
+      minRamGb: model.min_ram_gb,
+      mmprojBytes: model.mmproj?.size_bytes ?? null,
+      mmprojInstalled: visionInstalled,
+      totalRamGb: hw.totalRamGb,
+      runtimeSupports: mmprojRuntime,
+    })
+    return {
+      visionBytes: offer.show ? offer.sizeBytes : null,
+      visionInstalled,
     }
   }
 
@@ -434,6 +459,22 @@ export async function createServices(): Promise<Services> {
     const model = registry().models.find((m) => m.id === lookupId)
     if (!model) throw new Error('Unknown model.')
     if (vision && !model.mmproj) throw new Error('This model has no screenshot add-on.')
+    if (vision && model.mmproj) {
+      if (mmprojRuntime === null) {
+        await probeDraftRuntime(resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath()))
+      }
+      const offer = screenshotAddonOffer({
+        family: model.family,
+        modelInstalled: await installed(model.file, model.size_bytes),
+        modelBytes: model.size_bytes,
+        minRamGb: model.min_ram_gb,
+        mmprojBytes: model.mmproj.size_bytes,
+        mmprojInstalled: false,
+        totalRamGb: hw.totalRamGb,
+        runtimeSupports: mmprojRuntime,
+      })
+      if (!offer.offerDownload) throw new Error('The screenshot add-on is not offered for this computer.')
+    }
     if (model.role === 'asr') throw new Error('Speech models land in week 2.')
     const file = vision && model.mmproj ? model.mmproj : model
     const destName = vision && model.mmproj ? mmprojDestName(model.id, model.mmproj.file) : model.file
@@ -501,11 +542,11 @@ export async function createServices(): Promise<Services> {
       }),
       caption: async (png) => withModel(async () => {
         const chat = await chooseChat(registry(), readSettings().chatModelId, 'general')
-        const file = chat?.mmproj?.file
-        const path = chat && file ? join(modelsDir(), mmprojDestName(chat.id, file)) : ''
-        if (!chat || !mmprojReady(path)) return null
+        if (!chat) return null
+        const vision = await projectorFor(chat)
+        if (!mmprojReady(vision.path) || vision.block !== 'ok') return null
         const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
-        const server = await ensure('chat', chat, profile.serverCtx, path)
+        const server = await ensure('chat', chat, profile.serverCtx, vision.path)
         const client = new LlamaClient({
           baseUrl: server.baseUrl,
           apiKey: server.apiKey,
@@ -681,7 +722,96 @@ export async function createServices(): Promise<Services> {
     })
   }
 
-  async function replyCode(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+  async function projectorFor(model: ModelEntry): Promise<{ path: string; installed: boolean; ramOk: boolean; block: ReturnType<typeof visionBlockReason> }> {
+    const file = model.mmproj
+    if (!file) return { path: '', installed: false, ramOk: false, block: 'missing' }
+    const ready = await installed(mmprojDestName(model.id, file.file), file.size_bytes)
+    const ramOk = visionPairFits({
+      modelBytes: model.size_bytes,
+      mmprojBytes: file.size_bytes,
+      minRamGb: model.min_ram_gb,
+      totalRamGb: hw.totalRamGb,
+    })
+    const block = visionBlockReason({
+      runtimeSupports: mmprojRuntime === true,
+      mmprojInstalled: ready,
+      ramOk,
+    })
+    return {
+      path: mmprojArg({ path: ready ? join(modelsDir(), mmprojDestName(model.id, file.file)) : '', block }),
+      installed: ready,
+      ramOk,
+      block,
+    }
+  }
+
+  async function decodeImages(images: { mime: string; base64: string }[]): Promise<PreparedImage[]> {
+    const out: PreparedImage[] = []
+    for (const image of images) {
+      const raw = Buffer.from(image.base64, 'base64')
+      if (raw.length < 8) continue
+      out.push(await preprocessImage(raw, image.mime))
+    }
+    return out
+  }
+
+  async function loadShots(req: ChatReq, signal: AbortSignal): Promise<ScreenshotRead> {
+    const empty: ScreenshotRead = { text: req.text, images: [], note: '', route: 'chat', directAnswer: null, skipGates: false, ocrText: '' }
+    if (!req.images?.length || signal.aborted) return empty
+    const images = await decodeImages(req.images)
+    if (!images.length) return empty
+    const agent = (req.agentId || 'general') === 'code' ? 'code' : 'chat'
+    const settings = readSettings()
+    const preferred = agent === 'code' ? settings.codeModelId : settings.chatModelId
+    const model = await chooseChat(registry(), preferred, agent)
+    await probeDraftRuntime(resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath()))
+    const vision = model ? await projectorFor(model) : { path: '', installed: false, ramOk: false, block: 'missing' as const }
+    const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+    return readScreenshots({
+      userText: req.text,
+      agent,
+      images,
+      mmprojInstalled: vision.installed,
+      runtimeSupports: mmprojRuntime === true,
+      ramOk: vision.ramOk,
+      ocr: async (image) => {
+        try {
+          return await recognizeImage(image.bytes, tessdataPath(), join(app.getPath('userData'), 'tess-cache'))
+        } catch (error) {
+          console.warn('[surf] ocr skipped:', (error as Error).message)
+          return { text: '', confidence: 0 }
+        }
+      },
+      describe: async (prompt, pictures) => {
+        if (!model || signal.aborted) return ''
+        try {
+          const server = await ensure('chat', model, profile.serverCtx, pictures.length ? vision.path : '', agent)
+          const client = new LlamaClient({
+            baseUrl: server.baseUrl,
+            apiKey: server.apiKey,
+            sampling: chatSampling(model),
+            chatTemplateKwargs: model.chat_template_kwargs,
+          })
+          const content = pictures.length
+            ? attachPreparedImages([{ role: 'user', content: prompt }], pictures, prompt)[0]?.content ?? prompt
+            : prompt
+          const res = await client.chat([{ role: 'user', content }], undefined, signal, 400)
+          return String(res.choices[0]?.message?.content ?? '')
+        } catch (error) {
+          if (signal.aborted) throw error
+          console.warn('[surf] screenshot model skipped:', (error as Error).message)
+          return ''
+        }
+      },
+    })
+  }
+
+  async function replyCode(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal, shots: ScreenshotRead): Promise<void> {
+    if (shots.directAnswer) {
+      await emitText(win, messageId, shots.directAnswer)
+      finish(conversationId, messageId, userMessageId, win, shots.directAnswer, [], 'answer')
+      return
+    }
     const root = codeApi.root()
     if (!root) {
       const message = 'Open a project folder to use the Code agent. Files stay on this computer.'
@@ -839,19 +969,26 @@ export async function createServices(): Promise<Services> {
         ramMb: null,
         cpuPercent: null,
       })
-      await emitText(win, messageId, result.answer)
-      finish(conversationId, messageId, userMessageId, win, result.answer, [], 'answer')
+      const answer = shots.note && !result.answer.startsWith(shots.note) ? `${shots.note}\n\n${result.answer}` : result.answer
+      await emitText(win, messageId, answer)
+      finish(conversationId, messageId, userMessageId, win, answer, [], 'answer')
     })
   }
 
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+    const shots = await loadShots(req, signal)
     if ((req.agentId || 'general') === 'code') {
-      await replyCode(req, conversationId, messageId, userMessageId, win, signal)
+      await replyCode({ ...req, text: shots.text }, conversationId, messageId, userMessageId, win, signal, shots)
+      return
+    }
+    if (shots.directAnswer) {
+      await emitText(win, messageId, shots.directAnswer)
+      finish(conversationId, messageId, userMessageId, win, shots.directAnswer, [], 'answer')
       return
     }
     const settings = readSettings()
     const reg = registry()
-    const text = req.text
+    const text = shots.text
     if (devWebEnabled()) {
       const command = parseDevWebCommand(text)
       if (command) {
@@ -1016,7 +1153,8 @@ export async function createServices(): Promise<Services> {
           return
         }
       }
-      const server = await ensure('chat', chatModel, profile.serverCtx, '', agentId)
+      const visionPath = shots.images.length ? (await projectorFor(chatModel)).path : ''
+      const server = await ensure('chat', chatModel, profile.serverCtx, visionPath, agentId)
       const client = new LlamaClient({
         baseUrl: server.baseUrl,
         apiKey: server.apiKey,
@@ -1099,6 +1237,7 @@ export async function createServices(): Promise<Services> {
       }
       const cache = promptCacheReuse(prefixKey, prefixCacheKey(systemText, 'chat'), promptCacheMiB(hw.totalRamGb) > 0)
       prefixKey = cache.key
+      const promptMessages = attachPreparedImages(budget.messages, shots.images, text)
       let replaceStream = false
       if (useTools) {
         const batch = createTextBatch(48)
@@ -1108,7 +1247,7 @@ export async function createServices(): Promise<Services> {
         let streamed = ''
         modelBusy += 1
         try {
-          const ran = await client.runWithTools(budget.messages, chatTools, toolHandlers(calc, text), 4, signal, {
+          const ran = await client.runWithTools(promptMessages, chatTools, toolHandlers(calc, text), 4, signal, {
             maxTokens: budget.maxTokens,
             cachePrompt: cache.cachePrompt,
             onDelta: (piece) => {
@@ -1142,7 +1281,7 @@ export async function createServices(): Promise<Services> {
         const before = sampleProc(server.pid)
         modelBusy += 1
         try {
-          const collected = await client.chatCollect(budget.messages, undefined, signal, budget.maxTokens, { cachePrompt: cache.cachePrompt }, (piece) => {
+          const collected = await client.chatCollect(promptMessages, undefined, signal, budget.maxTokens, { cachePrompt: cache.cachePrompt }, (piece) => {
             if (signal.aborted) return
             if (first == null) first = Date.now()
             answer += piece
@@ -1176,7 +1315,8 @@ export async function createServices(): Promise<Services> {
           vec: hit.vec,
         })))
       }
-      finish(conversationId, messageId, userMessageId, win, answer, sources, gate, replaceStream || checked.unknownUrls.length > 0 || checked.echoed, {
+      if (shots.note && !answer.startsWith(shots.note)) answer = `${shots.note}\n\n${answer}`
+      finish(conversationId, messageId, userMessageId, win, answer, sources, gate, replaceStream || checked.unknownUrls.length > 0 || checked.echoed || Boolean(shots.note), {
         counter: budget.report.counter,
         total: budget.report.total,
         droppedChunks: budget.report.droppedChunks,
@@ -1539,6 +1679,47 @@ export async function createServices(): Promise<Services> {
       clear: (category, itemId) => clearStorage(category, itemId),
       open: (category) => openStorage(category),
     },
+    screenshot: {
+      capture: async (explicit) => {
+        const shot = await captureUserScreenshot(explicit)
+        if (!shot.ok) return { error: shot.message }
+        const prepared = await preprocessImage(shot.png, 'image/png')
+        return { pngBase64: prepared.bytes.toString('base64'), mime: prepared.mime }
+      },
+      save: async (pngBase64, win) => saveScreenshot({
+        userSave: true,
+        png: Buffer.from(pngBase64, 'base64'),
+        choosePath: async () => {
+          const picked = await dialog.showSaveDialog(win, {
+            title: 'Save screenshot',
+            defaultPath: 'screenshot.png',
+            filters: [{ name: 'PNG', extensions: ['png'] }],
+          })
+          if (picked.canceled || !picked.filePath) return null
+          return picked.filePath
+        },
+        write: (path, bytes) => { writeFileSync(path, bytes) },
+      }),
+    },
+    images: {
+      prepare: async (body) => {
+        if (!body.explicit) return { images: [] }
+        const paths = imagePathsAllowed(true, body.paths)
+        const prepared: PreparedImage[] = []
+        for (const path of paths) {
+          const info = await stat(path)
+          if (info.size > 40_000_000) throw new Error('That image is too large.')
+          const raw = await readFile(path)
+          const lower = path.toLowerCase()
+          const mime = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg'
+          prepared.push(await preprocessImage(raw, mime))
+        }
+        prepared.push(...await decodeImages(body.images))
+        return {
+          images: prepared.slice(0, 4).map((image) => ({ mime: image.mime, base64: image.bytes.toString('base64') })),
+        }
+      },
+    },
     lifecycle: { releaseWindow },
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
@@ -1653,7 +1834,9 @@ export async function createServices(): Promise<Services> {
     draftRuntimeKnown = true
     return new Promise((resolve) => {
       execFile(bin, ['--help'], { timeout: 8000, windowsHide: true }, (_err, stdout, stderr) => {
-        draftRuntime = runtimeSupportsSpeculative(`${stdout ?? ''}\n${stderr ?? ''}`)
+        const help = `${stdout ?? ''}\n${stderr ?? ''}`
+        draftRuntime = runtimeSupportsSpeculative(help)
+        mmprojRuntime = runtimeSupportsMmproj(help)
         resolve(draftRuntime)
       })
     })
@@ -1758,7 +1941,7 @@ export async function createServices(): Promise<Services> {
     const indexUsage = await codeApi.storage()
     const webBytes = store.db ? savedWebStats(store.db).bytes : 0
     const categories: StorageCategory[] = [
-      { id: 'models', label: 'Models', bytes: 0, items: scanFiles(modelsDir()) },
+      { id: 'models', label: 'Models', bytes: 0, items: scanFiles(modelsDir()).map((item) => ({ ...item, label: screenshotStorageLabel(item.id) })) },
       {
         id: 'packs',
         label: 'Knowledge packs',

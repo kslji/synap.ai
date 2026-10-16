@@ -158,6 +158,17 @@ class MemoryAuth:
     async def user_by_id(self, user_id: str) -> dict | None:
         return next((row for row in self.users.values() if row["id"] == user_id), None)
 
+    async def upsert_user(self, email: str) -> dict:
+        email = normalize_email(email)
+        user = self.users.get(email)
+        if user is None:
+            user = {"id": str(uuid.uuid4()), "email": email, "plan_code": "pro", "created_at": _now()}
+            self.users[email] = user
+            return user
+        if user.get("plan_code") == "free":
+            user["plan_code"] = "pro"
+        return user
+
     async def issue_refresh(self, user_id: str, device_id: str, family_id: str | None = None, now: datetime | None = None) -> tuple[str, str]:
         now = now or _now()
         raw = secrets.token_urlsafe(32)
@@ -365,6 +376,18 @@ class PostgresAuth(MemoryAuth):
             )).fetchone()
         if not row:
             return None
+        return {"id": row[0], "email": row[1], "plan_code": row[2]}
+
+    async def upsert_user(self, email: str) -> dict:
+        email = normalize_email(email)
+        async with self.pool.connection() as conn:
+            row = await (await conn.execute(
+                """INSERT INTO users (email, plan_code) VALUES (%s, 'pro')
+                   ON CONFLICT (email) DO UPDATE
+                     SET plan_code = CASE WHEN users.plan_code = 'free' THEN 'pro' ELSE users.plan_code END
+                   RETURNING id::text, email::text, plan_code""",
+                (email,),
+            )).fetchone()
         return {"id": row[0], "email": row[1], "plan_code": row[2]}
 
     async def issue_refresh(self, user_id: str, device_id: str, family_id: str | None = None, now: datetime | None = None) -> tuple[str, str]:

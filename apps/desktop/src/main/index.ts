@@ -219,7 +219,7 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)

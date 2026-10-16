@@ -14,7 +14,7 @@ import { toolCallGbnf, toolCallJsonSchema } from './code-agent/grammar.js'
 import { llamaCompletionExtras } from './code-agent/llama.js'
 import { CODE_AGENT_LIMITS, nativeToolsRejected, runCodeAgent, type CompletionRequest } from './code-agent/loop.js'
 import { parseModelTurn, repairJson } from './code-agent/parse-tool.js'
-import { currentPermissionMode, exactCommand, permissionNeeded } from './code-agent/permission.js'
+import { currentPermissionMode, decideApproval, exactCommand, permissionNeeded } from './code-agent/permission.js'
 import { adaptCodeIndex, createProjectSearch, projectSearchFor, type ProjectContext } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, codeSystemPrompt, loadSystemRulesSync } from './code-agent/system-rules.js'
 import { CODE_TOOL_NAMES } from './code-agent/tools.js'
@@ -108,8 +108,12 @@ test('permission gate asks for new commands and for every edit', () => {
   assert.equal(permissionNeeded('ask', allowed, { kind: 'command', command: 'npm test --watch' }), true)
   assert.equal(permissionNeeded('ask', allowed, { kind: 'command', command: ' npm test ' }), false)
   assert.equal(permissionNeeded('ask', allowed, { kind: 'edit' }), true)
-  assert.equal(permissionNeeded('auto', allowed, { kind: 'command', command: 'rm -rf' }), false)
-  assert.equal(permissionNeeded('auto', allowed, { kind: 'edit' }), false)
+  const allowlist = new Set([exactCommand('npm test')])
+  assert.equal(decideApproval('auto', { kind: 'command', command: 'rm -rf src/a.ts' }, { remembered: allowed, allowlist, checkpointPaths: new Set() }).action, 'deny')
+  assert.equal(permissionNeeded('auto', allowed, { kind: 'edit' }, allowlist), false)
+  assert.equal(permissionNeeded('auto', new Set(), { kind: 'command', command: 'npm test' }, allowlist), false)
+  assert.equal(permissionNeeded('auto', new Set(), { kind: 'command', command: 'npm install' }, allowlist), true)
+  assert.equal(permissionNeeded('auto', new Set(), { kind: 'command', command: 'node -p 1' }, allowlist), true)
   assert.equal(nativeToolsRejected(new Error('llama-server /v1/chat/completions: HTTP 400 tools are not supported')), true)
   assert.equal(nativeToolsRejected(new Error('connect ECONNREFUSED')), false)
 })
@@ -196,27 +200,30 @@ test('an allowed command is not asked again, including after remember', async ()
   assert.deepEqual(remembered, ['npm run build'])
 })
 
-test('auto mode is the hook that applies and runs without asking', async () => {
+test('auto mode writes inside the project and pauses off the allowlist', async () => {
   const root = tempProject()
   writeFileSync(join(root, 'a.txt'), 'one\n')
-  let asked = 0
+  const asked: string[] = []
   const ran: string[] = []
   let step = 0
   await runCodeAgent('go', {
     ...baseHost(root),
     mode: 'auto',
+    commandAllowlist: ['npm test'],
     async complete() {
       step++
       if (step === 1) return { content: '{"tool":"propose_edit","arguments":{"path":"a.txt","old":"one","new":"two"}}' }
-      if (step === 2) return { content: '{"tool":"run_command","arguments":{"command":"node -p 1"}}' }
+      if (step === 2) return { content: '{"tool":"run_command","arguments":{"command":"npm test"}}' }
+      if (step === 3) return { content: '{"tool":"run_command","arguments":{"command":"npm install left-pad"}}' }
+      if (step === 4) return { content: '{"tool":"run_command","arguments":{"command":"rm -rf a.txt"}}' }
       return { content: '{"tool":"finish","arguments":{"summary":"Done."}}' }
     },
-    async ask() { asked++; return { allow: false } },
+    async ask(request) { asked.push(request.command ?? request.kind); return { allow: false } },
     async runCommand(command) { ran.push(command); return { ok: true, output: 'ok' } },
   })
-  assert.equal(asked, 0)
+  assert.deepEqual(asked, ['npm install left-pad'])
   assert.equal(readFileSync(join(root, 'a.txt'), 'utf8'), 'two\n')
-  assert.deepEqual(ran, ['node -p 1'])
+  assert.deepEqual(ran, ['npm test'])
 })
 
 test('project system.md replaces the bundled rules', () => {

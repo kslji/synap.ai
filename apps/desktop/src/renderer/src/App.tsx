@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
@@ -28,6 +28,7 @@ export default function App() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [agentId, setAgentId] = useState('general')
   const [codeProject, setCodeProject] = useState<CodeProjectStatus | null>(null)
+  const [codeMode, setCodeMode] = useState<CodeAgentModeState | null>(null)
   const [tourStep, setTourStep] = useState<number | null>(null)
   const [messages, setMessages] = useState<UiMsg[]>([])
   const [streaming, setStreaming] = useState(false)
@@ -114,7 +115,8 @@ export default function App() {
   useEffect(() => {
     if (agentId !== 'code') return
     void api.code.status().then(setCodeProject).catch(() => setCodeProject(null))
-  }, [agentId, api])
+    void api.codeAgent.mode().then(setCodeMode).catch(() => setCodeMode(null))
+  }, [agentId, api, codeProject?.root])
 
   useEffect(() => {
     if (settings) persistThemeChoice(settings.theme)
@@ -135,6 +137,10 @@ export default function App() {
     if (p.theme) persistThemeChoice(p.theme)
     await api.settings.set(p)
     await refresh()
+    if (p.codeAgentMode !== undefined || p.codeAgentAutoConfirmed !== undefined || p.codeAgentAllowlist !== undefined) {
+      const next = await api.codeAgent.mode().catch(() => null)
+      if (next) setCodeMode(next)
+    }
   }
 
   async function download(id: string) {
@@ -747,9 +753,22 @@ export default function App() {
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
-          onCodeDecide={(messageId, id, allow, remember) => { void api.codeAgent.decide({ messageId, id, allow, remember }).catch((e: unknown) => setError((e as Error).message)) }}
-          onCodeRevise={(messageId, order) => { void api.codeAgent.revise({ messageId, order }).catch((e: unknown) => setError((e as Error).message)) }}
+          onCodeDecide={(messageId, id, allow, remember, all) => { void api.codeAgent.decide({ messageId, id, allow, remember, all }).catch((e: unknown) => setError((e as Error).message)) }}
+          onCodeRevise={(messageId, order, edits) => { void api.codeAgent.revise({ messageId, order, edits }).catch((e: unknown) => setError((e as Error).message)) }}
           onCodeUndo={(messageId, stepId) => { void api.codeAgent.undo({ messageId, stepId }).catch((e: unknown) => setError((e as Error).message)) }}
+          onCodeUndoAll={(messageId) => { void api.codeAgent.undo({ messageId, stepId: 'all', all: true }).catch((e: unknown) => setError((e as Error).message)) }}
+          codeMode={codeMode?.mode ?? 'ask'}
+          autoConfirmed={codeMode?.autoConfirmed ?? false}
+          onCodeMode={(mode, confirmAuto) => {
+            void api.codeAgent.setMode({ mode, confirmAuto }).then((result) => {
+              if (result.needsConfirm) return
+              return api.codeAgent.mode()
+            }).then((next) => { if (next) setCodeMode(next) }).catch((e: unknown) => setError((e as Error).message))
+          }}
+          onStop={agentId === 'code' ? () => {
+            const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
+            if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)
+          } : undefined}
         />
       )}
       {view === 'library' && (

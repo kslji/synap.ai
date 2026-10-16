@@ -3,7 +3,7 @@ import { StarSurf, starStateFor } from '@surf/ui'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
-import { CodeTrace } from './CodeTrace'
+import { CodeModeBar, CodeTrace } from './CodeTrace'
 import { Preview } from './LibraryScreen'
 import { ModelGuideButton } from './ModelGuide'
 
@@ -50,6 +50,11 @@ export function ChatScreen({
   onCodeDecide,
   onCodeRevise,
   onCodeUndo,
+  onCodeUndoAll,
+  codeMode,
+  autoConfirmed,
+  onCodeMode,
+  onStop,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -80,10 +85,16 @@ export function ChatScreen({
   /** Set for the Code agent. Null means no folder has been opened yet. */
   project?: CodeProjectStatus | null
   onOpenProject?: () => void
-  onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void
-  onCodeRevise?: (messageId: string, order: string[]) => void
+  onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void
+  onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void
   onCodeUndo?: (messageId: string, stepId: string) => void
+  onCodeUndoAll?: (messageId: string) => void
+  codeMode?: 'ask' | 'auto'
+  autoConfirmed?: boolean
+  onCodeMode?: (mode: 'ask' | 'auto', confirmAuto?: boolean) => void
+  onStop?: () => void
 }) {
+  const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
@@ -155,9 +166,27 @@ export function ChatScreen({
                 'No project open. The index stays in this app private data folder.'
               )}
             </div>
-            <button type="button" className="btn btn-ghost shrink-0" onClick={onOpenProject}>
-              {project ? 'Change folder' : 'Open folder'}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {project && onCodeMode && (
+                <CodeModeBar
+                  mode={codeMode ?? 'ask'}
+                  confirming={confirmingAuto}
+                  onChoose={(next) => {
+                    if (next === 'auto' && !autoConfirmed) { setConfirmingAuto(true); return }
+                    setConfirmingAuto(false)
+                    onCodeMode(next)
+                  }}
+                  onConfirm={() => { setConfirmingAuto(false); onCodeMode('auto', true) }}
+                  onCancel={() => setConfirmingAuto(false)}
+                />
+              )}
+              {streaming && onStop && (
+                <button type="button" className="btn btn-ghost shrink-0" data-code-stop="yes" onClick={onStop}>Stop</button>
+              )}
+              <button type="button" className="btn btn-ghost shrink-0" onClick={onOpenProject}>
+                {project ? 'Change folder' : 'Open folder'}
+              </button>
+            </div>
           </div>
         )}
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
@@ -176,7 +205,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} />)}
             </div>
           )}
         </div>
@@ -256,7 +285,11 @@ export function ChatScreen({
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
                 }}
               />
-              <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || !text.trim()}>Send</button>
+              {streaming && onStop ? (
+                <button className="btn btn-ghost h-[52px] px-5" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
+              ) : (
+                <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || !text.trim()}>Send</button>
+              )}
             </div>
           </div>
           {!chatReady && <p className="mx-auto mt-2 max-w-2xl text-xs text-[var(--muted)]">Finish setup in Settings → Models. The file stays on this computer.</p>}
@@ -290,7 +323,7 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void; onCodeRevise?: (messageId: string, order: string[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void }) {
+function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void }) {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -313,7 +346,7 @@ function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide, onCo
             Switch to smaller model
           </button>
         )}
-        <CodeTrace messageId={msg.id} steps={msg.steps ?? []} diffs={msg.diffs ?? []} plan={msg.plan} onDecide={onCodeDecide} onRevise={onCodeRevise} onUndo={onCodeUndo} />
+        <CodeTrace messageId={msg.id} steps={msg.steps ?? []} diffs={msg.diffs ?? []} plan={msg.plan} onDecide={onCodeDecide} onRevise={onCodeRevise} onUndo={onCodeUndo} onUndoAll={onCodeUndoAll} />
         {msg.tools.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {msg.tools.map((t, i) => (

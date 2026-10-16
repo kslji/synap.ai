@@ -7,9 +7,10 @@ import type { ChatMessage } from '../llama-client.js'
 import { resolveCheck, fullTestCommand } from './checks.js'
 import { captureCheckpoint, extendCheckpoint, restoreCheckpoint, type Checkpoint } from './checkpoint.js'
 import { runCodeAgent, type CodeAgentHost, type CompletionRequest } from './loop.js'
-import { preparePatchSet, writePrepared, type SearchReplace } from './patch.js'
+import { preparePatchSet, writePrepared, type PreparedFile, type SearchReplace } from './patch.js'
 import { repairJson } from './parse-tool.js'
 import type { ModelTurn } from './parse-tool.js'
+import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode } from './permission.js'
 import {
   applyPlanEdit,
   dependentSteps,
@@ -20,6 +21,7 @@ import {
   triageTask,
   validatePlan,
   type PlanFacts,
+  type PlanGoalEdit,
   type PlanStep,
   type TriageKind,
 } from './plan.js'
@@ -37,8 +39,16 @@ export interface SplitHost extends CodeAgentHost {
   totalRamGb?: number
   currentModelId?: string
   catalog?: readonly CodeModelChoice[]
-  reviewPlan?(steps: PlanStep[]): Promise<string[]>
+  reviewPlan?(steps: PlanStep[]): Promise<string[] | { order: string[]; edits?: PlanGoalEdit[] }>
   onPlan?(plan: CodePlanView): void
+}
+
+interface GateSession {
+  mode: PermissionMode
+  remembered: Set<string>
+  allowlist: Set<string>
+  checkpointPaths: Set<string>
+  acceptAll: boolean
 }
 
 export interface StepAttempt {
@@ -56,7 +66,7 @@ export interface SplitResult {
   plan: CodePlanView | null
   checkpoints: Checkpoint[]
   suggestion: ModelSuggestion | null
-  stopped: 'finish' | 'cancelled' | 'failed'
+  stopped: 'finish' | 'cancelled' | 'failed' | 'stopped'
   attempts: StepAttempt[]
 }
 
@@ -72,9 +82,24 @@ export async function runSplitTask(
   host: SplitHost,
   history: { user: string; assistant: string }[] = [],
 ): Promise<SplitResult> {
+  const session = openSession(host)
+  try {
+    return await runSplitBody(task, host, history, session)
+  } catch (error) {
+    if (!isAbort(error)) throw error
+    return empty('plan', 'Stopped. Finished steps can be undone one by one, or all at once.', 'stopped')
+  }
+}
+
+async function runSplitBody(
+  task: string,
+  host: SplitHost,
+  history: { user: string; assistant: string }[],
+  session: GateSession,
+): Promise<SplitResult> {
   const kind = triageTask(task, host.facts.files)
   if (kind === 'chat') {
-    const result = await runCodeAgent(task, host, history)
+    const result = await runCodeAgent(task, { ...host, mode: session.mode, commandAllowlist: session.allowlist }, history)
     return {
       answer: result.answer,
       kind,
@@ -93,21 +118,37 @@ export async function runSplitTask(
     : await plannedSteps(task, host)
   if (!planned.ok) return empty(kind, planned.message, 'failed')
   let runnable = planned.steps
-  if (kind === 'plan' && host.mode !== 'auto' && host.reviewPlan) {
+  if (session.mode !== 'auto' && host.reviewPlan) {
     host.onPlan?.(toPlanView(runnable, 'review'))
-    const order = await host.reviewPlan(runnable)
-    runnable = applyPlanEdit(runnable, order)
+    const revision = revisionOf(await host.reviewPlan(runnable))
+    throwIfAborted(host.signal)
+    runnable = applyPlanEdit(runnable, revision.order, revision.edits)
     if (!runnable.length) return empty(kind, 'No steps left to run.', 'cancelled')
   }
   host.onPlan?.(toPlanView(runnable, 'running'))
-  const executed = await executeSteps(runnable, host, kind === 'plan')
-  const suite = executed.ok ? await runSuite(host) : null
+  const executed = await executeSteps(runnable, host, kind === 'plan', session)
+  if (executed.halted) {
+    const plan = donePlan(executed.done)
+    host.onPlan?.(plan)
+    return {
+      answer: executed.halted === 'stopped'
+        ? 'Stopped. Finished steps can be undone one by one, or all at once.'
+        : 'Stopped because a change was rejected. Finished steps can still be undone.',
+      kind,
+      steps: executed.views,
+      diffs: executed.diffs,
+      plan,
+      checkpoints: checkpointsOf(executed.done),
+      suggestion: null,
+      stopped: executed.halted,
+      attempts: executed.attempts,
+    }
+  }
+  const suite = executed.ok ? await runSuite(host, session, executed.views) : null
+  throwIfAborted(host.signal)
   const suggestion = executed.ok ? null : suggest(host)
   const answer = summarize(executed.done, suite, suggestion, executed.attempts.some((item) => item.replanned))
-  const plan = toPlanView(executed.done.map((item) => item.step), 'done', executed.done.filter((item) => item.checkpoint).map((item) => ({
-    stepId: item.step.id,
-    title: item.step.goal,
-  })))
+  const plan = donePlan(executed.done)
   host.onPlan?.(plan)
   return {
     answer,
@@ -115,15 +156,16 @@ export async function runSplitTask(
     steps: executed.views,
     diffs: executed.diffs,
     plan,
-    checkpoints: executed.done.flatMap((item) => item.checkpoint ? [item.checkpoint] : []),
+    checkpoints: checkpointsOf(executed.done),
     suggestion,
     stopped: executed.ok ? 'finish' : 'failed',
     attempts: executed.attempts,
   }
 }
 
-export async function executeSteps(steps: PlanStep[], host: SplitHost, allowReplan: boolean): Promise<{
+export async function executeSteps(steps: PlanStep[], host: SplitHost, allowReplan: boolean, session: GateSession = openSession(host)): Promise<{
   ok: boolean
+  halted: 'stopped' | 'cancelled' | null
   done: DoneStep[]
   views: CodeStepView[]
   diffs: CodeDiffView[]
@@ -137,16 +179,21 @@ export async function executeSteps(steps: PlanStep[], host: SplitHost, allowRepl
   const fromReplan = new Set<string>()
   let replans = 0
   let index = 0
+  try {
   while (index < pending.length) {
-    throwIfAborted(host.signal)
+    if (host.signal?.aborted) return { ok: false, halted: 'stopped', done, views, diffs, attempts }
     const step = pending[index]!
-    const outcome = await runLadder(step, host, views, diffs)
+    const outcome = await runLadder(step, host, views, diffs, session)
     attempts.push({
       stepId: step.id,
       tries: outcome.tries,
       candidates: outcome.candidates,
       replanned: false,
     })
+    if (outcome.halted) {
+      if (outcome.checkpoint && outcome.wrote) done.push({ step, ok: false, detail: outcome.detail, checkpoint: outcome.checkpoint })
+      return { ok: false, halted: outcome.halted, done, views, diffs, attempts }
+    }
     if (outcome.ok) {
       done.push({ step, ok: true, detail: outcome.detail, checkpoint: outcome.checkpoint })
       index += 1
@@ -169,9 +216,13 @@ export async function executeSteps(steps: PlanStep[], host: SplitHost, allowRepl
       }
     }
     done.push({ step, ok: false, detail: outcome.detail, checkpoint: outcome.checkpoint })
-    return { ok: false, done, views, diffs, attempts }
+    return { ok: false, halted: null, done, views, diffs, attempts }
   }
-  return { ok: true, done, views, diffs, attempts }
+  return { ok: true, halted: null, done, views, diffs, attempts }
+  } catch (error) {
+    if (!isAbort(error)) throw error
+    return { ok: false, halted: 'stopped', done, views, diffs, attempts }
+  }
 }
 
 async function plannedSteps(task: string, host: SplitHost): Promise<{ ok: true; steps: PlanStep[] } | { ok: false; message: string }> {
@@ -224,34 +275,47 @@ async function runLadder(
   host: SplitHost,
   views: CodeStepView[],
   diffs: CodeDiffView[],
-): Promise<{ ok: boolean; detail: string; checkpoint: Checkpoint | null; tries: number; candidates: number }> {
-  let checkpoint = captureCheckpoint(host.root, step.id, targetFiles(step, host.facts))
+  session: GateSession,
+): Promise<{ ok: boolean; detail: string; checkpoint: Checkpoint | null; tries: number; candidates: number; halted: 'stopped' | 'cancelled' | null; wrote: boolean }> {
+  const state = {
+    checkpoint: captureCheckpoint(host.root, step.id, targetFiles(step, host.facts)),
+    wrote: false,
+  }
+  rememberCheckpoint(session, state.checkpoint)
   let error = ''
-  for (let attempt = 1; attempt <= STEP_RETRIES; attempt++) {
-    const result = await tryOnce(step, host, checkpoint, views, diffs, { attempt, candidate: 0, error, thinking: attempt > 1 })
-    checkpoint = result.checkpoint
-    if (result.ok) return { ok: true, detail: result.detail, checkpoint, tries: attempt, candidates: 0 }
-    error = result.detail
-    restoreCheckpoint(checkpoint)
+  try {
+    for (let attempt = 1; attempt <= STEP_RETRIES; attempt++) {
+      const result = await tryOnce(step, host, state, views, diffs, session, { attempt, candidate: 0, error, thinking: attempt > 1 })
+      if (result.halted) return { ok: false, detail: result.detail, checkpoint: state.checkpoint, tries: attempt, candidates: 0, halted: result.halted, wrote: state.wrote }
+      if (result.ok) return { ok: true, detail: result.detail, checkpoint: state.checkpoint, tries: attempt, candidates: 0, halted: null, wrote: state.wrote }
+      error = result.detail
+      restoreCheckpoint(state.checkpoint)
+      state.wrote = false
+    }
+    for (let candidate = 1; candidate <= STEP_CANDIDATES; candidate++) {
+      const result = await tryOnce(step, host, state, views, diffs, session, { attempt: STEP_RETRIES, candidate, error, thinking: true })
+      if (result.halted) return { ok: false, detail: result.detail, checkpoint: state.checkpoint, tries: STEP_RETRIES, candidates: candidate, halted: result.halted, wrote: state.wrote }
+      if (result.ok) return { ok: true, detail: result.detail, checkpoint: state.checkpoint, tries: STEP_RETRIES, candidates: candidate, halted: null, wrote: state.wrote }
+      error = result.detail
+      restoreCheckpoint(state.checkpoint)
+      state.wrote = false
+    }
+    return { ok: false, detail: error, checkpoint: state.checkpoint, tries: STEP_RETRIES, candidates: STEP_CANDIDATES, halted: null, wrote: false }
+  } catch (error) {
+    if (!isAbort(error)) throw error
+    return { ok: false, detail: 'Stopped.', checkpoint: state.checkpoint, tries: 0, candidates: 0, halted: 'stopped', wrote: state.wrote }
   }
-  for (let candidate = 1; candidate <= STEP_CANDIDATES; candidate++) {
-    const result = await tryOnce(step, host, checkpoint, views, diffs, { attempt: STEP_RETRIES, candidate, error, thinking: true })
-    checkpoint = result.checkpoint
-    if (result.ok) return { ok: true, detail: result.detail, checkpoint, tries: STEP_RETRIES, candidates: candidate }
-    error = result.detail
-    restoreCheckpoint(checkpoint)
-  }
-  return { ok: false, detail: error, checkpoint, tries: STEP_RETRIES, candidates: STEP_CANDIDATES }
 }
 
 async function tryOnce(
   step: PlanStep,
   host: SplitHost,
-  checkpoint: Checkpoint,
+  state: { checkpoint: Checkpoint; wrote: boolean },
   views: CodeStepView[],
   diffs: CodeDiffView[],
+  session: GateSession,
   pass: { attempt: number; candidate: number; error: string; thinking: boolean },
-): Promise<{ ok: boolean; detail: string; checkpoint: Checkpoint }> {
+): Promise<{ ok: boolean; detail: string; halted: 'stopped' | 'cancelled' | null }> {
   throwIfAborted(host.signal)
   const editId = `${step.id}:edit`
   pushView(host, views, { id: editId, index: views.length + 1, tool: 'edit', status: 'running', title: step.goal, detail: pass.candidate ? `Candidate ${pass.candidate}` : `Attempt ${pass.attempt}` })
@@ -266,10 +330,11 @@ async function tryOnce(
     maxTokens: host.answerTokens,
     signal: host.signal,
   })
+  throwIfAborted(host.signal)
   const edits = readEdits(turn)
   if ('error' in edits) {
     pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'error', title: step.goal, detail: edits.error })
-    return { ok: false, detail: edits.error, checkpoint }
+    return { ok: false, detail: edits.error, halted: null }
   }
   const targets = targetFiles(step, host.facts)
   const prepared = preparePatchSet(host.root, edits.edits, {
@@ -278,19 +343,34 @@ async function tryOnce(
   })
   if (!prepared.ok) {
     pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'error', title: step.goal, detail: prepared.message })
-    return { ok: false, detail: prepared.message, checkpoint }
+    return { ok: false, detail: prepared.message, halted: null }
   }
-  const next = extendCheckpoint(checkpoint, prepared.files.map((file) => file.path))
-  writePrepared(prepared.files)
+  const approved: PreparedFile[] = []
   for (const file of prepared.files) {
-    const diff: CodeDiffView = { id: `${step.id}:${file.path}`, stepId: step.id, path: file.path, diff: file.diff, status: 'applied' }
-    host.onDiff?.(diff)
-    const at = diffs.findIndex((item) => item.id === diff.id)
-    if (at >= 0) diffs[at] = diff
-    else diffs.push(diff)
+    const diff: CodeDiffView = { id: `${step.id}:${file.path}`, stepId: step.id, path: file.path, diff: file.diff, status: 'pending' }
+    const verdict = await approveEdit(host, session, views, editId, diff)
+    throwIfAborted(host.signal)
+    if (verdict === 'deny' || verdict === 'reject') {
+      diff.status = 'rejected'
+      storeDiff(host, diffs, diff)
+      continue
+    }
+    approved.push(file)
   }
-  pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'applied', title: step.goal, detail: prepared.files.map((file) => file.path).join(', ') })
-  const check = await runCheck(host, step)
+  if (!approved.length) {
+    pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'rejected', title: step.goal, detail: 'Rejected' })
+    return { ok: false, detail: 'The user rejected the edit. The file was not changed.', halted: 'cancelled' }
+  }
+  state.checkpoint = extendCheckpoint(state.checkpoint, approved.map((file) => file.path))
+  rememberCheckpoint(session, state.checkpoint)
+  writePrepared(approved)
+  state.wrote = true
+  for (const file of approved) {
+    storeDiff(host, diffs, { id: `${step.id}:${file.path}`, stepId: step.id, path: file.path, diff: file.diff, status: 'applied' })
+  }
+  pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'applied', title: step.goal, detail: approved.map((file) => file.path).join(', ') })
+  const check = await runCheck(host, step, session, views)
+  if (check.halted) return { ok: false, detail: check.output, halted: check.halted }
   const checkId = `${step.id}:check`
   pushView(host, views, {
     id: checkId,
@@ -300,31 +380,91 @@ async function tryOnce(
     title: `Check ${step.check.kind}`,
     detail: oneLine(check.output),
   })
-  if (!check.ok) return { ok: false, detail: check.output, checkpoint: next }
-  return { ok: true, detail: check.output, checkpoint: next }
+  if (!check.ok) return { ok: false, detail: check.output, halted: null }
+  return { ok: true, detail: check.output, halted: null }
 }
 
-async function runCheck(host: SplitHost, step: PlanStep): Promise<{ ok: boolean; output: string }> {
+async function runCheck(
+  host: SplitHost,
+  step: PlanStep,
+  session: GateSession,
+  views: CodeStepView[],
+): Promise<{ ok: boolean; output: string; halted: 'stopped' | 'cancelled' | null }> {
   const resolved = resolveCheck(host.root, step.check)
-  if (!resolved.command) return { ok: true, output: `No ${step.check.kind} command in this project.` }
+  if (!resolved.command) return { ok: true, output: `No ${step.check.kind} command in this project.`, halted: null }
+  const verdict = await approveCommand(host, session, views, `${step.id}:check`, `Check ${step.check.kind}`, resolved.command)
+  throwIfAborted(host.signal)
+  if (verdict !== 'allow') {
+    return { ok: false, output: 'The user denied the command. It was not run.', halted: 'cancelled' }
+  }
   const run = host.runCommand ?? ((command, signal) => runProjectCommand(host.root, command, signal))
   try {
-    return await run(resolved.command, host.signal)
+    const result = await run(resolved.command, host.signal)
+    throwIfAborted(host.signal)
+    return { ok: result.ok, output: result.output, halted: null }
   } catch (error) {
-    return { ok: false, output: error instanceof Error ? error.message : String(error) }
+    if (isAbort(error)) throw error
+    return { ok: false, output: error instanceof Error ? error.message : String(error), halted: null }
   }
 }
 
-async function runSuite(host: SplitHost): Promise<{ command: string; ok: boolean; output: string } | null> {
+async function runSuite(host: SplitHost, session: GateSession, views: CodeStepView[]): Promise<{ command: string; ok: boolean; output: string } | null> {
   const command = fullTestCommand(host.root)
   if (!command) return null
+  const verdict = await approveCommand(host, session, views, 'suite', 'Full test suite', command)
+  throwIfAborted(host.signal)
+  if (verdict !== 'allow') return { command, ok: false, output: 'The user denied the command. It was not run.' }
   const run = host.runCommand ?? ((cmd, signal) => runProjectCommand(host.root, cmd, signal))
   try {
     const result = await run(command, host.signal)
+    throwIfAborted(host.signal)
     return { command, ok: result.ok, output: result.output }
   } catch (error) {
+    if (isAbort(error)) throw error
     return { command, ok: false, output: error instanceof Error ? error.message : String(error) }
   }
+}
+
+async function approveEdit(
+  host: SplitHost,
+  session: GateSession,
+  views: CodeStepView[],
+  editId: string,
+  diff: CodeDiffView,
+): Promise<'allow' | 'reject' | 'deny'> {
+  const decision = decideApproval(session.mode, { kind: 'edit' }, gateContext(session))
+  if (decision.action === 'deny') return 'deny'
+  if (decision.action === 'allow' || session.acceptAll) return 'allow'
+  host.onDiff?.(diff)
+  const step = views.find((item) => item.id === editId)
+  if (step) pushView(host, views, { ...step, status: 'waiting', detail: diff.path })
+  const answer = await host.ask({ kind: 'edit', id: diff.id, path: diff.path, diff: diff.diff })
+  if (answer.all) session.acceptAll = true
+  if (answer.allow || answer.all) return 'allow'
+  return 'reject'
+}
+
+async function approveCommand(
+  host: SplitHost,
+  session: GateSession,
+  views: CodeStepView[],
+  id: string,
+  title: string,
+  command: string,
+): Promise<'allow' | 'reject' | 'deny'> {
+  const decision = decideApproval(session.mode, { kind: 'command', command }, gateContext(session))
+  if (decision.action === 'deny') return 'deny'
+  if (decision.action === 'allow') return 'allow'
+  const index = views.some((item) => item.id === id) ? viewIndex(views, id) : views.length + 1
+  pushView(host, views, { id, index, tool: 'check', status: 'waiting', title, detail: command })
+  const answer = await host.ask({ kind: 'command', id, command })
+  if (!answer.allow) return 'reject'
+  if (answer.remember) {
+    const exact = exactCommand(command)
+    session.remembered.add(exact)
+    host.onRememberCommand?.(exact)
+  }
+  return 'allow'
 }
 
 function suggest(host: SplitHost): ModelSuggestion | null {
@@ -484,6 +624,51 @@ function oneLine(text: string): string {
   return line.length > 160 ? `${line.slice(0, 157)}…` : line
 }
 
+function openSession(host: SplitHost): GateSession {
+  return {
+    mode: host.mode ?? 'ask',
+    remembered: new Set([...(host.allowedCommands ?? [])].map(exactCommand)),
+    allowlist: new Set([...(host.commandAllowlist ?? [])].map(exactCommand)),
+    checkpointPaths: new Set(),
+    acceptAll: false,
+  }
+}
+
+function gateContext(session: GateSession): ApprovalContext {
+  return {
+    remembered: session.remembered,
+    allowlist: session.allowlist,
+    checkpointPaths: session.checkpointPaths,
+  }
+}
+
+function rememberCheckpoint(session: GateSession, checkpoint: Checkpoint): void {
+  for (const file of checkpoint.files) session.checkpointPaths.add(file.path)
+}
+
+function storeDiff(host: SplitHost, diffs: CodeDiffView[], diff: CodeDiffView): void {
+  host.onDiff?.(diff)
+  const at = diffs.findIndex((item) => item.id === diff.id)
+  if (at >= 0) diffs[at] = diff
+  else diffs.push(diff)
+}
+
+function revisionOf(value: string[] | { order: string[]; edits?: PlanGoalEdit[] }): { order: string[]; edits: PlanGoalEdit[] } {
+  if (Array.isArray(value)) return { order: value, edits: [] }
+  return { order: value.order, edits: value.edits ?? [] }
+}
+
+function donePlan(done: DoneStep[]): CodePlanView {
+  return toPlanView(done.map((item) => item.step), 'done', done.filter((item) => item.checkpoint).map((item) => ({
+    stepId: item.step.id,
+    title: item.step.goal,
+  })))
+}
+
+function checkpointsOf(done: DoneStep[]): Checkpoint[] {
+  return done.flatMap((item) => item.checkpoint ? [item.checkpoint] : [])
+}
+
 function empty(kind: TriageKind, answer: string, stopped: SplitResult['stopped']): SplitResult {
   return { answer, kind, steps: [], diffs: [], plan: null, checkpoints: [], suggestion: null, stopped, attempts: [] }
 }
@@ -494,6 +679,10 @@ function throwIfAborted(signal?: AbortSignal): void {
     error.name = 'AbortError'
     throw error
   }
+}
+
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
 }
 
 export type { CompletionRequest, ChatMessage }

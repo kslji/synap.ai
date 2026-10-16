@@ -1,6 +1,6 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentUndoReq as CodeAgentUndoReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
@@ -22,6 +22,9 @@ export const SettingsPatch = z.object({
   apiBaseUrl: z.string().max(200).regex(/^https?:\/\/\S+$/).optional(),
   packSyncHours: z.number().int().min(1).max(168).optional(),
   updateChannel: z.enum(['stable', 'beta']).optional(),
+  codeAgentMode: z.enum(['ask', 'auto']).optional(),
+  codeAgentAllowlist: z.array(z.string().trim().min(1).max(200)).max(40).optional(),
+  codeAgentAutoConfirmed: z.boolean().optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)
@@ -92,17 +95,27 @@ export const LibraryPreview = z.object({
 }).strict()
 export const CodeAgentDecideReq = z.object({
   messageId: z.string().uuid(),
-  id: z.string().min(1).max(80),
+  id: z.string().min(1).max(320),
   allow: z.boolean(),
   remember: z.boolean().optional(),
+  all: z.boolean().optional(),
 }).strict()
 export const CodeAgentReviseReq = z.object({
   messageId: z.string().uuid(),
   order: z.array(z.string().min(1).max(80)).max(40),
+  edits: z.array(z.object({
+    id: z.string().min(1).max(80),
+    goal: z.string().min(1).max(400),
+  })).max(40).optional(),
 }).strict()
 export const CodeAgentUndoReq = z.object({
   messageId: z.string().uuid(),
   stepId: z.string().min(1).max(80),
+  all: z.boolean().optional(),
+}).strict()
+export const CodeAgentSetModeReq = z.object({
+  mode: z.enum(['ask', 'auto']),
+  confirmAuto: z.boolean().optional(),
 }).strict()
 
 export type ParsedChat = z.output<typeof ChatSendReq>
@@ -112,4 +125,5 @@ export const _settingsCheck = (x: z.output<typeof SettingsPatch>): SettingsPatch
 export const _codeDecideCheck = (x: z.output<typeof CodeAgentDecideReq>): CodeAgentDecideReqT => x
 export const _codeReviseCheck = (x: z.output<typeof CodeAgentReviseReq>): CodeAgentReviseReqT => x
 export const _codeUndoCheck = (x: z.output<typeof CodeAgentUndoReq>): CodeAgentUndoReqT => x
+export const _codeModeCheck = (x: z.output<typeof CodeAgentSetModeReq>): CodeAgentSetModeReqT => x
 export const _devWebCheck = (x: z.output<typeof DevWebRun>): DevWebRunReqT => x

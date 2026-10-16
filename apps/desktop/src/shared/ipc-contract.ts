@@ -58,6 +58,8 @@ export const IPC = {
   codeAgentDecide: 'code-agent:decide',
   codeAgentRevise: 'code-agent:revise',
   codeAgentUndo: 'code-agent:undo',
+  codeAgentMode: 'code-agent:mode',
+  codeAgentSetMode: 'code-agent:set-mode',
   devWebRun: 'dev-web:run',
 } as const
 
@@ -89,7 +91,17 @@ export interface SettingsPatch {
   packSyncHours?: number
   /** stable hides -beta tags. beta includes them. */
   updateChannel?: 'stable' | 'beta'
+  /** Default Code agent mode for a project that has no saved choice. Ask until the user opts in. */
+  codeAgentMode?: 'ask' | 'auto'
+  /** Extra commands Auto may run, one exact command each. Detected test, lint, typecheck, and build commands are added per project. */
+  codeAgentAllowlist?: string[]
+  /** True after the user has read what Auto mode can do and turned it on. */
+  codeAgentAutoConfirmed?: boolean
 }
+
+/** Shown before Auto mode is allowed to write or run commands. */
+export const AUTO_MODE_SUMMARY =
+  'Auto mode writes files inside this project and runs test, lint, typecheck, and build commands from the allowlist without asking each time. It still asks before install, network, or other commands, and before destructive operations. It does not delete files outside its own undo checkpoints. Stop ends the run and leaves undo available.'
 
 export interface DevWebRunReq {
   tool: 'web_search' | 'fetch_page'
@@ -178,14 +190,22 @@ export interface CodeAgentRoot {
   root: string | null
 }
 
+export interface CodePlanGoalEdit {
+  id: string
+  goal: string
+}
+
 export interface CodeAgentReviseReq {
   messageId: string
   order: string[]
+  edits?: CodePlanGoalEdit[]
 }
 
 export interface CodeAgentUndoReq {
   messageId: string
   stepId: string
+  /** Restore every checkpoint for this run, last step first. */
+  all?: boolean
 }
 
 export interface CodeAgentDecideReq {
@@ -193,6 +213,29 @@ export interface CodeAgentDecideReq {
   id: string
   allow: boolean
   remember?: boolean
+  /** Apply this yes to every later file write in the same run. */
+  all?: boolean
+}
+
+export interface CodeAgentModeState {
+  mode: 'ask' | 'auto'
+  autoConfirmed: boolean
+  allowlist: string[]
+  defaultMode: 'ask' | 'auto'
+  /** Saved choice for the open project. Null when the project follows the default. */
+  projectMode: 'ask' | 'auto' | null
+}
+
+export interface CodeAgentSetModeReq {
+  mode: 'ask' | 'auto'
+  /** Set on the first switch to Auto, after the user accepts the explanation. */
+  confirmAuto?: boolean
+}
+
+export interface CodeAgentSetModeResult {
+  ok: boolean
+  needsConfirm: boolean
+  mode: 'ask' | 'auto'
 }
 
 export interface CatalogModel {
@@ -510,6 +553,8 @@ export interface SurfApi {
     decide(req: CodeAgentDecideReq): Promise<{ ok: boolean }>
     revise(req: CodeAgentReviseReq): Promise<{ ok: boolean }>
     undo(req: CodeAgentUndoReq): Promise<{ ok: boolean }>
+    mode(): Promise<CodeAgentModeState>
+    setMode(req: CodeAgentSetModeReq): Promise<CodeAgentSetModeResult>
   }
   documents: {
     pick(title: string): Promise<string | null>

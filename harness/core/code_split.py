@@ -49,6 +49,15 @@ def check(case_id: str, fields: dict) -> list[str]:
         flag("unchanged")
         need("stopped", "failed")
         flag("mentionsDownload")
+    elif case_id == "mode-gate":
+        need("wroteBeforeAsk", False)
+        flag("askUnchanged")
+        flag("askNoCommand")
+        flag("autoWrote")
+        flag("autoRanCheck")
+        flag("autoNoAsk")
+        flag("pausedInstall")
+        flag("blockedDelete")
     else:
         reasons.append("unknown code-split case")
     return reasons

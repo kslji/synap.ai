@@ -19,7 +19,7 @@ import { parseSource } from './parse.js'
 import { classifyFile, scanProject, type ScannedFile } from './scan.js'
 import { searchCode, type CodeHit } from './search.js'
 import {
-  counts, definitions, deletePath, impactOf, linkEdges, listFiles, markEmbedded, openCodeDb, readPlanFacts,
+  counts, definitions, deletePath, impactOf, importedDefinitions, linkEdges, listFiles, markEmbedded, nearbyDefinitions, openCodeDb, readPlanFacts,
   pendingChunks, referencesTo, relatedFiles, writeFileIndex,
   type CodeDb, type ImpactHit, type RefHit, type RelatedHit, type SymbolHit,
 } from './store.js'
@@ -190,6 +190,14 @@ export class CodeIndex {
 
   context(task: string, options: ContextOptions): Promise<ContextPack> {
     return this.exclusive(async () => buildContext(this.db, task, { ...options, embedder: options.embedder ?? this.embedder }))
+  }
+
+  /** Imported symbols and definitions above a cursor line, for inline completion. */
+  completionHints(path: string, line: number): Promise<{ imported: SymbolHit[]; nearby: SymbolHit[] }> {
+    return this.exclusive(async () => ({
+      imported: importedDefinitions(this.db, path, 6),
+      nearby: nearbyDefinitions(this.db, path, line, 6),
+    }))
   }
 
   /** Indexed files, symbols, and caller→definition edges. Used to validate a plan. */

@@ -60,6 +60,10 @@ export const IPC = {
   codeAgentUndo: 'code-agent:undo',
   codeAgentMode: 'code-agent:mode',
   codeAgentSetMode: 'code-agent:set-mode',
+  codeCompleteSuggest: 'code-complete:suggest',
+  codeCompleteFiles: 'code-complete:files',
+  codeCompleteRead: 'code-complete:read',
+  codeCompleteSave: 'code-complete:save',
   devWebRun: 'dev-web:run',
 } as const
 
@@ -97,11 +101,42 @@ export interface SettingsPatch {
   codeAgentAllowlist?: string[]
   /** True after the user has read what Auto mode can do and turned it on. */
   codeAgentAutoConfirmed?: boolean
+  /** Ghost-text Tab suggestions in the code editor. When omitted, the default follows RAM. */
+  tabSuggestions?: boolean
+  /** Languages where Tab suggestions stay off, such as markdown. */
+  tabSuggestionsOff?: string[]
 }
 
 /** Shown before Auto mode is allowed to write or run commands. */
 export const AUTO_MODE_SUMMARY =
   'Auto mode writes files inside this project and runs test, lint, typecheck, and build commands from the allowlist without asking each time. It still asks before install, network, or other commands, and before destructive operations. It does not delete files outside its own undo checkpoints. Stop ends the run and leaves undo available.'
+
+export interface CodeCompleteReq {
+  sessionId: string
+  path: string
+  language: string
+  text: string
+  cursor: number
+}
+
+export interface CodeCompleteResult {
+  text: string
+  mode: 'fim' | 'prefix' | 'none'
+  cached: boolean
+  latencyMs: number
+  span: 'line' | 'block' | 'none'
+}
+
+export interface CodeEditorFile {
+  path: string
+  language: string
+}
+
+export interface CodeEditorText {
+  path: string
+  language: string
+  text: string
+}
 
 export interface DevWebRunReq {
   tool: 'web_search' | 'fetch_page'
@@ -586,6 +621,12 @@ export interface SurfApi {
     status(): Promise<CodeProjectStatus | null>
     storage(): Promise<CodeStorageUsage>
     onEvent(cb: (status: CodeProjectStatus) => void): () => void
+  }
+  codeComplete: {
+    suggest(req: CodeCompleteReq): Promise<CodeCompleteResult>
+    files(): Promise<CodeEditorFile[]>
+    read(path: string): Promise<CodeEditorText>
+    save(path: string, text: string): Promise<{ path: string }>
   }
   devWeb: {
     run(req: DevWebRunReq): Promise<DevWebRunResult>

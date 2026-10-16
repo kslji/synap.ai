@@ -4,6 +4,7 @@ import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatu
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { CodeModeBar, CodeTrace } from './CodeTrace'
+import { CodeEditor } from './CodeEditor'
 import { Preview } from './LibraryScreen'
 import { ModelGuideButton } from './ModelGuide'
 
@@ -55,6 +56,8 @@ export function ChatScreen({
   autoConfirmed,
   onCodeMode,
   onStop,
+  tabSuggestions = false,
+  tabSuggestionsOff = [],
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -93,6 +96,8 @@ export function ChatScreen({
   autoConfirmed?: boolean
   onCodeMode?: (mode: 'ask' | 'auto', confirmAuto?: boolean) => void
   onStop?: () => void
+  tabSuggestions?: boolean
+  tabSuggestionsOff?: string[]
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
@@ -189,6 +194,7 @@ export function ChatScreen({
             </div>
           </div>
         )}
+        {project && <CodeEditor enabled={tabSuggestions} languagesOff={tabSuggestionsOff} />}
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
           {messages.length === 0 ? (
             <div className="mx-auto flex max-w-lg flex-col items-center pt-16 text-center">

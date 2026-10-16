@@ -99,6 +99,12 @@ const api: SurfApi = {
     storage: () => ipcRenderer.invoke(IPC.codeStorage),
     onEvent: (cb) => subscribe<CodeProjectStatus>(IPC.codeEvent, cb),
   },
+  codeComplete: {
+    suggest: (req) => ipcRenderer.invoke(IPC.codeCompleteSuggest, req),
+    files: () => ipcRenderer.invoke(IPC.codeCompleteFiles),
+    read: (path) => ipcRenderer.invoke(IPC.codeCompleteRead, { path }),
+    save: (path, text) => ipcRenderer.invoke(IPC.codeCompleteSave, { path, text }),
+  },
 }
 
 contextBridge.exposeInMainWorld('surf', api)

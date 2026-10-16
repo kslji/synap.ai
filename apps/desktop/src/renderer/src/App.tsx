@@ -765,6 +765,8 @@ export default function App() {
               return api.codeAgent.mode()
             }).then((next) => { if (next) setCodeMode(next) }).catch((e: unknown) => setError((e as Error).message))
           }}
+          tabSuggestions={settings.tabSuggestions}
+          tabSuggestionsOff={settings.tabSuggestionsOff}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)

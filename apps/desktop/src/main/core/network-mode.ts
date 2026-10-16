@@ -28,8 +28,11 @@ export function blocksNetwork(mode: NetworkMode, osOnline: boolean): boolean {
   return osOnline === false
 }
 
+/** The refusal template already says the answer is from this computer. Leave that sentence unchanged. */
+const ALREADY_LOCAL = /sources on this computer|Turn on web search when you are online/
+
 export function withLocalOnlyNote(text: string, blocked: boolean): string {
-  if (!blocked || !text || text.includes(LOCAL_ONLY_NOTE)) return text
+  if (!blocked || !text || text.includes(LOCAL_ONLY_NOTE) || ALREADY_LOCAL.test(text)) return text
   return `${text}\n\n${LOCAL_ONLY_NOTE}`
 }
 

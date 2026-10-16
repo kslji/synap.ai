@@ -37,6 +37,8 @@ test('an offline answer says it stayed on this computer, once', () => {
   assert.equal(once.includes(LOCAL_ONLY_NOTE), true)
   assert.equal(withLocalOnlyNote(once, true), once)
   assert.equal(withLocalOnlyNote('The ferry leaves at 06:40.', false).includes(LOCAL_ONLY_NOTE), false)
+  const refusal = "I don't have enough information to answer that from the sources on this computer. Add a document. Turn on web search when you are online."
+  assert.equal(withLocalOnlyNote(refusal, true), refusal)
 })
 
 test('the sync chip uses the four status labels and shows the mode', () => {

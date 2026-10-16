@@ -1,6 +1,6 @@
 /**
  * Production search. Official connectors first, DuckDuckGo lite only if they return nothing.
- * Finance and legal answers are composed here so the model does not invent a figure or a section.
+ * Finance, news, and legal answers are composed here so the model does not invent a figure, a headline, or a section.
  */
 import type { Citation } from '../ipc-contract.js'
 import type { DB } from '../db.js'
@@ -102,7 +102,62 @@ export async function composeRouted(input: {
   const now = input.now ?? Date.now()
   if (intent === 'finance') return composeFinance(input.question, input.region, input.webAllowed, net, now, input.navText, input.bhavText, input.db ?? null, input.timeZone)
   if (intent === 'legal') return composeLegal(input.question, input.hits, input.region, input.webAllowed, net, now)
+  if (intent === 'news') return composeNews(input.question, input.hits, input.region, input.webAllowed, net, now)
   return null
+}
+
+/** News is quoted from a fetched row. An empty fetch does not call the model. */
+async function composeNews(question: string, hits: LocalHit[], region: RegionChoice, webAllowed: boolean, net: Net, now: number): Promise<ComposedAnswer> {
+  const unable: ComposedAnswer = {
+    text: `${regionBanner(region.label)}\n${unableMessage('news')}`,
+    citations: [],
+    gate: 'insufficient',
+  }
+  const local = hits.filter((hit) => hit.text.trim())
+  if (local.length) {
+    const citations: Citation[] = local.slice(0, 3).map((hit) => ({
+      kind: hit.url.startsWith('http') ? 'web' : 'document',
+      title: hit.title,
+      url: hit.url,
+      excerpt: hit.text.slice(0, 400),
+      pack: hit.pack,
+    }))
+    const answer = local.slice(0, 3).map((hit, index) => `[S${index + 1}] ${hit.text.slice(0, 400)}`).join('\n')
+    const checked = verifyGroundedAnswer({
+      answer,
+      question,
+      records: recordsFromCitations(citations, 'news').map((record) => ({ ...record, cachedAt: now })),
+      now,
+    })
+    if (!checked.blocked.length) return { text: checked.text, citations, gate: 'answer' }
+  }
+  if (!webAllowed || net.offlineOnly) return unable
+  let remote: Awaited<ReturnType<typeof runConnectors>> = []
+  try {
+    remote = dropBlocked(await runConnectors('news', question, net))
+  } catch {
+    return unable
+  }
+  const fresh = remote.filter((hit) => !hit.published || sourceUsable(hit.published, now, NEWS_MAX_AGE_MS))
+  if (!fresh.length) return unable
+  const top = fresh.slice(0, 3)
+  const citations: Citation[] = top.map((hit) => ({
+    kind: 'web',
+    title: hit.title,
+    url: hit.url,
+    excerpt: [hit.title, hit.snippet].filter(Boolean).join('\n'),
+    published: hit.published,
+    pack: hit.source,
+  }))
+  const answer = top.map((hit, index) => `[S${index + 1}] ${hit.title}`).join('\n')
+  const checked = verifyGroundedAnswer({
+    answer,
+    question,
+    records: recordsFromCitations(citations, 'news').map((record) => ({ ...record, cachedAt: record.asOf ? null : now })),
+    now,
+  })
+  if (checked.blocked.length) return unable
+  return { text: `${regionBanner(region.label)}\n${checked.text}`, citations, gate: 'answer' }
 }
 
 function stockQuestion(question: string): boolean {

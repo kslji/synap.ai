@@ -14,6 +14,7 @@ import {
   labelGrammar,
   loadThresholds,
   mmprojRamAllows,
+  fabricationPrompt,
   modelEvalPrompt,
   passesThresholds,
   ramAllows,
@@ -26,7 +27,7 @@ import {
   type ModelAnswerRow,
   type MmprojMeasure,
 } from '../src/main/core/model-eval.ts'
-import { evalQuestions } from '../src/main/core/step11-questions.ts'
+import { evalQuestions, fabricationCase, settleFabrication } from '../src/main/core/step11-questions.ts'
 import { LlamaServer } from '../src/main/core/sidecar-manager.ts'
 import { ensureModel, registryEntries } from './model-weights.mjs'
 import { availableRamGb, watchRss } from './rss.ts'
@@ -79,7 +80,7 @@ async function tokenizerReady(server: LlamaServer, weightsUrl: string, dir: stri
 
 const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
-async function ask(server: LlamaServer, prompt: string, grammar: string | undefined, image: boolean): Promise<{ text: string; ttftMs: number | null; tokens: number; genMs: number }> {
+async function ask(server: LlamaServer, prompt: string, grammar: string | undefined, image: boolean, maxTokens = image ? 24 : 8): Promise<{ text: string; ttftMs: number | null; tokens: number; genMs: number }> {
   const client = new LlamaClient({
     baseUrl: server.baseUrl,
     apiKey: server.apiKey,
@@ -95,7 +96,7 @@ async function ask(server: LlamaServer, prompt: string, grammar: string | undefi
     [{ role: 'user', content }],
     undefined,
     undefined,
-    image ? 24 : 8,
+    maxTokens,
     grammar ? { grammar } : undefined,
     (piece) => { if (first == null && piece) first = performance.now() },
   )
@@ -116,6 +117,24 @@ async function runQuestions(server: LlamaServer, mode: 'subset' | 'full'): Promi
   const picked = selectModelEvalQuestions(mode, questions).slice(0, limit > 0 ? limit : undefined)
   const rows: ModelAnswerRow[] = []
   for (const question of picked) {
+    if (question.domain === 'no-fabrication') {
+      const scenario = fabricationCase(question)
+      const answer = scenario?.callModel
+        ? await ask(server, fabricationPrompt(scenario.question, scenario.records.map((record) => record.text)), undefined, false, 80)
+        : { text: '', ttftMs: null, tokens: 0, genMs: 0 }
+      const settled = settleFabrication(question, scenario?.callModel ? answer.text : null)
+      rows.push({
+        id: question.id,
+        domain: question.domain,
+        ok: settled.ok,
+        label: settled.ok ? question.expect : 'ungrounded',
+        ttftMs: answer.ttftMs,
+        tokens: answer.tokens,
+        genMs: answer.genMs,
+      })
+      process.stdout.write(`${question.id} ${settled.ok ? 'ok' : 'miss'}\n`)
+      continue
+    }
     const labels = choiceLabels(question, questions)
     const answer = await ask(server, modelEvalPrompt(question, labels), labelGrammar(labels), false)
     const scored = scoreModelLabel(answer.text, question.expect, labels)
@@ -231,7 +250,7 @@ async function main(): Promise<void> {
       continue
     }
     const summary = summarizeAnswers(rows.current)
-    const judged = passesThresholds(summary.accuracy, summary.noFabrication.accuracy, limits)
+    const judged = passesThresholds(summary.accuracy, summary.noFabrication.accuracy, limits, mode)
     let mmproj: MmprojMeasure | undefined
     if (wantVision) {
       const vision = registryEntries([id], { mmproj: true }).find((row) => row.kind === 'mmproj')

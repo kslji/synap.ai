@@ -1,7 +1,9 @@
 /**
  * Real-model scoring for the Step 11 question bank.
  * The deterministic suite still scores the same questions with product functions.
- * This module asks a local model for the label and records accuracy.
+ * Coding, splitting, run/fix, and finance ask the local model for one label.
+ * No-fabrication scores the verifier: a missing source does not call the model,
+ * and a number, price, date, URL, section, or quote that is not in a fetched record is removed.
  */
 import { evalQuestions, type EvalQuestion, type QuestionDomain } from './step11-questions.js'
 
@@ -23,28 +25,28 @@ const GLOSS: Record<string, string> = {
   'coding:fits': 'the model fits the laptop',
   'coding:code-only': 'only rows for the code agent',
   'coding:not-code': 'a general row stays off the code agent',
-  'splitting:chat': 'answer in chat, do not edit',
-  'splitting:edit': 'a small edit',
-  'splitting:plan': 'several steps',
+  'splitting:chat': 'no code change: what something does, or explain a file',
+  'splitting:edit': 'quick fix, typo, one-line, or just change, and only one file',
+  'splitting:plan': 'two different files, even for a rename; also migrate, refactor, across, and then, or step by step',
   'splitting:accept': 'the plan is valid',
   'splitting:reject': 'the plan is invalid',
-  'run-fix:pass': 'the check passed',
-  'run-fix:regression': 'the change added a failure',
-  'run-fix:fail': 'the check failed',
+  'run-fix:pass': 'the check is clean, or the only failure was already fixed or already outside the change',
+  'run-fix:regression': 'the patch introduced a new error',
+  'run-fix:fail': 'the check failed or an old error remains, and the patch did not add a new one',
   'run-fix:allow': 'the command may run',
   'run-fix:refuse': 'the command must not run',
   'finance:sip': 'a monthly investment future value',
   'finance:sip-zero': 'a monthly investment at zero interest',
   'finance:pnl': 'a profit',
   'finance:pnl-loss': 'a loss',
-  'finance:stcg': 'short-term equity tax',
-  'finance:ltcg': 'long-term equity tax',
-  'finance:not-india': 'the India tax table does not apply',
-  'finance:symbol': 'an equity ticker',
+  'finance:stcg': 'India equity tax on a gain held under 365 days',
+  'finance:ltcg': 'India equity tax on a gain held 365 days or more',
+  'finance:not-india': 'the India equity tax table is not used outside India',
+  'finance:symbol': 'a ticker written in quotes when the question does not mention a bhav file or fixture',
   'finance:bitcoin': 'the bitcoin id',
   'finance:nav': 'a mutual-fund NAV line',
-  'finance:eod': 'a closing price from a saved file',
-  'finance:disclaimer': 'the answer names the formula and is not advice',
+  'finance:eod': 'a closing price from a saved bhav file, even when it is not from the network',
+  'finance:disclaimer': 'the question asks for the formula and says it is not a recommendation',
   'no-fabrication:keep-fact': 'a sourced fact stays',
   'no-fabrication:block-url': 'a link that is not in the source is removed',
   'no-fabrication:block-price': 'an unsourced price is removed',
@@ -75,8 +77,11 @@ const GLOSS: Record<string, string> = {
 }
 
 export interface ModelEvalThresholds {
+  /** Floor for the CI subset. */
   minAccuracy: number
   minNoFabrication: number
+  /** Floor for the 101-question run. The subset job does not use this. */
+  fullMinAccuracy?: number
 }
 
 export interface ModelAnswerRow {
@@ -123,9 +128,16 @@ export function labelsFor(questions: EvalQuestion[], domain: string): string[] {
   return [...new Set(questions.filter((item) => item.domain === domain).map((item) => item.expect))].sort()
 }
 
+const DOMAIN_RULES: Partial<Record<QuestionDomain, string>> = {
+  splitting: 'Rules: chat when the task does not ask to change code. plan when two different files are named, even if the verb is rename or fix. edit only for a quick fix, typo, one-line, or just change in one file. Also plan for migrate, refactor, across, and then, or step by step.',
+  'run-fix': 'Rules: regression when the patch introduced a new error. fail when a check failed or an old error remains and nothing new was introduced. pass when the check is clean, the only failure was already fixed, or it was already outside the change.',
+  finance: 'Rules: held under 365 days is stcg. Held 365 days or more is ltcg. not-india only when the region is outside India. A bhav file or fixture close is eod even if it says not from the network. disclaimer only when the question asks for the formula and a non-recommendation.',
+}
+
 /** Answer vocabulary for one question. The expected label is not included on its own. */
 export function choiceLabels(question: EvalQuestion, bank: EvalQuestion[]): string[] {
   const domainLabels = labelsFor(bank, question.domain)
+  const text = question.question
   if (question.domain === 'coding') {
     if (question.expect === 'allow' || question.expect === 'refuse') return ['allow', 'refuse']
     if (question.expect === 'code-only' || question.expect === 'not-code') return ['code-only', 'not-code']
@@ -139,6 +151,16 @@ export function choiceLabels(question: EvalQuestion, bank: EvalQuestion[]): stri
     if (question.expect === 'allow' || question.expect === 'refuse') return ['allow', 'refuse']
     return ['pass', 'regression', 'fail']
   }
+  if (question.domain === 'finance') {
+    if (/\b(formula|recommendation|disclaimer)\b/i.test(text)) return ['disclaimer', 'sip', 'not-india']
+    if (/\bsip\b/i.test(text)) return ['sip', 'sip-zero']
+    if (/\b(bought|sold)\b/i.test(text)) return ['pnl', 'pnl-loss']
+    if (/\b(equity tax|stcg|ltcg|capital gain)\b/i.test(text)) return ['stcg', 'ltcg', 'not-india']
+    if (/\b(bhav|fixture|close for)\b/i.test(text)) return ['eod', 'not-india', 'symbol']
+    if (/\bbitcoin\b/i.test(text)) return ['bitcoin', 'symbol', 'nav']
+    if (/\bnav line\b/i.test(text)) return ['nav', 'eod', 'symbol']
+    if (/"[A-Z]{2,}"/.test(text)) return ['symbol', 'eod', 'bitcoin']
+  }
   return domainLabels
 }
 
@@ -148,7 +170,14 @@ export function labelGloss(domain: string, label: string): string {
 
 export function modelEvalPrompt(question: EvalQuestion, labels: string[]): string {
   const lines = labels.map((label) => `${label} — ${labelGloss(question.domain, label)}`)
-  return `Reply with exactly one label and no other words.\n${lines.join('\n')}\nQuestion: ${question.question}`
+  const rules = DOMAIN_RULES[question.domain]
+  const head = rules ? `Reply with exactly one label and no other words.\n${rules}` : 'Reply with exactly one label and no other words.'
+  return `${head}\n${lines.join('\n')}\nQuestion: ${question.question}`
+}
+
+/** Ask the model to answer from the fetched record. The verifier still checks the reply. */
+export function fabricationPrompt(question: string, sources: string[]): string {
+  return `Answer using only the source text. Do not add a number, price, date, URL, section, or quote that is not written in the source.\nSource:\n${sources.join('\n')}\nQuestion: ${question}`
 }
 
 export function labelGrammar(labels: string[]): string {
@@ -202,19 +231,32 @@ export function summarizeAnswers(rows: ModelAnswerRow[]): {
 }
 
 export function loadThresholds(json: unknown): ModelEvalThresholds {
-  const row = json as { minAccuracy?: unknown; minNoFabrication?: unknown }
+  const row = json as { minAccuracy?: unknown; minNoFabrication?: unknown; fullMinAccuracy?: unknown }
   if (typeof row.minAccuracy !== 'number' || typeof row.minNoFabrication !== 'number') {
     throw new Error('model-eval thresholds need minAccuracy and minNoFabrication')
   }
   if (row.minAccuracy < 0 || row.minAccuracy > 1 || row.minNoFabrication < 0 || row.minNoFabrication > 1) {
     throw new Error('model-eval thresholds must be between 0 and 1')
   }
-  return { minAccuracy: row.minAccuracy, minNoFabrication: row.minNoFabrication }
+  if (row.fullMinAccuracy != null && (typeof row.fullMinAccuracy !== 'number' || row.fullMinAccuracy < 0 || row.fullMinAccuracy > 1)) {
+    throw new Error('model-eval fullMinAccuracy must be between 0 and 1')
+  }
+  return {
+    minAccuracy: row.minAccuracy,
+    minNoFabrication: row.minNoFabrication,
+    ...(typeof row.fullMinAccuracy === 'number' ? { fullMinAccuracy: row.fullMinAccuracy } : {}),
+  }
 }
 
-export function passesThresholds(accuracy: number, noFabrication: number, thresholds: ModelEvalThresholds): { ok: boolean; reasons: string[] } {
+export function accuracyFloor(thresholds: ModelEvalThresholds, mode: 'subset' | 'full'): number {
+  if (mode === 'full' && thresholds.fullMinAccuracy != null) return thresholds.fullMinAccuracy
+  return thresholds.minAccuracy
+}
+
+export function passesThresholds(accuracy: number, noFabrication: number, thresholds: ModelEvalThresholds, mode: 'subset' | 'full' = 'subset'): { ok: boolean; reasons: string[] } {
   const reasons: string[] = []
-  if (accuracy < thresholds.minAccuracy) reasons.push(`accuracy ${accuracy.toFixed(3)} is below ${thresholds.minAccuracy}`)
+  const floor = accuracyFloor(thresholds, mode)
+  if (accuracy < floor) reasons.push(`accuracy ${accuracy.toFixed(3)} is below ${floor}`)
   if (noFabrication < thresholds.minNoFabrication) reasons.push(`no-fabrication ${noFabrication.toFixed(3)} is below ${thresholds.minNoFabrication}`)
   return { ok: reasons.length === 0, reasons }
 }
@@ -269,7 +311,7 @@ export function releaseGate(models: MeasuredModel[], thresholds: ModelEvalThresh
       reasons.push(`${row.id}: not measured${row.reason ? ` (${row.reason})` : ''}. On a Mac, run ./scripts/model-eval-full.sh and commit harness/baselines/model-eval-full.json`)
       continue
     }
-    const judged = passesThresholds(row.accuracy, row.noFabrication, thresholds)
+    const judged = passesThresholds(row.accuracy, row.noFabrication, thresholds, 'full')
     reasons.push(...judged.reasons.map((reason) => `${row.id}: ${reason}`))
     if (!row.mmproj?.measured || !row.mmproj.replied || row.mmproj.peakRssMb == null) {
       reasons.push(`${row.id}: mmproj screenshot add-on was not measured`)

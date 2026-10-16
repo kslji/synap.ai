@@ -79,7 +79,7 @@ import { renderJsPage } from './search/js-page.js'
 import { searchFixtureEnabled } from './search/mode.js'
 import { regionBanner, resolveRegion } from './search/region.js'
 import { composeRouted, emptyWebAnswer, gatherOnline } from './search/run.js'
-import { cacheLabel, recordsFromContext, unableMessage, verifyGroundedAnswer } from './search/verify-answer.js'
+import { cacheLabel, claimTopic, recordsFromContext, unableMessage, verifyGroundedAnswer } from './search/verify-answer.js'
 import { historyHits, planRoute } from './search/router.js'
 import type { LocalHit, RegionChoice } from './search/types.js'
 import { classifyIntent } from './search/intent.js'
@@ -1264,15 +1264,20 @@ export async function createServices(): Promise<Services> {
       } catch (error) {
         if (signal.aborted) return
         const intent = classifyIntent(text)
-        if (intent === 'finance' || intent === 'legal') {
-          const message = intent === 'legal'
-            ? `${regionBanner(activeRegion.label)}\n${unableMessage('legal')}\nThis is not legal advice.`
-            : `${regionBanner(activeRegion.label)}\n${unableMessage('price')}\nThese figures are calculations from the cited source. This is not a recommendation to buy or sell.`
+        if (intent === 'finance' || intent === 'legal' || intent === 'news') {
+          const message = routedUnable(intent, activeRegion.label)
           await emitText(win, messageId, message)
           finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
           return
         }
         console.warn('[surf] routed search skipped:', (error as Error).message)
+      }
+      const routed = classifyIntent(text)
+      if (!signal.aborted && (routed === 'finance' || routed === 'legal' || routed === 'news')) {
+        const message = routedUnable(routed, activeRegion.label)
+        await emitText(win, messageId, message)
+        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
+        return
       }
 
       const fresh = wantsFresh(text)
@@ -1358,6 +1363,13 @@ export async function createServices(): Promise<Services> {
           finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
           return
         }
+      }
+      const topic = claimTopic(text)
+      if (topic && webHits.length === 0 && hits.length === 0 && !needsCalculator(text)) {
+        const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
+        await emitText(win, messageId, message)
+        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
+        return
       }
       const server = await ensure('chat', chatModel, profile.serverCtx, '', agentId)
       const client = new LlamaClient({
@@ -2790,6 +2802,12 @@ function guardRetrieved<T extends Hit>(hits: T[]): { kept: T[]; ignored: T[] } {
     kept.push(next)
   }
   return { kept, ignored }
+}
+
+function routedUnable(intent: 'finance' | 'legal' | 'news', region: string): string {
+  if (intent === 'legal') return `${regionBanner(region)}\n${unableMessage('legal')}\nThis is not legal advice.`
+  if (intent === 'news') return `${regionBanner(region)}\n${unableMessage('news')}`
+  return `${regionBanner(region)}\n${unableMessage('price')}\nThese figures are calculations from the cited source. This is not a recommendation to buy or sell.`
 }
 
 export function needsCalculator(text: string): boolean {

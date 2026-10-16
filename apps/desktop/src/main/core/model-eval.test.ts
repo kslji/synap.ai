@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { evalQuestions } from './step11-questions.js'
+import { evalQuestions, fabricationCase, settleFabrication } from './step11-questions.js'
 import {
+  accuracyFloor,
   choiceLabels,
   coverSkips,
   evalContextTokens,
+  fabricationPrompt,
   labelGrammar,
   loadThresholds,
   mmprojRamAllows,
@@ -47,6 +52,32 @@ test('a reply scores only when the first label matches', () => {
   assert.ok(prompt.includes(evalQuestions()[0]!.question))
   assert.ok(prompt.startsWith('Reply with exactly one label'))
   assert.ok(labelGrammar(['allow', 'refuse']).includes('"allow"'))
+})
+
+test('finance labels stay a real choice and follow the question shape', () => {
+  const bank = evalQuestions()
+  const tax = bank.find((row) => row.id === 'q-finance-stcg')!
+  assert.deepEqual(choiceLabels(tax, bank), ['stcg', 'ltcg', 'not-india'])
+  const close = bank.find((row) => row.id === 'q-finance-eod-fixture')!
+  assert.deepEqual(choiceLabels(close, bank), ['eod', 'not-india', 'symbol'])
+  const prompt = modelEvalPrompt(bank.find((row) => row.domain === 'splitting' && row.expect === 'chat')!, ['chat', 'edit', 'plan'])
+  assert.match(prompt, /quick fix/)
+  assert.match(prompt, /two different files/)
+})
+
+test('no-fabrication scores the verifier, including a model reply that invents a figure', () => {
+  const bank = evalQuestions().filter((row) => row.domain === 'no-fabrication')
+  assert.equal(bank.length, 10)
+  const invented = 'The spare lamp code is PL-99. Price 99.50. https://evil.example/nope on 2099-01-01.'
+  for (const item of bank) {
+    const scenario = fabricationCase(item)
+    assert.ok(scenario)
+    assert.equal(settleFabrication(item, invented).ok, true, item.id)
+    if (!scenario.callModel) assert.equal(settleFabrication(item, null).callModel, false)
+  }
+  const keep = bank.find((row) => row.expect === 'keep-fact')!
+  assert.match(fabricationPrompt('What is the spare lamp code?', ['The spare lamp code is PL-17.']), /only the source/)
+  assert.equal(fabricationCase(keep)?.callModel, true)
 })
 
 test('summary records accuracy, no-fabrication, speed, and time to first token', () => {
@@ -99,4 +130,16 @@ test('the release gate reads a saved full run when this machine skipped a model'
   const covered = coverSkips([small, mid, skipped], [saved])
   assert.equal(releaseGate(covered, thresholds).ok, true)
   assert.equal(releaseGate(coverSkips([skipped], []), thresholds).ok, false)
+})
+
+test('the committed real-model floors do not sit under a measured miss', () => {
+  const path = join(dirname(fileURLToPath(import.meta.url)), '../../../../../harness/baselines/model-eval.json')
+  const saved = loadThresholds(JSON.parse(readFileSync(path, 'utf8')))
+  assert.equal(saved.minNoFabrication, 1)
+  assert.equal(saved.minAccuracy, 1)
+  assert.equal(accuracyFloor(saved, 'subset'), 1)
+  assert.equal(accuracyFloor(saved, 'full'), saved.fullMinAccuracy)
+  assert.equal(passesThresholds(1, 1, saved, 'subset').ok, true)
+  assert.equal(passesThresholds(0.99, 1, saved, 'subset').ok, false)
+  assert.equal(passesThresholds(1, 0.6, saved, 'subset').ok, false)
 })

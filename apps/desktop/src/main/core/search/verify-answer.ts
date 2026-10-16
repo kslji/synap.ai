@@ -133,6 +133,7 @@ const SECTION_RE = /\bsection\s+(\d+[a-z]?)\b/gi
 const QUOTE_RE = /["“]([^"”]{16,})["”]/g
 const DATE_RE = /\b(\d{4}-\d{2}-\d{2}|\d{1,2}-[A-Za-z]{3,9}-\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\b/g
 const MONEY_RE = /(?:\$|₹|usd|inr|rs\.?)\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*\.\d{2}\b/gi
+const NUMBER_RE = /\d+(?:\.\d+)?/g
 
 function fold(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ')
@@ -167,10 +168,6 @@ function authorizing(records: SourceRecord[], topic: ClaimTopic | null, now: num
   })
 }
 
-function corpus(records: SourceRecord[], topic: ClaimTopic | null, now: number): string {
-  return fold(authorizing(records, topic, now).map((record) => `${record.text}\n${record.url}\n${record.asOf ?? ''}`).join('\n'))
-}
-
 function hideCacheLabel(value: string): string {
   return value.replace(/cached on \d{4}-\d{2}-\d{2}\. not a live fetch\./gi, ' ')
 }
@@ -184,10 +181,89 @@ function has(haystack: string, needle: string): boolean {
   return folded.length > 0 && haystack.includes(folded)
 }
 
-function priceNumbers(answer: string, allowedDates: string[]): string[] {
-  let rest = answer.replace(/\[S\d+\]/g, ' ')
-  for (const date of allowedDates) rest = rest.replaceAll(date, ' ')
-  return [...rest.matchAll(/\d+(?:\.\d+)?/g)].map((match) => match[0])
+/** A number counts only as its own token, so 17 does not match inside 170. */
+function hasNumber(haystack: string, number: string): boolean {
+  const token = fold(number)
+  if (!token) return false
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|[^\\d])${escaped}(?:[^\\d]|$)`).test(fold(haystack))
+}
+
+interface Span {
+  start: number
+  end: number
+  token: string
+}
+
+function reset(pattern: RegExp): RegExp {
+  pattern.lastIndex = 0
+  return pattern
+}
+
+function insideCitation(text: string, start: number, end: number): boolean {
+  return text.slice(Math.max(0, start - 2), start) === '[S' && text[end] === ']'
+}
+
+function covered(spans: Span[], start: number, end: number): boolean {
+  return spans.some((span) => start >= span.start && end <= span.end)
+}
+
+function tidy(value: string): string {
+  return value
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1')
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function mergeSpans(spans: Span[]): Span[] {
+  const sorted = [...spans].sort((a, b) => a.start - b.start || b.end - a.end)
+  const merged: Span[] = []
+  for (const span of sorted) {
+    const last = merged[merged.length - 1]
+    if (last && span.start <= last.end) last.end = Math.max(last.end, span.end)
+    else merged.push({ ...span })
+  }
+  return merged
+}
+
+function removeSpans(text: string, spans: Span[]): string {
+  let out = ''
+  let cursor = 0
+  for (const span of mergeSpans(spans)) {
+    out += text.slice(cursor, span.start)
+    cursor = span.end
+  }
+  return tidy(out + text.slice(cursor))
+}
+
+/** A kept sentence still has a figure, link, section, quote, or source sentence. */
+function hasGroundedClaim(text: string, allowed: string, sources: string[]): boolean {
+  if (!text.trim() || !allowed.trim()) return false
+  for (const match of text.matchAll(reset(DATE_RE))) {
+    const date = match[1] ?? match[0]
+    if (has(allowed, date)) return true
+  }
+  for (const match of text.matchAll(reset(URL_RE))) {
+    if (has(allowed, match[0].replace(/[.,]+$/, ''))) return true
+  }
+  for (const match of text.matchAll(reset(SECTION_RE))) {
+    if (has(allowed, match[0])) return true
+  }
+  for (const match of text.matchAll(reset(QUOTE_RE))) {
+    if (match[1] && has(allowed, match[1])) return true
+  }
+  for (const match of text.matchAll(reset(NUMBER_RE))) {
+    if (match.index == null || insideCitation(text, match.index, match.index + match[0].length)) continue
+    if (hasNumber(allowed, match[0])) return true
+  }
+  const folded = fold(text)
+  return sources.some((source) => {
+    const phrase = fold(source)
+    return phrase.length >= 12 && folded.includes(phrase)
+  })
 }
 
 export function verifyGroundedAnswer(input: {
@@ -198,44 +274,62 @@ export function verifyGroundedAnswer(input: {
 }): { text: string; blocked: string[] } {
   const now = input.now ?? Date.now()
   const topic = claimTopic(input.question)
-  const allowed = corpus(input.records, topic, now)
-  const asked = topic === 'price' ? '' : fold(input.question)
+  const allowedRecords = authorizing(input.records, topic, now)
+  const allowed = fold(allowedRecords.map((record) => `${record.text}\n${record.url}\n${record.asOf ?? ''}`).join('\n'))
+  const sources = allowedRecords.map((record) => record.text)
   const body = hideCacheLabel(input.answer)
+  const spans: Span[] = []
   const blocked: string[] = []
-  const dates = [...body.matchAll(DATE_RE)].map((match) => match[1] ?? match[0])
-  for (const date of dates) {
-    if (!has(allowed, date)) blocked.push(date)
+  const push = (start: number, end: number, token: string) => {
+    if (!token || covered(spans, start, end)) return
+    spans.push({ start, end, token })
+    blocked.push(token)
   }
-  for (const match of body.matchAll(URL_RE)) {
+  for (const match of body.matchAll(reset(DATE_RE))) {
+    const date = match[1] ?? match[0]
+    if (match.index == null || has(allowed, date)) continue
+    push(match.index, match.index + match[0].length, date)
+  }
+  for (const match of body.matchAll(reset(URL_RE))) {
     const url = match[0].replace(/[.,]+$/, '')
-    if (!has(allowed, url)) blocked.push(url)
+    if (match.index == null || has(allowed, url)) continue
+    push(match.index, match.index + url.length, url)
   }
-  for (const match of body.matchAll(SECTION_RE)) {
-    if (!has(allowed, match[0])) blocked.push(match[0])
+  for (const match of body.matchAll(reset(SECTION_RE))) {
+    if (match.index == null || has(allowed, match[0])) continue
+    push(match.index, match.index + match[0].length, match[0])
   }
-  for (const match of body.matchAll(QUOTE_RE)) {
+  for (const match of body.matchAll(reset(QUOTE_RE))) {
     const quote = match[1]
-    if (quote && !has(allowed, quote)) blocked.push(quote)
+    if (match.index == null || !quote || has(allowed, quote)) continue
+    push(match.index, match.index + match[0].length, quote)
   }
-  for (const match of body.matchAll(MONEY_RE)) {
+  for (const match of body.matchAll(reset(MONEY_RE))) {
     const token = match[0]
     const numeric = token.replace(/[^\d.]/g, '')
-    if (!has(allowed, token) && !has(allowed, numeric) && !has(asked, token) && !has(asked, numeric)) blocked.push(token)
+    if (match.index == null) continue
+    if (has(allowed, token) || hasNumber(allowed, numeric)) continue
+    push(match.index, match.index + token.length, token)
   }
-  if (topic === 'price') {
-    const allowedDates = dates.filter((date) => has(allowed, date))
-    for (const number of priceNumbers(body, allowedDates)) {
-      if (!has(allowed, number)) blocked.push(number)
-    }
+  for (const match of body.matchAll(reset(NUMBER_RE))) {
+    if (match.index == null) continue
+    const start = match.index
+    const end = start + match[0].length
+    if (insideCitation(body, start, end) || covered(spans, start, end)) continue
+    if (hasNumber(allowed, match[0])) continue
+    push(start, end, match[0])
   }
-  const freshCache = input.records.find((record) => record.cachedAt != null && !record.stale && now - record.cachedAt <= ageLimit(record.kind, topic))
+  const freshCache = input.records.find((record) => marketKind(record.kind) && record.cachedAt != null && !record.stale && now - record.cachedAt <= ageLimit(record.kind, topic))
   const saysLive = /\blive\b|as of today|current price|right now/i.test(body)
-  if (freshCache?.cachedAt != null && saysLive) {
-    blocked.push('cached-as-live')
+  if (freshCache?.cachedAt != null && saysLive) blocked.push('cached-as-live')
+  const replacement = () => unableMessage(topic ?? (blocked.some((item) => /section/i.test(item)) ? 'legal' : 'fact'))
+  if (blocked.includes('cached-as-live') || (spans.length > 0 && !hasGroundedClaim(removeSpans(body, spans), allowed, sources))) {
+    return { text: replacement(), blocked }
   }
-  if (blocked.length) {
-    const replacement = unableMessage(topic ?? (blocked.some((item) => /section/i.test(item)) ? 'legal' : 'fact'))
-    return { text: replacement, blocked }
+  if (spans.length) {
+    const kept = removeSpans(body, spans)
+    if (freshCache?.cachedAt != null) return { text: `${kept}\n${cacheLabel(freshCache.cachedAt)}`, blocked: [] }
+    return { text: kept, blocked: [] }
   }
   const stripped = withoutCacheLabel(input.answer)
   if (freshCache?.cachedAt != null) {

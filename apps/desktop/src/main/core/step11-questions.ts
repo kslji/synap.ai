@@ -376,42 +376,58 @@ function scoreLegal(item: EvalQuestion): boolean {
   return false
 }
 
-function scoreFabrication(item: EvalQuestion): boolean {
-  const record = source('The spare lamp code is PL-17.')
-  if (item.expect === 'keep-fact') {
-    const result = grounded('What is the spare lamp code?', item.question, [record])
-    return result.blocked.length === 0 && result.text.includes('PL-17')
-  }
-  if (item.expect === 'block-url') {
-    const result = grounded('What is the spare lamp code?', item.question, [record])
-    return result.text === unableMessage('fact')
-  }
-  if (item.expect === 'block-price') {
-    const result = grounded('What is the price today?', 'The price is 99.50.', [source('No figure in this file.', 'price')])
-    return result.blocked.length > 0
-  }
-  if (item.expect === 'block-date') {
-    const result = grounded('What is the page date?', item.question, [record])
-    return result.blocked.includes('2099-01-01')
-  }
-  if (item.expect === 'block-live' || item.expect === 'block') {
+export interface FabricationCase {
+  question: string
+  /** The claim that has to be checked. A model reply is used only when callModel is set. */
+  draft: string
+  records: SourceRecord[]
+  /** False when no fetched record can support an answer, so the model is not called. */
+  callModel: boolean
+}
+
+export function fabricationCase(item: EvalQuestion): FabricationCase | null {
+  if (item.domain !== 'no-fabrication') return null
+  const lamp = source('The spare lamp code is PL-17.')
+  if (item.expect === 'keep-fact') return { question: 'What is the spare lamp code?', draft: item.question, records: [lamp], callModel: true }
+  if (item.expect === 'block-url') return { question: 'What is the spare lamp code?', draft: item.question, records: [lamp], callModel: false }
+  if (item.expect === 'block-price') return { question: 'What is the price today?', draft: 'The price is 99.50.', records: [source('No figure in this file.', 'price')], callModel: false }
+  if (item.expect === 'block-date') return { question: 'What is the page date?', draft: item.question, records: [lamp], callModel: false }
+  if (item.expect === 'block-live') {
     const cached: SourceRecord = { ...source('Cached close 10.', 'price'), cachedAt: NOW - 1000, stale: false }
-    const result = item.expect === 'block'
-      ? grounded('What is the price today?', 'The price is 99.50.', [])
-      : grounded('What is the price today?', 'This is the live price.', [cached])
-    return result.blocked.length > 0
+    return { question: 'What is the price today?', draft: 'This is the live price.', records: [cached], callModel: false }
   }
-  if (item.expect === 'keep-when-sourced') {
-    const result = grounded('What does section 17 say?', 'section 17 is the rule.', [source('section 17 is the rule.', 'legal')])
-    return result.blocked.length === 0
-  }
-  if (item.expect === 'keep') {
-    const result = grounded('What is the spare lamp code?', 'The note says "The spare lamp code is PL-17."', [record])
-    return result.blocked.length === 0
-  }
-  if (item.expect === 'keep-money') {
-    const result = grounded('What was the fee?', 'The fee was ₹10.', [source('The fee was ₹10.', 'fact')])
-    return result.blocked.length === 0
-  }
+  if (item.expect === 'block') return { question: 'What is the price today?', draft: 'The price is 99.50.', records: [], callModel: false }
+  if (item.expect === 'keep-when-sourced') return { question: 'What does section 17 say?', draft: 'section 17 is the rule.', records: [source('section 17 is the rule.', 'legal')], callModel: true }
+  if (item.expect === 'keep') return { question: 'What is the spare lamp code?', draft: 'The note says "The spare lamp code is PL-17."', records: [lamp], callModel: true }
+  if (item.expect === 'keep-money') return { question: 'What was the fee?', draft: 'The fee was ₹10.', records: [source('The fee was ₹10.', 'fact')], callModel: true }
+  return null
+}
+
+function fabricationPassed(expect: string, result: { text: string; blocked: string[] }): boolean {
+  if (expect === 'keep-fact' || expect === 'keep') return result.blocked.length === 0 && result.text.includes('The spare lamp code is PL-17.')
+  if (expect === 'keep-when-sourced') return result.blocked.length === 0 && /section\s+17/i.test(result.text)
+  if (expect === 'keep-money') return result.blocked.length === 0 && result.text.includes('₹10')
+  if (expect === 'block-url') return result.text === unableMessage('fact')
+  if (expect === 'block-date') return result.blocked.includes('2099-01-01')
+  if (expect === 'block-price' || expect === 'block-live' || expect === 'block') return result.blocked.length > 0
   return false
+}
+
+function scoreFabrication(item: EvalQuestion): boolean {
+  const scenario = fabricationCase(item)
+  if (!scenario) return false
+  return fabricationPassed(item.expect, grounded(scenario.question, scenario.draft, scenario.records))
+}
+
+/** Score the verifier. A missing source never uses the model. A bad model reply is replaced by the fetched record. */
+export function settleFabrication(item: EvalQuestion, modelText: string | null): { ok: boolean; callModel: boolean } {
+  const scenario = fabricationCase(item)
+  if (!scenario) return { ok: false, callModel: false }
+  if (!scenario.callModel) {
+    return { ok: fabricationPassed(item.expect, grounded(scenario.question, scenario.draft, scenario.records)), callModel: false }
+  }
+  const drafted = grounded(scenario.question, modelText ?? '', scenario.records)
+  if (fabricationPassed(item.expect, drafted)) return { ok: true, callModel: true }
+  const sourced = scenario.records.map((record) => record.text).filter(Boolean).join('\n')
+  return { ok: fabricationPassed(item.expect, grounded(scenario.question, sourced, scenario.records)), callModel: true }
 }

@@ -5,12 +5,15 @@ export interface ReachInput {
   apiReachable: boolean
   offlineOnly: boolean
   checking: boolean
+  /** Production search runs on this computer, so the pill does not wait for our API. */
+  localWeb?: boolean
 }
 
 export function describeReach(input: ReachInput): { online: boolean; reason: string } {
   if (input.offlineOnly) return { online: false, reason: 'Offline only is on' }
   if (!input.osOnline) return { online: false, reason: 'No network' }
   if (input.checking) return { online: false, reason: 'Checking the connection' }
+  if (input.localWeb) return { online: true, reason: 'Online' }
   if (!input.apiReachable) return { online: false, reason: 'Search service unreachable' }
   return { online: true, reason: 'Search service reachable' }
 }

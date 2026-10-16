@@ -27,6 +27,7 @@ apps/desktop/out
 apps/desktop/dist
 apps/desktop/resources/bin
 apps/desktop/resources/tessdata/*.traineddata
+apps/desktop/resources/geo/*.cidr
 packages/*/dist
 *.gguf
 *.part

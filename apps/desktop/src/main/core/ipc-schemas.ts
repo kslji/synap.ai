@@ -20,6 +20,7 @@ export const SettingsPatch = z.object({
   onboardingComplete: z.boolean().optional(),
   theme: z.union([z.enum(['light', 'dark']), z.literal('system').transform(() => 'light' as const)]).optional(),
   apiBaseUrl: z.string().max(200).regex(/^https?:\/\/\S+$/).optional(),
+  myRegion: z.string().trim().max(80).optional(),
   packSyncHours: z.number().int().min(1).max(168).optional(),
   updateChannel: z.enum(['stable', 'beta']).optional(),
   codeAgentMode: z.enum(['ask', 'auto']).optional(),

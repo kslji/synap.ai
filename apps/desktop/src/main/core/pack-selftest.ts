@@ -66,7 +66,7 @@ export async function provePack(opts: {
       '--key-hex', seed,
       '--key-id', 'k-selftest',
       '--embed-url', `${embed.baseUrl}/v1/embeddings`,
-      '--api-key', embed.apiKey,
+      `--api-key=${embed.apiKey}`,
     ], { ...process.env, SURF_EVAL_REPORT: join(root, 'harness', 'baselines', 'quick.json') })
     api = await startPackApi(packRoot)
     const access = await loginDev(api.base, 'pack@example.com', 'selftest-pack')

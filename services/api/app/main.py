@@ -27,6 +27,7 @@ from .licences import apply_webhook, deactivate as deactivate_licence, list_devi
 from .licences import verify_razorpay, verify_stripe
 from .limiter import MemoryLimiter, RedisLimiter
 from .mailer import make_mail
+from .content_key import sealed_for_user
 from .pack_catalog import catalog, verify_download
 from .pages import fetch_one
 from .ssrf import SsrfBlocked
@@ -316,16 +317,23 @@ async def packs(request: Request, installed: str = "", user: dict = Depends(curr
 
 
 @app.get("/v1/packs/updates")
-async def pack_updates(request: Request, installed: str = "", user: dict = Depends(current_user)):
-    """Catalog of newer signed packs. An empty stub is returned until packs are published."""
+async def pack_updates(request: Request, installed: str = "", device_id_hash: str = "", user: dict = Depends(current_user)):
+    """Catalog of newer signed packs. An empty stub is returned until packs are published.
+
+    When PACK_CONTENT_KEY_HEX is set and this account's licence is active on
+    device_id_hash, content_key_sealed is that key wrapped for the device.
+    The raw content key is not in the response.
+    """
     base = os.environ.get("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
     body = catalog(base, installed)
+    sealed = await sealed_for_user(app.state.licences, str(user["uid"]), device_id_hash)
     if body["packs"]:
-        return {**body, "stub": False, "interval_hours": 24}
+        return {**body, "stub": False, "interval_hours": 24, "content_key_sealed": sealed}
     return {
         "packs": [],
         "stub": True,
         "interval_hours": 24,
+        "content_key_sealed": sealed,
         "note": "No signed knowledge packs are published on this server yet.",
     }
 

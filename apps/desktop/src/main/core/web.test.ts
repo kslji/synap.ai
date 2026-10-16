@@ -90,6 +90,7 @@ test('reach reasons', () => {
   assert.equal(describeReach({ osOnline: true, apiReachable: false, offlineOnly: false, checking: true }).reason, 'Checking the connection')
   assert.equal(describeReach({ osOnline: true, apiReachable: false, offlineOnly: false, checking: false }).reason, 'Search service unreachable')
   assert.equal(describeReach({ osOnline: true, apiReachable: true, offlineOnly: false, checking: false }).online, true)
+  assert.equal(describeReach({ osOnline: true, apiReachable: false, offlineOnly: false, checking: false, localWeb: true }).reason, 'Online')
 })
 
 test('offline only blocks search and fetch before any request', async () => {

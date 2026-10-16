@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { EMBEDDINGGEMMA2_256 } from './embedding.js'
 import { commitInstall, readInstalled } from './pack-install.js'
-import { canSwapPack, downloadFile, packAutoSyncAllowed, shouldSync, DEFAULT_SYNC_MS } from './pack-sync.js'
+import { canSwapPack, downloadFile, fetchPackUpdates, packAutoSyncAllowed, shouldSync, DEFAULT_SYNC_MS } from './pack-sync.js'
 import { verifyPack, type PackManifest, type TrustedKeys } from './pack-verify.js'
 import { mergeLocal } from './retrieval.js'
 
@@ -175,6 +175,23 @@ test('a partial download resumes from the part file', async () => {
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('pack updates send the device hash and read the sealed content key', async () => {
+  const device = 'ab'.repeat(32)
+  let seen = ''
+  const updates = await fetchPackUpdates('https://api.invalid', 'token', 'news@1', device, async (url) => {
+    seen = String(url)
+    return new Response(JSON.stringify({ packs: [], stub: false, content_key_sealed: 'ab'.repeat(40) }))
+  })
+  assert.match(seen, new RegExp(`device_id_hash=${device}`))
+  assert.equal(updates.contentKeySealed, 'ab'.repeat(40))
+  const plain = await fetchPackUpdates('https://api.invalid', 'token', 'news@1', 'nope', async (url) => {
+    seen = String(url)
+    return new Response(JSON.stringify({ packs: [], stub: true }))
+  })
+  assert.equal(seen.includes('device_id_hash'), false)
+  assert.equal(plain.contentKeySealed, null)
 })
 
 test('document and pack gates merge by strength', () => {

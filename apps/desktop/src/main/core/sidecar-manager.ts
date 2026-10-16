@@ -8,7 +8,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { createWriteStream, type WriteStream } from 'node:fs';
+import { createWriteStream, existsSync, type WriteStream } from 'node:fs';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { dirname } from 'node:path';
@@ -84,6 +84,9 @@ export class LlamaServer extends EventEmitter {
 
   async start(): Promise<void> {
     this.stopping = false;
+    if (!existsSync(this.opts.binPath)) {
+      throw new Error(`llama-server is not installed (${this.opts.binPath})`);
+    }
     this.port = await freePort();
     this.state = 'starting';
     this.emit('state', this.state);
@@ -97,16 +100,23 @@ export class LlamaServer extends EventEmitter {
     if (process.platform === 'linux') env.LD_LIBRARY_PATH = [dirname(this.opts.binPath), env.LD_LIBRARY_PATH].filter(Boolean).join(':');
     const child = spawn(this.opts.binPath, this.args(), { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     this.child = child;
+    // A failed spawn emits 'error'. Without a listener that becomes an uncaught
+    // exception, and the app's error dialog then blocks before any window opens.
+    let spawnError: Error | null = null;
+    child.on('error', (err: Error) => {
+      spawnError = err;
+      this.tail.push(err.message);
+    });
     const onData = (b: Buffer) => {
       this.log?.write(b);
       this.tail.push(...b.toString().split('\n').filter(Boolean));
       if (this.tail.length > 50) this.tail.splice(0, this.tail.length - 50);
     };
-    child.stdout!.on('data', onData);
-    child.stderr!.on('data', onData);
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
     const swallowPipe = (err: unknown) => { if (!isClosedPipe(err)) throw err; };
-    child.stdout!.on('error', swallowPipe);
-    child.stderr!.on('error', swallowPipe);
+    child.stdout?.on('error', swallowPipe);
+    child.stderr?.on('error', swallowPipe);
     this.detachIO = () => {
       child.stdout?.off('data', onData);
       child.stderr?.off('data', onData);
@@ -114,16 +124,18 @@ export class LlamaServer extends EventEmitter {
       child.stderr?.off('error', swallowPipe);
     };
     child.on('exit', (code, signal) => this.onExit(code, signal));
-    await this.waitHealthy(this.opts.startupTimeoutMs ?? 120_000);
+    await this.waitHealthy(this.opts.startupTimeoutMs ?? 120_000, () => spawnError);
     this.state = 'ready';
     this.restarts = 0;
     this.emit('state', this.state);
   }
 
   /** /health returns 503 while the model loads and 200 when ready. */
-  private async waitHealthy(timeoutMs: number): Promise<void> {
+  private async waitHealthy(timeoutMs: number, spawnFailure: () => Error | null): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      const failed = spawnFailure();
+      if (failed) throw new Error(`llama-server failed to start: ${failed.message}`);
       if (!this.child || this.child.exitCode !== null) throw new Error(`llama-server exited during startup:\n${this.tail.join('\n')}`);
       try {
         const r = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(2000) });

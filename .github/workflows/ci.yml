@@ -380,6 +380,9 @@ jobs:
         run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Build the desktop app
         run: npm run build -w @surf/desktop
+      - name: Fetch llama.cpp sidecar
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
       - name: Playwright smoke
         working-directory: apps/desktop
         env:

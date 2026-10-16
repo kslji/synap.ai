@@ -36,11 +36,16 @@ export async function launch(env, settings = {}) {
       ...env,
     },
   })
-  const page = await app.firstWindow({ timeout: 120_000 })
-  await page.setViewportSize({ width: 1100, height: 720 })
-  await page.waitForSelector('[data-ready="yes"]', { timeout: 40_000 })
-  await page.addStyleTag({ content: "*,*::before,*::after{animation:none !important;transition:none !important;caret-color:transparent !important;font-family:'Liberation Sans',sans-serif !important}::-webkit-scrollbar{width:0 !important;height:0 !important}" })
-  return { app, page, dir }
+  try {
+    const page = await app.firstWindow({ timeout: 120_000 })
+    await page.setViewportSize({ width: 1100, height: 720 })
+    await page.waitForSelector('[data-ready="yes"]', { timeout: 40_000 })
+    await page.addStyleTag({ content: "*,*::before,*::after{animation:none !important;transition:none !important;caret-color:transparent !important;font-family:'Liberation Sans',sans-serif !important}::-webkit-scrollbar{width:0 !important;height:0 !important}" })
+    return { app, page, dir }
+  } catch (error) {
+    await app.close().catch(() => undefined)
+    throw error
+  }
 }
 
 export async function go(page, view) {

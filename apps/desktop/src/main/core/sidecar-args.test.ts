@@ -1,6 +1,49 @@
 import assert from 'node:assert/strict'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { LlamaServer } from './sidecar-manager.js'
+
+test('a missing llama-server rejects and does not raise an uncaught exception', async () => {
+  const uncaught: unknown[] = []
+  const onUncaught = (err: unknown) => { uncaught.push(err) }
+  process.on('uncaughtException', onUncaught)
+  const server = new LlamaServer({
+    binPath: '/no/such/llama-server',
+    modelPath: 'model.gguf',
+    ctx: 128,
+    startupTimeoutMs: 2_000,
+  })
+  try {
+    await assert.rejects(() => server.start(), /not installed/)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(uncaught.length, 0)
+  } finally {
+    process.off('uncaughtException', onUncaught)
+    await server.stop().catch(() => undefined)
+  }
+})
+
+test('a sidecar that cannot be executed rejects without an uncaught exception', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'surf-sidecar-'))
+  const bin = join(dir, 'llama-server')
+  writeFileSync(bin, 'not a binary\n')
+  chmodSync(bin, 0o755)
+  const uncaught: unknown[] = []
+  const onUncaught = (err: unknown) => { uncaught.push(err) }
+  process.on('uncaughtException', onUncaught)
+  const server = new LlamaServer({ binPath: bin, modelPath: 'model.gguf', ctx: 128, startupTimeoutMs: 3_000 })
+  try {
+    await assert.rejects(() => server.start(), /failed to start|exited during startup/)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(uncaught.length, 0)
+  } finally {
+    process.off('uncaughtException', onUncaught)
+    await server.stop().catch(() => undefined)
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 test('llama-server starts with --no-repack and -cram 0', () => {
   const server = new LlamaServer({ binPath: 'llama-server', modelPath: 'model.gguf', ctx: 8192 })

@@ -42,6 +42,12 @@ else app.setPath('userData', join(app.getPath('appData'), 'surf-ai'))
 
 const mainLog = installMainLog(join(app.getPath('userData'), 'logs'))
 installProcessGuards(mainLog, (message) => {
+  // A native error dialog blocks the main thread. Tests and eval never have a
+  // person to dismiss it, so a background failure would leave the window uncreated.
+  if (surfEnv('E2E_DIR') || surfEnv('SMOKE') || surfEnv('EVAL') || surfEnv('SELFTEST')) {
+    console.error(message)
+    return
+  }
   dialog.showErrorBox('Synap.surf', message)
 })
 

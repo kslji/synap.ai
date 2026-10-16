@@ -1,4 +1,19 @@
-import type { ChatEvent, CodeDiffView, CodeStepView, GateName, StoredMessage } from '../../shared/ipc-contract'
+import type { ChatEvent, CodeDiffView, CodePlanView, CodeStepView, GateName, StoredMessage } from '../../shared/ipc-contract'
+
+function copyPlan(plan: CodePlanView): CodePlanView {
+  const steps = plan.steps.map((step) => ({
+    id: step.id,
+    index: step.index,
+    goal: step.goal,
+    files: [...step.files],
+    symbols: [...step.symbols],
+    dependsOn: [...step.dependsOn],
+    check: step.check,
+    create: step.create,
+  }))
+  if (plan.undos === undefined) return { status: plan.status, steps }
+  return { status: plan.status, steps, undos: plan.undos.map((undo) => ({ stepId: undo.stepId, title: undo.title })) }
+}
 
 export type View = 'onboarding' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs'
 
@@ -15,10 +30,18 @@ export interface UiMsg {
   tools: { name: string; input: string; output: string }[]
   steps?: CodeStepView[]
   diffs?: CodeDiffView[]
+  plan?: CodePlanView
 }
 
 export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
-  const next = prev.map((m) => ({ ...m, sources: [...m.sources], tools: [...m.tools], steps: [...(m.steps ?? [])], diffs: [...(m.diffs ?? [])] }))
+  const next = prev.map((m) => ({
+    ...m,
+    sources: [...m.sources],
+    tools: [...m.tools],
+    steps: [...(m.steps ?? [])],
+    diffs: [...(m.diffs ?? [])],
+    plan: m.plan ? copyPlan(m.plan) : undefined,
+  }))
   let i = next.findIndex((m) => m.id === e.messageId)
   if (i < 0) i = next.findIndex((m) => m.pending && m.role === 'assistant')
   if (i < 0) return prev
@@ -38,6 +61,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     if (at >= 0) m.diffs[at] = e.diff
     else m.diffs.push(e.diff)
   }
+  if (e.type === 'code-plan') m.plan = e.plan
   if (e.type === 'error') {
     m.error = true
     m.pending = false

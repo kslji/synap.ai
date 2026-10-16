@@ -22,6 +22,8 @@ export interface CompletionRequest {
   tools?: readonly unknown[]
   responseFormat?: ReturnType<typeof toolCallJsonSchema>
   grammar?: string
+  /** Thinking is on for planning and hard fixes only. */
+  thinking?: boolean
   maxTokens: number
   signal?: AbortSignal
 }

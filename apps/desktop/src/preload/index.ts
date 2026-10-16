@@ -77,6 +77,8 @@ const api: SurfApi = {
     root: () => ipcRenderer.invoke(IPC.codeAgentRoot),
     pick: () => ipcRenderer.invoke(IPC.codeAgentPick),
     decide: (req) => ipcRenderer.invoke(IPC.codeAgentDecide, req),
+    revise: (req) => ipcRenderer.invoke(IPC.codeAgentRevise, req),
+    undo: (req) => ipcRenderer.invoke(IPC.codeAgentUndo, req),
   },
   devWeb: {
     run: (req) => ipcRenderer.invoke(IPC.devWebRun, req),

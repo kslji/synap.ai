@@ -56,6 +56,8 @@ export const IPC = {
   codeAgentRoot: 'code-agent:root',
   codeAgentPick: 'code-agent:pick',
   codeAgentDecide: 'code-agent:decide',
+  codeAgentRevise: 'code-agent:revise',
+  codeAgentUndo: 'code-agent:undo',
   devWebRun: 'dev-web:run',
 } as const
 
@@ -126,6 +128,7 @@ export type ChatEvent =
   } }
   | { type: 'code-step'; messageId: string; step: CodeStepView }
   | { type: 'code-diff'; messageId: string; diff: CodeDiffView }
+  | { type: 'code-plan'; messageId: string; plan: CodePlanView }
   | { type: 'error'; messageId: string; message: string; smallerModelId?: string }
 
 export type CodeStepStatus = 'running' | 'ok' | 'error' | 'waiting' | 'rejected' | 'applied'
@@ -149,8 +152,40 @@ export interface CodeDiffView {
   status: CodeDiffStatus
 }
 
+export interface CodePlanStepView {
+  id: string
+  index: number
+  goal: string
+  files: string[]
+  symbols: string[]
+  dependsOn: string[]
+  check: string
+  create: boolean
+}
+
+export interface CodeUndoView {
+  stepId: string
+  title: string
+}
+
+export interface CodePlanView {
+  status: 'review' | 'running' | 'done'
+  steps: CodePlanStepView[]
+  undos?: CodeUndoView[]
+}
+
 export interface CodeAgentRoot {
   root: string | null
+}
+
+export interface CodeAgentReviseReq {
+  messageId: string
+  order: string[]
+}
+
+export interface CodeAgentUndoReq {
+  messageId: string
+  stepId: string
 }
 
 export interface CodeAgentDecideReq {
@@ -473,6 +508,8 @@ export interface SurfApi {
     root(): Promise<CodeAgentRoot>
     pick(): Promise<CodeAgentRoot>
     decide(req: CodeAgentDecideReq): Promise<{ ok: boolean }>
+    revise(req: CodeAgentReviseReq): Promise<{ ok: boolean }>
+    undo(req: CodeAgentUndoReq): Promise<{ ok: boolean }>
   }
   documents: {
     pick(title: string): Promise<string | null>

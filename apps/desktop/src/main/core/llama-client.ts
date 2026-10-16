@@ -36,6 +36,8 @@ export interface LlamaClientOptions {
 export interface ChatCompletionExtras {
   response_format?: unknown;
   grammar?: string;
+  /** Qwen thinking stays off except for planning and hard fixes. */
+  enableThinking?: boolean;
 }
 
 export class LlamaClient {
@@ -60,13 +62,19 @@ export class LlamaClient {
   }
 
   private chatBody(messages: ChatMessage[], tools: readonly unknown[] | undefined, maxTokens: number, stream: boolean, extras?: ChatCompletionExtras) {
+    const fields = chatRequestFields(this.o);
+    const kwargs = {
+      ...(fields.chat_template_kwargs as Record<string, unknown>),
+    };
+    if (extras?.enableThinking !== undefined) kwargs.enable_thinking = extras.enableThinking;
     return {
       model: 'chat',
       messages,
       ...(tools && tools.length ? { tools } : {}),
       stream,
       max_tokens: maxTokens,
-      ...chatRequestFields(this.o),
+      ...fields,
+      chat_template_kwargs: kwargs,
       ...(extras?.response_format ? { response_format: extras.response_format } : {}),
       ...(extras?.grammar ? { grammar: extras.grammar } : {}),
     };

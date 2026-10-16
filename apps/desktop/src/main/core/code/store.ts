@@ -307,6 +307,42 @@ export function pendingChunks(db: CodeDb, limit: number): PendingChunk[] {
   ).all(limit) as PendingChunk[]
 }
 
+export interface PlanSymbolRow {
+  name: string
+  qualified: string
+  kind: string
+  path: string
+}
+
+export interface PlanEdgeRow {
+  from: string
+  to: string
+  kind: string
+}
+
+/** Files, definitions, and caller→definition edges for plan validation. */
+export function readPlanFacts(db: CodeDb): { files: string[]; symbols: PlanSymbolRow[]; edges: PlanEdgeRow[] } {
+  const files = (db.prepare('SELECT path FROM files ORDER BY path').all() as { path: string }[]).map((row) => row.path)
+  const symbols = db.prepare(
+    `SELECT s.name AS name, s.qualified AS qualified, s.kind AS kind, f.path AS path
+     FROM symbols s JOIN files f ON f.id = s.file_id
+     WHERE s.kind NOT IN ('import', 'section')
+     ORDER BY f.path, s.start_line`,
+  ).all() as PlanSymbolRow[]
+  const edges = db.prepare(
+    `SELECT f.path AS fromPath, e.dst_path AS toPath, e.kind AS kind
+     FROM edges e JOIN files f ON f.id = e.file_id
+     WHERE e.dst_path IS NOT NULL AND e.dst_path != f.path
+       AND e.kind IN ('imports', 'calls', 'references')
+     ORDER BY f.path, e.dst_path, e.kind`,
+  ).all() as { fromPath: string; toPath: string; kind: string }[]
+  return {
+    files,
+    symbols,
+    edges: edges.map((edge) => ({ from: edge.fromPath, to: edge.toPath, kind: edge.kind })),
+  }
+}
+
 export function markEmbedded(db: CodeDb, rows: { id: number; vector: Float32Array }[]): void {
   const mark = db.prepare('UPDATE chunks SET embedded = 1 WHERE id = ?')
   const tx = db.transaction(() => {

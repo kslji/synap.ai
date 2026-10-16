@@ -19,7 +19,7 @@ import { parseSource } from './parse.js'
 import { classifyFile, scanProject, type ScannedFile } from './scan.js'
 import { searchCode, type CodeHit } from './search.js'
 import {
-  counts, definitions, deletePath, impactOf, linkEdges, listFiles, markEmbedded, openCodeDb,
+  counts, definitions, deletePath, impactOf, linkEdges, listFiles, markEmbedded, openCodeDb, readPlanFacts,
   pendingChunks, referencesTo, relatedFiles, writeFileIndex,
   type CodeDb, type ImpactHit, type RefHit, type RelatedHit, type SymbolHit,
 } from './store.js'
@@ -190,6 +190,11 @@ export class CodeIndex {
 
   context(task: string, options: ContextOptions): Promise<ContextPack> {
     return this.exclusive(async () => buildContext(this.db, task, { ...options, embedder: options.embedder ?? this.embedder }))
+  }
+
+  /** Indexed files, symbols, and caller→definition edges. Used to validate a plan. */
+  planFacts(): Promise<{ indexed: true; files: string[]; symbols: { name: string; qualified: string; kind: string; path: string }[]; edges: { from: string; to: string; kind: string }[] }> {
+    return this.exclusive(async () => ({ indexed: true as const, ...readPlanFacts(this.db) }))
   }
 
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {

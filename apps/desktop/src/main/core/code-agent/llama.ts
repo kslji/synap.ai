@@ -21,10 +21,11 @@ export function llamaCompleter(client: LlamaClient): (req: CompletionRequest) =>
   }
 }
 
-export function llamaCompletionExtras(req: Pick<CompletionRequest, 'responseFormat' | 'grammar'>): { response_format?: unknown; grammar?: string } {
+export function llamaCompletionExtras(req: Pick<CompletionRequest, 'responseFormat' | 'grammar' | 'thinking'>): { response_format?: unknown; grammar?: string; enableThinking?: boolean } {
   return {
     ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
     ...(req.grammar ? { grammar: req.grammar } : {}),
+    ...(req.thinking === undefined ? {} : { enableThinking: req.thinking }),
   }
 }
 

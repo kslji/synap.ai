@@ -70,7 +70,14 @@ function row(id: string, answer: Cited, required: string[], forbidden: string[])
   return {
     id,
     weight: 1,
-    fields: { ok: missing.length === 0 && present.length === 0 && faults.length === 0, answer: answer.text, required, forbidden, detail },
+    fields: {
+      ok: missing.length === 0 && present.length === 0 && faults.length === 0,
+      answer: answer.text,
+      sources: blob,
+      required,
+      forbidden,
+      detail,
+    },
   }
 }
 

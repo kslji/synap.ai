@@ -96,8 +96,10 @@ export interface SettingsPatch {
   codeModelId?: string
   onboardingComplete?: boolean
   theme?: ThemeChoice
-  /** Search service origin. Production placeholder until a VM is deployed. */
+  /** Account, licence, and pack server. Production web search does not call this. */
   apiBaseUrl?: string
+  /** Country or ISO code. Overrides the public-IP lookup when a VPN is in use. Empty uses IP, then worldwide. */
+  myRegion?: string
   /** Hours between signed-in pack checks. */
   packSyncHours?: number
   /** stable hides -beta tags. beta includes them. */

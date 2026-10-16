@@ -54,11 +54,13 @@ export function SettingsScreen({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
   const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
+  const [region, setRegion] = useState(settings.myRegion)
   const chats = chatModels(status)
   const code = codeModels(status)
   const current = activeChatModel(status)
   const codeCurrent = activeCodeModel(status)
   useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
+  useEffect(() => { setRegion(settings.myRegion) }, [settings.myRegion])
   const apiOk = /^https?:\/\/\S+$/.test(apiBase)
 
   return (
@@ -154,10 +156,26 @@ export function SettingsScreen({
         />
         <Row
           title="Allow web search"
-          body="When you are online and local sources are thin, Synap.surf may search the web. Your documents stay on this computer. Only the short search queries are sent."
+          body="Search runs on this computer. No API key. When you are online and local sources are thin, this laptop asks official public sources. Documents stay here."
           on={settings.webSearchAllowed}
           onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
         />
+        <div className="card px-4 py-4">
+          <div className="text-sm font-semibold">My region</div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+            For a VPN. A place named in the question still wins. Leave this blank to use the country of the public IP, then worldwide sources when that lookup has no file.
+          </p>
+          <input
+            className="field mt-3"
+            value={region}
+            spellCheck={false}
+            aria-label="My region"
+            placeholder="Country or ISO code"
+            maxLength={80}
+            onChange={(e) => setRegion(e.target.value)}
+            onBlur={() => { if (region.trim() !== settings.myRegion) onPatch({ myRegion: region.trim() }) }}
+          />
+        </div>
         <SavedWebCard />
         <CodeIndexCard />
         <Row
@@ -170,15 +188,15 @@ export function SettingsScreen({
           <DevWebPanel apiUrl={status.devApiUrl || 'http://127.0.0.1:8000'} />
         ) : (
           <div className="card px-4 py-4">
-            <div className="text-sm font-semibold">Web search service</div>
+            <div className="text-sm font-semibold">Account and pack server</div>
             <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-              Used only when web search is on and you are online. Documents stay on this computer.
+              Sign-in, licences, and knowledge-pack updates use this address. Web search runs on this computer and does not use an API key.
             </p>
             <input
               className="field mt-3"
               value={apiBase}
               spellCheck={false}
-              aria-label="Search service address"
+              aria-label="Account and pack server"
               onChange={(e) => setApiBase(e.target.value.trim())}
               onBlur={() => { if (apiOk && apiBase !== settings.apiBaseUrl) onPatch({ apiBaseUrl: apiBase }) }}
             />
@@ -196,7 +214,7 @@ export function SettingsScreen({
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
-          <p className="mt-1">Search service: {status.devApiUrl || settings.apiBaseUrl}.</p>
+          <p className="mt-1">Account server: {status.devApiUrl || settings.apiBaseUrl}.</p>
           <p className="mt-3">
             <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span> While a subscription is active and this computer is online, Synap.surf checks for a newer signed pack on startup and every 24 hours. The new pack is swapped in between messages.
           </p>

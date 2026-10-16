@@ -41,6 +41,7 @@ const config = {
     { from: 'resources/licence-public.json', to: 'licence-public.json' },
     { from: 'resources/release-mode.json', to: 'release-mode.json' },
     { from: 'resources/code/system.md', to: 'code/system.md' },
+    { from: 'resources/geo', to: 'geo' },
   ],
   npmRebuild: false,
   mac: {

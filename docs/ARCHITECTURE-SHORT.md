@@ -77,7 +77,7 @@ This is the **short version** (about 20 pages). It covers what you need to under
 
 1. **Offline chat:** UI → main process → retrieve → gate → token budget → local model → answer with citations.
 2. **Attachment:** a file is copied in, the doc-worker extracts text, then it is chunked, embedded and indexed in `user.db`.
-3. **Online answer:** if the gate fails and you are online and web search is allowed, our SearXNG proxy returns links. The laptop fetches and cleans the pages, then answers with "From the web" citations.
+3. **Online answer:** if the gate fails and you are online and web search is allowed, the laptop asks official public sources, then DuckDuckGo lite only if those return nothing. Pages are fetched and cleaned on the device. See `docs/STEP-10.md`. SearXNG stays in the API for the eval fixture.
 4. **Pack update:** check every 6 hours, download, verify the Ed25519 signature and SHA-256 checksums, then swap the files in one step. The same works from a USB stick.
 5. **Login:** done once online in the system browser (PKCE). The app then holds a signed device licence valid for 30 days offline.
 6. **App update:** electron-updater uses GitHub Releases. Offline, use "Install update from file…" with a signed installer.
@@ -101,7 +101,7 @@ This is the **short version** (about 20 pages). It covers what you need to under
 | Hardware detection | Node `os` + **systeminformation** | RAM, CPU, GPU, then a tier. |
 | Backend API | **FastAPI** (Python) | Simple, typed, shares code with the pipeline. |
 | Server database | **Postgres 17 + pgvector** (Docker on the VM) | Users, devices, sources, corpus, packs, agents, evals. |
-| Web search | **SearXNG** (self-hosted, JSON only, no query logs) | Private, free, no API keys. |
+| Web search | Laptop connectors, then DuckDuckGo lite. SearXNG stays in the API for the eval fixture. | No search API key. Production search does not call our backend. |
 | Hosting | **GCP e2-medium VM** in Mumbai (`asia-south1`), Docker Compose + Caddy | Paid for by the $300 free trial for about 3 months. |
 | Login | **Supabase Auth** (free tier, 50,000 monthly active users) | Email OTP + Google; we don't store passwords. |
 | File hosting | **GitHub Releases** (installers), **Hugging Face** (models), **Cloudflare R2** or **GCS** (packs) | Free, or close to free. R2 has no download (egress) fees. |

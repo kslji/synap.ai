@@ -311,6 +311,7 @@ export async function runEval(): Promise<void> {
     if (needsWeb) {
       fixture = await startSearchFixture()
       process.env.SURF_API_BASE = fixture.base
+      process.env.SURF_SEARCH_FIXTURE = '1'
     }
     writeFileSync(join(logDir, 'settings.json'), JSON.stringify({
       offlineOnly: true,

@@ -1,6 +1,8 @@
 # Step 3 — web search, and a hard offline switch
 
-Day 4 of the plan. The desktop still answers from local documents first. When those are weak, and the computer is online with web search allowed, it asks a self-hosted search service. The model and the embeddings stay on the device.
+Step 10 moved production web search onto the laptop. This page describes the API and the eval fixture. SearXNG is not the path a signed-in desktop chat uses for answers. See `docs/STEP-10.md`.
+
+Day 4 of the plan. The desktop still answers from local documents first. When those are weak, and the computer is online with web search allowed, the eval fixture and the API still use a self-hosted search service. The model and the embeddings stay on the device.
 
 ## What is wired
 
@@ -65,7 +67,7 @@ One VM. Do not add Cloud SQL, Memorystore, or a load balancer.
 2. Install Docker and the compose plugin. Clone the repo and copy `deploy/.env.example` to `deploy/.env`. Replace `JWT_SECRET`, `POSTGRES_PASSWORD`, and `SEARXNG_SECRET`. Leave `FETCH_ALLOW_HOSTS` empty.
 3. Point a DNS name at the VM. In `deploy/Caddyfile`, replace `:80` with that name so Caddy fetches a certificate. Open the firewall to TCP 80 and 443 only. Use IAP for SSH. Do not publish Postgres, Valkey, or SearXNG.
 4. `docker compose up -d --build` from `deploy/`. `curl -fsS https://your-domain/v1/health` should report postgres, valkey, and searxng.
-5. In the desktop app, set Search service to `https://your-domain`.
+5. In the desktop app, set Account and pack server to `https://your-domain`. Production chat search does not use that address.
 
 An nginx TLS reverse proxy can sit in front of port 8000 the same way. The compose file ships Caddy.
 

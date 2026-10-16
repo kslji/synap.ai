@@ -53,6 +53,7 @@ import { captionImage, mmprojReady } from './vision.js'
 import { chunkBlocks } from './chunker.js'
 import { describeReach } from './reach.js'
 import { fetchPages, probeHealth, searchWeb } from './web-client.js'
+import { codeAgentDevWebTools, devWebEnabled, parseDevWebCommand, resolveSynapApiUrl } from './code-agent/dev-web-hook.js'
 import { checkAnswer, filterParagraphs, scoreText, toolArgsFromUser } from './injection.js'
 import { commitInstall, readInstalled, removePack } from './pack-install.js'
 import { downloadFile, fetchCatalog, shouldSync, type RemotePack } from './pack-sync.js'
@@ -256,6 +257,8 @@ export async function createServices(): Promise<Services> {
       offlineOnly: settings.offlineOnly,
       onboardingComplete: settings.onboardingComplete,
       chatPersistence: store.mode,
+      devWeb: devWebEnabled(),
+      ...(devWebEnabled() ? { devApiUrl: apiBase(settings) } : {}),
     }
   }
 
@@ -446,13 +449,14 @@ export async function createServices(): Promise<Services> {
     const queries = parseSearchQueries(raw, question)
     const base = apiBase(readSettings())
     assertNetworkAllowed(readSettings().offlineOnly)
+    const dev = devWebEnabled()
     const deviceToken = await freshAccess({ base, offlineOnly: readSettings().offlineOnly })
-    if (!deviceToken) throw new Error('Sign in to search the web.')
+    if (!deviceToken && !dev) throw new Error('Sign in to search the web.')
     const picked = new Map<string, { title: string; published: string | null }>()
     for (const query of queries) {
       if (signal.aborted) return { pieces: [], ignored: [] }
       assertNetworkAllowed(readSettings().offlineOnly)
-      const rows = await searchWeb({ base, token: deviceToken, offlineOnly: readSettings().offlineOnly, query, k: 4, signal })
+      const rows = await searchWeb({ base, token: deviceToken || undefined, offlineOnly: readSettings().offlineOnly, query, k: 4, signal })
       for (const row of rows) {
         if (!picked.has(row.url)) picked.set(row.url, { title: row.title, published: row.published })
       }
@@ -461,7 +465,7 @@ export async function createServices(): Promise<Services> {
     if (!urls.length) return { pieces: [], ignored: [] }
     sendEvent(win, { type: 'status', messageId, phase: 'reading' })
     assertNetworkAllowed(readSettings().offlineOnly)
-    const fetched = await fetchPages({ base, token: deviceToken, offlineOnly: readSettings().offlineOnly, urls, signal })
+    const fetched = await fetchPages({ base, token: deviceToken || undefined, offlineOnly: readSettings().offlineOnly, urls, signal })
     const ignored: Array<{ url: string; title: string; flags: string[] }> = fetched.ignored.map((item) => ({
       url: item.url, title: picked.get(item.url)?.title || domainOf(item.url), flags: item.flags,
     }))
@@ -607,6 +611,7 @@ export async function createServices(): Promise<Services> {
         mode: currentPermissionMode(),
         allowedCommands: readAllowed(root),
         signal,
+        devWeb: { apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal },
         onStep: (step) => { sendEvent(win, { type: 'code-step', messageId, step }) },
         onDiff: (diff) => { sendEvent(win, { type: 'code-diff', messageId, diff }) },
         ask: (request) => waitDecision(messageId, request.id, signal),
@@ -626,6 +631,20 @@ export async function createServices(): Promise<Services> {
     const settings = readSettings()
     const reg = registry()
     const text = req.text
+    if (devWebEnabled()) {
+      const command = parseDevWebCommand(text)
+      if (command) {
+        const tools = codeAgentDevWebTools({ apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal })
+        const tool = tools.find((item) => item.name === command.tool)
+        const output = tool
+          ? await tool.run(command.tool === 'web_search' ? { query: command.query } : { url: command.url })
+          : 'error: Dev web search is off.'
+        if (signal.aborted) return
+        await emitText(win, messageId, output)
+        finish(conversationId, messageId, userMessageId, win, output, [], 'answer')
+        return
+      }
+    }
     const direct = await resolveDirectTool(calc, text)
     if (direct) {
       sendEvent(win, { type: 'tool', messageId, name: direct.name, input: direct.input, output: direct.output })
@@ -710,8 +729,9 @@ export async function createServices(): Promise<Services> {
       }
 
       const fresh = wantsFresh(text)
+      const dev = devWebEnabled()
       const signedIn = Boolean(await loadSession())
-      const webAllowed = settings.webSearchAllowed && req.allowWeb !== false && signedIn
+      const webAllowed = settings.webSearchAllowed && req.allowWeb !== false && (signedIn || dev)
       const connected = reachNow(settings.offlineOnly)
       const plan = decideWeb({
         local: decision,
@@ -721,7 +741,7 @@ export async function createServices(): Promise<Services> {
         webAllowed,
       })
       if (plan.branch === 'refuse') {
-        const needsSignIn = settings.webSearchAllowed && req.allowWeb !== false && !signedIn && connected.online && !settings.offlineOnly && (fresh || decision === 'insufficient' || decision === 'skip')
+        const needsSignIn = !dev && settings.webSearchAllowed && req.allowWeb !== false && !signedIn && connected.online && !settings.offlineOnly && (fresh || decision === 'insufficient' || decision === 'skip')
         const message = needsSignIn ? 'Sign in to search the web, or add a document.' : refusalMessage(plan.hint ?? HINT_FAILED)
         await emitText(win, messageId, message)
         finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
@@ -1108,6 +1128,17 @@ export async function createServices(): Promise<Services> {
         return { ok: true }
       },
     },
+    devWeb: {
+      run: async (req) => {
+        if (!devWebEnabled()) throw new Error('Dev web search is off.')
+        const current = readSettings()
+        const tools = codeAgentDevWebTools({ apiBase: apiBase(current), offlineOnly: current.offlineOnly })
+        const tool = tools.find((item) => item.name === req.tool)
+        if (!tool) throw new Error('Dev web search is off.')
+        const text = await tool.run(req.tool === 'web_search' ? { query: req.query ?? '' } : { url: req.url ?? '' })
+        return { text }
+      },
+    },
     documents: documentApi,
     code: codeApi,
     lifecycle: { releaseWindow },
@@ -1350,7 +1381,10 @@ function labelFor(m: ModelEntry): string {
 }
 
 function apiBase(settings: Settings): string {
-  return (surfEnv('API_BASE') || settings.apiBaseUrl || DEFAULT_API_BASE).replace(/\/$/, '')
+  return resolveSynapApiUrl({
+    packaged: app.isPackaged,
+    settingsUrl: settings.apiBaseUrl || DEFAULT_API_BASE,
+  })
 }
 
 function isOnline(): boolean {

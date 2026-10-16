@@ -1,6 +1,6 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
@@ -34,6 +34,12 @@ export const DeviceId = z.string().uuid()
 export const PackId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/)
 
 export const HttpLink = z.string().max(2000).regex(/^https?:\/\/\S+$/)
+
+export const DevWebRun = z.object({
+  tool: z.enum(['web_search', 'fetch_page']),
+  query: z.string().max(300).optional(),
+  url: z.string().max(2000).optional(),
+}).strict()
 
 export const ModelId = z.string().min(1).max(80)
 export const ConversationId = z.string().uuid()
@@ -92,3 +98,4 @@ export type ParsedChat = z.output<typeof ChatSendReq>
 export const _chatCheck = (x: z.output<typeof ChatSendReq>): ChatSendReqT => x
 export const _settingsCheck = (x: z.output<typeof SettingsPatch>): SettingsPatchT => x
 export const _codeDecideCheck = (x: z.output<typeof CodeAgentDecideReq>): CodeAgentDecideReqT => x
+export const _devWebCheck = (x: z.output<typeof DevWebRun>): DevWebRunReqT => x

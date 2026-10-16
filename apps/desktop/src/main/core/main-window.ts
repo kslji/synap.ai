@@ -5,9 +5,9 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentRoot, type CodeProjectStatus, type CodeStorageUsage, type ConversationSummary, type DeviceInfo, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentRoot, type CodeProjectStatus, type CodeStorageUsage, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, CodeAgentDecideReq, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
+import { AttachmentId, ChatSendReq, CodeAgentDecideReq, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -127,6 +127,9 @@ export interface Services {
     pick(win: BrowserWindow): Promise<CodeAgentRoot>
     decide(req: CodeAgentDecide): Promise<{ ok: boolean }>
   }
+  devWeb: {
+    run(req: DevWebRunReq): Promise<DevWebRunResult>
+  }
   documents: {
     pick(win: BrowserWindow, title: string): Promise<string | null>
     convert(win: BrowserWindow, input: { path?: string; attachmentId?: string }, format: ExportFormat): Promise<DocumentResult | null>
@@ -227,6 +230,10 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.codeAgentRoot, (e) => { assertTrusted(e); return s.codeAgent.root() })
   handle(IPC.codeAgentPick, (e) => { assertTrusted(e); return s.codeAgent.pick(win) })
   handle(IPC.codeAgentDecide, (e, raw) => { assertTrusted(e); return s.codeAgent.decide(CodeAgentDecideReq.parse(raw)) })
+  handle(IPC.devWebRun, (e, raw) => {
+    assertTrusted(e)
+    return s.devWeb.run(DevWebRun.parse(raw))
+  })
 }
 
 /** Layout note for electron-vite output: out/main, out/preload, out/renderer. */

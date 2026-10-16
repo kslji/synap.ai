@@ -7,6 +7,7 @@ the device id so search rate limits stay per device.
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import pathlib
 import time
@@ -25,6 +26,7 @@ from .pages import fetch_one
 from .ssrf import SsrfBlocked
 from .tokens import issue_access_token, read_bearer
 
+log = logging.getLogger("surf.api")
 ENV = os.environ
 REGISTRY = json.loads((pathlib.Path(__file__).parent / "models.registry.json").read_text())
 LITE = ENV.get("SURF_API_LITE") == "1" or not ENV.get("DATABASE_URL")
@@ -98,6 +100,32 @@ async def rate_limit(request: Request, user: dict = Depends(current_user)) -> di
         raise Problem(429, code, detail, retry_after=retry or 60)
     request.state.user = user
     return user
+
+
+def dev_bypass(lite: bool, flag: str | None) -> bool:
+    """Local laptop only. A database-backed server never skips auth, even if the flag is set."""
+    return bool(lite) and flag == "1"
+
+
+_dev_open_logged = False
+
+
+def dev_open() -> bool:
+    global _dev_open_logged
+    enabled = dev_bypass(bool(getattr(app.state, "lite", False)), ENV.get("SURF_DEV_OPEN"))
+    if enabled and not _dev_open_logged:
+        _dev_open_logged = True
+        log.warning("SURF_DEV_OPEN: /v1/search and /v1/fetch skip sign-in and quota. Localhost only.")
+    return enabled
+
+
+async def search_gate(request: Request, authorization: str = Header(default="")) -> dict:
+    if dev_open():
+        user = {"sub": "dev", "typ": "access"}
+        request.state.user = user
+        return user
+    user = await current_user(authorization)
+    return await rate_limit(request, user)
 
 
 def allow_hosts() -> set[str]:
@@ -314,7 +342,7 @@ def host_of(url: str) -> str:
 
 
 @app.post("/v1/search")
-async def search(body: SearchIn, user: dict = Depends(rate_limit)):
+async def search(body: SearchIn, user: dict = Depends(search_gate)):
     text = body.text()
     started = time.perf_counter()
     key = cache_key(text, body)
@@ -405,7 +433,7 @@ class FetchIn(BaseModel):
 
 
 @app.post("/v1/fetch")
-async def fetch_pages(body: FetchIn, user: dict = Depends(rate_limit)):
+async def fetch_pages(body: FetchIn, user: dict = Depends(search_gate)):
     chunks = []
     errors = []
     sanitizer = []

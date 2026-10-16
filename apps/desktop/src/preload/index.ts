@@ -72,6 +72,9 @@ const api: SurfApi = {
     pick: () => ipcRenderer.invoke(IPC.codeAgentPick),
     decide: (req) => ipcRenderer.invoke(IPC.codeAgentDecide, req),
   },
+  devWeb: {
+    run: (req) => ipcRenderer.invoke(IPC.devWebRun, req),
+  },
   documents: {
     pick: (title) => ipcRenderer.invoke(IPC.documentsPick, title),
     convert: (input, format) => ipcRenderer.invoke(IPC.documentsConvert, { ...input, format }),

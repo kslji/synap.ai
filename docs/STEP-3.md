@@ -15,12 +15,22 @@ Day 4 of the plan. The desktop still answers from local documents first. When th
 
 ## Run the API locally
 
-From the repo root, with Python 3.12:
+On a laptop, prefer the development Compose file. It publishes SearXNG and the API on localhost only, with JSON search enabled and sign-in skipped. `npm run dev:web` is the marketing site. The search stack is:
+
+```bash
+npm run dev:search
+curl -s http://127.0.0.1:8000/v1/health
+```
+
+Mac, Windows, and the pip fallback are in the root README under "Web search on your laptop".
+
+From the repo root, with Python 3.12 and no Docker:
 
 ```bash
 python3 -m pip install -r services/api/requirements.txt
 cd services/api
 SURF_API_LITE=1 \
+SURF_DEV_OPEN=1 \
 SEARXNG_URL=http://127.0.0.1:8080/search \
 JWT_SECRET=dev-only-secret-change-me-at-least-32-bytes \
 JWT_AUDIENCE=authenticated \
@@ -38,7 +48,7 @@ docker compose up -d --build
 curl -s localhost/v1/health
 ```
 
-Point the desktop at `http://127.0.0.1:8000` in Settings → Search service. Turn on Allow web search. Offline only must be off.
+`npm run dev` points the desktop at `http://127.0.0.1:8000`. Turn on Allow web search. Offline only must be off. With `SURF_DEV_OPEN=1`, search does not ask you to sign in.
 
 Tests:
 

@@ -73,6 +73,7 @@ def test_signature_round_trip_and_forge():
         assert licence["payload"]["device_id_hash"] == _device(1)
         assert licence["payload"]["plan"] == "pro"
         assert "packs" in licence["payload"]["features"]
+        assert "pack_updates" in licence["payload"]["features"]
         issued = datetime.strptime(licence["payload"]["issued_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         refresh_by = datetime.strptime(licence["payload"]["refresh_by"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         expires = datetime.strptime(licence["payload"]["expires_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)

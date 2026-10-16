@@ -14,6 +14,7 @@ export function SettingsScreen({
   plan,
   termMonths,
   subscriptionEndsAt,
+  knowledgePack,
   licenceNote,
   onPatch,
   onCheckUpdates,
@@ -34,6 +35,7 @@ export function SettingsScreen({
   plan: string | null
   termMonths: number | null
   subscriptionEndsAt: string | null
+  knowledgePack: { version: string | null; syncedAt: number | null } | null
   licenceNote: string | null
   onPatch: (p: SettingsPatch) => void
   onCheckUpdates: () => Promise<string>
@@ -67,6 +69,11 @@ export function SettingsScreen({
           <div className="text-sm font-semibold">Account</div>
           <p className="mt-1 text-sm" data-licence-plan="yes">Plan: {plan ?? 'None'}{termMonths ? ` · ${termMonths} ${termMonths === 1 ? 'month' : 'months'}` : ''}</p>
           {subscriptionEndsAt && <p className="mt-1 text-sm" data-licence-ends="yes">Ends: {subscriptionEndsAt.slice(0, 10)}</p>}
+          <p className="mt-1 text-sm" data-knowledge-pack="yes">
+            {knowledgePack?.version
+              ? `Knowledge pack: v${knowledgePack.version}, last synced ${knowledgePack.syncedAt ? new Date(knowledgePack.syncedAt).toISOString().slice(0, 10) : 'not yet'}`
+              : 'Knowledge pack: not installed'}
+          </p>
           {licenceNote && <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{licenceNote}</p>}
           {account ? (
             <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
@@ -179,21 +186,9 @@ export function SettingsScreen({
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
           <p className="mt-1">Search service: {status.devApiUrl || settings.apiBaseUrl}.</p>
-          <label className="mt-3 block">
-            <span className="font-semibold text-[var(--ink)]">Pack check interval (hours)</span>
-            <input
-              className="field mt-2"
-              type="number"
-              min={1}
-              max={168}
-              value={settings.packSyncHours}
-              aria-label="Pack check interval"
-              onChange={(e) => {
-                const hours = Number(e.target.value)
-                if (hours >= 1 && hours <= 168) onPatch({ packSyncHours: hours })
-              }}
-            />
-          </label>
+          <p className="mt-3">
+            <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span> While a subscription is active and this computer is online, Synap.surf checks for a newer signed pack on startup and every 24 hours. The new pack is swapped in between messages.
+          </p>
           <button
             className="btn btn-ghost mt-3"
             type="button"

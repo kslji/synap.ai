@@ -1,6 +1,24 @@
 /** When a signed-in desktop may check for pack updates. Downloads are separate. */
 
 export const DEFAULT_SYNC_MS = 6 * 60 * 60 * 1000
+/** Background knowledge-pack check. Every plan includes this while the subscription is active. */
+export const PACK_AUTO_SYNC_MS = 24 * 60 * 60 * 1000
+export const PACK_UPDATES = 'pack_updates'
+
+/**
+ * Auto-sync runs only for an active subscription that includes pack_updates.
+ * A development build skips the licence check. An ended subscription does not.
+ */
+export function packAutoSyncAllowed(input: { state: string; features: readonly string[] | null }): boolean {
+  if (input.state === 'dev') return true
+  if (input.state !== 'valid' && input.state !== 'grace') return false
+  return (input.features ?? []).includes(PACK_UPDATES)
+}
+
+/** A downloaded pack is swapped in only when no answer is in progress. */
+export function canSwapPack(chatBusy: boolean): boolean {
+  return chatBusy === false
+}
 
 export interface SyncInput {
   now: number
@@ -43,6 +61,17 @@ export async function fetchCatalog(base: string, token: string, installed: strin
   if (!res.ok) throw new Error(`pack catalog failed (${res.status})`)
   const body = await res.json() as { packs?: RemotePack[] }
   return body.packs ?? []
+}
+
+/** Prefer the updates route. An empty stub means the pack server has nothing published yet. */
+export async function fetchPackUpdates(base: string, token: string, installed: string, fetchImpl: typeof fetch = fetch): Promise<{ packs: RemotePack[]; stub: boolean }> {
+  const root = base.replace(/\/$/, '')
+  const url = `${root}/v1/packs/updates?installed=${encodeURIComponent(installed)}`
+  const res = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` } })
+  if (res.status === 404) return { packs: await fetchCatalog(base, token, installed, fetchImpl), stub: false }
+  if (!res.ok) throw new Error(`pack updates failed (${res.status})`)
+  const body = await res.json() as { packs?: RemotePack[]; stub?: boolean }
+  return { packs: body.packs ?? [], stub: body.stub === true }
 }
 
 export async function downloadFile(url: string, dest: string, headers: Record<string, string>, fetchImpl: typeof fetch = fetch): Promise<void> {

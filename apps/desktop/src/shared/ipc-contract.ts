@@ -352,6 +352,7 @@ export interface LicenceStatus {
   subscriptionEndsAt: string | null
   termMonths: number | null
   subscriptionWarning: boolean
+  features: string[]
   deviceIdHash: string | null
   buyUrl: string
   licenceId: string | null

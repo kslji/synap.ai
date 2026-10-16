@@ -101,6 +101,7 @@ function toStatus(verdict: LicenceVerdict, deviceIdHashValue: string, email: str
     subscriptionWarning: verdict.payload
       ? subscriptionWarns(Date.now(), Date.parse(verdict.payload.subscription_ends_at), verdict.state)
       : false,
+    features: verdict.payload?.features ?? [],
     deviceIdHash: deviceIdHashValue,
     buyUrl: BUY_URL,
     licenceId: verdict.payload?.licence_id ?? null,
@@ -311,6 +312,7 @@ export function emptyLicenceStatus(state: LicenceState = 'missing'): LicenceStat
     subscriptionEndsAt: null,
     termMonths: null,
     subscriptionWarning: false,
+    features: [],
     deviceIdHash: null,
     buyUrl: BUY_URL,
     licenceId: null,

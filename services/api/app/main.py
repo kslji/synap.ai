@@ -315,6 +315,21 @@ async def packs(request: Request, installed: str = "", user: dict = Depends(curr
     return catalog(base, installed)
 
 
+@app.get("/v1/packs/updates")
+async def pack_updates(request: Request, installed: str = "", user: dict = Depends(current_user)):
+    """Catalog of newer signed packs. An empty stub is returned until packs are published."""
+    base = os.environ.get("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
+    body = catalog(base, installed)
+    if body["packs"]:
+        return {**body, "stub": False, "interval_hours": 24}
+    return {
+        "packs": [],
+        "stub": True,
+        "interval_hours": 24,
+        "note": "No signed knowledge packs are published on this server yet.",
+    }
+
+
 @app.get("/v1/packs/download")
 async def pack_download(path: str, exp: int, sig: str):
     try:

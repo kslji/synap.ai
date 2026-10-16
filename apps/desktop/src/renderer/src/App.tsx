@@ -798,6 +798,10 @@ export default function App() {
           plan={demoAccount?.plan ?? licence.plan}
           termMonths={demoAccount ? null : licence.termMonths}
           subscriptionEndsAt={demoAccount ? null : licence.subscriptionEndsAt}
+          knowledgePack={(() => {
+            const installed = (demoPacks ?? packs).find((row) => row.installed && row.version)
+            return installed ? { version: installed.version, syncedAt: installed.syncedAt } : null
+          })()}
           licenceNote={licence.state === 'dev' || licence.state === 'grace' ? licence.message : null}
           onSignIn={() => setView('signin')}
           onSignOut={() => {

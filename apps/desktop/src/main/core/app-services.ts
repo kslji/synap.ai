@@ -58,7 +58,7 @@ import { fetchPages, probeHealth, searchWeb } from './web-client.js'
 import { codeAgentDevWebTools, devWebEnabled, parseDevWebCommand, resolveSynapApiUrl } from './code-agent/dev-web-hook.js'
 import { checkAnswer, filterParagraphs, scoreText, toolArgsFromUser } from './injection.js'
 import { commitInstall, readInstalled, removePack } from './pack-install.js'
-import { downloadFile, fetchCatalog, shouldSync, type RemotePack } from './pack-sync.js'
+import { canSwapPack, downloadFile, fetchPackUpdates, PACK_AUTO_SYNC_MS, packAutoSyncAllowed, shouldSync, type RemotePack } from './pack-sync.js'
 import { verifyPack } from './pack-verify.js'
 import { trustedPackKeys } from './pack-keys.js'
 import {
@@ -1215,7 +1215,7 @@ export async function createServices(): Promise<Services> {
   }
 
   watchNetwork()
-  const syncTimer = setInterval(() => { void syncPacks(false).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message)) }, 15 * 60 * 1000)
+  const syncTimer = setInterval(() => { void syncPacks(false).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message)) }, PACK_AUTO_SYNC_MS)
   syncTimer.unref?.()
   setTimeout(() => { void syncPacks(false).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message)) }, 4000)
   const licenceTimer = setInterval(() => { void licences.refreshSilent() }, 6 * 60 * 60 * 1000)
@@ -1262,7 +1262,7 @@ export async function createServices(): Promise<Services> {
     packState.set(pack.id, { progress: 0, error: null })
     try {
       for (let i = 0; i < files.length; i++) {
-        if (inflight.size > 0) {
+        if (!canSwapPack(inflight.size > 0)) {
           await rm(staging, { recursive: true, force: true })
           packState.set(pack.id, { progress: null, error: null })
           return
@@ -1279,6 +1279,11 @@ export async function createServices(): Promise<Services> {
         expectedEmbedding: EMBEDDINGGEMMA2_256,
         installedVersion: previous ?? undefined,
       })
+      if (!canSwapPack(inflight.size > 0)) {
+        await rm(staging, { recursive: true, force: true })
+        packState.set(pack.id, { progress: null, error: null })
+        return
+      }
       await commitInstall(staging, packsRoot(), manifest, pack.title || manifest.pack_id)
       packState.set(pack.id, { progress: null, error: null })
     } catch (error) {
@@ -1289,8 +1294,9 @@ export async function createServices(): Promise<Services> {
   }
 
   async function syncPacks(force: boolean): Promise<void> {
-    if (!(await licences.allowsUse())) {
-      if (force) throw new Error('Activate Synap.surf before syncing knowledge packs.')
+    const licence = await licences.status()
+    if (!packAutoSyncAllowed({ state: licence.state, features: licence.features })) {
+      if (force) throw new Error('Knowledge pack updates are included with an active subscription.')
       return
     }
     if (syncing) return
@@ -1300,7 +1306,7 @@ export async function createServices(): Promise<Services> {
     const allowed = shouldSync({
       now: Date.now(),
       lastSyncAt: lastSyncAt,
-      intervalMs: Math.max(1, settings.packSyncHours) * 60 * 60 * 1000,
+      intervalMs: PACK_AUTO_SYNC_MS,
       online,
       signedIn: Boolean(session),
       chatBusy: inflight.size > 0,
@@ -1320,7 +1326,8 @@ export async function createServices(): Promise<Services> {
       const token = await freshAccess({ base: apiBase(settings), offlineOnly: settings.offlineOnly })
       if (!token) throw new Error('Sign in to sync knowledge packs.')
       const installed = await readInstalled(packsRoot())
-      catalogCache = await fetchCatalog(apiBase(settings), token, installed.map((row) => `${row.id}@${row.version}`).join(','))
+      const updates = await fetchPackUpdates(apiBase(settings), token, installed.map((row) => `${row.id}@${row.version}`).join(','))
+      catalogCache = updates.packs
       for (const pack of catalogCache) {
         if (inflight.size > 0) return
         const local = installed.find((row) => row.id === pack.id)

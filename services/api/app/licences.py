@@ -23,7 +23,7 @@ from nacl.signing import SigningKey, VerifyKey
 ENV = os.environ
 KEY_RE = re.compile(r"[A-Z2-9]{16}")
 OS_NAMES = {"macos", "windows", "linux"}
-PRO_FEATURES = ["chat", "packs"]
+PRO_FEATURES = ["chat", "packs", "pack_updates"]
 TERM_MONTHS = (1, 3, 6, 12)
 
 

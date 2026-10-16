@@ -41,7 +41,7 @@ import {
   type LiveModel,
   type StepRoute,
 } from './live/policy.js'
-import { assertInsideAppData, buildStorageReport, removeInside, treeBytes, type StorageCategory } from './live/storage.js'
+import { assertInsideAppData, buildStorageReport, includeScreenshotCache, removeInside, treeBytes, type StorageCategory } from './live/storage.js'
 import { workspaceFacts } from './code-agent/plan.js'
 import { readCheckpointDir, restoreAll, restoreCheckpoint, writeCheckpointDir, type Checkpoint } from './code-agent/checkpoint.js'
 import { detectAllowlist, mergeAllowlist } from './code-agent/checks.js'
@@ -70,6 +70,8 @@ import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, save
 import { SEARCH_CACHE_MIGRATION, clearSearchCache, searchCacheStats } from './search/cache.js'
 import { QUOTE_CACHE_MIGRATION, clearQuoteCache, quoteCacheStats } from './search/quotes.js'
 import { cleanAccent, cleanAnimate, cleanDensity, cleanMascotName } from './appearance.js'
+import { blocksNetwork, cleanNetworkMode, resolveNetworkMode, syncChip, withLocalOnlyNote, type NetworkMode } from './network-mode.js'
+import { nextReplyVersions } from './reply-versions.js'
 import { benchmarkFor, readBenchmarkFile, tokensPerSec, upsertBenchmark, writeBenchmarkFile, type BenchmarkRow } from './benchmark-store.js'
 import type { BenchmarkResult } from './ipc-contract.js'
 import { ensureCitationMarkers, withPackVersions } from './search/citations.js'
@@ -200,6 +202,7 @@ const DEFAULT_SETTINGS: Settings = {
   accent: 'orange',
   density: 'comfortable',
   animateMascot: true,
+  networkMode: 'auto',
 }
 
 export async function createServices(): Promise<Services> {
@@ -229,6 +232,8 @@ export async function createServices(): Promise<Services> {
   let osOnline = isOnline()
   let catalogCache: RemotePack[] = []
   let syncing = false
+  let syncFailed = false
+  let syncingVersion: string | null = null
   let lastSyncAt = readStamp(join(app.getPath('userData'), 'pack-sync.json'))
   const packState = new Map<string, { progress: number | null; error: string | null }>()
   let stableOnline = osOnline
@@ -275,13 +280,16 @@ export async function createServices(): Promise<Services> {
       merged.accent = cleanAccent(raw.accent)
       merged.density = cleanDensity(raw.density)
       merged.animateMascot = cleanAnimate(raw.animateMascot, true)
+      merged.networkMode = cleanNetworkMode(raw.networkMode, raw.offlineOnly === true)
+      merged.offlineOnly = blocksNetwork(merged.networkMode, stableOnline)
       if (!explicitTab) merged.tabSuggestions = tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam(merged.codeModelId))
       offlineOnly = merged.offlineOnly
       if (raw.theme === 'system') writeSettings(merged)
       return merged
     } catch {
-      offlineOnly = DEFAULT_SETTINGS.offlineOnly
-      return { ...DEFAULT_SETTINGS, tabSuggestions: tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam('')) }
+      const mode: NetworkMode = 'auto'
+      offlineOnly = blocksNetwork(mode, stableOnline)
+      return { ...DEFAULT_SETTINGS, networkMode: mode, offlineOnly, tabSuggestions: tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam('')) }
     }
   }
 
@@ -417,6 +425,7 @@ export async function createServices(): Promise<Services> {
         const row = benchmarkFor(loadBenchmarks(), model.id, model.size_bytes)
         return row ? [{ modelId: row.modelId, tokensPerSec: row.tokensPerSec, measuredAt: row.measuredAt, sizeBytes: row.sizeBytes }] : []
       }),
+      sync: await syncChipNow(settings.networkMode),
     }
   }
 
@@ -861,7 +870,7 @@ export async function createServices(): Promise<Services> {
         counter = live
       } catch { /* the heuristic counter stays inside the same budget */ }
       const rules = loadSystemRulesSync(root, bundledSystemRulesPath(app.isPackaged, process.resourcesPath, app.getAppPath()))
-      const prior = store.open(conversationId).messages.filter((m) => m.id !== userMessageId)
+      const prior = priorMessages(conversationId, userMessageId, messageId)
       const history: { user: string; assistant: string }[] = []
       for (let i = 0; i < prior.length; i++) {
         const next = prior[i + 1]
@@ -1201,7 +1210,7 @@ export async function createServices(): Promise<Services> {
         for (const db of opened) db.close()
       }
 
-      const priorForRoute = store.open(conversationId).messages.filter((m) => m.id !== userMessageId)
+      const priorForRoute = priorMessages(conversationId, userMessageId, messageId)
       const localHits: LocalHit[] = hits.map((hit) => localFromHit(hit, versions))
       localHits.push(...historyHits(priorForRoute, text))
       if (store.db && classifyIntent(text) === 'legal') localHits.push(...sectionChunks(store.db, text, scopeId))
@@ -1370,7 +1379,7 @@ export async function createServices(): Promise<Services> {
         decision = 'answer'
       }
 
-      const prior = store.open(conversationId).messages.filter((m) => m.id !== userMessageId)
+      const prior = priorMessages(conversationId, userMessageId, messageId)
       const history: Turn[] = []
       for (let i = 0; i < prior.length; i++) {
         const next = prior[i + 1]
@@ -1553,9 +1562,16 @@ export async function createServices(): Promise<Services> {
     })
   }
 
+  function priorMessages(conversationId: string, userMessageId: string, messageId: string): StoredMessage[] {
+    return store.open(conversationId).messages.filter((message) => message.id !== userMessageId && message.id !== messageId)
+  }
+
   function finish(conversationId: string, messageId: string, _userMessageId: string, win: BrowserWindow, text: string, sources: StoredMessage['sources'], gate: GateName, replaceText = false, budget?: Extract<ChatEvent, { type: 'done' }>['budget']): void {
-    store.append(conversationId, { id: randomUUID(), role: 'assistant', text, sources, gate })
-    sendEvent(win, { type: 'done', messageId, gate, text: replaceText ? text : undefined, ...(surfEnv('EVAL') && budget ? { budget } : {}) })
+    const shown = withLocalOnlyNote(text, readSettings().offlineOnly)
+    const existing = store.readMessage(messageId)
+    const versions = nextReplyVersions(existing?.versions ?? [], existing?.text ?? '', shown)
+    store.saveReply(conversationId, { id: messageId, role: 'assistant', text: shown, sources, gate, versions })
+    sendEvent(win, { type: 'done', messageId, gate, text: replaceText || shown !== text ? shown : undefined, ...(surfEnv('EVAL') && budget ? { budget } : {}) })
   }
 
   readSettings()
@@ -1642,6 +1658,30 @@ export async function createServices(): Promise<Services> {
     chat: {
       async send(req, win) {
         if (!(await licences.allowsUse())) throw new Error('Activate Synap.surf before using the app.')
+        if (req.replaceMessageId) {
+          if (inflight.size > 0) throw new Error('Wait until the current reply finishes.')
+          const existing = store.readMessage(req.replaceMessageId)
+          if (!existing || existing.role !== 'assistant') throw new Error('That reply is not in this chat.')
+          const conversationId = existing.conversationId
+          const opened = store.open(conversationId).messages
+          const index = opened.findIndex((message) => message.id === req.replaceMessageId)
+          let userMessageId = ''
+          for (let i = index - 1; i >= 0; i--) {
+            if (opened[i]?.role === 'user') { userMessageId = opened[i].id; break }
+          }
+          ui = win
+          const ac = new AbortController()
+          const messageId = req.replaceMessageId
+          inflight.set(messageId, ac)
+          void reply(req, conversationId, messageId, userMessageId, win, ac.signal)
+            .catch((e: unknown) => {
+              if (ac.signal.aborted) return
+              const smallerModelId = e instanceof ModelLoadError ? e.smallerModelId ?? undefined : undefined
+              sendEvent(win, { type: 'error', messageId, message: (e as Error).message, ...(smallerModelId ? { smallerModelId } : {}) })
+            })
+            .finally(() => inflight.delete(messageId))
+          return { conversationId, messageId }
+        }
         const messageId = randomUUID()
         const userMessageId = randomUUID()
         const conversationId = store.ensure(req.conversationId, req.text, req.agentId)
@@ -1741,6 +1781,8 @@ export async function createServices(): Promise<Services> {
         next.accent = cleanAccent(next.accent)
         next.density = cleanDensity(next.density)
         next.animateMascot = cleanAnimate(next.animateMascot, true)
+        next.networkMode = resolveNetworkMode(current.networkMode, p)
+        next.offlineOnly = blocksNetwork(next.networkMode, stableOnline)
         if (next.codeAgentMode === 'auto' && !next.codeAgentAutoConfirmed) next.codeAgentMode = 'ask'
         writeSettings(next)
         if (p.keepWarm === false) maybeUnload()
@@ -1750,7 +1792,7 @@ export async function createServices(): Promise<Services> {
         if (next.offlineOnly) {
           apiReachable = false
           checking = false
-        } else if (p.offlineOnly === false || p.apiBaseUrl) {
+        } else if (p.networkMode !== undefined || p.offlineOnly === false || p.apiBaseUrl) {
           checking = true
           void probeApi()
         }
@@ -1921,6 +1963,7 @@ export async function createServices(): Promise<Services> {
           filters: [{ name: 'Image', extensions: [ext] }],
         })
         if (picked.canceled || !picked.filePath) return { saved: false }
+        // The user's chosen path is their file. It is not copied into the app cache.
         writeFileSync(picked.filePath, bytes)
         return { saved: true }
       },
@@ -1937,6 +1980,24 @@ export async function createServices(): Promise<Services> {
     },
     lifecycle: { releaseWindow },
   }
+  async function syncChipNow(mode: NetworkMode) {
+    const rows = await readInstalled(packsRoot()).catch(() => [])
+    const packVersion = rows.map((row) => row.version).find((version) => Boolean(version)) ?? null
+    let refreshBy: string | null = null
+    try { refreshBy = (await licences.status()).refreshBy } catch { refreshBy = null }
+    return syncChip({
+      mode,
+      osOnline: stableOnline,
+      syncing,
+      failed: syncFailed,
+      packVersion,
+      syncingVersion,
+      lastSyncAt,
+      refreshBy,
+      now: Date.now(),
+    })
+  }
+
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
     const described = describeReach({ osOnline: stableOnline, apiReachable, offlineOnly, checking: offlineOnly ? false : checking, localWeb: !searchFixtureEnabled() })
     return { online: described.online, onlineReason: described.reason }
@@ -2325,7 +2386,7 @@ export async function createServices(): Promise<Services> {
     const dir = join(root, 'screenshots')
     if (!existsSync(dir)) return []
     const items = scanFiles(dir)
-    if (!items.length) return []
+    if (!includeScreenshotCache(items.length)) return []
     return [{ id: 'shots', label: 'Saved screenshots', bytes: 0, items }]
   }
 
@@ -2501,6 +2562,7 @@ export async function createServices(): Promise<Services> {
       throw new Error('Pack sync is paused on a metered connection.')
     }
     syncing = true
+    syncingVersion = null
     try {
       const token = await freshAccess({ base: apiBase(settings), offlineOnly: settings.offlineOnly })
       if (!token) throw new Error('Sign in to sync knowledge packs.')
@@ -2516,15 +2578,23 @@ export async function createServices(): Promise<Services> {
       }
       catalogCache = updates.packs
       for (const pack of catalogCache) {
-        if (inflight.size > 0) return
+        if (inflight.size > 0 || !canSwapPack(inflight.size > 0)) return
         const local = installed.find((row) => row.id === pack.id)
         if (local && local.version === pack.latest.version) continue
+        syncingVersion = pack.latest.version
         await installRemote(pack, local?.version ?? null)
+        syncingVersion = null
       }
       lastSyncAt = Date.now()
+      syncFailed = false
       writeFileSync(join(app.getPath('userData'), 'pack-sync.json'), JSON.stringify({ at: lastSyncAt }))
+    } catch (error) {
+      syncFailed = true
+      if (force) throw error
+      console.warn('[surf] pack sync:', (error as Error).message)
     } finally {
       syncing = false
+      syncingVersion = null
     }
   }
 

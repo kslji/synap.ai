@@ -9,6 +9,7 @@ export const ChatSendReq = z.object({
   images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg', 'image/webp']), base64: z.string().max(14_000_000) })).max(4).default([]),
   allowWeb: z.boolean().default(false),
   docScope: z.enum(['chat', 'all']).default('chat'),
+  replaceMessageId: z.string().uuid().optional(),
 })
 
 export const SettingsPatch = z.object({
@@ -35,6 +36,7 @@ export const SettingsPatch = z.object({
   accent: z.enum(['orange', 'blue', 'indigo', 'navy']).optional(),
   density: z.enum(['compact', 'comfortable', 'relaxed']).optional(),
   animateMascot: z.boolean().optional(),
+  networkMode: z.enum(['offline', 'online', 'auto']).optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)

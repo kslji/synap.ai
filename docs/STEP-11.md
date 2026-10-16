@@ -6,7 +6,8 @@ Desktop version **0.2.0**.
 
 - Chat, settings, usage, and cache use the light and dark card layout. Accent and density are settings. The theme is still only light or dark.
 - Reply actions under an answer: Copy, thumbs up, thumbs down, Read aloud (the operating system voice), Regenerate, and More. Thumbs stay in the open window. They are not stored or uploaded. There is no Share action.
-- Regenerate keeps the earlier answer text on that reply in the open window. The new answer is also saved as the next turn in chat history.
+- Regenerate stores the new answer as another version of the same assistant reply. The switcher is ‹ 1/2 ›. It does not add a user turn. Reopening the chat loads those versions.
+- Network mode is Offline, Online, or Auto. Auto is the default. It is changed only in Settings. Offline makes no network calls, and the answer says it stayed on this computer. Online allows web search and pack sync. Auto follows the connection. A sidebar chip shows Up to date, Syncing pack v…, Sync failed, will retry, or Offline, plus the current mode. The tooltip has the pack version and the last sync time. Pack sync stays in the background and swaps a pack only between messages. There is no popup during a chat. Offline mode warns in Settings and in that tooltip when the licence refresh date is near or past.
 - Surf Bot is the mascot name. A person can rename it on this computer. Motion is original CSS on the existing star drawing. It is silent. There is no mute control.
 - Usage counts come from the local log: requests, tokens, model, agent, and day. Export is a CSV of those rows. There is no cost column.
 - Cache shows on-disk sizes for models, packs, indexes, chats, saved web, search cache, quote cache, and logs. A bar is drawn only when a category has bytes. Screenshots appear only when files exist in the app data `screenshots` folder. Prompt cache is RAM from the llama.cpp setting, not a file.
@@ -19,7 +20,7 @@ Desktop version **0.2.0**.
 - Cloud spillover, cloud fallback, weekly compute quota, plan names, and prices.
 - Tokens per second, engine version, config id, Metal graph, connected-app counts, telemetry throughput, and an air-gap badge.
 - System theme. The product theme is light or dark.
-- Screenshot files the person saved somewhere else with the save dialog. Those paths are not in app data.
+- Screenshot files the person saved somewhere else with the save dialog. Those paths are not in app data, and they are not added to the cache.
 
 ## Animations
 

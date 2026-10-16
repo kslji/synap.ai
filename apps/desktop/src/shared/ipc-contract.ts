@@ -85,6 +85,8 @@ export interface ChatSendReq {
   images?: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }[]
   allowWeb?: boolean
   docScope?: DocScope
+  /** When set, the new answer is another version of this assistant reply. No new user turn is stored. */
+  replaceMessageId?: string
 }
 
 export type ThemeChoice = 'light' | 'dark'
@@ -128,6 +130,8 @@ export interface SettingsPatch {
   density?: 'compact' | 'comfortable' | 'relaxed'
   /** CSS motion for the mascot. There is no audio. */
   animateMascot?: boolean
+  /** Offline blocks every network call. Online allows web and pack sync. Auto follows the connection. */
+  networkMode?: 'offline' | 'online' | 'auto'
 }
 
 /** Shown before Auto mode is allowed to write or run commands. */
@@ -407,6 +411,20 @@ export interface ModelStatus {
   promptCacheMiB?: number
   freeRamGb?: number
   benchmarks?: { modelId: string; tokensPerSec: number; measuredAt: number; sizeBytes: number }[]
+  /** Background pack sync. Absent only on a stub that did not build it. */
+  sync?: SyncChip
+}
+
+export interface SyncChip {
+  label: string
+  state: 'uptodate' | 'syncing' | 'failed' | 'offline'
+  mode: 'offline' | 'online' | 'auto'
+  modeLabel: 'Offline' | 'Online' | 'Auto'
+  packVersion: string | null
+  lastSyncAt: number | null
+  tooltip: string
+  detail: string
+  refreshWarning: string | null
 }
 
 export interface BenchmarkResult {
@@ -611,6 +629,8 @@ export interface StoredMessage {
   text: string
   sources: Citation[]
   gate?: GateName
+  /** Every sibling text of this reply, including the current one. Empty on older rows. */
+  versions?: string[]
 }
 
 export interface ModelEvent {

@@ -3,7 +3,7 @@ import { StarSurf, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
-import type { ConversationSummary } from '../../../shared/ipc-contract'
+import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
 const NAV: { id: View; label: string }[] = [
@@ -33,6 +33,7 @@ export function Sidebar({
   onOpen,
   onDelete,
   onAgent,
+  sync,
 }: {
   view: View
   conversations: ConversationSummary[]
@@ -50,6 +51,7 @@ export function Sidebar({
   onOpen: (id: string) => void
   onDelete: (id: string) => void
   onAgent: (id: string) => void
+  sync?: SyncChip
 }) {
   const [query, setQuery] = useState('')
   const [name, setName] = useState(mascotName)
@@ -58,7 +60,7 @@ export function Sidebar({
   const mine = conversations.filter((chat) => chat.agentId === agentId && (!needle || chat.title.toLowerCase().includes(needle)))
   const current = agents.find((agent) => agent.id === agentId)
   return (
-    <aside className="flex h-full w-[248px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
+    <aside className="flex h-full min-h-0 w-[248px] shrink-0 flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
       <div className="flex items-center gap-2 px-2">
         <StarSurf state="idle" size={36} animate={animateMascot} clickable label={mascotName} />
         <div className="min-w-0">
@@ -66,7 +68,8 @@ export function Sidebar({
           <div className="text-[11px] text-[var(--muted)]">{product.name}</div>
         </div>
       </div>
-      <label className="mt-3 block px-2">
+      <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-auto">
+      <label className="block px-2">
         <span className="sr-only">Rename {mascotName}</span>
         <input
           className="field"
@@ -116,7 +119,7 @@ export function Sidebar({
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{current?.name ?? 'Chats'}</p>
         <button className="text-xs font-semibold text-[var(--accent-text)]" type="button" onClick={onNew}>New</button>
       </div>
-      <div className="mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto">
+      <div className="mt-1 flex flex-col gap-0.5">
         {mine.length === 0 && <p className="px-2 py-2 text-sm text-[var(--muted)]">No chats yet.</p>}
         {mine.map((c) => (
           <div key={c.id} className={`flex items-center rounded-xl ${c.id === activeId ? 'bg-[var(--bg-elev)]' : 'hover:bg-[var(--bg-elev)]'}`}>
@@ -129,7 +132,23 @@ export function Sidebar({
           </div>
         ))}
       </div>
-      <div className="mt-2 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
+      </div>
+      <div className="mt-2 flex shrink-0 flex-col gap-2 border-t border-[var(--line)] pt-3">
+        {sync && (
+          <p
+            className="px-1 text-[11px] leading-snug text-[var(--muted)]"
+            data-sync-chip="yes"
+            data-sync-state={sync.state}
+            data-network-mode={sync.mode}
+            data-sync-label={sync.label}
+            title={sync.tooltip}
+            data-tour="online"
+            data-tour-target={tourId === 'online' ? 'yes' : 'no'}
+          >
+            <span>{sync.label}</span>
+            {sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
+          </p>
+        )}
         <ThemeSwitch value={theme} onChange={onTheme} compact />
         <button className="btn btn-ghost" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
       </div>

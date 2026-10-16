@@ -34,7 +34,7 @@ export interface UiMsg {
   startedAt?: number
   elapsedMs?: number | null
   modelId?: string
-  /** Earlier answers for this reply. Kept in the open window only. */
+  /** Earlier sibling answers for this reply. The latest text is `text`. */
   versions?: string[]
 }
 

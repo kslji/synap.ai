@@ -158,12 +158,29 @@ export function SettingsScreen({
           <StoragePanel />
         </Group>
         <Group title="Privacy and permissions">
-        <Row
-          title="Offline only"
-          body="No network calls for answers, downloads, or update checks."
-          on={settings.offlineOnly}
-          onToggle={() => onPatch({ offlineOnly: !settings.offlineOnly })}
-        />
+        <div className="card px-4 py-4" data-network-settings="yes">
+          <div className="text-sm font-semibold">Network</div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+            Offline answers from this computer only. It does not search the web, sync packs, or fetch quotes. Online allows those. Auto follows the connection. This is the only place that changes it.
+          </p>
+          <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Network mode">
+            {(['offline', 'online', 'auto'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={settings.networkMode === mode}
+                data-network-mode={mode}
+                className={settings.networkMode === mode ? 'btn btn-primary' : 'btn btn-ghost'}
+                onClick={() => onPatch({ networkMode: mode })}
+              >
+                {mode === 'offline' ? 'Offline' : mode === 'online' ? 'Online' : 'Auto'}
+              </button>
+            ))}
+          </div>
+          {status.sync && <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]" data-sync-detail="yes">{status.sync.detail}</p>}
+          {status.sync?.refreshWarning && <p className="mt-2 text-sm leading-relaxed" data-licence-refresh="yes">{status.sync.refreshWarning}</p>}
+        </div>
         <Row
           title="Allow web search"
           body="Search runs on this computer. No API key. When you are online and local sources are thin, this laptop asks official public sources. Documents stay here."

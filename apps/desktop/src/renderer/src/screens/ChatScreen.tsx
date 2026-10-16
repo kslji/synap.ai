@@ -37,14 +37,12 @@ export function ChatScreen({
   chatModelId,
   modelGuide = false,
   tourAttach,
-  tourOnline,
   onSend,
   shots = [],
   onAddShots,
   onRemoveShot,
   onSaveShot,
   onCaptureShot,
-  onToggleOffline,
   onToggleChatWeb,
   onAttach,
   onPick,
@@ -83,14 +81,12 @@ export function ChatScreen({
   chatModelId: string
   modelGuide?: boolean
   tourAttach: boolean
-  tourOnline: boolean
   onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[]) => void
   shots?: CodeShot[]
   onAddShots?: (files: File[]) => void
   onRemoveShot?: (id: string) => void
   onSaveShot?: (id: string) => void
   onCaptureShot?: () => void
-  onToggleOffline: () => void
   onToggleChatWeb: () => void
   onAttach: (paths: string[]) => void
   onPick: () => void
@@ -259,20 +255,6 @@ export function ChatScreen({
               </div>
               <button
                 type="button"
-                className="toggle"
-                data-offline-toggle="yes"
-                data-on={status.offlineOnly ? 'yes' : 'no'}
-                data-tour="online"
-                data-tour-target={tourOnline ? 'yes' : 'no'}
-                aria-pressed={status.offlineOnly}
-                aria-label={status.offlineOnly ? 'Offline' : 'Online'}
-                onClick={onToggleOffline}
-              >
-                <span />
-              </button>
-              <span className="text-xs text-[var(--muted)]">{status.offlineOnly ? 'Offline' : 'Online'}</span>
-              <button
-                type="button"
                 className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb && !status.offlineOnly ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
                 data-chat-web={webSearchAllowed && chatWeb && !status.offlineOnly ? 'yes' : 'no'}
                 aria-pressed={webSearchAllowed && chatWeb && !status.offlineOnly}
@@ -367,7 +349,7 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
   const shown = showingOld ? history[versionAt] ?? msg.text : msg.text
   if (msg.role === 'user') {
     return (
-      <div className="flex justify-end">
+      <div className="flex justify-end" data-user-message="yes">
         <div className="max-w-[80%] rounded-[var(--radius)] bg-[var(--bubble-user)] px-4 py-3 text-[15px] leading-relaxed text-[var(--bubble-user-ink)]">{msg.text}</div>
       </div>
     )
@@ -503,9 +485,9 @@ function ReplyBar({
       <button type="button" className="btn btn-ghost" data-reply-more="yes" aria-expanded={more} onClick={() => setMore((open) => !open)}>More</button>
       {versionCount > 1 && (
         <span className="text-xs text-[var(--muted)]" data-reply-versions="yes">
-          <button type="button" className="btn btn-ghost" disabled={versionAt <= 0} onClick={() => onVersion(versionAt - 1)}>Previous</button>
+          <button type="button" className="btn btn-ghost" aria-label="Previous version" disabled={versionAt <= 0} onClick={() => onVersion(versionAt - 1)}>‹</button>
           {versionAt + 1}/{versionCount}
-          <button type="button" className="btn btn-ghost" disabled={versionAt >= versionCount - 1} onClick={() => onVersion(versionAt + 1)}>Next</button>
+          <button type="button" className="btn btn-ghost" aria-label="Next version" disabled={versionAt >= versionCount - 1} onClick={() => onVersion(versionAt + 1)}>›</button>
         </span>
       )}
       {note && <span className="text-xs text-[var(--muted)]" data-reply-note="yes">{note}</span>}

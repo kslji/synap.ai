@@ -220,7 +220,7 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false, mascotName: 'Surf Bot', accent: 'orange' as const, density: 'comfortable' as const, animateMascot: false }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, networkMode: 'offline' as const, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false, mascotName: 'Surf Bot', accent: 'orange' as const, density: 'comfortable' as const, animateMascot: false }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)
@@ -318,14 +318,16 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await demo('packcite', 'packcite')
     await demo('savedweb', 'savedweb')
     await demo('update', 'update')
-    const offlineBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.getAttribute('data-on') || ''`)
-    if (offlineBefore !== 'yes') {
-      await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
+    await go('settings')
+    const modeBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-sync-chip]')?.getAttribute('data-network-mode') || ''`)
+    if (modeBefore !== 'offline') {
+      await win.webContents.executeJavaScript(`document.querySelector('[data-network-settings] [data-network-mode="offline"]')?.click()`)
       await sleep(700)
     }
     await demo('refusal', 'refusal')
-    if (offlineBefore !== 'yes') {
-      await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
+    if (modeBefore && modeBefore !== 'offline') {
+      await go('settings')
+      await win.webContents.executeJavaScript(`document.querySelector('[data-network-settings] [data-network-mode=${JSON.stringify(modeBefore)}]')?.click()`)
       await sleep(400)
     }
   }

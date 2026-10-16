@@ -1,12 +1,6 @@
 /**
- * Stretch: describe a photo with Qwen3.5's mmproj through llama-server.
- *
- * The projector is a separate GGUF (about 670 MB for the 2B model) listed on the
- * chat entry in models.registry.json. It is not downloaded with the chat weights:
- * OCR already indexes images, and loading the projector costs a lot of RAM.
- *
- * TODO: a Models row that downloads mmproj and a "Describe image" button that calls
- * captionImage. Until that file is on disk, ingest uses tesseract.js only.
+ * Optional image caption for an ingested photo when a projector file is already on disk.
+ * Code-agent screenshots use vision/service.ts instead. General chat does not send images.
  */
 import { existsSync } from 'node:fs'
 import type { LlamaClient } from './llama-client.js'

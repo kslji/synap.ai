@@ -2,9 +2,9 @@
  * App services: hardware, model registry, chat, and the document index.
  * One llama-server at a time (chat or embeddings). Indexing never blocks the chat IPC.
  * TODO(Day 5): signed pack import. TODO(Day 6): niche agents.
- * TODO: download Qwen3.5 mmproj and expose "Describe image" (vision.ts). OCR is the image path for now.
+ * Code-agent screenshots use vision/service.ts. General chat does not read images.
  */
-import { app, BrowserWindow, net, dialog, shell } from 'electron'
+import { app, BrowserWindow, desktopCapturer, dialog, net, shell, systemPreferences } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -78,6 +78,12 @@ import { mimeForName, readAttachment } from './convert.js'
 import { addBytes, countsFor, deleteAttachment, listFiles, markCancelled, previewAttachment, previewChunk, retryJob } from './library-store.js'
 import { searchUser, type UserHit } from './user-search.js'
 import { captionImage, mmprojReady } from './vision.js'
+import { recognizeImage } from './ocr.js'
+import { captureAfterConsent, memoryShot, saveAllowed, type OsScreenPermission } from './vision/capture.js'
+import { qwenVisionOffer, screenshotStorageLabel, visionOfferMessage } from './vision/offer.js'
+import { sniffImage } from './vision/preprocess.js'
+import { nextVisionAttempt, runtimeSupportsMmproj, visionLoadDecision } from './vision/runtime.js'
+import { prepareCodeVision } from './vision/service.js'
 import { chunkBlocks } from './chunker.js'
 import { describeReach } from './reach.js'
 import { fetchPages, probeHealth, searchWeb } from './web-client.js'
@@ -190,6 +196,9 @@ export async function createServices(): Promise<Services> {
   let draftRuntime = false
   let draftRuntimeKnown = false
   let draftBlocked = false
+  let mmprojBlocked = false
+  let mmprojRuntimeKnown = false
+  let mmprojRuntime = false
   let idleTimer: ReturnType<typeof setInterval> | null = null
   const metrics = new MetricsLog(join(app.getPath('userData'), 'usage.json'), join(app.getPath('userData'), 'logs', 'live.log'))
   let modelTail: Promise<void> = Promise.resolve()
@@ -299,6 +308,16 @@ export async function createServices(): Promise<Services> {
       note: m.note,
       visionBytes: m.mmproj?.size_bytes ?? null,
       visionInstalled: m.mmproj ? await installed(mmprojDestName(m.id, m.mmproj.file), m.mmproj.size_bytes) : false,
+      visionOffer: qwenVisionOffer({
+        family: m.family,
+        agents: m.agents ?? [],
+        installed: await installed(m.file, m.size_bytes),
+        totalRamGb: hw.totalRamGb,
+        modelSizeBytes: m.size_bytes,
+        mmprojSizeBytes: m.mmproj?.size_bytes ?? 0,
+        minRamGb: m.min_ram_gb,
+        hasMmproj: Boolean(m.mmproj),
+      }).offer,
       fitMark: m.agents?.includes('code')
         ? codeFitMark({ family: m.family, minRamGb: m.min_ram_gb, defaultFor: m.default_for }, hw.totalRamGb)
         : null,
@@ -387,32 +406,32 @@ export async function createServices(): Promise<Services> {
     }
     await stopActive()
     const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
-    let usedDraft = draftPath
-    let server = new LlamaServer(serverOptions(bin, model, ctx, mmproj, role, cacheRamMiB, usedDraft))
     sidecars[role] = 'starting'
     const watch = (current: LlamaServer) => {
       current.on('state', (st: SidecarState) => { sidecars[role] = st === 'starting' || st === 'ready' || st === 'crashed' || st === 'stopped' ? st : 'stopped' })
     }
-    watch(server)
-    try {
-      await server.start()
-    } catch (error) {
-      if (usedDraft) {
-        draftBlocked = true
+    let attempt: { mmproj: string; draft: string } | null = { mmproj, draft: draftPath }
+    let server: LlamaServer | null = null
+    let lastError: unknown = null
+    while (attempt) {
+      const current = attempt
+      server = new LlamaServer(serverOptions(bin, model, ctx, current.mmproj, role, cacheRamMiB, current.draft))
+      watch(server)
+      try {
+        await server.start()
+        lastError = null
+        active = { role, modelId: model.id, mmproj: current.mmproj, draft: current.draft, cache: cacheRamMiB, server }
+        attempt = null
+      } catch (error) {
+        lastError = error
         await server.stop().catch(() => undefined)
-        usedDraft = ''
-        server = new LlamaServer(serverOptions(bin, model, ctx, mmproj, role, cacheRamMiB, ''))
-        watch(server)
-        try {
-          await server.start()
-        } catch (again) {
-          throw loadError(again, role, model.id, agentId)
-        }
-      } else {
-        throw loadError(error, role, model.id, agentId)
+        const next = nextVisionAttempt(current)
+        if (current.draft && next && !next.draft) draftBlocked = true
+        if (current.mmproj && next && !next.mmproj) mmprojBlocked = true
+        attempt = next
       }
     }
-    active = { role, modelId: model.id, mmproj, draft: usedDraft, cache: cacheRamMiB, server }
+    if (!server || lastError || !active) throw loadError(lastError ?? new Error('llama-server did not start'), role, model.id, agentId)
     sidecars[role] = 'ready'
     touchModel()
     return server
@@ -434,6 +453,19 @@ export async function createServices(): Promise<Services> {
     const model = registry().models.find((m) => m.id === lookupId)
     if (!model) throw new Error('Unknown model.')
     if (vision && !model.mmproj) throw new Error('This model has no screenshot add-on.')
+    if (vision && model.mmproj) {
+      const decision = qwenVisionOffer({
+        family: model.family,
+        agents: model.agents ?? [],
+        installed: await installed(model.file, model.size_bytes),
+        totalRamGb: hw.totalRamGb,
+        modelSizeBytes: model.size_bytes,
+        mmprojSizeBytes: model.mmproj.size_bytes,
+        minRamGb: model.min_ram_gb,
+        hasMmproj: true,
+      })
+      if (!decision.offer) throw new Error(visionOfferMessage(decision.reason))
+    }
     if (model.role === 'asr') throw new Error('Speech models land in week 2.')
     const file = vision && model.mmproj ? model.mmproj : model
     const destName = vision && model.mmproj ? mmprojDestName(model.id, model.mmproj.file) : model.file
@@ -734,10 +766,48 @@ export async function createServices(): Promise<Services> {
       }
       const liveModels = liveModelList(reg)
       const pair = selectRoutePair({ totalRamGb: hw.totalRamGb, models: liveModels, installed: installedIds })
+      let task = req.text
+      if (req.images.length) {
+        const buffers = req.images.map((image) => Buffer.from(image.base64, 'base64')).filter((buf) => buf.length >= 16)
+        if (!buffers.length) throw new Error('That screenshot could not be read.')
+        const mmprojPath = await codeMmprojPath(chatModel)
+        const prepared = await prepareCodeVision({
+          userText: req.text,
+          images: buffers,
+          mmprojAvailable: Boolean(mmprojPath),
+          family: chatModel.family,
+          ocr: (bytes) => recognizeImage(bytes, tessdataPath(), join(app.getPath('userData'), 'tess-cache')),
+          describe: mmprojPath ? async (images, prompt) => {
+            const visionServer = await ensure('chat', chatModel, profile.serverCtx, mmprojPath, 'code')
+            if (!active || active.mmproj !== mmprojPath) return ''
+            const client = new LlamaClient({
+              baseUrl: visionServer.baseUrl,
+              apiKey: visionServer.apiKey,
+              sampling: chatSampling(chatModel),
+              chatTemplateKwargs: chatModel.chat_template_kwargs,
+            })
+            const res = await client.chat([{
+              role: 'user',
+              content: [
+                ...images.map((image) => ({ type: 'image_url' as const, image_url: { url: `data:${image.mime};base64,${image.bytes.toString('base64')}` } })),
+                { type: 'text' as const, text: prompt },
+              ],
+            }], undefined, signal, 320)
+            return String(res.choices[0]?.message?.content ?? '')
+          } : undefined,
+        })
+        console.info(`[surf] code vision use=${prepared.use} images=${buffers.length}`)
+        if (prepared.answerOnly) {
+          await emitText(win, messageId, prepared.answerOnly)
+          finish(conversationId, messageId, userMessageId, win, prepared.answerOnly, [], 'answer')
+          return
+        }
+        task = prepared.task
+      }
       let liveText = ''
       let result
       try {
-      result = await runSplitTask(req.text, {
+      result = await runSplitTask(task, {
         complete: async (request) => {
           const kind: StepRoute = request.stepKind ?? 'edit'
           const choice = routeStepModel({ kind, small: pair.small, large: pair.large, dual: pair.dual })
@@ -847,6 +917,12 @@ export async function createServices(): Promise<Services> {
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     if ((req.agentId || 'general') === 'code') {
       await replyCode(req, conversationId, messageId, userMessageId, win, signal)
+      return
+    }
+    if (req.images.length) {
+      const message = 'Screenshots are for the Code agent. General chat does not read images.'
+      await emitText(win, messageId, message)
+      finish(conversationId, messageId, userMessageId, win, message, [], 'answer')
       return
     }
     const settings = readSettings()
@@ -1530,6 +1606,33 @@ export async function createServices(): Promise<Services> {
       read: async (path) => completionRuntime!.read(path),
       save: async (path, text) => completionRuntime!.save(path, text),
     },
+    codeVision: {
+      capture: async () => {
+        const png = await captureAfterConsent({
+          explicitAction: true,
+          platform: process.platform,
+          permission: readScreenPermission(),
+          requestPermission: askScreenPermission,
+          grab: grabScreenPng,
+        })
+        const held = memoryShot(png)
+        return { base64: held.bytes.toString('base64'), mime: held.mime }
+      },
+      save: async (base64, mime, win) => {
+        if (!saveAllowed(true)) throw new Error('Saving a screenshot needs an explicit action.')
+        const bytes = Buffer.from(base64, 'base64')
+        if (!sniffImage(bytes)) throw new Error('Unsupported screenshot. Use PNG, JPEG, or WebP.')
+        const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png'
+        const picked = await dialog.showSaveDialog(win, {
+          title: 'Save screenshot',
+          defaultPath: `screenshot.${ext}`,
+          filters: [{ name: 'Image', extensions: [ext] }],
+        })
+        if (picked.canceled || !picked.filePath) return { saved: false }
+        writeFileSync(picked.filePath, bytes)
+        return { saved: true }
+      },
+    },
     usage: {
       get: async () => metrics.report(),
       reset: async () => metrics.reset(),
@@ -1626,6 +1729,81 @@ export async function createServices(): Promise<Services> {
     const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
     const agent = entry.agents?.includes('code') ? 'code' : 'general'
     await withModel(() => ensure('chat', entry, profile.serverCtx, '', agent))
+  }
+
+  function readScreenPermission(): OsScreenPermission {
+    try {
+      const status = systemPreferences.getMediaAccessStatus('screen')
+      if (status === 'granted') return 'granted'
+      if (status === 'denied' || status === 'restricted') return 'denied'
+      if (status === 'not-determined') return 'prompt'
+      return 'unknown'
+    } catch {
+      return 'unknown'
+    }
+  }
+
+  function askScreenPermission(): Promise<boolean> {
+    if (process.platform !== 'darwin') return Promise.resolve(false)
+    const ask = systemPreferences.askForMediaAccess
+    if (typeof ask !== 'function') return Promise.resolve(false)
+    return ask.call(systemPreferences, 'screen' as 'camera').then((ok) => ok === true, () => false)
+  }
+
+  async function grabScreenPng(): Promise<Buffer> {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1280, height: 800 },
+      fetchWindowIcons: false,
+    })
+    const source = sources.find((item) => !item.thumbnail.isEmpty())
+    if (!source) throw new Error('Screenshot capture needs permission from the operating system.')
+    return source.thumbnail.toPNG()
+  }
+
+  async function codeMmprojPath(model: ModelEntry): Promise<string> {
+    if (mmprojBlocked || !model.mmproj || model.family !== 'qwen3.5' || !model.agents?.includes('code')) return ''
+    const ready = await installed(mmprojDestName(model.id, model.mmproj.file), model.mmproj.size_bytes)
+    const ramOk = qwenVisionOffer({
+      family: model.family,
+      agents: model.agents ?? [],
+      installed: true,
+      totalRamGb: hw.totalRamGb,
+      modelSizeBytes: model.size_bytes,
+      mmprojSizeBytes: model.mmproj.size_bytes,
+      minRamGb: model.min_ram_gb,
+      hasMmproj: true,
+    }).offer
+    const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
+    const runtime = await probeMmprojRuntime(bin)
+    const decision = visionLoadDecision({ runtimeSupports: runtime, installed: ready, ramOk, blocked: mmprojBlocked })
+    if (!decision.load) return ''
+    return join(modelsDir(), mmprojDestName(model.id, model.mmproj.file))
+  }
+
+  function probeMmprojRuntime(bin: string): Promise<boolean> {
+    if (mmprojRuntimeKnown) return Promise.resolve(mmprojRuntime)
+    mmprojRuntimeKnown = true
+    return new Promise((resolve) => {
+      execFile(bin, ['--help'], { timeout: 8000, windowsHide: true }, (_err, stdout, stderr) => {
+        mmprojRuntime = runtimeSupportsMmproj(`${stdout ?? ''}\n${stderr ?? ''}`)
+        resolve(mmprojRuntime)
+      })
+    })
+  }
+
+  function modelStorageLabel(fileName: string): string {
+    try {
+      const reg = registry()
+      return screenshotStorageLabel(fileName, reg.models.map((model) => ({
+        id: model.id,
+        label: labelFor(model),
+        file: model.file,
+        mmprojFile: model.mmproj?.file,
+      })))
+    } catch {
+      return fileName
+    }
   }
 
   async function draftPathFor(model: ModelEntry): Promise<string> {
@@ -1758,7 +1936,7 @@ export async function createServices(): Promise<Services> {
     const indexUsage = await codeApi.storage()
     const webBytes = store.db ? savedWebStats(store.db).bytes : 0
     const categories: StorageCategory[] = [
-      { id: 'models', label: 'Models', bytes: 0, items: scanFiles(modelsDir()) },
+      { id: 'models', label: 'Models', bytes: 0, items: scanFiles(modelsDir()).map((item) => ({ ...item, label: modelStorageLabel(item.id) })) },
       {
         id: 'packs',
         label: 'Knowledge packs',

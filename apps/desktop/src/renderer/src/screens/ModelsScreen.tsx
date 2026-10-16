@@ -127,6 +127,9 @@ export function ModelPanel({
       {heading === 'Code' && (
         <p className="mt-2"><ModelGuideButton /></p>
       )}
+      {heading === 'Code' && (
+        <p className="mt-2 text-sm text-[var(--muted)]">The screenshot add-on is the Qwen vision projector for the installed model size. It is not downloaded unless you ask, and only when the model and the projector fit this computer.</p>
+      )}
       {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
       <label className="mt-4 block text-sm font-semibold">
         {heading === 'Code' ? 'Code model' : 'Chat model'}
@@ -163,12 +166,12 @@ export function ModelPanel({
                   </button>
                 )}
               </div>
-              {model.visionBytes != null && (
-                <div className="mt-3 flex items-center justify-between gap-3">
+              {heading === 'Code' && model.family === 'qwen3.5' && model.visionBytes != null && (model.visionOffer || model.visionInstalled) && (
+                <div className="mt-3 flex items-center justify-between gap-3" data-vision-offer={model.visionOffer ? 'yes' : 'no'} data-vision-model={model.id}>
                   <div className="text-xs text-[var(--muted)]">Screenshot add-on · {formatModelSize(model.visionBytes)}</div>
                   {model.visionInstalled ? <span className="pill pill-ok"><i />Installed</span> : (
-                    <button className="btn btn-ghost" type="button" disabled={busyId === `${model.id}#mmproj` || status.offlineOnly} onClick={() => onDownload(`${model.id}#mmproj`)}>
-                      {busyId === `${model.id}#mmproj` ? 'Downloading' : 'Download'}
+                    <button className="btn btn-ghost" type="button" data-vision-download={model.id} disabled={busyId === `${model.id}#mmproj` || status.offlineOnly || !model.visionOffer} onClick={() => onDownload(`${model.id}#mmproj`)}>
+                      {busyId === `${model.id}#mmproj` ? `${Math.min(100, Math.round((progress[`${model.id}#mmproj`] ?? 0) * 100))}%` : 'Download'}
                     </button>
                   )}
                 </div>

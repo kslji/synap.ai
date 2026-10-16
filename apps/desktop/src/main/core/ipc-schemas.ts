@@ -1,12 +1,12 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, CodeVisionCaptureReq as CodeVisionCaptureReqT, CodeVisionSaveReq as CodeVisionSaveReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
   text: z.string().min(1).max(20_000),
   agentId: z.string().max(64).default('general'),
-  images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg']), base64: z.string().max(14_000_000) })).max(4).default([]),
+  images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg', 'image/webp']), base64: z.string().max(14_000_000) })).max(4).default([]),
   allowWeb: z.boolean().default(false),
   docScope: z.enum(['chat', 'all']).default('chat'),
 })
@@ -122,6 +122,14 @@ export const CodeAgentSetModeReq = z.object({
   mode: z.enum(['ask', 'auto']),
   confirmAuto: z.boolean().optional(),
 }).strict()
+export const CodeVisionCapture = z.object({
+  explicit: z.literal(true),
+}).strict()
+export const CodeVisionSave = z.object({
+  explicit: z.literal(true),
+  base64: z.string().min(1).max(14_000_000),
+  mime: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+}).strict()
 export const CodeCompleteReq = z.object({
   sessionId: z.string().min(1).max(80),
   path: z.string().max(4096),
@@ -153,3 +161,5 @@ export const _codeUndoCheck = (x: z.output<typeof CodeAgentUndoReq>): CodeAgentU
 export const _codeModeCheck = (x: z.output<typeof CodeAgentSetModeReq>): CodeAgentSetModeReqT => x
 export const _devWebCheck = (x: z.output<typeof DevWebRun>): DevWebRunReqT => x
 export const _codeCompleteCheck = (x: z.output<typeof CodeCompleteReq>): CodeCompleteReqT => x
+export const _codeVisionCaptureCheck = (x: z.output<typeof CodeVisionCapture>): CodeVisionCaptureReqT => x
+export const _codeVisionSaveCheck = (x: z.output<typeof CodeVisionSave>): CodeVisionSaveReqT => x

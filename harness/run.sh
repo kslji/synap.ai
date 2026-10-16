@@ -18,6 +18,7 @@ if [ "$MODE" = "host" ]; then
   "$PY" harness/evals/test_local_first.py
   "$PY" harness/evals/test_convert.py
   "$PY" harness/evals/test_eval_gate.py
+  "$PY" harness/evals/test_screenshot.py
   "$PY" harness/evals/gate.py
   "$PY" harness/evals/smoke.py
   exit 0
@@ -32,6 +33,7 @@ shift
   exit 1
 }
 "$PY" harness/evals/test_eval_gate.py
+"$PY" harness/evals/test_screenshot.py
 export SURF_MODELS_DIR="${SURF_MODELS_DIR:-$HOME/surf-models}"
 "$PY" harness/fetch_models.py
 "$PY" harness/core/run_eval.py --mode "$MODE" "$@"

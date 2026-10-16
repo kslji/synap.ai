@@ -5,6 +5,7 @@ import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { CodeModeBar, CodeTrace } from './CodeTrace'
 import { CodeEditor } from './CodeEditor'
+import { CodeShots, type CodeShot } from './CodeShots'
 import { Preview } from './LibraryScreen'
 import { ModelGuideButton } from './ModelGuide'
 
@@ -37,6 +38,11 @@ export function ChatScreen({
   tourAttach,
   tourOnline,
   onSend,
+  shots = [],
+  onAddShots,
+  onRemoveShot,
+  onSaveShot,
+  onCaptureShot,
   onToggleOffline,
   onToggleChatWeb,
   onAttach,
@@ -75,7 +81,12 @@ export function ChatScreen({
   modelGuide?: boolean
   tourAttach: boolean
   tourOnline: boolean
-  onSend: (text: string) => void
+  onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[]) => void
+  shots?: CodeShot[]
+  onAddShots?: (files: File[]) => void
+  onRemoveShot?: (id: string) => void
+  onSaveShot?: (id: string) => void
+  onCaptureShot?: () => void
   onToggleOffline: () => void
   onToggleChatWeb: () => void
   onAttach: (paths: string[]) => void
@@ -125,9 +136,10 @@ export function ChatScreen({
 
   function submit(value = text) {
     const t = value.trim()
-    if (!t || streaming) return
+    const images = shots.map((shot) => ({ mime: shot.mime, base64: shot.base64 }))
+    if (streaming || (!t && images.length === 0)) return
     setText('')
-    onSend(t)
+    onSend(t, images)
   }
 
   return (
@@ -223,7 +235,11 @@ export function ChatScreen({
           onDrop={(e) => {
             e.preventDefault()
             setOver(false)
-            const paths = [...e.dataTransfer.files].map((file) => window.surf.library.pathForFile(file)).filter(Boolean)
+            const dropped = [...e.dataTransfer.files]
+            const images = onAddShots ? dropped.filter((file) => file.type.startsWith('image/')) : []
+            const rest = dropped.filter((file) => !images.includes(file))
+            if (images.length && onAddShots) onAddShots(images)
+            const paths = rest.map((file) => window.surf.library.pathForFile(file)).filter(Boolean)
             if (paths.length) onAttach(paths)
           }}
         >
@@ -278,6 +294,9 @@ export function ChatScreen({
                 ))}
               </div>
             )}
+            {onCaptureShot && onAddShots && onRemoveShot && onSaveShot && (
+              <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} onAttach={onAddShots} onCapture={onCaptureShot} />
+            )}
             <div className="flex items-end gap-2">
               <button type="button" className="btn btn-ghost h-[52px]" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}>Attach</button>
               <textarea
@@ -287,6 +306,13 @@ export function ChatScreen({
                 value={text}
                 disabled={!chatReady}
                 onChange={(e) => setText(e.target.value)}
+                onPaste={(e) => {
+                  if (!onAddShots) return
+                  const files = [...e.clipboardData.items].map((item) => item.type.startsWith('image/') ? item.getAsFile() : null).filter((file): file is File => Boolean(file))
+                  if (!files.length) return
+                  e.preventDefault()
+                  onAddShots(files)
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
                 }}
@@ -294,7 +320,7 @@ export function ChatScreen({
               {streaming && onStop ? (
                 <button className="btn btn-ghost h-[52px] px-5" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (
-                <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || !text.trim()}>Send</button>
+                <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}>Send</button>
               )}
             </div>
           </div>

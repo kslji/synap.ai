@@ -6,6 +6,7 @@ import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
+import { readShotFile, type CodeShot } from './screens/CodeShots'
 import { AgentsScreen, ChatsScreen, HomeScreen } from './screens/HomeScreen'
 import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelsScreen } from './screens/ModelsScreen'
 import { codeModelLine, modelChoiceLabel } from '../../shared/model-label'
@@ -32,6 +33,7 @@ export default function App() {
   const [codeMode, setCodeMode] = useState<CodeAgentModeState | null>(null)
   const [tourStep, setTourStep] = useState<number | null>(null)
   const [messages, setMessages] = useState<UiMsg[]>([])
+  const [shots, setShots] = useState<CodeShot[]>([])
   const [streaming, setStreaming] = useState(false)
   const [progress, setProgress] = useState<Record<string, number>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -173,14 +175,52 @@ export default function App() {
     await refresh()
   }
 
-  async function send(text: string) {
-    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text, sources: [], tools: [] }
+  async function addShots(files: File[]) {
+    const read = (await Promise.all(files.map((file) => readShotFile(file)))).filter((shot): shot is Omit<CodeShot, 'id'> => shot !== null)
+    if (!read.length) return
+    setShots((current) => {
+      const added: CodeShot[] = read.map((shot) => ({
+        id: `shot-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name: shot.name,
+        mime: shot.mime,
+        base64: shot.base64,
+      }))
+      return current.concat(added).slice(0, 4)
+    })
+  }
+
+  async function captureShot() {
+    try {
+      const shot = await api.codeVision.capture({ explicit: true })
+      const added: CodeShot = { id: `shot-${Date.now()}`, name: 'Screenshot', mime: 'image/png', base64: shot.base64 }
+      setShots((current) => current.concat(added).slice(0, 4))
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function saveShot(id: string) {
+    const shot = shots.find((item) => item.id === id)
+    if (!shot) return
+    try {
+      await api.codeVision.save({ explicit: true, base64: shot.base64, mime: shot.mime })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function send(text: string, images: { mime: CodeShot['mime']; base64: string }[] = []) {
+    const note = images.length ? `\n[${images.length} screenshot${images.length === 1 ? '' : 's'} kept on this computer]` : ''
+    const body = `${text.trim() || (images.length ? 'Look at this screenshot.' : '')}${note}`.trim()
+    if (!body) return
+    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
     const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      const res = await api.chat.send({ conversationId, text: body, agentId, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
     } catch (e) {
@@ -194,6 +234,7 @@ export default function App() {
     const summary = conversations.find((chat) => chat.id === id)
     if (summary) setAgentId(summary.agentId)
     setConversationId(id)
+    setShots([])
     setMessages(opened.messages.map((m) => ({ ...m, tools: [] })))
     setChatWeb(true)
     setView('chat')
@@ -205,6 +246,7 @@ export default function App() {
     setAgentId(agent.id)
     setConversationId(null)
     setMessages([])
+    setShots([])
     setPreview(null)
     setChatWeb(true)
     setView('chat')
@@ -234,6 +276,7 @@ export default function App() {
     if (conversationId === id) {
       setConversationId(null)
       setMessages([])
+      setShots([])
       setPreview(null)
     }
   }
@@ -749,7 +792,12 @@ export default function App() {
           chatModelId={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.id ?? ''}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           tourOnline={tourStep != null && TOUR[tourStep]?.id === 'online'}
-          onSend={(t) => { void send(t) }}
+          onSend={(t, images) => { void send(t, images) }}
+          shots={agentId === 'code' ? shots : []}
+          onAddShots={agentId === 'code' ? (files) => { void addShots(files) } : undefined}
+          onRemoveShot={agentId === 'code' ? (id) => setShots((current) => current.filter((shot) => shot.id !== id)) : undefined}
+          onSaveShot={agentId === 'code' ? (id) => { void saveShot(id) } : undefined}
+          onCaptureShot={agentId === 'code' ? () => { void captureShot() } : undefined}
           onToggleOffline={() => { void patch({ offlineOnly: !settings.offlineOnly }) }}
           onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}

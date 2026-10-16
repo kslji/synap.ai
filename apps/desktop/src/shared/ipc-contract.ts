@@ -64,6 +64,8 @@ export const IPC = {
   codeCompleteFiles: 'code-complete:files',
   codeCompleteRead: 'code-complete:read',
   codeCompleteSave: 'code-complete:save',
+  codeVisionCapture: 'code-vision:capture',
+  codeVisionSave: 'code-vision:save',
   devWebRun: 'dev-web:run',
   usageGet: 'usage:get',
   usageReset: 'usage:reset',
@@ -78,7 +80,7 @@ export interface ChatSendReq {
   conversationId: string | null
   text: string
   agentId?: string
-  images?: { mime: 'image/png' | 'image/jpeg'; base64: string }[]
+  images?: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }[]
   allowWeb?: boolean
   docScope?: DocScope
 }
@@ -121,6 +123,25 @@ export interface SettingsPatch {
 /** Shown before Auto mode is allowed to write or run commands. */
 export const AUTO_MODE_SUMMARY =
   'Auto mode writes files inside this project and runs test, lint, typecheck, and build commands from the allowlist without asking each time. It still asks before install, network, or other commands, and before destructive operations. It does not delete files outside its own undo checkpoints. Stop ends the run and leaves undo available.'
+
+export interface CodeVisionCaptureReq {
+  explicit: true
+}
+
+export interface CodeVisionCaptureResult {
+  base64: string
+  mime: 'image/png'
+}
+
+export interface CodeVisionSaveReq {
+  explicit: true
+  base64: string
+  mime: 'image/png' | 'image/jpeg' | 'image/webp'
+}
+
+export interface CodeVisionSaveResult {
+  saved: boolean
+}
 
 export interface CodeCompleteReq {
   sessionId: string
@@ -328,6 +349,8 @@ export interface CatalogModel {
   note?: string
   visionBytes: number | null
   visionInstalled: boolean
+  /** True when this installed Qwen3.5 Code model and its mmproj fit the laptop. Nothing downloads until the user asks. */
+  visionOffer: boolean
   /** Code list only. Recommended is Qwen3.5 2B. Null on General and Assistant rows. */
   fitMark: 'recommended' | 'fits' | 'too-big' | null
 }
@@ -722,6 +745,10 @@ export interface SurfApi {
     files(): Promise<CodeEditorFile[]>
     read(path: string): Promise<CodeEditorText>
     save(path: string, text: string): Promise<{ path: string }>
+  }
+  codeVision: {
+    capture(req: CodeVisionCaptureReq): Promise<CodeVisionCaptureResult>
+    save(req: CodeVisionSaveReq): Promise<CodeVisionSaveResult>
   }
   devWeb: {
     run(req: DevWebRunReq): Promise<DevWebRunResult>

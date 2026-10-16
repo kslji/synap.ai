@@ -114,6 +114,10 @@ const api: SurfApi = {
     read: (path) => ipcRenderer.invoke(IPC.codeCompleteRead, { path }),
     save: (path, text) => ipcRenderer.invoke(IPC.codeCompleteSave, { path, text }),
   },
+  codeVision: {
+    capture: (req) => ipcRenderer.invoke(IPC.codeVisionCapture, req),
+    save: (req) => ipcRenderer.invoke(IPC.codeVisionSave, req),
+  },
 }
 
 contextBridge.exposeInMainWorld('surf', api)

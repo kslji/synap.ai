@@ -5,9 +5,9 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentRoot, type CodeProjectStatus, type CodeStorageUsage, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentRoot, type CodeProjectStatus, type CodeStorageUsage, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, CodeAgentDecideReq, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
+import { AttachmentId, ChatSendReq, CodeAgentDecideReq, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -100,6 +100,12 @@ export interface Services {
     devices(): Promise<DeviceInfo[]>
     revoke(deviceId: string): Promise<void>
   }
+  licence: {
+    status(): Promise<LicenceStatus>
+    activate(key?: string): Promise<LicenceStatus>
+    deactivate(activationId?: string): Promise<LicenceStatus>
+    devices(): Promise<LicenceDevice[]>
+  }
   settings: {
     get(): Promise<Required<SettingsPatch>>
     set(p: SettingsPatch): Promise<void>
@@ -181,6 +187,10 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.authSignOut, (e) => { assertTrusted(e); return s.auth.signOut() })
   handle(IPC.authDevices, (e) => { assertTrusted(e); return s.auth.devices() })
   handle(IPC.authRevoke, (e, raw) => { assertTrusted(e); return s.auth.revoke(DeviceId.parse(raw)) })
+  handle(IPC.licenceStatus, (e) => { assertTrusted(e); return s.licence.status() })
+  handle(IPC.licenceActivate, (e, raw) => { assertTrusted(e); return s.licence.activate(LicenceActivateBody.parse(raw ?? {}).key) })
+  handle(IPC.licenceDeactivate, (e, raw) => { assertTrusted(e); return s.licence.deactivate(LicenceActivationId.parse(raw ?? null) ?? undefined) })
+  handle(IPC.licenceDevices, (e) => { assertTrusted(e); return s.licence.devices() })
   handle(IPC.updatesCheck, (e) => { assertTrusted(e); return s.updates.check() })
   handle(IPC.updatesApply, (e) => { assertTrusted(e); return s.updates.apply() })
   handle(IPC.updatesInstallOffline, (e) => { assertTrusted(e); return s.updates.installOffline(win) })

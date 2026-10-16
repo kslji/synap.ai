@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { EMBEDDINGGEMMA2_256 } from './embedding.js'
 import { commitInstall, readInstalled } from './pack-install.js'
-import { downloadFile, shouldSync, DEFAULT_SYNC_MS } from './pack-sync.js'
+import { canSwapPack, downloadFile, packAutoSyncAllowed, shouldSync, DEFAULT_SYNC_MS } from './pack-sync.js'
 import { verifyPack, type PackManifest, type TrustedKeys } from './pack-verify.js'
 import { mergeLocal } from './retrieval.js'
 
@@ -134,6 +134,18 @@ test('a failed install restores the previous version', async () => {
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('pack updates sync only while the subscription is active, and a pack is not swapped mid-answer', () => {
+  assert.equal(packAutoSyncAllowed({ state: 'valid', features: ['chat', 'pack_updates', 'packs'] }), true)
+  assert.equal(packAutoSyncAllowed({ state: 'grace', features: ['pack_updates'] }), true)
+  assert.equal(packAutoSyncAllowed({ state: 'dev', features: null }), true)
+  assert.equal(packAutoSyncAllowed({ state: 'valid', features: ['chat', 'packs'] }), false)
+  assert.equal(packAutoSyncAllowed({ state: 'subscription_ended', features: ['pack_updates'] }), false)
+  assert.equal(packAutoSyncAllowed({ state: 'expired', features: ['pack_updates'] }), false)
+  assert.equal(packAutoSyncAllowed({ state: 'missing', features: null }), false)
+  assert.equal(canSwapPack(false), true)
+  assert.equal(canSwapPack(true), false)
 })
 
 test('sync waits for sign-in, the network, and a quiet chat', () => {

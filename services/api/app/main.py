@@ -6,12 +6,14 @@ the device id so search rate limits stay per device.
 """
 import datetime as dt
 import hashlib
+import hmac
 import json
 import logging
 import os
 import pathlib
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, Request
@@ -19,6 +21,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .auth_store import AuthError, MemoryAuth, PostgresAuth
+from .licence_store import MemoryLicences, PostgresLicences
+from .licences import ActivationWindow, LicenceError, activate as activate_licence
+from .licences import apply_webhook, deactivate as deactivate_licence, list_devices as list_licence_devices, refresh as refresh_licence, renew as renew_licence
+from .licences import verify_razorpay, verify_stripe
 from .limiter import MemoryLimiter, RedisLimiter
 from .mailer import make_mail
 from .pack_catalog import catalog, verify_download
@@ -55,9 +61,16 @@ async def lifespan(app: FastAPI):
     app.state.mail = make_mail()
     if LITE:
         app.state.auth = MemoryAuth()
+        app.state.licences = MemoryLicences()
     else:
         app.state.auth = PostgresAuth(app.state.pg)
         await app.state.auth.ensure_schema()
+        app.state.licences = PostgresLicences(app.state.pg)
+        await app.state.licences.ensure_schema()
+    app.state.activation_limiter = ActivationWindow(
+        int(ENV.get("ACTIVATION_LIMIT", "8")),
+        int(ENV.get("ACTIVATION_WINDOW", "600")),
+    )
     app.state.http = httpx.AsyncClient(timeout=8)
     yield
     await app.state.http.aclose()
@@ -302,6 +315,21 @@ async def packs(request: Request, installed: str = "", user: dict = Depends(curr
     return catalog(base, installed)
 
 
+@app.get("/v1/packs/updates")
+async def pack_updates(request: Request, installed: str = "", user: dict = Depends(current_user)):
+    """Catalog of newer signed packs. An empty stub is returned until packs are published."""
+    base = os.environ.get("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
+    body = catalog(base, installed)
+    if body["packs"]:
+        return {**body, "stub": False, "interval_hours": 24}
+    return {
+        "packs": [],
+        "stub": True,
+        "interval_hours": 24,
+        "note": "No signed knowledge packs are published on this server yet.",
+    }
+
+
 @app.get("/v1/packs/download")
 async def pack_download(path: str, exp: int, sig: str):
     try:
@@ -426,6 +454,181 @@ async def remember(user: dict, agent_id: str | None, count: int, latency: int, s
             "insert into search_requests(privacy_mode, agent_id, result_count, latency_ms, status) values (true,%s,%s,%s,%s)",
             (agent_id, count, latency, status),
         )
+
+
+class LicenceActivateIn(BaseModel):
+    device_id_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    key: str | None = Field(default=None, max_length=80)
+    name: str | None = Field(default=None, max_length=80)
+    os: str = "linux"
+
+
+class LicenceRefreshIn(BaseModel):
+    licence_id: str = Field(min_length=30, max_length=40)
+    device_id_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class LicenceDeactivateIn(BaseModel):
+    activation_id: str | None = Field(default=None, max_length=40)
+    licence_id: str | None = Field(default=None, max_length=40)
+    device_id_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class LicenceRevokeIn(BaseModel):
+    licence_id: str = Field(min_length=30, max_length=40)
+    reason: Literal["revoked", "refunded"] = "revoked"
+
+
+class LicenceRenewIn(BaseModel):
+    licence_id: str = Field(min_length=30, max_length=40)
+    term_months: int
+
+
+def _licence_problem(error: LicenceError) -> Problem:
+    return Problem(error.status, error.code, error.detail, error.retry_after)
+
+
+def _limit_activation(request: Request, device_id_hash: str) -> None:
+    ip = request.client.host if request.client else "unknown"
+    for bucket in (f"ip:{ip}", f"dev:{device_id_hash}"):
+        ok, retry = app.state.activation_limiter.hit(bucket)
+        if not ok:
+            raise Problem(429, "rate_limited", "Too many activation attempts. Wait and try again.", retry)
+
+
+async def optional_user(authorization: str = Header(default="")) -> dict | None:
+    if not authorization.strip():
+        return None
+    return await current_user(authorization)
+
+
+@app.post("/v1/licences/activate")
+async def licences_activate(body: LicenceActivateIn, request: Request, user: dict | None = Depends(optional_user)):
+    _limit_activation(request, body.device_id_hash)
+    account = None
+    if user:
+        account = await app.state.auth.user_by_id(str(user["uid"]))
+        if not account:
+            raise Problem(401, "invalid_token", "invalid token")
+    try:
+        return await activate_licence(app.state.licences, account, body.device_id_hash, body.key, body.name, body.os)
+    except LicenceError as exc:
+        raise _licence_problem(exc) from exc
+
+
+@app.post("/v1/licences/refresh")
+async def licences_refresh(body: LicenceRefreshIn, request: Request):
+    _limit_activation(request, body.device_id_hash)
+    try:
+        return await refresh_licence(app.state.licences, body.licence_id, body.device_id_hash)
+    except LicenceError as exc:
+        raise _licence_problem(exc) from exc
+
+
+@app.post("/v1/licences/deactivate")
+async def licences_deactivate(body: LicenceDeactivateIn, user: dict | None = Depends(optional_user)):
+    account = None
+    if user:
+        account = await app.state.auth.user_by_id(str(user["uid"]))
+        if not account:
+            raise Problem(401, "invalid_token", "invalid token")
+    try:
+        return await deactivate_licence(app.state.licences, account, body.activation_id, body.licence_id, body.device_id_hash)
+    except LicenceError as exc:
+        raise _licence_problem(exc) from exc
+
+
+@app.get("/v1/licences/devices")
+async def licences_devices(user: dict = Depends(current_user)):
+    return await list_licence_devices(app.state.licences, str(user["uid"]))
+
+
+@app.post("/v1/licences/revoke")
+async def licences_revoke(body: LicenceRevokeIn, x_licence_admin: str = Header(default="")):
+    expected = ENV.get("LICENCE_ADMIN_TOKEN", "")
+    if not expected:
+        raise Problem(503, "unconfigured", "Licence admin token is not set.")
+    if len(x_licence_admin) != len(expected) or not hmac.compare_digest(x_licence_admin, expected):
+        raise Problem(401, "unauthenticated", "Admin token did not match.")
+    row = await app.state.licences.by_id(body.licence_id)
+    if not row:
+        raise Problem(404, "not_found", "That licence was not found.")
+    await app.state.licences.set_status(body.licence_id, body.reason, dt.datetime.now(dt.UTC))
+    return {"ok": True, "licence_id": body.licence_id, "status": body.reason}
+
+
+def _admin_token(header: str) -> None:
+    expected = ENV.get("LICENCE_ADMIN_TOKEN", "")
+    if not expected:
+        raise Problem(503, "unconfigured", "Licence admin token is not set.")
+    if len(header) != len(expected) or not hmac.compare_digest(header, expected):
+        raise Problem(401, "unauthenticated", "Admin token did not match.")
+
+
+@app.post("/v1/licences/renew")
+async def licences_renew(body: LicenceRenewIn, x_licence_admin: str = Header(default="")):
+    _admin_token(x_licence_admin)
+    try:
+        return await renew_licence(app.state.licences, body.licence_id, body.term_months)
+    except LicenceError as exc:
+        raise _licence_problem(exc) from exc
+
+
+def _deliver_key(result: dict) -> dict:
+    raw = result.pop("raw_key", None)
+    email = result.pop("email", None)
+    if raw and email:
+        app.state.mail.send(
+            email,
+            "Your Synap.surf licence",
+            f"Your Synap.surf licence key is {raw}. Enter it in the app, or sign in with this email.",
+            result.get("key_hint") or "licence",
+        )
+    if not result.get("dev_key"):
+        result.pop("dev_key", None)
+    return result
+
+
+@app.post("/v1/billing/stripe")
+async def stripe_webhook(request: Request):
+    body = await request.body()
+    secret = ENV.get("STRIPE_WEBHOOK_SECRET", "")
+    if not secret:
+        raise Problem(503, "unconfigured", "Stripe webhook secret is not set.")
+    if not verify_stripe(body, request.headers.get("stripe-signature", ""), secret):
+        raise Problem(400, "bad_signature", "Stripe signature did not match.")
+    try:
+        event = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise Problem(400, "invalid_body", "Stripe body was not JSON.") from exc
+    try:
+        result = await apply_webhook(app.state.licences, app.state.auth, "stripe", event)
+    except LicenceError as exc:
+        raise _licence_problem(exc) from exc
+    except ValueError as exc:
+        raise Problem(400, "invalid_email", "The payment has no email address.") from exc
+    return _deliver_key(result)
+
+
+@app.post("/v1/billing/razorpay")
+async def razorpay_webhook(request: Request):
+    body = await request.body()
+    secret = ENV.get("RAZORPAY_WEBHOOK_SECRET", "")
+    if not secret:
+        raise Problem(503, "unconfigured", "Razorpay webhook secret is not set.")
+    if not verify_razorpay(body, request.headers.get("x-razorpay-signature", ""), secret):
+        raise Problem(400, "bad_signature", "Razorpay signature did not match.")
+    try:
+        event = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise Problem(400, "invalid_body", "Razorpay body was not JSON.") from exc
+    try:
+        result = await apply_webhook(app.state.licences, app.state.auth, "razorpay", event)
+    except LicenceError as exc:
+        raise _licence_problem(exc) from exc
+    except ValueError as exc:
+        raise Problem(400, "invalid_email", "The payment has no email address.") from exc
+    return _deliver_key(result)
 
 
 class FetchIn(BaseModel):

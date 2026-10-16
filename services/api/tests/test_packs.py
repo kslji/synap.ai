@@ -40,6 +40,23 @@ def _write(folder, body: bytes) -> None:
     (folder / "manifest.sig").write_bytes(b"sig-bytes")
 
 
+def test_pack_updates_stub_when_nothing_is_published(tmp_path, monkeypatch):
+    monkeypatch.setenv("PACK_ROOT", str(tmp_path))
+    monkeypatch.setenv("PACK_BACKEND", "file")
+    with TestClient(app) as client:
+        token = _login(client)
+        empty = client.get("/v1/packs/updates", headers={"authorization": f"Bearer {token}"})
+        assert empty.status_code == 200, empty.text
+        assert empty.json()["stub"] is True
+        assert empty.json()["packs"] == []
+        assert empty.json()["interval_hours"] == 24
+        _write(tmp_path / "general-starter" / "2026.10.09", b"new-pack")
+        listed = client.get("/v1/packs/updates", params={"installed": "general-starter@2026.10.01"}, headers={"authorization": f"Bearer {token}"})
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["stub"] is False
+        assert listed.json()["packs"][0]["latest"]["version"] == "2026.10.09"
+
+
 def test_pack_catalog_reports_changed_files(tmp_path, monkeypatch):
     monkeypatch.setenv("PACK_ROOT", str(tmp_path))
     monkeypatch.setenv("PACK_BACKEND", "file")

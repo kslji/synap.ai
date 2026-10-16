@@ -228,6 +228,14 @@ async function selfTest(): Promise<void> {
     ipcMain.handle(IPC.authDevices, () => [])
     ipcMain.removeHandler(IPC.packsList)
     ipcMain.handle(IPC.packsList, () => [])
+    ipcMain.removeHandler(IPC.licenceStatus)
+    ipcMain.handle(IPC.licenceStatus, () => ({
+      state: 'dev', message: '', plan: null, email: null, refreshBy: null, expiresAt: null,
+      subscriptionEndsAt: null, termMonths: null, subscriptionWarning: false, features: [],
+      deviceIdHash: null, buyUrl: 'https://synap.surf/buy', licenceId: null,
+    }))
+    ipcMain.removeHandler(IPC.licenceDevices)
+    ipcMain.handle(IPC.licenceDevices, () => [])
     ipcMain.removeHandler(IPC.libraryList)
     ipcMain.handle(IPC.libraryList, () => [])
     const paths = preloadAndHtml()

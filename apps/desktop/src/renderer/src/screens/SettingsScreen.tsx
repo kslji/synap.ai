@@ -11,11 +11,17 @@ export function SettingsScreen({
   settings,
   account,
   devices,
+  plan,
+  termMonths,
+  subscriptionEndsAt,
+  knowledgePack,
+  licenceNote,
   onPatch,
   onCheckUpdates,
   onSignIn,
   onSignOut,
   onRevoke,
+  onDeactivate,
   progress,
   busyId,
   error,
@@ -24,13 +30,19 @@ export function SettingsScreen({
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
-  account: { email: string; deviceId: string | null } | null
+  account: { email: string; deviceId: string | null; plan?: string | null } | null
   devices: DeviceInfo[]
+  plan: string | null
+  termMonths: number | null
+  subscriptionEndsAt: string | null
+  knowledgePack: { version: string | null; syncedAt: number | null } | null
+  licenceNote: string | null
   onPatch: (p: SettingsPatch) => void
   onCheckUpdates: () => Promise<string>
   onSignIn: () => void
   onSignOut: () => void
   onRevoke: (deviceId: string) => void
+  onDeactivate: () => void
   progress: Record<string, number>
   busyId: string | null
   error: string | null
@@ -55,24 +67,36 @@ export function SettingsScreen({
         <Group title="Account">
         <div className="card px-4 py-4" data-account="yes">
           <div className="text-sm font-semibold">Account</div>
+          <p className="mt-1 text-sm" data-licence-plan="yes">Plan: {plan ?? 'None'}{termMonths ? ` · ${termMonths} ${termMonths === 1 ? 'month' : 'months'}` : ''}</p>
+          {subscriptionEndsAt && <p className="mt-1 text-sm" data-licence-ends="yes">Ends: {subscriptionEndsAt.slice(0, 10)}</p>}
+          <p className="mt-1 text-sm" data-knowledge-pack="yes">
+            {knowledgePack?.version
+              ? `Knowledge pack: v${knowledgePack.version}, last synced ${knowledgePack.syncedAt ? new Date(knowledgePack.syncedAt).toISOString().slice(0, 10) : 'not yet'}`
+              : 'Knowledge pack: not installed'}
+          </p>
+          {licenceNote && <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{licenceNote}</p>}
           {account ? (
-            <>
-              <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
-              <ul className="mt-3 flex flex-col gap-2">
-                {devices.filter((device) => device.status === 'active').map((device) => (
-                  <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
-                    <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
-                    <button className="btn btn-ghost" type="button" onClick={() => onRevoke(device.id)}>Revoke</button>
-                  </li>
-                ))}
-              </ul>
-              <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
-            </>
+            <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
           ) : (
-            <>
-              <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{status.devWeb ? 'Dev web search does not need an account. Sign in is still required to sync packs. Local chat and documents work without an account.' : 'Sign in to search the web and sync packs. Local chat and documents work without an account.'}</p>
-              <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
-            </>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+              {status.devWeb
+                ? 'Dev web search does not need an account. Sign in to see every computer on this licence and to sync packs. A licence key activates this computer on its own.'
+                : 'Sign in to see every computer on this licence and to search the web. A licence key activates this computer on its own. Local chat and documents work without an account.'}
+            </p>
+          )}
+          <ul className="mt-3 flex flex-col gap-2">
+            {devices.filter((device) => device.status === 'active').map((device) => (
+              <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
+                <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
+                <button className="btn btn-ghost" type="button" onClick={() => (device.current ? onDeactivate() : onRevoke(device.id))}>Remove</button>
+              </li>
+            ))}
+          </ul>
+          <button className="btn btn-ghost mt-3" type="button" data-deactivate-device="yes" onClick={onDeactivate}>Deactivate this device</button>
+          {account ? (
+            <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
+          ) : (
+            <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
           )}
         </div>
         </Group>
@@ -162,21 +186,9 @@ export function SettingsScreen({
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
           <p className="mt-1">Search service: {status.devApiUrl || settings.apiBaseUrl}.</p>
-          <label className="mt-3 block">
-            <span className="font-semibold text-[var(--ink)]">Pack check interval (hours)</span>
-            <input
-              className="field mt-2"
-              type="number"
-              min={1}
-              max={168}
-              value={settings.packSyncHours}
-              aria-label="Pack check interval"
-              onChange={(e) => {
-                const hours = Number(e.target.value)
-                if (hours >= 1 && hours <= 168) onPatch({ packSyncHours: hours })
-              }}
-            />
-          </label>
+          <p className="mt-3">
+            <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span> While a subscription is active and this computer is online, Synap.surf checks for a newer signed pack on startup and every 24 hours. The new pack is swapped in between messages.
+          </p>
           <button
             className="btn btn-ghost mt-3"
             type="button"

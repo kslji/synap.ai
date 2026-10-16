@@ -119,6 +119,24 @@ export function SecurityPage() {
   )
 }
 
+export function BuyPage() {
+  const email = contactEmail()
+  return (
+    <Page title="Buy a licence">
+      <p data-page="buy">
+        The Mac and Windows installers can be shared. Synap.surf stays on the activation screen until this computer has a licence. Sign in with the account that bought it, or enter the key from the receipt.
+      </p>
+      <ul className="list-disc space-y-2 pl-5">
+        <li>A licence covers a set number of computers. The usual limit is two. You can remove a computer from the account when you stop using it.</li>
+        <li>Plans run for 1, 3, 6, or 12 months. When that date passes, the app locks on that computer, including offline. Renewing extends the same licence.</li>
+        <li>The app keeps a signed licence file on that computer and checks it without calling home. It refreshes the file when a connection is available.</li>
+        <li>Checkout on this page is not open yet. Card payment will create the key through the same account email.</li>
+      </ul>
+      <p>To ask about a licence, email <a href={`mailto:${email}`}>{email}</a>.</p>
+    </Page>
+  )
+}
+
 export function TermsPage() {
   return (
     <Page title="Terms">

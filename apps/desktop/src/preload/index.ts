@@ -35,6 +35,12 @@ const api: SurfApi = {
     devices: () => ipcRenderer.invoke(IPC.authDevices),
     revoke: (deviceId) => ipcRenderer.invoke(IPC.authRevoke, deviceId),
   },
+  licence: {
+    status: () => ipcRenderer.invoke(IPC.licenceStatus),
+    activate: (key) => ipcRenderer.invoke(IPC.licenceActivate, key ? { key } : {}),
+    deactivate: (activationId) => ipcRenderer.invoke(IPC.licenceDeactivate, activationId ?? null),
+    devices: () => ipcRenderer.invoke(IPC.licenceDevices),
+  },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     set: (p) => ipcRenderer.invoke(IPC.settingsSet, p),

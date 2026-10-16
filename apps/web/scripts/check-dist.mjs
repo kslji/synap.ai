@@ -26,7 +26,7 @@ for (const ref of refs) {
 }
 const js = readdirSync(join(distPath, 'assets')).filter((name) => name.endsWith('.js'))
 const bundle = js.map((name) => readFileSync(join(distPath, 'assets', name), 'utf8')).join('\n')
-for (const route of ['/privacy', '/security', '/contribute', '/terms', '/agents/']) {
+for (const route of ['/privacy', '/security', '/contribute', '/terms', '/buy', '/agents/']) {
   if (!bundle.includes(route)) {
     console.error('bundle missing route', route)
     missing += 1

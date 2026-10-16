@@ -17,6 +17,7 @@ export const footerLinks = [
   { href: '/contribute', label: 'Contribute' },
   { href: '/terms', label: 'Terms' },
   { href: product.repo, label: 'GitHub' },
+  { href: '/buy', label: 'Buy' },
 ] as const
 
 export const formRoles = ['code', 'testing', 'design', 'docs', 'niche pack', 'join the team'] as const

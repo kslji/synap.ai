@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createPrivateKey, sign as edSign } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,15 +14,18 @@ import {
   inspectLicence,
   integrityHex,
   licenceAllowsUse,
+  SUBSCRIPTION_WARN_MS,
+  subscriptionWarns,
   type LicencePayload,
   type StoredLicence,
 } from './licence.js'
 
 const PUBLIC = 'd04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737'
-const SIGNATURE = 'vknWScp7375ebeF52/Y+gSTsJbyxS8xPvrkmaKiwWtgKr4VIKKVu0/iVwNvZ77TQRoWLlaqMRfGXLV8uSTS1CQ=='
-const INTEGRITY = '3c9e3bc8e940231f326d13055b643b353ad7413640de7349dfcbbf327b7f954e'
+const SIGNATURE = 'cGYSMlWnXqIz0rwHOMYQqWKJ6JgS4ro6SMk3zWu2IYDpCLFMEGD2WwtNBWncC48ehxrBih9dBah3K6F2zaUUAg=='
+const INTEGRITY = 'fcbf72d172f8fc984bd8595100e889c79bcfe8b0bcec7df2d123d7a2821a4a7c'
 const DEVICE = 'ab'.repeat(32)
 const KEYS = { 'lic-test': PUBLIC }
+const DAY = 24 * 60 * 60 * 1000
 
 const payload: LicencePayload = {
   account: '22222222-2222-4222-8222-222222222222',
@@ -33,6 +37,18 @@ const payload: LicencePayload = {
   licence_id: '11111111-1111-4111-8111-111111111111',
   plan: 'pro',
   refresh_by: '2026-11-15T00:00:00Z',
+  subscription_ends_at: '2027-04-16T00:00:00Z',
+  term_months: 6,
+}
+
+function signPayload(next: LicencePayload): StoredLicence {
+  const pkcs8 = Buffer.concat([
+    Buffer.from('302e020100300506032b657004220420', 'hex'),
+    Buffer.alloc(32, 0x11),
+  ])
+  const key = createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' })
+  const signature = edSign(null, Buffer.from(canonicalLicence(next)), key).toString('base64')
+  return { payload: next, signature, key_id: 'lic-test', integrity: integrityHex(next, signature) }
 }
 
 const stored: StoredLicence = { payload, signature: SIGNATURE, key_id: 'lic-test', integrity: INTEGRITY }
@@ -75,6 +91,34 @@ test('expiry, grace, device mismatch, and clock rollback', () => {
   assert.equal(check({ maxSeenMs: during + 24 * 60 * 60 * 1000 }).state, 'clock_rollback')
   assert.equal(check({ maxSeenMs: null, clockOk: false }).state, 'clock_rollback')
   assert.equal(check({ stored: null }).state, 'missing')
+})
+
+test('a passed subscription end locks offline, and rolling the clock back does not extend it', () => {
+  const endedAt = '2026-11-10T00:00:00Z'
+  const ended = signPayload({ ...payload, subscription_ends_at: endedAt })
+  const seen = Date.parse('2026-11-16T00:00:00Z')
+  const locked = check({ stored: ended, nowMs: seen, maxSeenMs: seen })
+  assert.equal(locked.state, 'subscription_ended')
+  assert.equal(licenceAllowsUse(locked.state), false)
+  assert.equal(locked.payload?.subscription_ends_at, endedAt)
+  assert.equal(locked.nextMaxSeenMs, seen)
+  const rolled = check({ stored: ended, nowMs: Date.parse('2026-11-01T00:00:00Z'), maxSeenMs: seen })
+  assert.equal(rolled.state, 'clock_rollback')
+  assert.equal(licenceAllowsUse(rolled.state), false)
+  const insideGrace = check({
+    stored: signPayload({ ...payload, subscription_ends_at: '2026-11-16T00:00:00Z' }),
+    nowMs: Date.parse('2026-11-16T12:00:00Z'),
+    maxSeenMs: Date.parse('2026-11-16T12:00:00Z'),
+  })
+  assert.equal(insideGrace.state, 'subscription_ended')
+})
+
+test('the warning is on for the 7 days before the subscription ends', () => {
+  const ends = Date.parse(payload.subscription_ends_at)
+  assert.equal(subscriptionWarns(ends - SUBSCRIPTION_WARN_MS, ends, 'valid'), true)
+  assert.equal(subscriptionWarns(ends - SUBSCRIPTION_WARN_MS - DAY, ends, 'valid'), false)
+  assert.equal(subscriptionWarns(ends, ends, 'valid'), true)
+  assert.equal(subscriptionWarns(ends - DAY, ends, 'subscription_ended'), false)
 })
 
 test('SYNAP_LICENCE_DEV is ignored on a packaged build', () => {

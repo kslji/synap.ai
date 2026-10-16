@@ -7,6 +7,7 @@ offline. That check is not a promise that a modified app cannot be patched.
 from __future__ import annotations
 
 import base64
+import calendar
 import hashlib
 import hmac
 import json
@@ -23,6 +24,7 @@ ENV = os.environ
 KEY_RE = re.compile(r"[A-Z2-9]{16}")
 OS_NAMES = {"macos", "windows", "linux"}
 PRO_FEATURES = ["chat", "packs"]
+TERM_MONTHS = (1, 3, 6, 12)
 
 
 class LicenceError(Exception):
@@ -125,11 +127,57 @@ def new_key() -> str:
     return "SYNAP-" + "-".join(groups)
 
 
+def parse_term(value: object, default: int | None = 1) -> int:
+    if value is None or value == "":
+        if default is None:
+            raise LicenceError(400, "invalid_term", "Plan length must be 1, 3, 6, or 12 months.")
+        return default
+    try:
+        months = int(str(value))
+    except (TypeError, ValueError) as exc:
+        raise LicenceError(400, "invalid_term", "Plan length must be 1, 3, 6, or 12 months.") from exc
+    if months not in TERM_MONTHS:
+        raise LicenceError(400, "invalid_term", "Plan length must be 1, 3, 6, or 12 months.")
+    return months
+
+
+def add_months(moment: datetime, months: int) -> datetime:
+    if months not in TERM_MONTHS:
+        raise LicenceError(400, "invalid_term", "Plan length must be 1, 3, 6, or 12 months.")
+    base = moment.astimezone(timezone.utc)
+    index = base.month - 1 + months
+    year = base.year + index // 12
+    month = index % 12 + 1
+    day = min(base.day, calendar.monthrange(year, month)[1])
+    return base.replace(year=year, month=month, day=day)
+
+
+def as_utc(value: datetime | str) -> datetime:
+    if isinstance(value, str):
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def extend_subscription(current: datetime | str | None, now: datetime, months: int) -> datetime:
+    """Next end is the plan length after the later of now and the current end."""
+    base = now.astimezone(timezone.utc)
+    if current is not None:
+        existing = as_utc(current)
+        if existing > base:
+            base = existing
+    return add_months(base, months)
+
+
 def build_payload(licence: dict, device_id_hash: str, now: datetime | None = None) -> dict:
     now = now or _now()
     refresh_by = now + timedelta(days=refresh_days())
     expires_at = refresh_by + timedelta(days=grace_days())
     features = sorted(str(item) for item in (licence.get("features") or PRO_FEATURES))
+    ends = licence.get("subscription_ends_at")
+    if ends is None:
+        raise LicenceError(500, "licence_unconfigured", "This licence has no subscription end date.")
     return {
         "account": licence["user_id"],
         "device_id_hash": device_id_hash,
@@ -140,6 +188,8 @@ def build_payload(licence: dict, device_id_hash: str, now: datetime | None = Non
         "licence_id": licence["id"],
         "plan": licence["plan_code"],
         "refresh_by": iso(refresh_by),
+        "subscription_ends_at": iso(as_utc(ends)),
+        "term_months": parse_term(licence.get("term_months"), None),
     }
 
 
@@ -282,6 +332,23 @@ async def refresh(store, licence_id: str, device_id_hash: str, now: datetime | N
     return {"licence": sign_payload(build_payload(licence, device_id_hash, now))}
 
 
+async def renew(store, licence_id: str, term_months: int, now: datetime | None = None) -> dict:
+    now = now or _now()
+    months = parse_term(term_months, None)
+    licence = await store.by_id(licence_id)
+    if not licence:
+        raise LicenceError(404, "not_found", "That licence was not found.")
+    _require_active(licence)
+    ends = extend_subscription(licence.get("subscription_ends_at"), now, months)
+    await store.set_subscription(licence["id"], ends, months, now)
+    return {
+        "ok": True,
+        "licence_id": licence["id"],
+        "term_months": months,
+        "subscription_ends_at": iso(ends),
+    }
+
+
 async def deactivate(store, user: dict | None, activation_id: str | None, licence_id: str | None, device_id_hash: str | None, now: datetime | None = None) -> dict:
     now = now or _now()
     if user:
@@ -321,6 +388,8 @@ async def list_devices(store, user_id: str) -> dict:
         "max_devices": int(licence["max_devices"]),
         "status": licence["status"],
         "licence_id": licence["id"],
+        "term_months": int(licence["term_months"]),
+        "subscription_ends_at": iso(as_utc(licence["subscription_ends_at"])),
         "devices": [
             {
                 "id": row["id"],
@@ -352,6 +421,18 @@ def _provider_ref(event: dict, provider: str) -> str:
     refund = ((event.get("payload") or {}).get("refund") or {}).get("entity") or {}
     order = ((event.get("payload") or {}).get("order") or {}).get("entity") or {}
     return str(refund.get("payment_id") or payment.get("id") or order.get("id") or "")
+
+
+def _term_of(event: dict, provider: str) -> int:
+    if provider == "stripe":
+        obj = (event.get("data") or {}).get("object") or {}
+        notes = obj.get("metadata") or {}
+    else:
+        payment = ((event.get("payload") or {}).get("payment") or {}).get("entity") or {}
+        order = ((event.get("payload") or {}).get("order") or {}).get("entity") or {}
+        notes = payment.get("notes") or order.get("notes") or {}
+    raw = notes.get("term_months", notes.get("months"))
+    return parse_term(raw, 1)
 
 
 def _licence_id_hint(event: dict, provider: str) -> str:
@@ -409,8 +490,23 @@ async def apply_webhook(store, auth, provider: str, event: dict, now: datetime |
         existing = await store.by_provider(provider, ref)
         if existing:
             return {"ok": True, "licence_id": existing["id"], "created": False, "status": existing["status"]}
+    term = _term_of(event, provider)
     user = await auth.upsert_user(email)
+    current = await store.active_for_user(user["id"])
+    if current:
+        ends = extend_subscription(current.get("subscription_ends_at"), now, term)
+        await store.set_subscription(current["id"], ends, term, now, provider, ref or None)
+        return {
+            "ok": True,
+            "created": False,
+            "renewed": True,
+            "licence_id": current["id"],
+            "status": "active",
+            "term_months": term,
+            "subscription_ends_at": iso(ends),
+        }
     raw = new_key()
+    ends = add_months(now, term)
     licence = await store.insert_key({
         "user_id": user["id"],
         "key_hash": hash_key(raw),
@@ -422,12 +518,16 @@ async def apply_webhook(store, auth, provider: str, event: dict, now: datetime |
         "provider": provider,
         "provider_ref": ref or None,
         "created_at": now,
+        "term_months": term,
+        "subscription_ends_at": ends,
     })
     return {
         "ok": True,
         "created": True,
         "licence_id": licence["id"],
         "status": "active",
+        "term_months": term,
+        "subscription_ends_at": iso(ends),
         "key_hint": licence["key_hint"],
         "dev_key": raw if ENV.get("MAIL_MODE", "console") != "smtp" else None,
         "email": email,

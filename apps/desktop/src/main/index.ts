@@ -231,6 +231,7 @@ async function selfTest(): Promise<void> {
     ipcMain.removeHandler(IPC.licenceStatus)
     ipcMain.handle(IPC.licenceStatus, () => ({
       state: 'dev', message: '', plan: null, email: null, refreshBy: null, expiresAt: null,
+      subscriptionEndsAt: null, termMonths: null, subscriptionWarning: false,
       deviceIdHash: null, buyUrl: 'https://synap.surf/buy', licenceId: null,
     }))
     ipcMain.removeHandler(IPC.licenceDevices)

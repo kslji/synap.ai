@@ -18,6 +18,7 @@ import {
   devBypassEnabled,
   inspectLicence,
   licenceAllowsUse,
+  subscriptionWarns,
   type LicenceState,
   type LicenceVerdict,
   type StoredLicence,
@@ -95,6 +96,11 @@ function toStatus(verdict: LicenceVerdict, deviceIdHashValue: string, email: str
     email,
     refreshBy: verdict.payload?.refresh_by ?? null,
     expiresAt: verdict.payload?.expires_at ?? null,
+    subscriptionEndsAt: verdict.payload?.subscription_ends_at ?? null,
+    termMonths: verdict.payload?.term_months ?? null,
+    subscriptionWarning: verdict.payload
+      ? subscriptionWarns(Date.now(), Date.parse(verdict.payload.subscription_ends_at), verdict.state)
+      : false,
     deviceIdHash: deviceIdHashValue,
     buyUrl: BUY_URL,
     licenceId: verdict.payload?.licence_id ?? null,
@@ -268,7 +274,7 @@ export function createLicenceApi(opts: {
         clockOk: loaded.clockOk,
         devBypass: false,
       })
-      if ((current.state !== 'valid' && current.state !== 'grace') || !current.payload) return
+      if ((current.state !== 'valid' && current.state !== 'grace' && current.state !== 'subscription_ended') || !current.payload) return
       try {
         const res = await post('/v1/licences/refresh', {
           licence_id: current.payload.licence_id,
@@ -302,6 +308,9 @@ export function emptyLicenceStatus(state: LicenceState = 'missing'): LicenceStat
     email: null,
     refreshBy: null,
     expiresAt: null,
+    subscriptionEndsAt: null,
+    termMonths: null,
+    subscriptionWarning: false,
     deviceIdHash: null,
     buyUrl: BUY_URL,
     licenceId: null,

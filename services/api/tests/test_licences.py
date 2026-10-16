@@ -18,7 +18,7 @@ os.environ["RAZORPAY_WEBHOOK_SECRET"] = "razor_test"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.licences import public_key_hex, stripe_header, verify_payload, verify_stripe, razorpay_header  # noqa: E402
+from app.licences import add_months, extend_subscription, public_key_hex, stripe_header, verify_payload, verify_stripe, razorpay_header  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -26,11 +26,15 @@ def _device(n: int) -> str:
     return f"{n:064x}"
 
 
-def _grant(client: TestClient, email: str = "ada@example.com", ref: str = "cs_test_1") -> str:
+def _parse(value: str) -> datetime:
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+def _grant(client: TestClient, email: str = "ada@example.com", ref: str = "cs_test_1", months: int = 1) -> str:
     event = {
         "id": "evt_1",
         "type": "checkout.session.completed",
-        "data": {"object": {"id": ref, "customer_email": email, "payment_status": "paid", "metadata": {"plan": "pro"}}},
+        "data": {"object": {"id": ref, "customer_email": email, "payment_status": "paid", "metadata": {"plan": "pro", "term_months": months}}},
     }
     body = json.dumps(event).encode()
     response = client.post(
@@ -74,6 +78,8 @@ def test_signature_round_trip_and_forge():
         expires = datetime.strptime(licence["payload"]["expires_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         assert refresh_by - issued == timedelta(days=30)
         assert expires - refresh_by == timedelta(days=7)
+        assert licence["payload"]["term_months"] == 1
+        assert abs((_parse(licence["payload"]["subscription_ends_at"]) - add_months(issued, 1)).total_seconds()) < 5
 
 
 def test_device_limit_refresh_deactivate_and_revoke():
@@ -120,6 +126,71 @@ def test_device_limit_refresh_deactivate_and_revoke():
         dead = client.post("/v1/licences/refresh", json={"licence_id": licence_id, "device_id_hash": _device(3)})
         assert dead.status_code == 403
         assert dead.json()["error"]["code"] == "licence_revoked"
+
+
+def test_plan_lengths_and_renewal_extension():
+    start = datetime(2026, 10, 16, tzinfo=timezone.utc)
+    assert add_months(start, 1) == datetime(2026, 11, 16, tzinfo=timezone.utc)
+    assert add_months(start, 3) == datetime(2027, 1, 16, tzinfo=timezone.utc)
+    assert add_months(start, 6) == datetime(2027, 4, 16, tzinfo=timezone.utc)
+    assert add_months(start, 12) == datetime(2027, 10, 16, tzinfo=timezone.utc)
+    assert add_months(datetime(2026, 1, 31, tzinfo=timezone.utc), 1) == datetime(2026, 2, 28, tzinfo=timezone.utc)
+    later = datetime(2026, 12, 1, tzinfo=timezone.utc)
+    assert extend_subscription(later, start, 3) == datetime(2027, 3, 1, tzinfo=timezone.utc)
+    assert extend_subscription(datetime(2026, 9, 1, tzinfo=timezone.utc), start, 1) == datetime(2026, 11, 16, tzinfo=timezone.utc)
+
+    with TestClient(app) as client:
+        for months in (1, 3, 6, 12):
+            key = _grant(client, f"term{months}@example.com", f"cs_term_{months}", months)
+            activated = client.post("/v1/licences/activate", json={"key": key, "device_id_hash": _device(20 + months), "os": "linux"})
+            assert activated.status_code == 200, activated.text
+            body = activated.json()["licence"]["payload"]
+            assert body["term_months"] == months
+            issued = _parse(body["issued_at"])
+            assert abs((_parse(body["subscription_ends_at"]) - add_months(issued, months)).total_seconds()) < 5
+
+        key = _grant(client, "renew@example.com", "cs_renew_1", 1)
+        activated = client.post("/v1/licences/activate", json={"key": key, "device_id_hash": _device(30), "os": "linux"})
+        assert activated.status_code == 200, activated.text
+        first = activated.json()["licence"]["payload"]
+        first_end = _parse(first["subscription_ends_at"])
+        event = {
+            "id": "evt_renew",
+            "type": "checkout.session.completed",
+            "data": {"object": {"id": "cs_renew_2", "customer_email": "renew@example.com", "payment_status": "paid", "metadata": {"term_months": 3}}},
+        }
+        raw = json.dumps(event).encode()
+        renewed = client.post("/v1/billing/stripe", content=raw, headers={"stripe-signature": stripe_header("whsec_test", raw), "content-type": "application/json"})
+        assert renewed.status_code == 200, renewed.text
+        assert renewed.json()["renewed"] is True
+        assert renewed.json()["created"] is False
+        extended = _parse(renewed.json()["subscription_ends_at"])
+        assert extended == add_months(first_end, 3)
+        replay = client.post("/v1/billing/stripe", content=raw, headers={"stripe-signature": stripe_header("whsec_test", raw), "content-type": "application/json"})
+        assert replay.status_code == 200, replay.text
+        assert replay.json().get("renewed") is not True
+        refreshed = client.post("/v1/licences/refresh", json={"licence_id": first["licence_id"], "device_id_hash": _device(30)})
+        assert refreshed.status_code == 200, refreshed.text
+        assert _parse(refreshed.json()["licence"]["payload"]["subscription_ends_at"]) == extended
+        assert refreshed.json()["licence"]["payload"]["term_months"] == 3
+        admin = client.post(
+            "/v1/licences/renew",
+            headers={"x-licence-admin": "admin-token-for-tests"},
+            json={"licence_id": first["licence_id"], "term_months": 12},
+        )
+        assert admin.status_code == 200, admin.text
+        admin_end = _parse(admin.json()["subscription_ends_at"])
+        assert admin_end == add_months(extended, 12)
+        again = client.post("/v1/licences/refresh", json={"licence_id": first["licence_id"], "device_id_hash": _device(30)})
+        assert again.status_code == 200, again.text
+        assert _parse(again.json()["licence"]["payload"]["subscription_ends_at"]) == admin_end
+        bad = client.post(
+            "/v1/licences/renew",
+            headers={"x-licence-admin": "admin-token-for-tests"},
+            json={"licence_id": first["licence_id"], "term_months": 2},
+        )
+        assert bad.status_code == 400
+        assert bad.json()["error"]["code"] == "invalid_term"
 
 
 def test_signed_in_account_activates_without_a_key():

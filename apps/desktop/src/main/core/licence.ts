@@ -22,6 +22,8 @@ export const LicencePayload = z.object({
   licence_id: z.string().uuid(),
   plan: z.string().min(1).max(32),
   refresh_by: z.string().min(20),
+  subscription_ends_at: z.string().min(20),
+  term_months: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]),
 })
 export type LicencePayload = z.infer<typeof LicencePayload>
 
@@ -32,7 +34,10 @@ export interface StoredLicence {
   integrity: string
 }
 
-export type LicenceState = 'valid' | 'grace' | 'missing' | 'invalid' | 'expired' | 'device_mismatch' | 'clock_rollback' | 'dev'
+export type LicenceState = 'valid' | 'grace' | 'missing' | 'invalid' | 'expired' | 'subscription_ended' | 'device_mismatch' | 'clock_rollback' | 'dev'
+
+export const TERM_MONTHS = [1, 3, 6, 12] as const
+export const SUBSCRIPTION_WARN_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface LicenceVerdict {
   state: LicenceState
@@ -55,6 +60,8 @@ export function canonicalLicence(payload: LicencePayload): string {
     licence_id: payload.licence_id,
     plan: payload.plan,
     refresh_by: payload.refresh_by,
+    subscription_ends_at: payload.subscription_ends_at,
+    term_months: payload.term_months,
   }
   return JSON.stringify(ordered)
 }
@@ -84,6 +91,13 @@ export function devBypassEnabled(flag: string | undefined, packaged: boolean): b
 
 export function licenceAllowsUse(state: LicenceState): boolean {
   return state === 'valid' || state === 'grace' || state === 'dev'
+}
+
+/** True in the 7 days before subscription_ends_at. The end itself still locks, with no grace past it. */
+export function subscriptionWarns(nowMs: number, endsMs: number, state: LicenceState): boolean {
+  if (state !== 'valid' && state !== 'grace') return false
+  const left = endsMs - nowMs
+  return left >= 0 && left <= SUBSCRIPTION_WARN_MS
 }
 
 export function judgeWindow(nowMs: number, refreshByMs: number, expiresMs: number): 'ok' | 'grace' | 'expired' {
@@ -148,11 +162,20 @@ export function inspectLicence(input: {
   }
   const refreshBy = Date.parse(payload.refresh_by)
   const expires = Date.parse(payload.expires_at)
-  if (Number.isNaN(refreshBy) || Number.isNaN(expires)) {
+  const subscriptionEnds = Date.parse(payload.subscription_ends_at)
+  if (Number.isNaN(refreshBy) || Number.isNaN(expires) || Number.isNaN(subscriptionEnds)) {
     return { state: 'invalid', message: 'This licence file is not valid.', payload: null, nextMaxSeenMs: null }
   }
-  const window = judgeWindow(input.nowMs, refreshBy, expires)
   const nextMaxSeenMs = Math.max(input.nowMs, input.maxSeenMs)
+  if (input.nowMs > subscriptionEnds) {
+    return {
+      state: 'subscription_ended',
+      message: `This subscription ended on ${day(payload.subscription_ends_at)}. Renew to keep using Synap.surf. It stays locked offline, and there is no extra time after this date.`,
+      payload,
+      nextMaxSeenMs,
+    }
+  }
+  const window = judgeWindow(input.nowMs, refreshBy, expires)
   if (window === 'expired') {
     return {
       state: 'expired',

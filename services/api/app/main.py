@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from .auth_store import AuthError, MemoryAuth, PostgresAuth
 from .licence_store import MemoryLicences, PostgresLicences
 from .licences import ActivationWindow, LicenceError, activate as activate_licence
-from .licences import apply_webhook, deactivate as deactivate_licence, list_devices as list_licence_devices, refresh as refresh_licence
+from .licences import apply_webhook, deactivate as deactivate_licence, list_devices as list_licence_devices, refresh as refresh_licence, renew as renew_licence
 from .licences import verify_razorpay, verify_stripe
 from .limiter import MemoryLimiter, RedisLimiter
 from .mailer import make_mail
@@ -464,6 +464,11 @@ class LicenceRevokeIn(BaseModel):
     reason: Literal["revoked", "refunded"] = "revoked"
 
 
+class LicenceRenewIn(BaseModel):
+    licence_id: str = Field(min_length=30, max_length=40)
+    term_months: int
+
+
 def _licence_problem(error: LicenceError) -> Problem:
     return Problem(error.status, error.code, error.detail, error.retry_after)
 
@@ -535,6 +540,23 @@ async def licences_revoke(body: LicenceRevokeIn, x_licence_admin: str = Header(d
         raise Problem(404, "not_found", "That licence was not found.")
     await app.state.licences.set_status(body.licence_id, body.reason, dt.datetime.now(dt.UTC))
     return {"ok": True, "licence_id": body.licence_id, "status": body.reason}
+
+
+def _admin_token(header: str) -> None:
+    expected = ENV.get("LICENCE_ADMIN_TOKEN", "")
+    if not expected:
+        raise Problem(503, "unconfigured", "Licence admin token is not set.")
+    if len(header) != len(expected) or not hmac.compare_digest(header, expected):
+        raise Problem(401, "unauthenticated", "Admin token did not match.")
+
+
+@app.post("/v1/licences/renew")
+async def licences_renew(body: LicenceRenewIn, x_licence_admin: str = Header(default="")):
+    _admin_token(x_licence_admin)
+    try:
+        return await renew_licence(app.state.licences, body.licence_id, body.term_months)
+    except LicenceError as exc:
+        raise _licence_problem(exc) from exc
 
 
 def _deliver_key(result: dict) -> dict:

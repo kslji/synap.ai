@@ -25,8 +25,13 @@ CREATE TABLE IF NOT EXISTS licence_keys (
   provider_ref text,
   created_at timestamptz NOT NULL DEFAULT now(),
   revoked_at timestamptz,
-  refunded_at timestamptz
+  refunded_at timestamptz,
+  term_months int NOT NULL DEFAULT 1 CHECK (term_months IN (1, 3, 6, 12)),
+  subscription_ends_at timestamptz
 );
+ALTER TABLE licence_keys ADD COLUMN IF NOT EXISTS term_months int NOT NULL DEFAULT 1;
+ALTER TABLE licence_keys ADD COLUMN IF NOT EXISTS subscription_ends_at timestamptz;
+UPDATE licence_keys SET subscription_ends_at = created_at + interval '1 month' WHERE subscription_ends_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_licence_provider
   ON licence_keys (provider, provider_ref) WHERE provider_ref IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_licence_user ON licence_keys (user_id);
@@ -71,6 +76,8 @@ class MemoryLicences:
             "created_at": row.get("created_at"),
             "revoked_at": None,
             "refunded_at": None,
+            "term_months": int(row.get("term_months") or 1),
+            "subscription_ends_at": row.get("subscription_ends_at"),
         }
         self.keys.append(stored)
         return _copy(stored)
@@ -94,6 +101,17 @@ class MemoryLicences:
 
     async def licences_for_user(self, user_id: str) -> list[dict]:
         return [_copy(row) for row in self.keys if row["user_id"] == user_id]
+
+    async def set_subscription(self, licence_id: str, ends: datetime, term_months: int, now: datetime, provider: str | None = None, provider_ref: str | None = None) -> None:
+        del now
+        for row in self.keys:
+            if row["id"] != licence_id:
+                continue
+            row["subscription_ends_at"] = ends
+            row["term_months"] = term_months
+            if provider_ref:
+                row["provider"] = provider
+                row["provider_ref"] = provider_ref
 
     async def set_status(self, licence_id: str, status: str, now: datetime) -> None:
         for row in self.keys:
@@ -165,6 +183,8 @@ def _key_row(row) -> dict:
         "created_at": row[10],
         "revoked_at": row[11],
         "refunded_at": row[12],
+        "term_months": int(row[13]),
+        "subscription_ends_at": row[14],
     }
 
 
@@ -182,7 +202,7 @@ def _device_row(row) -> dict:
 
 
 _KEY_COLS = """id::text, user_id::text, key_hash, key_hint, plan_code, features, max_devices, status,
-provider, provider_ref, created_at, revoked_at, refunded_at"""
+provider, provider_ref, created_at, revoked_at, refunded_at, term_months, subscription_ends_at"""
 _DEVICE_COLS = "id::text, licence_id::text, device_id_hash, name, os, activated_at, last_seen_at, deactivated_at"
 
 
@@ -199,13 +219,14 @@ class PostgresLicences:
         async with self.pool.connection() as conn:
             created = await (await conn.execute(
                 f"""INSERT INTO licence_keys
-                    (user_id, key_hash, key_hint, plan_code, features, max_devices, status, provider, provider_ref, created_at)
-                    VALUES (%s, %s, %s, %s, %s::jsonb, %s, 'active', %s, %s, %s)
+                    (user_id, key_hash, key_hint, plan_code, features, max_devices, status, provider, provider_ref, created_at, term_months, subscription_ends_at)
+                    VALUES (%s, %s, %s, %s, %s::jsonb, %s, 'active', %s, %s, %s, %s, %s)
                     RETURNING {_KEY_COLS}""",
                 (
                     row["user_id"], row["key_hash"], row["key_hint"], row["plan_code"],
                     json.dumps(list(row.get("features") or [])), int(row.get("max_devices") or 2),
                     row.get("provider"), row.get("provider_ref"), row.get("created_at"),
+                    int(row.get("term_months") or 1), row.get("subscription_ends_at"),
                 ),
             )).fetchone()
         return _key_row(created)
@@ -269,6 +290,22 @@ class PostgresLicences:
                 )
             else:
                 await conn.execute("UPDATE licence_keys SET status = %s WHERE id = %s", (status, licence_id))
+
+    async def set_subscription(self, licence_id: str, ends: datetime, term_months: int, now: datetime, provider: str | None = None, provider_ref: str | None = None) -> None:
+        del now
+        async with self.pool.connection() as conn:
+            if provider_ref:
+                await conn.execute(
+                    """UPDATE licence_keys
+                       SET subscription_ends_at = %s, term_months = %s, provider = %s, provider_ref = %s
+                       WHERE id = %s""",
+                    (ends, term_months, provider, provider_ref, licence_id),
+                )
+            else:
+                await conn.execute(
+                    "UPDATE licence_keys SET subscription_ends_at = %s, term_months = %s WHERE id = %s",
+                    (ends, term_months, licence_id),
+                )
 
     async def active_devices(self, licence_id: str) -> list[dict]:
         async with self.pool.connection() as conn:

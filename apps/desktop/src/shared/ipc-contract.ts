@@ -340,7 +340,7 @@ export interface AuthStatus {
   deviceId: string | null
 }
 
-export type LicenceState = 'valid' | 'grace' | 'missing' | 'invalid' | 'expired' | 'device_mismatch' | 'clock_rollback' | 'dev'
+export type LicenceState = 'valid' | 'grace' | 'missing' | 'invalid' | 'expired' | 'subscription_ended' | 'device_mismatch' | 'clock_rollback' | 'dev'
 
 export interface LicenceStatus {
   state: LicenceState
@@ -349,6 +349,9 @@ export interface LicenceStatus {
   email: string | null
   refreshBy: string | null
   expiresAt: string | null
+  subscriptionEndsAt: string | null
+  termMonths: number | null
+  subscriptionWarning: boolean
   deviceIdHash: string | null
   buyUrl: string
   licenceId: string | null

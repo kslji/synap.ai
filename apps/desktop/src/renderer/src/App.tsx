@@ -610,12 +610,13 @@ export default function App() {
   const unlocked = licence.state === 'valid' || licence.state === 'grace' || licence.state === 'dev'
   if (!unlocked && !demoAccount) {
     return (
-      <div className="h-full" data-ready="yes" data-screen="activate">
+      <div className="h-full" data-ready="yes" data-screen={licence.state === 'subscription_ended' ? 'renew' : 'activate'}>
         <ActivationScreen
           theme={settings.theme}
           onTheme={chooseTheme}
           status={licence}
           offlineOnly={settings.offlineOnly}
+          renewal={licence.state === 'subscription_ended'}
           onAllowNetwork={async () => { await patch({ offlineOnly: false }) }}
           onStart={(email) => api.auth.start(email)}
           onVerify={async (email, code) => {
@@ -674,6 +675,12 @@ export default function App() {
 
   return (
     <div className="relative flex h-full flex-col" data-ready="yes" data-screen={view}>
+      {licence.subscriptionWarning && licence.subscriptionEndsAt && (
+        <div className="border-b border-[var(--line)] px-4 py-2 text-center text-sm" data-licence-ending="yes">
+          This subscription ends on {licence.subscriptionEndsAt.slice(0, 10)}. Renew to keep using Synap.surf.{' '}
+          <button className="underline" type="button" data-licence-renew="yes" onClick={() => { void api.links.open(licence.buyUrl) }}>Renew</button>
+        </div>
+      )}
       {licence.state === 'grace' && (
         <div className="border-b border-[var(--line)] px-4 py-2 text-center text-sm" data-licence-grace="yes">{licence.message}</div>
       )}
@@ -789,6 +796,8 @@ export default function App() {
           account={shownAccount}
           devices={demoDevices ?? licenceDevices.map((device) => ({ ...device, status: 'active' }))}
           plan={demoAccount?.plan ?? licence.plan}
+          termMonths={demoAccount ? null : licence.termMonths}
+          subscriptionEndsAt={demoAccount ? null : licence.subscriptionEndsAt}
           licenceNote={licence.state === 'dev' || licence.state === 'grace' ? licence.message : null}
           onSignIn={() => setView('signin')}
           onSignOut={() => {

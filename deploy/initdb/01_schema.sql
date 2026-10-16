@@ -109,7 +109,9 @@ CREATE TABLE licence_keys (
   provider_ref    text,
   created_at      timestamptz NOT NULL DEFAULT now(),
   revoked_at      timestamptz,
-  refunded_at     timestamptz
+  refunded_at     timestamptz,
+  term_months     int NOT NULL DEFAULT 1 CHECK (term_months IN (1, 3, 6, 12)),
+  subscription_ends_at timestamptz NOT NULL
 );
 CREATE UNIQUE INDEX idx_licence_provider ON licence_keys (provider, provider_ref) WHERE provider_ref IS NOT NULL;
 CREATE INDEX idx_licence_user ON licence_keys (user_id);

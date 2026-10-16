@@ -12,6 +12,8 @@ export function SettingsScreen({
   account,
   devices,
   plan,
+  termMonths,
+  subscriptionEndsAt,
   licenceNote,
   onPatch,
   onCheckUpdates,
@@ -30,6 +32,8 @@ export function SettingsScreen({
   account: { email: string; deviceId: string | null; plan?: string | null } | null
   devices: DeviceInfo[]
   plan: string | null
+  termMonths: number | null
+  subscriptionEndsAt: string | null
   licenceNote: string | null
   onPatch: (p: SettingsPatch) => void
   onCheckUpdates: () => Promise<string>
@@ -61,7 +65,8 @@ export function SettingsScreen({
         <Group title="Account">
         <div className="card px-4 py-4" data-account="yes">
           <div className="text-sm font-semibold">Account</div>
-          <p className="mt-1 text-sm" data-licence-plan="yes">Plan: {plan ?? 'None'}</p>
+          <p className="mt-1 text-sm" data-licence-plan="yes">Plan: {plan ?? 'None'}{termMonths ? ` · ${termMonths} ${termMonths === 1 ? 'month' : 'months'}` : ''}</p>
+          {subscriptionEndsAt && <p className="mt-1 text-sm" data-licence-ends="yes">Ends: {subscriptionEndsAt.slice(0, 10)}</p>}
           {licenceNote && <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{licenceNote}</p>}
           {account ? (
             <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>

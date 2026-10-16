@@ -12,6 +12,7 @@ export function ActivationScreen({
   onVerify,
   onKey,
   onBuy,
+  renewal,
 }: {
   theme: ThemeChoice
   onTheme: (theme: ThemeChoice) => void
@@ -22,6 +23,7 @@ export function ActivationScreen({
   onVerify: (email: string, code: string) => Promise<void>
   onKey: (key: string) => Promise<void>
   onBuy: () => void
+  renewal?: boolean
 }) {
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
@@ -43,13 +45,20 @@ export function ActivationScreen({
   }
 
   return (
-    <main className="flex h-full flex-col items-center justify-center overflow-auto px-6 py-8" data-screen="activate" data-licence-state={status.state}>
+    <main className="flex h-full flex-col items-center justify-center overflow-auto px-6 py-8" data-screen={renewal ? 'renew' : 'activate'} data-licence-state={status.state}>
       <div className="flex w-full max-w-md flex-col items-center">
         <StarSurf state="guiding" size={180} />
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Activate Synap.surf</h1>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">{renewal ? 'Renew Synap.surf' : 'Activate Synap.surf'}</h1>
         <p className="mt-2 text-center text-sm leading-relaxed text-[var(--muted)]">
-          The installer is free to copy. This computer needs a licence before the app will open. Sign in with the account that bought it, or enter a licence key.
+          {renewal
+            ? 'This subscription has ended. The app stays locked, including when this computer is offline. There is no extra time after the end date. Setting the clock back does not extend it.'
+            : 'The installer is free to copy. This computer needs a licence before the app will open. Sign in with the account that bought it, or enter a licence key.'}
         </p>
+        {renewal && status.subscriptionEndsAt && (
+          <p className="mt-3 text-center text-sm font-semibold" data-subscription-ended={status.subscriptionEndsAt.slice(0, 10)}>
+            Ended {status.subscriptionEndsAt.slice(0, 10)}
+          </p>
+        )}
         {status.message && <p className="mt-3 text-center text-sm leading-relaxed">{status.message}</p>}
         <p className="mt-2 text-center text-xs leading-relaxed text-[var(--muted)]">
           The app checks the licence file on this computer. That stops a copied installer from running by itself. It is not a guarantee against a modified app.
@@ -108,7 +117,7 @@ export function ActivationScreen({
           <button className="btn btn-primary" type="submit" disabled={busy} data-activate="key-submit">Use this key</button>
         </form>
         {error && <p className="mt-3 text-center text-sm">{error}</p>}
-        <button className="btn btn-ghost mt-4" type="button" data-activate="buy" onClick={onBuy}>Buy a licence</button>
+        <button className="btn btn-ghost mt-4" type="button" data-activate={renewal ? 'renew' : 'buy'} onClick={onBuy}>{renewal ? 'Renew' : 'Buy a licence'}</button>
         <div className="mt-4">
           <ThemeSwitch value={theme} onChange={onTheme} />
         </div>

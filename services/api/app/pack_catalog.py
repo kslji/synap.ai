@@ -83,6 +83,7 @@ def catalog(base_url: str, installed: str = "") -> dict:
                     old_manifest = json.loads(prev_manifest_path.read_text())
                     old = _hashes(prev_dir, old_manifest)
                     changed = [row for row in files if old.get(row["name"]) != row["sha256"]]
+            delta = next((row for row in files if row["name"] == "delta.sqlite.enc"), None)
             packs.append({
                 "id": manifest.get("pack_id") or pack_dir.name,
                 "title": manifest.get("title") or pack_dir.name,
@@ -91,7 +92,7 @@ def catalog(base_url: str, installed: str = "") -> dict:
                 "installed": previous,
                 "update_available": previous is not None and previous != version,
                 "changed_files": [row["name"] for row in changed] if previous else [row["name"] for row in files],
-                "delta": None,
+                "delta": {"name": delta["name"], "sha256": delta["sha256"], "size": delta["size"], "url": delta["url"]} if delta else None,
             })
     return {"packs": packs}
 

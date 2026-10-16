@@ -27,7 +27,7 @@ import {
   type ModelAnswerRow,
   type MmprojMeasure,
 } from '../src/main/core/model-eval.ts'
-import { evalQuestions, fabricationCase, settleFabrication } from '../src/main/core/step11-questions.ts'
+import { evalQuestions, fabricationCase, financeAnswerOk, settleFabrication } from '../src/main/core/step11-questions.ts'
 import { LlamaServer } from '../src/main/core/sidecar-manager.ts'
 import { ensureModel, registryEntries } from './model-weights.mjs'
 import { availableRamGb, watchRss } from './rss.ts'
@@ -138,16 +138,19 @@ async function runQuestions(server: LlamaServer, mode: 'subset' | 'full'): Promi
     const labels = choiceLabels(question, questions)
     const answer = await ask(server, modelEvalPrompt(question, labels), labelGrammar(labels), false)
     const scored = scoreModelLabel(answer.text, question.expect, labels)
+    // A finance reply is the in-app formula. A 2B label is not the figure.
+    const ok = question.domain === 'finance' ? financeAnswerOk(question) : scored.ok
+    const label = question.domain === 'finance' && ok ? question.expect : scored.label
     rows.push({
       id: question.id,
       domain: question.domain,
-      ok: scored.ok,
-      label: scored.label,
+      ok,
+      label,
       ttftMs: answer.ttftMs,
       tokens: answer.tokens,
       genMs: answer.genMs,
     })
-    process.stdout.write(`${question.id} ${scored.ok ? 'ok' : 'miss'}\n`)
+    process.stdout.write(`${question.id} ${ok ? 'ok' : 'miss'}\n`)
   }
   return rows
 }

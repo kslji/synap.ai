@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { evalQuestions, fabricationCase, settleFabrication } from './step11-questions.js'
+import { evalQuestions, fabricationCase, financeAnswerOk, settleFabrication } from './step11-questions.js'
 import {
   accuracyFloor,
   choiceLabels,
@@ -130,6 +130,14 @@ test('the release gate reads a saved full run when this machine skipped a model'
   const covered = coverSkips([small, mid, skipped], [saved])
   assert.equal(releaseGate(covered, thresholds).ok, true)
   assert.equal(releaseGate(coverSkips([skipped], []), thresholds).ok, false)
+})
+
+test('finance answers are the in-app formula, not a model label', () => {
+  const finance = evalQuestions().filter((row) => row.domain === 'finance')
+  assert.equal(finance.length, 12)
+  assert.equal(finance.every((row) => financeAnswerOk(row)), true)
+  const disclaimer = finance.find((row) => row.expect === 'disclaimer')!
+  assert.equal(financeAnswerOk(disclaimer), true)
 })
 
 test('the committed real-model floors do not sit under a measured miss', () => {

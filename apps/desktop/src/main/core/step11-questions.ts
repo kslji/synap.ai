@@ -317,6 +317,11 @@ function scoreFresh(item: EvalQuestion): boolean {
   return false
 }
 
+/** Finance figures come from the in-app formula. The model is not the source. */
+export function financeAnswerOk(item: EvalQuestion): boolean {
+  return item.domain === 'finance' && scoreFinance(item)
+}
+
 function scoreFinance(item: EvalQuestion): boolean {
   if (item.expect === 'sip' || item.expect === 'sip-zero') {
     const parsed = parseSipQuestion(item.question)

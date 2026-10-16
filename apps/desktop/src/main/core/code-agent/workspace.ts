@@ -1,16 +1,27 @@
 /**
  * Read, list, and run inside one project folder.
  * Commands are one program plus arguments. There is no shell.
+ * Every command goes through the sandbox. Callers still have to pass the Ask/Auto gate first.
  */
-import { spawn } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { relative, sep } from 'node:path'
 import { resolveInside } from './paths.js'
+import { CHECK_TIMEOUT_MS, runSandboxed, SANDBOX_OUTPUT_CAP, SANDBOX_TIMEOUT_MS, type SandboxKind } from './sandbox.js'
 
 const MAX_READ_BYTES = 256 * 1024
 const MAX_READ_LINES = 200
-const COMMAND_TIMEOUT_MS = 20_000
-const COMMAND_OUTPUT_CAP = 16_000
+
+export interface CommandHooks {
+  onOutput?: (chunk: string) => void
+}
+
+export interface CommandResult {
+  ok: boolean
+  output: string
+  note?: string
+  timedOut?: boolean
+  truncated?: boolean
+}
 
 export function splitCommand(input: string): { ok: true; argv: string[] } | { ok: false; reason: string } {
   const trimmed = input.trim()
@@ -82,34 +93,31 @@ export function listProjectDir(root: string, args: Record<string, unknown>): str
   return `${label}\n${shown.join('\n')}${more}`
 }
 
-export function runProjectCommand(root: string, command: string, signal?: AbortSignal): Promise<{ ok: boolean; output: string }> {
-  const split = splitCommand(command)
-  if (!split.ok) return Promise.resolve({ ok: false, output: split.reason })
-  return new Promise((resolve) => {
-    const child = spawn(split.argv[0] ?? '', split.argv.slice(1), {
-      cwd: root,
-      shell: false,
-      windowsHide: true,
-    })
-    let out = ''
-    const take = (chunk: Buffer) => {
-      if (out.length >= COMMAND_OUTPUT_CAP) return
-      out += chunk.toString('utf8').slice(0, COMMAND_OUTPUT_CAP - out.length)
-    }
-    child.stdout?.on('data', take)
-    child.stderr?.on('data', take)
-    const timer = setTimeout(() => { child.kill() }, COMMAND_TIMEOUT_MS)
-    const onAbort = () => child.kill()
-    signal?.addEventListener('abort', onAbort, { once: true })
-    const done = (ok: boolean, output: string) => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      resolve({ ok, output })
-    }
-    child.on('error', (error) => done(false, error.message))
-    child.on('close', (code) => done(code === 0, out || `exit ${code ?? 'unknown'}`))
-  })
+export function runProjectCommand(
+  root: string,
+  command: string,
+  signal?: AbortSignal,
+  hooks?: CommandHooks,
+  options?: { timeoutMs?: number; outputCap?: number; kind?: SandboxKind },
+): Promise<CommandResult> {
+  return runSandboxed({
+    cwd: root,
+    command,
+    signal,
+    onOutput: hooks?.onOutput,
+    timeoutMs: options?.timeoutMs ?? SANDBOX_TIMEOUT_MS,
+    outputCap: options?.outputCap ?? SANDBOX_OUTPUT_CAP,
+    kind: options?.kind,
+  }).then((result) => ({
+    ok: result.ok,
+    output: result.output,
+    note: result.note,
+    timedOut: result.timedOut,
+    truncated: result.truncated,
+  }))
 }
+
+export { CHECK_TIMEOUT_MS }
 
 function clampLine(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) return fallback

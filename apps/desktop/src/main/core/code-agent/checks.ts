@@ -11,10 +11,11 @@ import { splitCommand } from './workspace.js'
 const BINS = new Set([
   'npm', 'pnpm', 'yarn', 'bun',
   'pytest', 'python', 'python3', 'ruff', 'mypy', 'pyright',
-  'eslint', 'tsc', 'vitest', 'cargo', 'go', 'make',
+  'eslint', 'tsc', 'vitest', 'jest', 'cargo', 'go', 'make',
+  'mvn', 'gradle', 'gradlew', 'gradlew.bat',
 ])
 
-const NPX_TOOLS = new Set(['tsc', 'eslint', 'vitest', 'pyright', 'ruff'])
+const NPX_TOOLS = new Set(['tsc', 'eslint', 'vitest', 'jest', 'pyright', 'ruff'])
 
 export function resolveCheck(root: string, check: StepCheck): { command: string | null; source: 'model' | 'project' | 'none' } {
   if (commandAllowed(check.command, check.kind)) return { command: check.command.trim(), source: 'model' }
@@ -39,12 +40,71 @@ export function detectCheck(root: string, kind: CheckKind): string | null {
     }
   }
   if (kind === 'typecheck' && existsSync(join(root, 'tsconfig.json'))) return 'npx tsc --noEmit'
+  if (kind === 'lint' && eslintConfig(root)) return 'npx eslint .'
+  if (kind === 'test' && vitestConfig(root)) return 'npx vitest run'
+  if (kind === 'test' && jestConfig(root)) return 'npx jest'
   if (kind === 'lint' && (existsSync(join(root, 'ruff.toml')) || existsSync(join(root, 'pyproject.toml')))) return 'ruff check .'
-  if (kind === 'test' && (existsSync(join(root, 'pytest.ini')) || existsSync(join(root, 'pyproject.toml')))) return 'pytest'
+  if (kind === 'test' && (existsSync(join(root, 'pytest.ini')) || existsSync(join(root, 'pyproject.toml')) || existsSync(join(root, 'setup.cfg')))) return 'pytest'
+  if (kind === 'typecheck' && pyrightConfig(root)) return 'pyright'
+  if (kind === 'typecheck' && mypyConfig(root)) return 'mypy .'
   if (kind === 'test' && existsSync(join(root, 'Cargo.toml'))) return 'cargo test'
+  if (kind === 'typecheck' && existsSync(join(root, 'Cargo.toml'))) return 'cargo check'
+  if (kind === 'lint' && existsSync(join(root, 'Cargo.toml'))) return 'cargo clippy'
   if (kind === 'test' && existsSync(join(root, 'go.mod'))) return 'go test ./...'
+  if (kind === 'lint' && existsSync(join(root, 'go.mod'))) return 'go vet ./...'
+  if (kind === 'test' && javaTest(root)) return javaTest(root)
   if (kind === 'test' && scripts?.test) return 'npm test'
   return null
+}
+
+export type ProjectLanguage = 'javascript' | 'python' | 'go' | 'rust' | 'java'
+
+export interface DetectedCheck {
+  language: ProjectLanguage
+  kind: CheckKind | 'build'
+  command: string
+}
+
+/** Every check this folder can run. `detectCheck` is still the one command a step uses. */
+export function detectProjectChecks(root: string): DetectedCheck[] {
+  const out: DetectedCheck[] = []
+  const add = (language: ProjectLanguage, kind: DetectedCheck['kind'], command: string | null) => {
+    if (!command || out.some((item) => item.command === command)) return
+    out.push({ language, kind, command })
+  }
+  if (existsSync(join(root, 'package.json')) || existsSync(join(root, 'tsconfig.json'))) {
+    add('javascript', 'test', detectCheck(root, 'test'))
+    add('javascript', 'lint', detectCheck(root, 'lint'))
+    add('javascript', 'typecheck', detectCheck(root, 'typecheck'))
+    add('javascript', 'build', detectBuild(root))
+  }
+  if (existsSync(join(root, 'pyproject.toml')) || existsSync(join(root, 'pytest.ini')) || existsSync(join(root, 'ruff.toml')) || pyrightConfig(root) || mypyConfig(root)) {
+    add('python', 'test', existsSync(join(root, 'pytest.ini')) || existsSync(join(root, 'pyproject.toml')) ? 'pytest' : null)
+    add('python', 'lint', existsSync(join(root, 'ruff.toml')) || existsSync(join(root, 'pyproject.toml')) ? 'ruff check .' : null)
+    add('python', 'typecheck', pyrightConfig(root) ? 'pyright' : mypyConfig(root) ? 'mypy .' : null)
+  }
+  if (existsSync(join(root, 'go.mod'))) {
+    add('go', 'test', 'go test ./...')
+    add('go', 'lint', 'go vet ./...')
+    add('go', 'build', 'go build')
+  }
+  if (existsSync(join(root, 'Cargo.toml'))) {
+    add('rust', 'test', 'cargo test')
+    add('rust', 'typecheck', 'cargo check')
+    add('rust', 'lint', 'cargo clippy')
+    add('rust', 'build', 'cargo build')
+  }
+  if (javaRoot(root)) {
+    add('java', 'test', javaTest(root))
+    add('java', 'build', javaBuild(root))
+  }
+  return out
+}
+
+export function commandScript(root: string, command: string): string | null {
+  const name = scriptName(command)
+  if (!name) return null
+  return readScripts(root)?.[name] ?? null
 }
 
 const RISKY_SCRIPT = /\b(curl|wget|ssh|scp|pip3?\s+install|npm\s+install|pnpm\s+(?:install|add)|yarn\s+add|npx|apt-get|brew\s+install|git\s+clone)\b/i
@@ -83,8 +143,60 @@ function detectBuild(root: string): string | null {
   if (scripts?.build) return 'npm run build'
   if (existsSync(join(root, 'Cargo.toml'))) return 'cargo build'
   if (existsSync(join(root, 'go.mod'))) return 'go build'
+  const java = javaBuild(root)
+  if (java) return java
   if (pyprojectBuilds(root)) return 'python -m build'
   return null
+}
+
+function javaRoot(root: string): boolean {
+  return existsSync(join(root, 'pom.xml')) || existsSync(join(root, 'build.gradle')) || existsSync(join(root, 'build.gradle.kts')) || existsSync(join(root, 'gradlew')) || existsSync(join(root, 'gradlew.bat'))
+}
+
+function javaTest(root: string): string | null {
+  if (existsSync(join(root, 'pom.xml'))) return 'mvn -q test'
+  if (existsSync(join(root, 'gradlew'))) return './gradlew test'
+  if (existsSync(join(root, 'gradlew.bat'))) return 'gradlew.bat test'
+  if (existsSync(join(root, 'build.gradle')) || existsSync(join(root, 'build.gradle.kts'))) return 'gradle test'
+  return null
+}
+
+function javaBuild(root: string): string | null {
+  if (existsSync(join(root, 'pom.xml'))) return 'mvn -q -DskipTests package'
+  if (existsSync(join(root, 'gradlew'))) return './gradlew build'
+  if (existsSync(join(root, 'gradlew.bat'))) return 'gradlew.bat build'
+  if (existsSync(join(root, 'build.gradle')) || existsSync(join(root, 'build.gradle.kts'))) return 'gradle build'
+  return null
+}
+
+function eslintConfig(root: string): boolean {
+  return ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', '.eslintrc', '.eslintrc.js', '.eslintrc.json', '.eslintrc.cjs'].some((name) => existsSync(join(root, name)))
+}
+
+function vitestConfig(root: string): boolean {
+  return ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs'].some((name) => existsSync(join(root, name)))
+}
+
+function jestConfig(root: string): boolean {
+  return ['jest.config.ts', 'jest.config.js', 'jest.config.mjs', 'jest.config.json'].some((name) => existsSync(join(root, name)))
+}
+
+function pyrightConfig(root: string): boolean {
+  if (existsSync(join(root, 'pyrightconfig.json'))) return true
+  return toolTable(root, 'pyright')
+}
+
+function mypyConfig(root: string): boolean {
+  if (existsSync(join(root, 'mypy.ini')) || existsSync(join(root, '.mypy.ini'))) return true
+  return toolTable(root, 'mypy')
+}
+
+function toolTable(root: string, name: string): boolean {
+  try {
+    return new RegExp(`\\[tool\\.${name}[\\].]`).test(readFileSync(join(root, 'pyproject.toml'), 'utf8'))
+  } catch {
+    return false
+  }
 }
 
 function pyprojectBuilds(root: string): boolean {

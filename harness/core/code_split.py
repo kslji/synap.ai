@@ -58,6 +58,23 @@ def check(case_id: str, fields: dict) -> list[str]:
         flag("autoNoAsk")
         flag("pausedInstall")
         flag("blockedDelete")
+    elif case_id == "fix-ts":
+        flag("fixed")
+        flag("legacyKept")
+        flag("rolledBack")
+        flag("sawAddDiagnostic")
+        flag("skippedLegacy")
+        need("introduced", "none")
+        need("tries", 2)
+    elif case_id == "fix-py":
+        flag("fixed")
+        flag("legacyKept")
+        flag("rolledBack")
+        flag("sawCalcDiagnostic")
+        flag("skippedLegacy")
+        flag("narrowBeforeFull")
+        need("introduced", "none")
+        need("tries", 2)
     else:
         reasons.append("unknown code-split case")
     return reasons

@@ -1,0 +1,8 @@
+src/app.ts
+  12:5  error  'foo' is not defined  no-undef
+  14:1  warning  Unexpected console statement  no-console
+
+src/other.ts
+  3:10  error  'x' is defined but never used  @typescript-eslint/no-unused-vars
+
+src/unix.ts:4:1: 'bar' is not defined. (no-undef)

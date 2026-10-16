@@ -59,7 +59,7 @@ export interface CodeAgentHost {
   onStep?(step: CodeStepView): void
   onDiff?(diff: CodeDiffView): void
   ask(request: { kind: 'command' | 'edit'; id: string; command?: string; path?: string; diff?: string }): Promise<{ allow: boolean; remember?: boolean; all?: boolean }>
-  runCommand?(command: string, signal?: AbortSignal): Promise<{ ok: boolean; output: string }>
+  runCommand?(command: string, signal?: AbortSignal, hooks?: { onOutput?: (chunk: string) => void }): Promise<{ ok: boolean; output: string; note?: string }>
   onRememberCommand?(command: string): void
   /** Local web search. Tools stay empty unless dev web is enabled on env. */
   devWeb?: DevWebHost
@@ -265,11 +265,18 @@ async function act(
         host.onRememberCommand?.(exact)
       }
     }
-    pushStep(host, steps, { id, index, tool: name, status: 'running', title, detail: command })
-    const run = host.runCommand ?? ((cmd, signal) => runProjectCommand(host.root, cmd, signal))
-    const result = await run(command, host.signal)
+    let streamed = ''
+    pushStep(host, steps, { id, index, tool: name, status: 'running', title, detail: command, output: '' })
+    const run = host.runCommand ?? ((cmd, signal, hooks) => runProjectCommand(host.root, cmd, signal, hooks))
+    const result = await run(command, host.signal, {
+      onOutput(chunk) {
+        streamed += chunk
+        pushStep(host, steps, { id, index, tool: name, status: 'running', title, detail: command, output: tail(streamed) })
+      },
+    })
     throwIfAborted(host.signal)
-    pushStep(host, steps, { id, index, tool: name, status: result.ok ? 'ok' : 'error', title, detail: oneLine(result.output) })
+    const note = result.note ?? ''
+    pushStep(host, steps, { id, index, tool: name, status: result.ok ? 'ok' : 'error', title, detail: oneLine(result.output), output: tail(streamed || result.output), note })
     return clip(host, result.output)
   }
   const webTool = codeAgentDevWebTools(devWebFor(host)).find((item) => item.name === name)
@@ -316,6 +323,12 @@ function stringArg(args: Record<string, unknown>, key: string): string {
 function oneLine(text: string): string {
   const line = text.split('\n').map((item) => item.trim()).find(Boolean) ?? ''
   return line.length > 160 ? `${line.slice(0, 157)}…` : line
+}
+
+function tail(text: string): string {
+  const max = 4_000
+  if (text.length <= max) return text
+  return text.slice(text.length - max)
 }
 
 function stepTitle(name: string, args: Record<string, unknown>): string {

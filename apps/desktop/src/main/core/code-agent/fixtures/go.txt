@@ -1,0 +1,3 @@
+./main.go:12:5: undefined: foo
+--- FAIL: TestAdd (0.00s)
+    calc_test.go:8: got 1 want 3

@@ -31,6 +31,10 @@ export const OtpVerifyBody = z.object({
   code: z.string().regex(/^\d{6}$/),
 })
 export const DeviceId = z.string().uuid()
+export const LicenceActivateBody = z.object({
+  key: z.string().trim().min(8).max(80).optional(),
+}).strict()
+export const LicenceActivationId = z.string().uuid().nullable()
 export const PackId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/)
 
 export const HttpLink = z.string().max(2000).regex(/^https?:\/\/\S+$/)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChunkPreview, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
@@ -15,6 +15,7 @@ import { SettingsScreen } from './screens/SettingsScreen'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
 import { SignInScreen } from './screens/SignInScreen'
+import { ActivationScreen } from './screens/ActivationScreen'
 import { PacksScreen } from './screens/PacksScreen'
 import { UpdateBanner } from './screens/UpdateBanner'
 
@@ -38,31 +39,35 @@ export default function App() {
   const [scope, setScope] = useState<DocScope>('chat')
   const [chatWeb, setChatWeb] = useState(true)
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
-  const [account, setAccount] = useState<{ email: string; deviceId: string | null } | null>(null)
-  const [devices, setDevices] = useState<DeviceInfo[]>([])
+  const [account, setAccount] = useState<{ email: string; deviceId: string | null; plan?: string | null } | null>(null)
+  const [licence, setLicence] = useState<LicenceStatus | null>(null)
+  const [licenceDevices, setLicenceDevices] = useState<LicenceDevice[]>([])
   const [packs, setPacks] = useState<PackRow[]>([])
   const [packBusy, setPackBusy] = useState(false)
-  const [demoAccount, setDemoAccount] = useState<{ email: string; deviceId: string | null } | null>(null)
+  const [demoAccount, setDemoAccount] = useState<{ email: string; deviceId: string | null; plan?: string | null } | null>(null)
   const [demoDevices, setDemoDevices] = useState<DeviceInfo[] | null>(null)
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
 
   const refresh = useCallback(async () => {
-    const [st, se, conv, auth, listed] = await Promise.all([
+    const [st, se, conv, auth, listed, lic] = await Promise.all([
       api.models.status(),
       api.settings.get(),
       api.conversations.list(),
       api.auth.status(),
       api.packs.list(),
+      api.licence.status(),
     ])
     setStatus(st)
     setSettings(se)
     setConversations(conv)
-    setAccount(auth.signedIn && auth.email ? { email: auth.email, deviceId: auth.deviceId } : null)
+    setAccount(auth.signedIn && auth.email ? { email: auth.email, deviceId: auth.deviceId, plan: lic.plan } : null)
+    setLicence(lic)
     setPacks(listed)
-    if (auth.signedIn) setDevices(await api.auth.devices().catch(() => []))
-    else setDevices([])
+    const open = lic.state === 'valid' || lic.state === 'grace' || lic.state === 'dev'
+    if (open) setLicenceDevices(await api.licence.devices().catch(() => []))
+    else setLicenceDevices([])
     return st
   }, [api])
 
@@ -464,7 +469,7 @@ export default function App() {
         setView('signin')
       }
       if (scene === 'account') {
-        setDemoAccount({ email: 'ada@example.com', deviceId: '11111111-1111-4111-8111-111111111111' })
+        setDemoAccount({ email: 'ada@example.com', deviceId: '11111111-1111-4111-8111-111111111111', plan: 'Pro' })
         setDemoDevices([
           { id: '11111111-1111-4111-8111-111111111111', name: 'This computer', os: 'linux', status: 'active', current: true },
           { id: '22222222-2222-4222-8222-222222222222', name: 'Studio laptop', os: 'macos', status: 'active', current: false },
@@ -593,7 +598,7 @@ export default function App() {
     }
   }, [])
 
-  if (!status || !settings) {
+  if (!status || !settings || !licence) {
     return (
       <main className="flex h-full flex-col items-center justify-center gap-2" data-ready="no">
         <StarSurf state="searching" size={160} />
@@ -602,8 +607,33 @@ export default function App() {
     )
   }
 
+  const unlocked = licence.state === 'valid' || licence.state === 'grace' || licence.state === 'dev'
+  if (!unlocked && !demoAccount) {
+    return (
+      <div className="h-full" data-ready="yes" data-screen="activate">
+        <ActivationScreen
+          theme={settings.theme}
+          onTheme={chooseTheme}
+          status={licence}
+          offlineOnly={settings.offlineOnly}
+          onAllowNetwork={async () => { await patch({ offlineOnly: false }) }}
+          onStart={(email) => api.auth.start(email)}
+          onVerify={async (email, code) => {
+            await api.auth.verify(email, code)
+            await api.licence.activate()
+            await refresh()
+          }}
+          onKey={async (key) => {
+            await api.licence.activate(key)
+            await refresh()
+          }}
+          onBuy={() => { void api.links.open(licence.buyUrl) }}
+        />
+      </div>
+    )
+  }
+
   const shownAccount = demoAccount ?? account
-  const shownDevices = demoDevices ?? devices
   const shownPacks = demoPacks ?? packs
 
   if (view === 'signin') {
@@ -644,6 +674,9 @@ export default function App() {
 
   return (
     <div className="relative flex h-full flex-col" data-ready="yes" data-screen={view}>
+      {licence.state === 'grace' && (
+        <div className="border-b border-[var(--line)] px-4 py-2 text-center text-sm" data-licence-grace="yes">{licence.message}</div>
+      )}
       {updateOffer && <UpdateBanner offer={updateOffer} onApply={() => { void api.updates.apply().catch((e: unknown) => setError((e as Error).message)) }} />}
       <div className="flex min-h-0 flex-1">
       <Sidebar
@@ -754,7 +787,9 @@ export default function App() {
           status={status}
           settings={settings}
           account={shownAccount}
-          devices={shownDevices}
+          devices={demoDevices ?? licenceDevices.map((device) => ({ ...device, status: 'active' }))}
+          plan={demoAccount?.plan ?? licence.plan}
+          licenceNote={licence.state === 'dev' || licence.state === 'grace' ? licence.message : null}
           onSignIn={() => setView('signin')}
           onSignOut={() => {
             setDemoAccount(null)
@@ -766,7 +801,15 @@ export default function App() {
               setDemoDevices(demoDevices.filter((device) => device.id !== id))
               return
             }
-            void api.auth.revoke(id).then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
+            void api.licence.deactivate(id).then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
+          }}
+          onDeactivate={() => {
+            if (demoDevices) {
+              setDemoDevices([])
+              setDemoAccount(null)
+              return
+            }
+            void api.licence.deactivate().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
           }}
           onPatch={(p) => { void patch(p) }}
           progress={progress}

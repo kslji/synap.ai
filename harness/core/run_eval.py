@@ -65,6 +65,8 @@ def run_electron(cases: list[dict], work: Path, phase: str, mode: str) -> dict:
     env = os.environ.copy()
     env.update({
         "SURF_EVAL": "1",
+        # Unpackaged eval process only. Packaged builds ignore this flag.
+        "SYNAP_LICENCE_DEV": "1",
         "SURF_EVAL_DIR": str(user),
         "SURF_EVAL_CASES": str(cases_path),
         "SURF_EVAL_OUT": str(out_path),

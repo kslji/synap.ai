@@ -17,6 +17,8 @@ import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { codePackDir, loadCodePack } from './code-pack.js'
+import { gatePackDecrypt } from './licence.js'
+import { createLicenceApi } from './licence-service.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { runCodeAgent } from './code-agent/loop.js'
 import { currentPermissionMode } from './code-agent/permission.js'
@@ -565,7 +567,13 @@ export async function createServices(): Promise<Services> {
       return
     }
     const loaded = await loadCodePack(codePackDir(app.getPath('userData')), trustedPackKeys())
+    const codeGate = gatePackDecrypt(loaded.status !== 'absent', {
+      allowed: await licences.allowsUse(),
+      contentKey: await licences.contentKey(),
+      encrypted: false,
+    })
     if (loaded.status === 'invalid') console.warn('[surf] code pack skipped:', loaded.message)
+    if (codeGate.status === 'locked') console.warn('[surf] code pack skipped:', codeGate.message)
     await withModel(async () => {
       const settings = readSettings()
       const reg = registry()
@@ -670,7 +678,13 @@ export async function createServices(): Promise<Services> {
     const agentId = req.agentId || 'general'
     if (agentId === 'code') {
       const loaded = await loadCodePack(codePackDir(app.getPath('userData')), trustedPackKeys())
+      const codeGate = gatePackDecrypt(loaded.status !== 'absent', {
+        allowed: await licences.allowsUse(),
+        contentKey: await licences.contentKey(),
+        encrypted: false,
+      })
       if (loaded.status === 'invalid') console.warn('[surf] code pack skipped:', loaded.message)
+      if (codeGate.status === 'locked') console.warn('[surf] code pack skipped:', codeGate.message)
     }
 
     await withModel(async () => {
@@ -682,9 +696,16 @@ export async function createServices(): Promise<Services> {
       const opened: DB[] = []
       try {
         const packDbs: Record<string, DB> = {}
+        const packAllowed = await licences.allowsUse()
+        const packKey = await licences.contentKey()
         for (const row of await readInstalled(packsRoot())) {
           const dbPath = join(packsRoot(), row.id, row.version, 'pack.sqlite')
           if (!existsSync(dbPath)) continue
+          const packGate = gatePackDecrypt(true, { allowed: packAllowed, contentKey: packKey, encrypted: false })
+          if (packGate.status !== 'ready') {
+            console.warn('[surf] pack skipped: licence required')
+            continue
+          }
           try {
             const db = openPackDb(dbPath)
             const label = `${row.title} · ${row.version}`
@@ -947,6 +968,15 @@ export async function createServices(): Promise<Services> {
     notify: (status) => { if (ui) safeSend(ui, IPC.codeEvent, status) },
   })
 
+  const licences = createLicenceApi({
+    userData: app.getPath('userData'),
+    packaged: app.isPackaged,
+    devFlag: process.env.SYNAP_LICENCE_DEV,
+    apiBase: () => apiBase(readSettings()),
+    offlineOnly: () => readSettings().offlineOnly,
+    online: () => reachNow(readSettings().offlineOnly).online,
+  })
+
   let pendingUpdate: UpdateOffer | null = null
   let released = false
   function releaseWindow(): void {
@@ -964,6 +994,7 @@ export async function createServices(): Promise<Services> {
   const services: Services = {
     chat: {
       async send(req, win) {
+        if (!(await licences.allowsUse())) throw new Error('Activate Synap.surf before using the app.')
         const messageId = randomUUID()
         const userMessageId = randomUUID()
         const conversationId = store.ensure(req.conversationId, req.text, req.agentId)
@@ -1006,6 +1037,7 @@ export async function createServices(): Promise<Services> {
         packState.delete(packId)
       },
       importFromFile: async (win) => {
+        if (!(await licences.allowsUse())) throw new Error('Activate Synap.surf before installing a knowledge pack.')
         const picked = await dialog.showOpenDialog(win, { title: 'Install a signed pack', properties: ['openDirectory'] })
         if (picked.canceled || !picked.filePaths[0]) return null
         const dir = picked.filePaths[0]
@@ -1043,6 +1075,12 @@ export async function createServices(): Promise<Services> {
         const settings = readSettings()
         await revokeDeviceRemote(apiBase(settings), deviceId, settings.offlineOnly)
       },
+    },
+    licence: {
+      status: () => licences.status(),
+      activate: (key) => licences.activate(key),
+      deactivate: (activationId) => licences.deactivate(activationId),
+      devices: () => licences.devices(),
     },
     settings: {
       get: async () => readSettings(),
@@ -1180,6 +1218,9 @@ export async function createServices(): Promise<Services> {
   const syncTimer = setInterval(() => { void syncPacks(false).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message)) }, 15 * 60 * 1000)
   syncTimer.unref?.()
   setTimeout(() => { void syncPacks(false).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message)) }, 4000)
+  const licenceTimer = setInterval(() => { void licences.refreshSilent() }, 6 * 60 * 60 * 1000)
+  licenceTimer.unref?.()
+  setTimeout(() => { void licences.refreshSilent() }, 8000)
   return services
 
   async function authStatus(): Promise<AuthStatus> {
@@ -1248,6 +1289,10 @@ export async function createServices(): Promise<Services> {
   }
 
   async function syncPacks(force: boolean): Promise<void> {
+    if (!(await licences.allowsUse())) {
+      if (force) throw new Error('Activate Synap.surf before syncing knowledge packs.')
+      return
+    }
     if (syncing) return
     const settings = readSettings()
     const session = await loadSession()

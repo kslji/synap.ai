@@ -11,11 +11,14 @@ export function SettingsScreen({
   settings,
   account,
   devices,
+  plan,
+  licenceNote,
   onPatch,
   onCheckUpdates,
   onSignIn,
   onSignOut,
   onRevoke,
+  onDeactivate,
   progress,
   busyId,
   error,
@@ -24,13 +27,16 @@ export function SettingsScreen({
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
-  account: { email: string; deviceId: string | null } | null
+  account: { email: string; deviceId: string | null; plan?: string | null } | null
   devices: DeviceInfo[]
+  plan: string | null
+  licenceNote: string | null
   onPatch: (p: SettingsPatch) => void
   onCheckUpdates: () => Promise<string>
   onSignIn: () => void
   onSignOut: () => void
   onRevoke: (deviceId: string) => void
+  onDeactivate: () => void
   progress: Record<string, number>
   busyId: string | null
   error: string | null
@@ -55,24 +61,30 @@ export function SettingsScreen({
         <Group title="Account">
         <div className="card px-4 py-4" data-account="yes">
           <div className="text-sm font-semibold">Account</div>
+          <p className="mt-1 text-sm" data-licence-plan="yes">Plan: {plan ?? 'None'}</p>
+          {licenceNote && <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{licenceNote}</p>}
           {account ? (
-            <>
-              <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
-              <ul className="mt-3 flex flex-col gap-2">
-                {devices.filter((device) => device.status === 'active').map((device) => (
-                  <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
-                    <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
-                    <button className="btn btn-ghost" type="button" onClick={() => onRevoke(device.id)}>Revoke</button>
-                  </li>
-                ))}
-              </ul>
-              <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
-            </>
+            <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
           ) : (
-            <>
-              <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{status.devWeb ? 'Dev web search does not need an account. Sign in is still required to sync packs. Local chat and documents work without an account.' : 'Sign in to search the web and sync packs. Local chat and documents work without an account.'}</p>
-              <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
-            </>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+              {status.devWeb
+                ? 'Dev web search does not need an account. Sign in to see every computer on this licence and to sync packs. A licence key activates this computer on its own.'
+                : 'Sign in to see every computer on this licence and to search the web. A licence key activates this computer on its own. Local chat and documents work without an account.'}
+            </p>
+          )}
+          <ul className="mt-3 flex flex-col gap-2">
+            {devices.filter((device) => device.status === 'active').map((device) => (
+              <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
+                <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
+                <button className="btn btn-ghost" type="button" onClick={() => (device.current ? onDeactivate() : onRevoke(device.id))}>Remove</button>
+              </li>
+            ))}
+          </ul>
+          <button className="btn btn-ghost mt-3" type="button" data-deactivate-device="yes" onClick={onDeactivate}>Deactivate this device</button>
+          {account ? (
+            <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
+          ) : (
+            <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
           )}
         </div>
         </Group>

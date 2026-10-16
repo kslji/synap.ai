@@ -20,6 +20,10 @@ export const IPC = {
   authSignOut: 'auth:sign-out',
   authDevices: 'auth:devices',
   authRevoke: 'auth:revoke',
+  licenceStatus: 'licence:status',
+  licenceActivate: 'licence:activate',
+  licenceDeactivate: 'licence:deactivate',
+  licenceDevices: 'licence:devices',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   updatesCheck: 'updates:check',
@@ -336,6 +340,27 @@ export interface AuthStatus {
   deviceId: string | null
 }
 
+export type LicenceState = 'valid' | 'grace' | 'missing' | 'invalid' | 'expired' | 'device_mismatch' | 'clock_rollback' | 'dev'
+
+export interface LicenceStatus {
+  state: LicenceState
+  message: string
+  plan: string | null
+  email: string | null
+  refreshBy: string | null
+  expiresAt: string | null
+  deviceIdHash: string | null
+  buyUrl: string
+  licenceId: string | null
+}
+
+export interface LicenceDevice {
+  id: string
+  name: string
+  os: string
+  current: boolean
+}
+
 export interface DeviceInfo {
   id: string
   name: string
@@ -401,6 +426,12 @@ export interface SurfApi {
     signOut(): Promise<void>
     devices(): Promise<DeviceInfo[]>
     revoke(deviceId: string): Promise<void>
+  }
+  licence: {
+    status(): Promise<LicenceStatus>
+    activate(key?: string): Promise<LicenceStatus>
+    deactivate(activationId?: string): Promise<LicenceStatus>
+    devices(): Promise<LicenceDevice[]>
   }
   settings: {
     get(): Promise<Required<SettingsPatch>>

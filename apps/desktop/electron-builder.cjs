@@ -38,6 +38,7 @@ const config = {
     { from: 'resources/models.registry.json', to: 'models.registry.json' },
     { from: 'resources/tessdata', to: 'tessdata' },
     { from: 'resources/pack-keys.json', to: 'pack-keys.json' },
+    { from: 'resources/licence-public.json', to: 'licence-public.json' },
     { from: 'resources/release-mode.json', to: 'release-mode.json' },
     { from: 'resources/code/system.md', to: 'code/system.md' },
   ],

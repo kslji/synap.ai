@@ -105,6 +105,17 @@ VECTOR_LICENCE = "11111111-1111-4111-8111-111111111111"
 VECTOR_DEVICE = "cd" * 32
 
 
+def test_embed_api_key_equals_form_accepts_a_leading_dash():
+    """argparse treats a separate token that starts with '-' as a new flag."""
+    import subprocess
+    script = ROOT / "services" / "packs" / "build_pack.py"
+    separate = subprocess.run([sys.executable, str(script), "--api-key", "-dash"], capture_output=True, text=True)
+    assert "expected one argument" in separate.stderr
+    equals = subprocess.run([sys.executable, str(script), "--api-key=-dash"], capture_output=True, text=True)
+    assert "expected one argument" not in equals.stderr
+    assert "required" in equals.stderr
+
+
 def test_derive_pack_key_matches_the_desktop_vector():
     from app.content_key import derive_pack_key
     assert derive_pack_key(VECTOR_LICENCE, VECTOR_DEVICE).hex() == WRAP_VECTOR

@@ -229,7 +229,8 @@ async function signPack(spec: PackSpec, bin: string, embPath: string, logDir: st
       '--key-hex', seed,
       '--key-id', 'k-eval',
       '--embed-url', `${server.baseUrl}/v1/embeddings`,
-      '--api-key', server.apiKey,
+      // A separate argv token that starts with "-" is an argparse flag.
+      `--api-key=${server.apiKey}`,
     ], process.env)
   } finally {
     await server.stop()

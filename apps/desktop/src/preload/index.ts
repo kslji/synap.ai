@@ -59,6 +59,15 @@ const api: SurfApi = {
     status: () => ipcRenderer.invoke(IPC.webCacheStatus),
     clear: () => ipcRenderer.invoke(IPC.webCacheClear),
   },
+  usage: {
+    get: () => ipcRenderer.invoke(IPC.usageGet),
+    reset: () => ipcRenderer.invoke(IPC.usageReset),
+  },
+  storage: {
+    report: () => ipcRenderer.invoke(IPC.storageReport),
+    clear: (req) => ipcRenderer.invoke(IPC.storageClear, req),
+    open: (category) => ipcRenderer.invoke(IPC.storageOpen, category),
+  },
   library: {
     pathForFile: (file) => webUtils.getPathForFile(file),
     add: (paths, conversationId, createConversation = false) => ipcRenderer.invoke(IPC.libraryAdd, { paths, conversationId, createConversation }),

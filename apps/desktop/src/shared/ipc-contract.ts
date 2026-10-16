@@ -65,6 +65,11 @@ export const IPC = {
   codeCompleteRead: 'code-complete:read',
   codeCompleteSave: 'code-complete:save',
   devWebRun: 'dev-web:run',
+  usageGet: 'usage:get',
+  usageReset: 'usage:reset',
+  storageReport: 'storage:report',
+  storageClear: 'storage:clear',
+  storageOpen: 'storage:open',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -105,6 +110,12 @@ export interface SettingsPatch {
   tabSuggestions?: boolean
   /** Languages where Tab suggestions stay off, such as markdown. */
   tabSuggestionsOff?: string[]
+  /** Load the selected model when the app opens, when it fits this computer. */
+  keepWarm?: boolean
+  /** Unload the model after this many quiet minutes. */
+  idleUnloadMinutes?: number
+  /** Prefer speculative decoding when a draft model is installed and RAM allows it. */
+  speculativeDecoding?: boolean
 }
 
 /** Shown before Auto mode is allowed to write or run commands. */
@@ -346,6 +357,14 @@ export interface ModelStatus {
   devWeb?: boolean
   /** Search origin while dev web is on. Omitted in production builds. */
   devApiUrl?: string
+  live?: {
+    keepWarm: boolean
+    warmModelId: string | null
+    speculative: 'on' | 'off' | 'offer'
+    speculativeReason: 'on' | 'off' | 'runtime' | 'missing' | 'ram'
+    draftModelId: string
+    draftInstalled: boolean
+  }
 }
 
 export interface ConversationSummary {
@@ -379,6 +398,73 @@ export interface WebCacheStatus {
   bytes: number
   count: number
   capBytes: number
+}
+
+export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs'
+
+export interface UsageModelRow {
+  modelId: string
+  tasks: number
+  steps: number
+  tokensIn: number
+  tokensOut: number
+  tokensPerSec: number | null
+  ttftP50Ms: number | null
+  ttftP95Ms: number | null
+  ramMb: number | null
+  cpuPercent: number | null
+}
+
+export interface UsageDayRow {
+  day: string
+  tasks: number
+  steps: number
+  tokensIn: number
+  tokensOut: number
+  tokensPerSec: number | null
+  ttftP50Ms: number | null
+  ttftP95Ms: number | null
+}
+
+export interface UsageReport {
+  tasks: number
+  steps: number
+  tokensIn: number
+  tokensOut: number
+  tokensPerSec: number | null
+  ttftP50Ms: number | null
+  ttftP95Ms: number | null
+  ramMb: number | null
+  cpuPercent: number | null
+  models: UsageModelRow[]
+  days: UsageDayRow[]
+  localOnly: true
+}
+
+export interface StorageItemView {
+  id: string
+  label: string
+  bytes: number
+  version?: string
+}
+
+export interface StorageCategoryView {
+  id: StorageCategoryId
+  label: string
+  bytes: number
+  items: StorageItemView[]
+}
+
+export interface StorageReport {
+  categories: StorageCategoryView[]
+  totalBytes: number
+  freeBytes: number
+  diskBytes: number
+}
+
+export interface StorageClearReq {
+  category: StorageCategoryId
+  itemId?: string
 }
 
 export type AttachmentStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -584,6 +670,15 @@ export interface SurfApi {
   webCache: {
     status(): Promise<WebCacheStatus>
     clear(): Promise<WebCacheStatus>
+  }
+  usage: {
+    get(): Promise<UsageReport>
+    reset(): Promise<UsageReport>
+  }
+  storage: {
+    report(): Promise<StorageReport>
+    clear(req: StorageClearReq): Promise<StorageReport>
+    open(category: StorageCategoryId): Promise<void>
   }
   library: {
     pathForFile(file: File): string

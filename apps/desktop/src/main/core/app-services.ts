@@ -7,11 +7,12 @@
 import { app, BrowserWindow, net, dialog, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { copyFile, mkdir, rm, stat } from 'node:fs/promises'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFile, mkdir, rm, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
-import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage } from './ipc-contract.js'
+import { createTextBatch } from '../../shared/stream-batch.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { createCompletionRuntime, type CompletionRuntime } from './code-agent/completion/runtime.js'
 import { normalizeLanguagesOff, tabSuggestionsDefault } from './code-agent/completion/policy.js'
@@ -22,6 +23,25 @@ import { codePackDir, loadCodePack } from './code-pack.js'
 import { gatePackDecrypt } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
 import { llamaCompleter } from './code-agent/llama.js'
+import { MetricsLog } from './live/metrics-log.js'
+import { cpuPercent, metricLine, parseProcCpu, type UsageSample } from './live/metrics.js'
+import {
+  DRAFT_MODEL_ID,
+  DEFAULT_IDLE_UNLOAD_MINUTES,
+  clampIdleMinutes,
+  prefixCacheKey,
+  promptCacheMiB,
+  promptCacheReuse,
+  routeStepModel,
+  runtimeSupportsSpeculative,
+  selectKeepWarmModel,
+  selectRoutePair,
+  shouldUnload,
+  speculativeDecision,
+  type LiveModel,
+  type StepRoute,
+} from './live/policy.js'
+import { assertInsideAppData, buildStorageReport, removeInside, treeBytes, type StorageCategory } from './live/storage.js'
 import { workspaceFacts } from './code-agent/plan.js'
 import { readCheckpointDir, restoreAll, restoreCheckpoint, writeCheckpointDir, type Checkpoint } from './code-agent/checkpoint.js'
 import { detectAllowlist, mergeAllowlist } from './code-agent/checks.js'
@@ -148,6 +168,9 @@ const DEFAULT_SETTINGS: Settings = {
   codeAgentAutoConfirmed: false,
   tabSuggestions: true,
   tabSuggestionsOff: [],
+  keepWarm: true,
+  idleUnloadMinutes: DEFAULT_IDLE_UNLOAD_MINUTES,
+  speculativeDecoding: true,
 }
 
 export async function createServices(): Promise<Services> {
@@ -159,7 +182,16 @@ export async function createServices(): Promise<Services> {
   const decisions = new Map<string, (value: { allow: boolean; remember?: boolean; all?: boolean }) => void>()
   let downloading: { id: string; done: number; total: number } | null = null
   let downloadAbort: AbortController | null = null
-  let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; server: LlamaServer } | null = null
+  let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; draft: string; cache: number; server: LlamaServer } | null = null
+  let lastModelUse = Date.now()
+  let modelBusy = 0
+  let prefixKey: string | null = null
+  let prefixModelId: string | null = null
+  let draftRuntime = false
+  let draftRuntimeKnown = false
+  let draftBlocked = false
+  let idleTimer: ReturnType<typeof setInterval> | null = null
+  const metrics = new MetricsLog(join(app.getPath('userData'), 'usage.json'), join(app.getPath('userData'), 'logs', 'live.log'))
   let modelTail: Promise<void> = Promise.resolve()
   let ui: BrowserWindow | null = null
   let osOnline = isOnline()
@@ -202,6 +234,9 @@ export async function createServices(): Promise<Services> {
         theme,
         tabSuggestionsOff: normalizeLanguagesOff(Array.isArray(raw.tabSuggestionsOff) ? raw.tabSuggestionsOff : []),
       }
+      merged.idleUnloadMinutes = clampIdleMinutes(Number(raw.idleUnloadMinutes ?? merged.idleUnloadMinutes))
+      if (typeof raw.keepWarm !== 'boolean') merged.keepWarm = DEFAULT_SETTINGS.keepWarm
+      if (typeof raw.speculativeDecoding !== 'boolean') merged.speculativeDecoding = DEFAULT_SETTINGS.speculativeDecoding
       if (!explicitTab) merged.tabSuggestions = tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam(merged.codeModelId))
       offlineOnly = merged.offlineOnly
       if (raw.theme === 'system') writeSettings(merged)
@@ -289,6 +324,7 @@ export async function createServices(): Promise<Services> {
       chatPersistence: store.mode,
       devWeb: devWebEnabled(),
       ...(devWebEnabled() ? { devApiUrl: apiBase(settings) } : {}),
+      live: liveStatus(reg, settings, new Set(models.filter((model) => model.installed).map((model) => model.id))),
     }
   }
 
@@ -327,11 +363,8 @@ export async function createServices(): Promise<Services> {
     return run
   }
 
-  async function ensure(role: 'chat' | 'embed', model: ModelEntry, ctx: number, mmproj = '', agentId = 'general'): Promise<LlamaServer> {
-    if (active && active.role === role && active.modelId === model.id && active.mmproj === mmproj && active.server.state === 'ready') return active.server
-    await stopActive()
-    const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
-    const server = new LlamaServer({
+  function serverOptions(bin: string, model: ModelEntry, ctx: number, mmproj: string, role: 'chat' | 'embed', cacheRamMiB: number, draftPath: string): ConstructorParameters<typeof LlamaServer>[0] {
+    return {
       binPath: bin,
       modelPath: join(modelsDir(), model.file),
       mmprojPath: mmproj || undefined,
@@ -340,20 +373,56 @@ export async function createServices(): Promise<Services> {
       ctx,
       threads: chatThreads(hw),
       startupTimeoutMs: 180_000,
-    })
+      cacheRamMiB,
+      draftModelPath: draftPath || undefined,
+    }
+  }
+
+  async function ensure(role: 'chat' | 'embed', model: ModelEntry, ctx: number, mmproj = '', agentId = 'general'): Promise<LlamaServer> {
+    const cacheRamMiB = role === 'chat' ? promptCacheMiB(hw.totalRamGb) : 0
+    const draftPath = role === 'chat' ? await draftPathFor(model) : ''
+    if (active && active.role === role && active.modelId === model.id && active.mmproj === mmproj && active.draft === draftPath && active.cache === cacheRamMiB && active.server.state === 'ready') {
+      touchModel()
+      return active.server
+    }
+    await stopActive()
+    const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
+    let usedDraft = draftPath
+    let server = new LlamaServer(serverOptions(bin, model, ctx, mmproj, role, cacheRamMiB, usedDraft))
     sidecars[role] = 'starting'
-    server.on('state', (st: SidecarState) => { sidecars[role] = st === 'starting' || st === 'ready' || st === 'crashed' || st === 'stopped' ? st : 'stopped' })
+    const watch = (current: LlamaServer) => {
+      current.on('state', (st: SidecarState) => { sidecars[role] = st === 'starting' || st === 'ready' || st === 'crashed' || st === 'stopped' ? st : 'stopped' })
+    }
+    watch(server)
     try {
       await server.start()
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (role !== 'chat') throw error instanceof Error ? error : new Error(message)
-      const smaller = smallerChatModel(registry().models.filter((m) => servesAgent(m, agentId)), model.id)
-      throw new ModelLoadError(message, smaller?.id ?? null)
+      if (usedDraft) {
+        draftBlocked = true
+        await server.stop().catch(() => undefined)
+        usedDraft = ''
+        server = new LlamaServer(serverOptions(bin, model, ctx, mmproj, role, cacheRamMiB, ''))
+        watch(server)
+        try {
+          await server.start()
+        } catch (again) {
+          throw loadError(again, role, model.id, agentId)
+        }
+      } else {
+        throw loadError(error, role, model.id, agentId)
+      }
     }
-    active = { role, modelId: model.id, mmproj, server }
+    active = { role, modelId: model.id, mmproj, draft: usedDraft, cache: cacheRamMiB, server }
     sidecars[role] = 'ready'
+    touchModel()
     return server
+  }
+
+  function loadError(error: unknown, role: 'chat' | 'embed', modelId: string, agentId: string): Error {
+    const message = error instanceof Error ? error.message : String(error)
+    if (role !== 'chat') return error instanceof Error ? error : new Error(message)
+    const smaller = smallerChatModel(registry().models.filter((m) => servesAgent(m, agentId)), modelId)
+    return new ModelLoadError(message, smaller?.id ?? null)
   }
 
   async function download(modelId: string, win: BrowserWindow): Promise<void> {
@@ -638,12 +707,6 @@ export async function createServices(): Promise<Services> {
       }
       const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
       const server = await ensure('chat', chatModel, profile.serverCtx, '', 'code')
-      const client = new LlamaClient({
-        baseUrl: server.baseUrl,
-        apiKey: server.apiKey,
-        sampling: chatSampling(chatModel),
-        chatTemplateKwargs: chatModel.chat_template_kwargs,
-      })
       let counter = heuristicCounter
       try {
         const live = new LlamaServerTokenizer(server.baseUrl, server.apiKey)
@@ -665,10 +728,61 @@ export async function createServices(): Promise<Services> {
       const facts = indexed ? await indexed.planFacts() : workspaceFacts(root)
       const mode = projectMode(readModeMap(codeAgentDir()), root, settings.codeAgentMode, settings.codeAgentAutoConfirmed)
       const allowlist = mergeAllowlist(detectAllowlist(root), settings.codeAgentAllowlist)
+      const installedIds = new Set<string>()
+      for (const model of reg.models) {
+        if (model.role === 'chat' && await installed(model.file, model.size_bytes)) installedIds.add(model.id)
+      }
+      const liveModels = liveModelList(reg)
+      const pair = selectRoutePair({ totalRamGb: hw.totalRamGb, models: liveModels, installed: installedIds })
+      let liveText = ''
       let result
       try {
       result = await runSplitTask(req.text, {
-        complete: llamaCompleter(client),
+        complete: async (request) => {
+          const kind: StepRoute = request.stepKind ?? 'edit'
+          const choice = routeStepModel({ kind, small: pair.small, large: pair.large, dual: pair.dual })
+          const target = reg.models.find((model) => model.id === choice.modelId) ?? chatModel
+          const routed = await ensure('chat', target, profile.serverCtx, '', 'code')
+          const routedClient = new LlamaClient({
+            baseUrl: routed.baseUrl,
+            apiKey: routed.apiKey,
+            sampling: chatSampling(target),
+            chatTemplateKwargs: target.chat_template_kwargs,
+          })
+          const system = request.messages.find((message) => message.role === 'system')
+          const systemText = typeof system?.content === 'string' ? system.content : rules.text
+          if (prefixModelId !== target.id) {
+            prefixKey = null
+            prefixModelId = target.id
+          }
+          const cache = promptCacheReuse(prefixKey, prefixCacheKey(systemText, `root:${root}`), promptCacheMiB(hw.totalRamGb) > 0)
+          prefixKey = cache.key
+          const batch = createTextBatch(48)
+          const callStarted = Date.now()
+          let first: number | null = null
+          const before = sampleProc(routed.pid)
+          modelBusy += 1
+          try {
+            const turn = await llamaCompleter(routedClient)({
+              ...request,
+              cachePrompt: cache.cachePrompt,
+              onDelta: (piece) => {
+                if (first == null) first = Date.now()
+                liveText += piece
+                const ready = batch.push(piece)
+                if (ready) sendLiveModel(win, messageId, target.id, tailLive(liveText))
+              },
+            })
+            const rest = batch.flush()
+            if (rest) sendLiveModel(win, messageId, target.id, tailLive(liveText))
+            const after = sampleProc(routed.pid)
+            recordUse(turnSample(target.id, turn.usage, first == null ? null : first - callStarted, Date.now() - callStarted, before, after))
+            return turn
+          } finally {
+            modelBusy = Math.max(0, modelBusy - 1)
+            touchModel()
+          }
+        },
         search: projectSearchFor(root, indexed),
         root,
         rules: rules.text,
@@ -713,6 +827,18 @@ export async function createServices(): Promise<Services> {
         writeCheckpointDir(join(codeAgentDir(), 'undo', messageId), result.checkpoints)
       }
       console.info(`[surf] code agent stopped=${result.stopped} steps=${result.steps.length} ms=${Date.now() - started}`)
+      recordUse({
+        at: Date.now(),
+        modelId: chatModel.id,
+        tasks: 1,
+        steps: result.steps.length,
+        tokensIn: 0,
+        tokensOut: 0,
+        ttftMs: null,
+        genMs: Date.now() - started,
+        ramMb: null,
+        cpuPercent: null,
+      })
       await emitText(win, messageId, result.answer)
       finish(conversationId, messageId, userMessageId, win, result.answer, [], 'answer')
     })
@@ -965,22 +1091,72 @@ export async function createServices(): Promise<Services> {
       })
 
       let answer = ''
+      const systemMessage = budget.messages.find((message) => message.role === 'system')
+      const systemText = typeof systemMessage?.content === 'string' ? systemMessage.content : ''
+      if (prefixModelId !== chatModel.id) {
+        prefixKey = null
+        prefixModelId = chatModel.id
+      }
+      const cache = promptCacheReuse(prefixKey, prefixCacheKey(systemText, 'chat'), promptCacheMiB(hw.totalRamGb) > 0)
+      prefixKey = cache.key
+      let replaceStream = false
       if (useTools) {
-        const ran = await client.runWithTools(budget.messages, chatTools, toolHandlers(calc, text), 4, signal)
-        const toolOutputs: { name: string; output: string }[] = []
-        for (const call of ran.toolCalls) {
-          const out = ran.messages.find((m) => m.role === 'tool' && m.tool_call_id === call.id)
-          const output = String(out?.content ?? '')
-          toolOutputs.push({ name: call.function.name, output })
-          sendEvent(win, { type: 'tool', messageId, name: call.function.name, input: call.function.arguments, output })
+        const batch = createTextBatch(48)
+        const callStarted = Date.now()
+        let first: number | null = null
+        const before = sampleProc(server.pid)
+        let streamed = ''
+        modelBusy += 1
+        try {
+          const ran = await client.runWithTools(budget.messages, chatTools, toolHandlers(calc, text), 4, signal, {
+            maxTokens: budget.maxTokens,
+            cachePrompt: cache.cachePrompt,
+            onDelta: (piece) => {
+              if (signal.aborted) return
+              if (first == null) first = Date.now()
+              streamed += piece
+              const ready = batch.push(piece)
+              if (ready) sendEvent(win, { type: 'token', messageId, text: ready })
+            },
+          })
+          const rest = batch.flush()
+          if (rest) sendEvent(win, { type: 'token', messageId, text: rest })
+          const toolOutputs: { name: string; output: string }[] = []
+          for (const call of ran.toolCalls) {
+            const out = ran.messages.find((m) => m.role === 'tool' && m.tool_call_id === call.id)
+            const output = String(out?.content ?? '')
+            toolOutputs.push({ name: call.function.name, output })
+            sendEvent(win, { type: 'tool', messageId, name: call.function.name, input: call.function.arguments, output })
+          }
+          answer = verbatimAnswer(ran.answer, toolOutputs)
+          replaceStream = answer !== streamed
+          recordUse(turnSample(chatModel.id, ran.usage ? { promptTokens: ran.usage.prompt_tokens, completionTokens: ran.usage.completion_tokens } : undefined, first == null ? null : first - callStarted, Date.now() - callStarted, before, sampleProc(server.pid), 1, ran.toolCalls.length))
+        } finally {
+          modelBusy = Math.max(0, modelBusy - 1)
+          touchModel()
         }
-        answer = verbatimAnswer(ran.answer, toolOutputs)
-        await emitText(win, messageId, answer)
       } else {
-        for await (const piece of client.chatStream(budget.messages, undefined, signal, budget.maxTokens)) {
-          if (signal.aborted) return
-          answer += piece
-          if (!sendEvent(win, { type: 'token', messageId, text: piece })) return
+        const batch = createTextBatch(48)
+        const callStarted = Date.now()
+        let first: number | null = null
+        const before = sampleProc(server.pid)
+        modelBusy += 1
+        try {
+          const collected = await client.chatCollect(budget.messages, undefined, signal, budget.maxTokens, { cachePrompt: cache.cachePrompt }, (piece) => {
+            if (signal.aborted) return
+            if (first == null) first = Date.now()
+            answer += piece
+            const ready = batch.push(piece)
+            if (ready) sendEvent(win, { type: 'token', messageId, text: ready })
+          })
+          const rest = batch.flush()
+          if (rest) sendEvent(win, { type: 'token', messageId, text: rest })
+          const textOut = collected.choices[0]?.message.content
+          if (typeof textOut === 'string' && textOut) answer = textOut
+          recordUse(turnSample(chatModel.id, collected.usage ? { promptTokens: collected.usage.prompt_tokens ?? 0, completionTokens: collected.usage.completion_tokens ?? 0 } : undefined, first == null ? null : first - callStarted, Date.now() - callStarted, before, sampleProc(server.pid), 1, 0))
+        } finally {
+          modelBusy = Math.max(0, modelBusy - 1)
+          touchModel()
         }
       }
       const corpus = [...localChunks, ...webChunks].map((chunk) => `${chunk.title}\n${chunk.text}`).join('\n')
@@ -1000,7 +1176,7 @@ export async function createServices(): Promise<Services> {
           vec: hit.vec,
         })))
       }
-      finish(conversationId, messageId, userMessageId, win, answer, sources, gate, checked.unknownUrls.length > 0 || checked.echoed, {
+      finish(conversationId, messageId, userMessageId, win, answer, sources, gate, replaceStream || checked.unknownUrls.length > 0 || checked.echoed, {
         counter: budget.report.counter,
         total: budget.report.total,
         droppedChunks: budget.report.droppedChunks,
@@ -1077,6 +1253,7 @@ export async function createServices(): Promise<Services> {
     codeApi.shutdown()
     void completionRuntime?.close().catch(() => undefined)
     unregisterIpc()
+    if (idleTimer) clearInterval(idleTimer)
     void stopActive().catch(() => undefined)
   }
 
@@ -1195,8 +1372,13 @@ export async function createServices(): Promise<Services> {
         const next = { ...current, ...p }
         next.codeAgentAllowlist = (next.codeAgentAllowlist ?? []).filter((command) => commandRisk(command) === 'plain')
         next.tabSuggestionsOff = normalizeLanguagesOff(next.tabSuggestionsOff ?? [])
+        next.idleUnloadMinutes = clampIdleMinutes(next.idleUnloadMinutes)
         if (next.codeAgentMode === 'auto' && !next.codeAgentAutoConfirmed) next.codeAgentMode = 'ask'
         writeSettings(next)
+        if (p.keepWarm === false) maybeUnload()
+        if (p.keepWarm === true || p.codeModelId !== undefined || p.chatModelId !== undefined || p.speculativeDecoding !== undefined || p.idleUnloadMinutes !== undefined) {
+          void warmSelected().catch((error: unknown) => console.warn('[surf] keep-warm:', (error as Error).message))
+        }
         if (next.offlineOnly) {
           apiReachable = false
           checking = false
@@ -1348,6 +1530,15 @@ export async function createServices(): Promise<Services> {
       read: async (path) => completionRuntime!.read(path),
       save: async (path, text) => completionRuntime!.save(path, text),
     },
+    usage: {
+      get: async () => metrics.report(),
+      reset: async () => metrics.reset(),
+    },
+    storage: {
+      report: () => storageReport(),
+      clear: (category, itemId) => clearStorage(category, itemId),
+      open: (category) => openStorage(category),
+    },
     lifecycle: { releaseWindow },
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
@@ -1390,7 +1581,296 @@ export async function createServices(): Promise<Services> {
   const licenceTimer = setInterval(() => { void licences.refreshSilent() }, 6 * 60 * 60 * 1000)
   licenceTimer.unref?.()
   setTimeout(() => { void licences.refreshSilent() }, 8000)
+  idleTimer = setInterval(maybeUnload, 30_000)
+  idleTimer.unref?.()
+  void probeDraftRuntime(resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())).catch(() => undefined)
+  void warmSelected().catch((error: unknown) => console.warn('[surf] keep-warm:', (error as Error).message))
   return services
+
+  function touchModel(): void {
+    lastModelUse = Date.now()
+  }
+
+  function maybeUnload(): void {
+    if (!active) return
+    const settings = readSettings()
+    if (!shouldUnload({
+      enabled: settings.keepWarm,
+      busy: modelBusy > 0 || inflight.size > 0,
+      lastUsedAt: lastModelUse,
+      now: Date.now(),
+      idleMinutes: settings.idleUnloadMinutes,
+    })) return
+    void withModel(() => stopActive()).catch(() => undefined)
+  }
+
+  async function warmSelected(): Promise<void> {
+    const settings = readSettings()
+    if (!settings.keepWarm) return
+    const reg = registry()
+    const installedIds = new Set<string>()
+    for (const model of reg.models) {
+      if (model.role === 'chat' && await installed(model.file, model.size_bytes)) installedIds.add(model.id)
+    }
+    const selectedId = settings.codeModelId || settings.chatModelId || defaultForAgent(reg, 'code')?.id || ''
+    const chosen = selectKeepWarmModel({
+      enabled: true,
+      totalRamGb: hw.totalRamGb,
+      selectedId,
+      models: liveModelList(reg),
+      installed: installedIds,
+    })
+    if (!chosen) return
+    const entry = reg.models.find((model) => model.id === chosen.id)
+    if (!entry) return
+    const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+    const agent = entry.agents?.includes('code') ? 'code' : 'general'
+    await withModel(() => ensure('chat', entry, profile.serverCtx, '', agent))
+  }
+
+  async function draftPathFor(model: ModelEntry): Promise<string> {
+    if (draftBlocked || !readSettings().speculativeDecoding) return ''
+    const reg = registry()
+    const draft = reg.models.find((row) => row.id === DRAFT_MODEL_ID)
+    if (!draft) return ''
+    const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
+    const runtime = await probeDraftRuntime(bin)
+    const ready = await installed(draft.file, draft.size_bytes)
+    const decision = speculativeDecision({
+      userEnabled: true,
+      runtimeSupports: runtime,
+      draftInstalled: ready,
+      totalRamGb: hw.totalRamGb,
+      mainSizeBytes: model.size_bytes,
+      draftSizeBytes: draft.size_bytes,
+      mainMinRamGb: model.min_ram_gb,
+    })
+    return decision.enabled ? join(modelsDir(), draft.file) : ''
+  }
+
+  function probeDraftRuntime(bin: string): Promise<boolean> {
+    if (draftRuntimeKnown) return Promise.resolve(draftRuntime)
+    draftRuntimeKnown = true
+    return new Promise((resolve) => {
+      execFile(bin, ['--help'], { timeout: 8000, windowsHide: true }, (_err, stdout, stderr) => {
+        draftRuntime = runtimeSupportsSpeculative(`${stdout ?? ''}\n${stderr ?? ''}`)
+        resolve(draftRuntime)
+      })
+    })
+  }
+
+  function liveModelList(reg: ModelRegistry): LiveModel[] {
+    return reg.models.filter((model) => model.role === 'chat').map((model) => ({
+      id: model.id,
+      family: model.family,
+      paramsB: model.params_b ?? null,
+      sizeBytes: model.size_bytes,
+      minRamGb: model.min_ram_gb,
+      draft: model.id === DRAFT_MODEL_ID || model.agents?.includes('draft') === true,
+    }))
+  }
+
+  function liveStatus(reg: ModelRegistry, settings: Settings, installedIds: ReadonlySet<string>): NonNullable<ModelStatus['live']> {
+    const models = liveModelList(reg)
+    const selectedId = settings.codeModelId || defaultForAgent(reg, 'code')?.id || ''
+    const warm = selectKeepWarmModel({ enabled: settings.keepWarm, totalRamGb: hw.totalRamGb, selectedId, models, installed: installedIds })
+    const main = models.find((model) => model.id === selectedId) ?? warm
+    const draft = reg.models.find((model) => model.id === DRAFT_MODEL_ID)
+    const decision = speculativeDecision({
+      userEnabled: settings.speculativeDecoding,
+      runtimeSupports: draftRuntimeKnown ? draftRuntime : true,
+      draftInstalled: installedIds.has(DRAFT_MODEL_ID),
+      totalRamGb: hw.totalRamGb,
+      mainSizeBytes: main?.sizeBytes ?? 0,
+      draftSizeBytes: draft?.size_bytes ?? 0,
+      mainMinRamGb: main?.minRamGb ?? 99,
+    })
+    return {
+      keepWarm: settings.keepWarm,
+      warmModelId: warm?.id ?? null,
+      speculative: decision.enabled ? 'on' : decision.offerDownload ? 'offer' : 'off',
+      speculativeReason: decision.reason,
+      draftModelId: DRAFT_MODEL_ID,
+      draftInstalled: installedIds.has(DRAFT_MODEL_ID),
+    }
+  }
+
+  function sampleProc(pid: number | undefined): { ramMb: number | null; ticks: number | null } {
+    if (!pid || process.platform !== 'linux') return { ramMb: null, ticks: null }
+    try {
+      const statText = readFileSync(`/proc/${pid}/stat`, 'utf8')
+      const statusText = readFileSync(`/proc/${pid}/status`, 'utf8')
+      const rss = /^VmRSS:\s+(\d+)\s+kB/m.exec(statusText)
+      return {
+        ticks: parseProcCpu(statText)?.ticks ?? null,
+        ramMb: rss ? Math.round((Number(rss[1]) / 1024) * 10) / 10 : null,
+      }
+    } catch {
+      return { ramMb: null, ticks: null }
+    }
+  }
+
+  function turnSample(
+    modelId: string,
+    usage: { promptTokens: number; completionTokens: number } | undefined,
+    ttftMs: number | null,
+    genMs: number,
+    before: { ramMb: number | null; ticks: number | null },
+    after: { ramMb: number | null; ticks: number | null },
+    tasks = 0,
+    steps = 0,
+  ): UsageSample {
+    const cpu = before.ticks != null && after.ticks != null ? cpuPercent(before.ticks, after.ticks, genMs) : null
+    return {
+      at: Date.now(),
+      modelId,
+      tasks,
+      steps,
+      tokensIn: usage?.promptTokens ?? 0,
+      tokensOut: usage?.completionTokens ?? 0,
+      ttftMs,
+      genMs,
+      ramMb: after.ramMb ?? before.ramMb,
+      cpuPercent: cpu,
+    }
+  }
+
+  function recordUse(sample: UsageSample): void {
+    metrics.record(sample)
+    console.info(`[surf] live ${metricLine(sample)}`)
+  }
+
+  function sendLiveModel(win: BrowserWindow, messageId: string, modelId: string, output: string): void {
+    sendEvent(win, {
+      type: 'code-step',
+      messageId,
+      step: { id: 'model-live', index: 0, tool: 'model', status: 'running', title: 'Model', detail: modelId, output },
+    })
+  }
+
+  function tailLive(text: string): string {
+    return text.length > 2000 ? text.slice(text.length - 2000) : text
+  }
+
+  async function storageReport(): Promise<StorageReport> {
+    const root = app.getPath('userData')
+    const packRows = await readInstalled(packsRoot()).catch(() => [])
+    const indexUsage = await codeApi.storage()
+    const webBytes = store.db ? savedWebStats(store.db).bytes : 0
+    const categories: StorageCategory[] = [
+      { id: 'models', label: 'Models', bytes: 0, items: scanFiles(modelsDir()) },
+      {
+        id: 'packs',
+        label: 'Knowledge packs',
+        bytes: 0,
+        items: packRows.map((pack) => ({
+          id: pack.id,
+          label: pack.title || pack.id,
+          bytes: treeBytes(join(packsRoot(), pack.id)),
+          version: pack.version,
+        })),
+      },
+      {
+        id: 'indexes',
+        label: 'Project indexes',
+        bytes: 0,
+        items: indexUsage.projects.map((project) => ({ id: project.id, label: project.root, bytes: project.bytes })),
+      },
+      { id: 'chats', label: 'Chat history', bytes: 0, items: [{ id: 'history', label: 'Chat history', bytes: store.historyBytes() }] },
+      { id: 'web', label: 'Saved web', bytes: 0, items: [{ id: 'web', label: 'Saved web passages', bytes: webBytes }] },
+      { id: 'logs', label: 'Logs', bytes: 0, items: scanFiles(join(root, 'logs')) },
+    ]
+    const disk = await diskSpace(root)
+    return buildStorageReport({ categories, ...disk })
+  }
+
+  async function clearStorage(category: StorageCategoryId, itemId?: string): Promise<StorageReport> {
+    const root = app.getPath('userData')
+    if (category === 'models') {
+      const dir = categoryDir(category, root)
+      assertInsideAppData(root, dir)
+      if (itemId) assertInsideAppData(root, join(dir, safeItemName(category, itemId)))
+      await withModel(() => stopActive())
+    }
+    if (category === 'chats') {
+      store.clearHistory()
+      return storageReport()
+    }
+    if (category === 'web') {
+      if (store.db) clearSavedWeb(store.db)
+      return storageReport()
+    }
+    const dir = categoryDir(category, root)
+    assertInsideAppData(root, dir)
+    if (!itemId) {
+      if (category === 'indexes') codeApi.shutdown()
+      clearChildren(dir, root)
+      return storageReport()
+    }
+    const name = safeItemName(category, itemId)
+    if (category === 'indexes' && codeApi.currentId() === name) codeApi.shutdown()
+    if (category === 'packs') {
+      removeInside(root, join(dir, name))
+      return storageReport()
+    }
+    removeInside(root, join(dir, name))
+    return storageReport()
+  }
+
+  async function openStorage(category: StorageCategoryId): Promise<void> {
+    const root = app.getPath('userData')
+    if (category === 'chats' || category === 'web') {
+      const file = join(root, 'chat.db')
+      if (existsSync(file)) {
+        shell.showItemInFolder(file)
+        return
+      }
+      const error = await shell.openPath(root)
+      if (error) throw new Error(error)
+      return
+    }
+    const dir = categoryDir(category, root)
+    mkdirSync(dir, { recursive: true })
+    const opened = assertInsideAppData(root, dir)
+    const error = await shell.openPath(opened)
+    if (error) throw new Error(error)
+  }
+
+  function categoryDir(category: StorageCategoryId, root: string): string {
+    if (category === 'models') return modelsDir()
+    if (category === 'packs') return packsRoot()
+    if (category === 'indexes') return join(root, 'code-projects')
+    if (category === 'logs') return join(root, 'logs')
+    return root
+  }
+
+  function safeItemName(category: StorageCategoryId, itemId: string): string {
+    if (itemId.includes('/') || itemId.includes('\\') || itemId.includes('..')) throw new Error('refusing to delete outside app data')
+    if (category === 'packs' && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(itemId)) throw new Error('refusing to delete outside app data')
+    if (category === 'indexes' && !/^[a-f0-9]{16}$/.test(itemId)) throw new Error('refusing to delete outside app data')
+    if ((category === 'models' || category === 'logs') && !/^[^/\\]+$/.test(itemId)) throw new Error('refusing to delete outside app data')
+    return itemId
+  }
+
+  function clearChildren(dir: string, root: string): void {
+    if (!existsSync(dir)) return
+    assertInsideAppData(root, dir)
+    for (const name of readdirSync(dir)) removeInside(root, join(dir, name))
+  }
+
+  function scanFiles(dir: string): { id: string; label: string; bytes: number }[] {
+    if (!existsSync(dir)) return []
+    return readdirSync(dir).map((name) => ({ id: name, label: name, bytes: treeBytes(join(dir, name)) }))
+  }
+
+  async function diskSpace(root: string): Promise<{ freeBytes: number; diskBytes: number }> {
+    try {
+      const space = await statfs(root)
+      return { freeBytes: Number(space.bavail) * Number(space.bsize), diskBytes: Number(space.blocks) * Number(space.bsize) }
+    } catch {
+      return { freeBytes: 0, diskBytes: 0 }
+    }
+  }
 
   async function authStatus(): Promise<AuthStatus> {
     const session = await loadSession()

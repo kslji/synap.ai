@@ -1,6 +1,6 @@
 {
   "registry_format": "surf-models/1",
-  "updated_at": "2026-10-15",
+  "updated_at": "2026-10-16",
   "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-15). Code rows set agents to [code]. Qwen3.5-2B Q6_K is the default on every laptop. Gemma 4 rows are optional and use Google's official QAT Q4_0 GGUFs: E2B 3.35 GB on the 8 GB tier (slightly over the 3 GB guide, not offered on a 4 GB laptop), E4B 5.15 GB on the 16 GB tier, 12B 6.98 GB on the 32 GB tier. Qwen file caps stay 2/3/4/8 GB for 4/8/16/32 GB laptops. Qwen3.5-2B Q6_K peak RAM is about 1.74 GB with --no-repack -cram 0. Other Code peak RAM is still unmeasured.",
   "models": [
     {
@@ -217,6 +217,20 @@
       "note": "Optional 32 GB tier. Official QAT Q4_0 is 6.98 GB plus a 0.18 GB screenshot file, under the 8 GB cap. Peak RAM has not been measured.",
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
+    },
+    {
+      "id": "qwen3-0.6b-q4_k_m", "role": "chat", "family": "qwen3", "params_b": 0.6,
+      "label": "Qwen 0.6B draft", "size_name": "0.6B",
+      "license": "apache-2.0", "context_default": 8192,
+      "file": "Qwen3-0.6B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf",
+      "size_bytes": 396705472,
+      "sha256": "ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a",
+      "min_ram_gb": 4, "tiers": [],
+      "agents": ["draft"],
+      "note": "Optional draft for speculative decoding. It is not downloaded unless you ask in Settings. It stays off when RAM is tight or llama.cpp has no draft flag.",
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
     }
   ]
 }

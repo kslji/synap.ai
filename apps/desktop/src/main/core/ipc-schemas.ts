@@ -27,6 +27,9 @@ export const SettingsPatch = z.object({
   codeAgentAutoConfirmed: z.boolean().optional(),
   tabSuggestions: z.boolean().optional(),
   tabSuggestionsOff: z.array(z.string().trim().min(1).max(32).regex(/^[a-z0-9_+-]+$/i)).max(40).optional(),
+  keepWarm: z.boolean().optional(),
+  idleUnloadMinutes: z.number().int().min(1).max(240).optional(),
+  speculativeDecoding: z.boolean().optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)
@@ -129,6 +132,12 @@ export const CodeCompleteReq = z.object({
 export const CodeFilePath = z.object({
   path: z.string().min(1).max(4096),
 }).strict()
+export const StorageClearReq = z.object({
+  category: z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs']),
+  itemId: z.string().trim().min(1).max(200).optional(),
+}).strict()
+export const StorageCategoryId = z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs'])
+
 export const CodeFileSave = z.object({
   path: z.string().min(1).max(4096),
   text: z.string().max(600_000),

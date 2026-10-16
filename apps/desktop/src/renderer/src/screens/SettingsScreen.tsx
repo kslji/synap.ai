@@ -5,6 +5,7 @@ import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type ModelSt
 import { formatIndexBytes } from '../format'
 import { DevWebPanel } from './DevWebPanel'
 import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
+import { LiveFeelSettings, StoragePanel, UsagePanel } from './UsageStorage'
 
 export function SettingsScreen({
   status,
@@ -136,6 +137,13 @@ export function SettingsScreen({
         </Group>
         <Group title="Code agent">
           <CodeAgentSettings settings={settings} onPatch={onPatch} />
+          <LiveFeelSettings status={status} settings={settings} onPatch={onPatch} onDownload={onDownload} />
+        </Group>
+        <Group title="Usage">
+          <UsagePanel />
+        </Group>
+        <Group title="Storage">
+          <StoragePanel />
         </Group>
         <Group title="Privacy and permissions">
         <Row

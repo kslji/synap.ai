@@ -38,6 +38,11 @@ export interface LlamaServerOptions {
   logFile?: string;
   extraArgs?: string[];
   startupTimeoutMs?: number;
+  /** 0 keeps the prompt cache off. A positive value is the cache RAM in MiB. */
+  cacheRamMiB?: number;
+  /** Draft GGUF for speculative decoding. Omitted unless the runtime and RAM allow it. */
+  draftModelPath?: string;
+  draftMax?: number;
 }
 
 export type SidecarState = 'stopped' | 'starting' | 'ready' | 'crashed';
@@ -71,7 +76,9 @@ export class LlamaServer extends EventEmitter {
     if (o.mmprojPath) a.push('--mmproj', o.mmprojPath);
     // b11514: --no-repack skips the extra weight buffer; -cram 0 turns the prompt cache off.
     // Together they cut RAM to about the file size (Qwen3.5-2B Q6_K peaked near 1.74 GB).
-    a.push('--no-repack', '-cram', '0');
+    // A larger laptop can keep a small prompt cache so a stable prefix is reused.
+    a.push('--no-repack', '-cram', String(o.cacheRamMiB ?? 0));
+    if (o.draftModelPath) a.push('-md', o.draftModelPath, '--draft-max', String(o.draftMax ?? 8));
     return [...a, ...(o.extraArgs ?? [])];
   }
 

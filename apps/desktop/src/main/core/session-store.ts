@@ -129,6 +129,30 @@ export class SessionStore {
     forgetConversation(this.db, id)
   }
 
+  /** Stored message text, in bytes. The database file also holds documents and saved web passages. */
+  historyBytes(): number {
+    if (!this.db) {
+      let total = 0
+      for (const conv of this.mem.values()) {
+        total += Buffer.byteLength(conv.title)
+        for (const message of conv.messages) total += Buffer.byteLength(message.text)
+      }
+      return total
+    }
+    const row = this.db.prepare('SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))), 0) AS bytes FROM messages').get() as { bytes: number }
+    return row.bytes
+  }
+
+  clearHistory(): void {
+    if (!this.db) {
+      this.mem.clear()
+      return
+    }
+    this.db.exec('DELETE FROM web_passage_links')
+    this.db.exec('DELETE FROM messages')
+    this.db.exec('DELETE FROM conversations')
+  }
+
   private has(id: string): boolean {
     if (!this.db) return this.mem.has(id)
     return Boolean(this.db.prepare('SELECT 1 AS ok FROM conversations WHERE id = ?').get(id))

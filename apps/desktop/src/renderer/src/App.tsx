@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
-import type { ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
@@ -12,6 +12,7 @@ import { codeModelLine, modelChoiceLabel } from '../../shared/model-label'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { createFrameBatcher } from '../../shared/stream-batch'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
 import { SignInScreen } from './screens/SignInScreen'
@@ -75,14 +76,22 @@ export default function App() {
   useEffect(() => {
     window.__surfNav = (next) => setView(next)
     void refresh().catch((e: unknown) => setError((e as Error).message))
-    const offChat = api.chat.onEvent((e) => {
-      setMessages((prev) => applyEvent(prev, e))
-      if (e.type === 'token' || e.type === 'tool' || e.type === 'sources' || e.type === 'status' || e.type === 'code-step' || e.type === 'code-diff') setStreaming(true)
-      if (e.type === 'done' || e.type === 'error') {
-        setStreaming(false)
-        void api.conversations.list().then(setConversations).catch(() => undefined)
-      }
-    })
+    const frames = createFrameBatcher<ChatEvent>(
+      (events) => {
+        setMessages((prev) => events.reduce(applyEvent, prev))
+        for (const e of events) {
+          if (e.type === 'token' || e.type === 'tool' || e.type === 'sources' || e.type === 'status' || e.type === 'code-step' || e.type === 'code-diff') setStreaming(true)
+          if (e.type === 'done' || e.type === 'error') {
+            setStreaming(false)
+            void api.conversations.list().then(setConversations).catch(() => undefined)
+          }
+        }
+      },
+      (fn) => window.requestAnimationFrame(fn),
+      (id) => window.cancelAnimationFrame(id),
+      (event) => event.type === 'done' || event.type === 'error',
+    )
+    const offChat = api.chat.onEvent((e) => frames.push(e))
     const offLib = api.library.onEvent((e) => {
       setFiles((prev) => [e.file, ...prev.filter((file) => file.id !== e.file.id)])
     })
@@ -102,7 +111,7 @@ export default function App() {
       }
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
-    return () => { offChat(); offModels(); offLib(); offDocs(); offCode(); window.clearInterval(timer) }
+    return () => { frames.cancel(); offChat(); offModels(); offLib(); offDocs(); offCode(); window.clearInterval(timer) }
   }, [api, refresh])
 
   const booted = useRef(false)

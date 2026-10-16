@@ -13,6 +13,7 @@ export type LoopToolName = CodeToolName | DevWebToolName
 export interface ModelTurn {
   content: string | null
   toolCalls?: { id?: string; name: string; arguments: string }[]
+  usage?: { promptTokens: number; completionTokens: number }
 }
 
 export interface ParsedCall {

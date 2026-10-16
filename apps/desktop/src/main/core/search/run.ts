@@ -35,8 +35,10 @@ import {
 import { politeFetch } from './http.js'
 import { classifyIntent, financeNeedsLive } from './intent.js'
 import { legalAnswer, legalUnavailable, quoteFromHits, searchLegalWeb } from './legal.js'
+import { quoteAnswer, readLiveQuote } from './quotes.js'
 import { readPage } from './reader.js'
 import type { ConnectorHit, LocalHit, RegionChoice } from './types.js'
+import { quotePriceShown } from '../../../shared/quote.js'
 import {
   NAV_MAX_AGE_MS,
   NEWS_MAX_AGE_MS,
@@ -92,16 +94,45 @@ export async function composeRouted(input: {
   navText?: string
   bhavText?: string
   now?: number
+  db?: DB | null
+  timeZone?: string
 }): Promise<ComposedAnswer | null> {
   const intent = classifyIntent(input.question)
   const net: Net = { offlineOnly: input.offlineOnly, fetchImpl: input.fetchImpl, signal: input.signal }
   const now = input.now ?? Date.now()
-  if (intent === 'finance') return composeFinance(input.question, input.region, input.webAllowed, net, now, input.navText, input.bhavText)
+  if (intent === 'finance') return composeFinance(input.question, input.region, input.webAllowed, net, now, input.navText, input.bhavText, input.db ?? null, input.timeZone)
   if (intent === 'legal') return composeLegal(input.question, input.hits, input.region, input.webAllowed, net, now)
   return null
 }
 
-async function composeFinance(question: string, region: RegionChoice, webAllowed: boolean, net: Net, now: number, navText?: string, bhavText?: string): Promise<ComposedAnswer> {
+function stockQuestion(question: string): boolean {
+  return /\b(nse|bse|stock price|share price|nifty|sensex)\b/i.test(question)
+}
+
+async function composeQuote(question: string, region: RegionChoice, webAllowed: boolean, net: Net, now: number, db: DB | null, timeZone: string | undefined): Promise<ComposedAnswer> {
+  const symbol = stockSymbol(question)
+  if (!symbol) return asFinance(unavailableFinance(region, 'price'), 'insufficient')
+  const snapshot = await readLiveQuote({
+    symbol,
+    region,
+    now,
+    db,
+    offlineOnly: net.offlineOnly,
+    webAllowed,
+    fetchImpl: net.fetchImpl,
+    signal: net.signal,
+    timeZone: timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  })
+  if (!snapshot) return asFinance(unavailableFinance(region, 'price'), 'insufficient')
+  const answer = quoteAnswer(snapshot, region)
+  const excerpts = answer.citations.map((item) => item.excerpt || '').join('\n')
+  if (!answer.text || !quotePriceShown(answer.text, snapshot.price) || !quotePriceShown(excerpts, snapshot.price)) {
+    return asFinance(unavailableFinance(region, 'price'), 'insufficient')
+  }
+  return publishFinance(question, region, answer, 'stock', now)
+}
+
+async function composeFinance(question: string, region: RegionChoice, webAllowed: boolean, net: Net, now: number, navText?: string, bhavText?: string, db: DB | null = null, timeZone?: string): Promise<ComposedAnswer> {
   const sip = parseSipQuestion(question)
   if (sip) return publishFinance(question, region, sipAnswer(sip, region), 'math', now)
   const pnl = parsePnlQuestion(question)
@@ -113,6 +144,7 @@ async function composeFinance(question: string, region: RegionChoice, webAllowed
     const india = region.code === 'IN' || /\bindia\b/i.test(question)
     return publishFinance(question, region, taxAnswer(gain, days, region, india), 'math', now)
   }
+  if (stockQuestion(question) && !bhavText) return composeQuote(question, region, webAllowed, net, now, db, timeZone)
   if (!webAllowed || net.offlineOnly || !financeNeedsLive(question)) {
     return asFinance(unavailableFinance(region, 'price'), 'insufficient')
   }
@@ -143,7 +175,7 @@ async function composeFinance(question: string, region: RegionChoice, webAllowed
     }
     return asFinance(unavailableFinance(region, 'news'), 'insufficient')
   }
-  if (/\b(nse|bse|stock price|share price|nifty|sensex)\b/i.test(question)) {
+  if (stockQuestion(question)) {
     if (region.code !== 'IN' && !/\b(nse|bse|india)\b/i.test(question)) {
       return asFinance(unavailableFinance(region, 'price'), 'insufficient')
     }

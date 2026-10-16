@@ -68,6 +68,7 @@ import { SESSION_MIGRATION, SessionStore } from './session-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
 import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, savedWebPack, savedWebStats, searchSavedWeb, staleNote, WEB_CACHE_MIGRATION } from './web-cache.js'
 import { SEARCH_CACHE_MIGRATION, clearSearchCache, searchCacheStats } from './search/cache.js'
+import { QUOTE_CACHE_MIGRATION } from './search/quotes.js'
 import { ensureCitationMarkers, withPackVersions } from './search/citations.js'
 import { renderJsPage } from './search/js-page.js'
 import { searchFixtureEnabled } from './search/mode.js'
@@ -1187,6 +1188,8 @@ export async function createServices(): Promise<Services> {
           offlineOnly: settings.offlineOnly,
           webAllowed,
           signal,
+          db: store.db,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         })
         if (composed) {
           if (composed.citations.length) sendEvent(win, { type: 'sources', messageId, sources: composed.citations })
@@ -2480,12 +2483,12 @@ export function startUpdater(): void {
 async function openStore(): Promise<SessionStore> {
   const evalKey = surfEnv('EVAL_DB_KEY')
   if (evalKey && /^[0-9a-f]{64}$/i.test(evalKey)) {
-    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), evalKey, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION, SEARCH_CACHE_MIGRATION])
+    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), evalKey, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION, SEARCH_CACHE_MIGRATION, QUOTE_CACHE_MIGRATION])
     return new SessionStore(db)
   }
   try {
     const key = await getOrCreateDbKey()
-    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION, SEARCH_CACHE_MIGRATION])
+    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION, SEARCH_CACHE_MIGRATION, QUOTE_CACHE_MIGRATION])
     return new SessionStore(db)
   } catch (e) {
     console.warn('[surf] encrypted chat store unavailable:', (e as Error).message)

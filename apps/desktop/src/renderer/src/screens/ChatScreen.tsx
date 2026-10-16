@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { StarSurf, starStateFor } from '@surf/ui'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import { quoteChipLabel } from '../../../shared/quote'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { CodeModeBar, CodeTrace } from './CodeTrace'
@@ -404,9 +405,25 @@ function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide, onCo
             ))}
           </div>
         )}
-        {msg.sources.some((s) => s.kind === 'web') && (
+        {msg.sources.some((s) => s.pack === 'quote' && s.url) && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {msg.sources.map((s, i) => s.pack === 'quote' && s.url ? (
+              <button
+                key={i}
+                type="button"
+                className="pill"
+                data-quote-chip="yes"
+                title={s.excerpt || s.title}
+                onClick={() => { void window.surf.links.open(s.url) }}
+              >
+                {quoteChipLabel(s.title || 'Source', i + 1)}
+              </button>
+            ) : null)}
+          </div>
+        )}
+        {msg.sources.some((s) => s.kind === 'web' && s.pack !== 'quote') && (
           <div className="mt-3 flex flex-col gap-2">
-            {msg.sources.map((s, i) => s.kind === 'web' ? (
+            {msg.sources.map((s, i) => s.kind === 'web' && s.pack !== 'quote' ? (
               <button
                 key={i}
                 type="button"

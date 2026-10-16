@@ -244,8 +244,10 @@ export function SettingsScreen({
 
 function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsPatch>; onPatch: (p: SettingsPatch) => void }) {
   const [list, setList] = useState(settings.codeAgentAllowlist.join('\n'))
+  const [languages, setLanguages] = useState(settings.tabSuggestionsOff.join(', '))
   const [confirming, setConfirming] = useState(false)
   useEffect(() => { setList(settings.codeAgentAllowlist.join('\n')) }, [settings.codeAgentAllowlist])
+  useEffect(() => { setLanguages(settings.tabSuggestionsOff.join(', ')) }, [settings.tabSuggestionsOff])
   const mode = settings.codeAgentMode === 'auto' ? 'auto' : 'ask'
   function choose(next: 'ask' | 'auto') {
     if (next === 'ask') {
@@ -292,6 +294,29 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
         onBlur={() => {
           const commands = list.split('\n').map((line) => line.trim()).filter(Boolean)
           onPatch({ codeAgentAllowlist: commands })
+        }}
+      />
+      <div className="mt-4 flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-semibold">Tab suggestions</div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+            Ghost text in the code editor. Tab accepts it. Nothing is written until you save. On by default when the Code model fits this computer.
+          </p>
+        </div>
+        <button type="button" className="toggle mt-1" data-tab-suggestions="yes" data-on={settings.tabSuggestions ? 'yes' : 'no'} aria-pressed={settings.tabSuggestions} onClick={() => onPatch({ tabSuggestions: !settings.tabSuggestions })}><span /></button>
+      </div>
+      <div className="mt-3 text-sm font-semibold">Languages off</div>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Comma-separated language ids, such as markdown or plaintext.</p>
+      <input
+        className="field mt-2"
+        aria-label="Languages with Tab suggestions off"
+        data-tab-languages="yes"
+        value={languages}
+        spellCheck={false}
+        onChange={(event) => setLanguages(event.target.value)}
+        onBlur={() => {
+          const off = languages.split(',').map((item) => item.trim().toLowerCase()).filter((item) => /^[a-z0-9_+-]+$/.test(item))
+          onPatch({ tabSuggestionsOff: off })
         }}
       />
     </div>

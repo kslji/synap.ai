@@ -1,6 +1,6 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
@@ -25,6 +25,8 @@ export const SettingsPatch = z.object({
   codeAgentMode: z.enum(['ask', 'auto']).optional(),
   codeAgentAllowlist: z.array(z.string().trim().min(1).max(200)).max(40).optional(),
   codeAgentAutoConfirmed: z.boolean().optional(),
+  tabSuggestions: z.boolean().optional(),
+  tabSuggestionsOff: z.array(z.string().trim().min(1).max(32).regex(/^[a-z0-9_+-]+$/i)).max(40).optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)
@@ -117,6 +119,20 @@ export const CodeAgentSetModeReq = z.object({
   mode: z.enum(['ask', 'auto']),
   confirmAuto: z.boolean().optional(),
 }).strict()
+export const CodeCompleteReq = z.object({
+  sessionId: z.string().min(1).max(80),
+  path: z.string().max(4096),
+  language: z.string().max(32),
+  text: z.string().max(600_000),
+  cursor: z.number().int().min(0).max(600_000),
+}).strict()
+export const CodeFilePath = z.object({
+  path: z.string().min(1).max(4096),
+}).strict()
+export const CodeFileSave = z.object({
+  path: z.string().min(1).max(4096),
+  text: z.string().max(600_000),
+}).strict()
 
 export type ParsedChat = z.output<typeof ChatSendReq>
 
@@ -127,3 +143,4 @@ export const _codeReviseCheck = (x: z.output<typeof CodeAgentReviseReq>): CodeAg
 export const _codeUndoCheck = (x: z.output<typeof CodeAgentUndoReq>): CodeAgentUndoReqT => x
 export const _codeModeCheck = (x: z.output<typeof CodeAgentSetModeReq>): CodeAgentSetModeReqT => x
 export const _devWebCheck = (x: z.output<typeof DevWebRun>): DevWebRunReqT => x
+export const _codeCompleteCheck = (x: z.output<typeof CodeCompleteReq>): CodeCompleteReqT => x

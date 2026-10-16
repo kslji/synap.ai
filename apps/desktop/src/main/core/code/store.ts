@@ -147,6 +147,40 @@ export function referencesTo(db: CodeDb, name: string): RefHit[] {
   ).all(name, name, name) as RefHit[]
 }
 
+/** Definitions named by this file's import edges. Import rows point at a module, so the symbol is resolved by name. */
+export function importedDefinitions(db: CodeDb, path: string, limit = 6): SymbolHit[] {
+  const rows = db.prepare(
+    `SELECT e.dst_name AS name, e.dst_path AS path
+     FROM edges e JOIN files f ON f.id = e.file_id
+     WHERE f.path = ? AND e.kind = 'imports' AND e.dst_name != ''
+     ORDER BY e.line`,
+  ).all(path) as { name: string; path: string | null }[]
+  const out: SymbolHit[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const hit = definitions(db, row.name, row.path ?? undefined)[0]
+    if (!hit) continue
+    const key = `${hit.path}:${hit.qualified}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(hit)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** Definitions in this file that end above the cursor line. */
+export function nearbyDefinitions(db: CodeDb, path: string, line: number, limit = 6): SymbolHit[] {
+  return db.prepare(
+    `SELECT s.id, s.name, s.qualified, s.kind, f.path AS path, s.start_line AS startLine, s.end_line AS endLine,
+            s.signature, s.text, s.module
+     FROM symbols s JOIN files f ON f.id = s.file_id
+     WHERE f.path = ? AND s.kind NOT IN ('import', 'section') AND s.end_line < ?
+     ORDER BY s.end_line DESC
+     LIMIT ?`,
+  ).all(path, line, limit) as SymbolHit[]
+}
+
 export interface RelatedHit { path: string; reason: string }
 
 export function relatedFiles(db: CodeDb, path: string): RelatedHit[] {

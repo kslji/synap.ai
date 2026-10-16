@@ -13,6 +13,8 @@ import { join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
 import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage } from './ipc-contract.js'
 import { codeFitMark } from '../../shared/code-ram.js'
+import { createCompletionRuntime, type CompletionRuntime } from './code-agent/completion/runtime.js'
+import { normalizeLanguagesOff, tabSuggestionsDefault } from './code-agent/completion/policy.js'
 import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
@@ -144,6 +146,8 @@ const DEFAULT_SETTINGS: Settings = {
   codeAgentMode: 'ask',
   codeAgentAllowlist: [],
   codeAgentAutoConfirmed: false,
+  tabSuggestions: true,
+  tabSuggestionsOff: [],
 }
 
 export async function createServices(): Promise<Services> {
@@ -177,17 +181,34 @@ export async function createServices(): Promise<Services> {
     return join(app.getAppPath(), 'resources', 'tessdata')
   }
 
+  function codeModelMinRam(codeModelId: string): number {
+    try {
+      const reg = registry()
+      const chosen = codeModelId ? reg.models.find((model) => model.id === codeModelId) : null
+      return (chosen ?? defaultForAgent(reg, 'code'))?.min_ram_gb ?? 4
+    } catch {
+      return 4
+    }
+  }
+
   function readSettings(): Settings {
     try {
       const raw = JSON.parse(readFileSync(settingsPath(), 'utf8')) as Omit<SettingsPatch, 'theme'> & { theme?: string }
       const theme = raw.theme === 'dark' ? 'dark' : 'light'
-      const merged: Settings = { ...DEFAULT_SETTINGS, ...raw, theme }
+      const explicitTab = typeof raw.tabSuggestions === 'boolean'
+      const merged: Settings = {
+        ...DEFAULT_SETTINGS,
+        ...raw,
+        theme,
+        tabSuggestionsOff: normalizeLanguagesOff(Array.isArray(raw.tabSuggestionsOff) ? raw.tabSuggestionsOff : []),
+      }
+      if (!explicitTab) merged.tabSuggestions = tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam(merged.codeModelId))
       offlineOnly = merged.offlineOnly
       if (raw.theme === 'system') writeSettings(merged)
       return merged
     } catch {
       offlineOnly = DEFAULT_SETTINGS.offlineOnly
-      return { ...DEFAULT_SETTINGS }
+      return { ...DEFAULT_SETTINGS, tabSuggestions: tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam('')) }
     }
   }
 
@@ -1044,6 +1065,7 @@ export async function createServices(): Promise<Services> {
   })
 
   let pendingUpdate: UpdateOffer | null = null
+  let completionRuntime: CompletionRuntime | null = null
   let released = false
   function releaseWindow(): void {
     if (released) return
@@ -1053,9 +1075,27 @@ export async function createServices(): Promise<Services> {
     for (const ac of inflight.values()) ac.abort()
     documentApi.cancel()
     codeApi.shutdown()
+    void completionRuntime?.close().catch(() => undefined)
     unregisterIpc()
     void stopActive().catch(() => undefined)
   }
+
+  completionRuntime = createCompletionRuntime({
+    userData: app.getPath('userData'),
+    enabled: () => readSettings().tabSuggestions,
+    languagesOff: () => readSettings().tabSuggestionsOff,
+    modelId: () => readSettings().codeModelId || defaultForAgent(registry(), 'code')?.id || '',
+    root: () => codeApi.root(),
+    indexed: () => codeApi.indexed(),
+    server: () => withModel(async () => {
+      const settings = readSettings()
+      const model = await chooseChat(registry(), settings.codeModelId, 'code')
+      if (!model) return null
+      const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      const server = await ensure('chat', model, profile.serverCtx, '', 'code')
+      return { baseUrl: server.baseUrl, apiKey: server.apiKey }
+    }),
+  })
 
   const services: Services = {
     chat: {
@@ -1154,6 +1194,7 @@ export async function createServices(): Promise<Services> {
         const current = readSettings()
         const next = { ...current, ...p }
         next.codeAgentAllowlist = (next.codeAgentAllowlist ?? []).filter((command) => commandRisk(command) === 'plain')
+        next.tabSuggestionsOff = normalizeLanguagesOff(next.tabSuggestionsOff ?? [])
         if (next.codeAgentMode === 'auto' && !next.codeAgentAutoConfirmed) next.codeAgentMode = 'ask'
         writeSettings(next)
         if (next.offlineOnly) {
@@ -1301,6 +1342,12 @@ export async function createServices(): Promise<Services> {
     },
     documents: documentApi,
     code: codeApi,
+    codeComplete: {
+      suggest: (input) => completionRuntime!.suggest(input),
+      files: async () => completionRuntime!.files(),
+      read: async (path) => completionRuntime!.read(path),
+      save: async (path, text) => completionRuntime!.save(path, text),
+    },
     lifecycle: { releaseWindow },
   }
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {

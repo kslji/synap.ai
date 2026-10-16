@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const desktop = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-export async function launch(env) {
+export async function launch(env, settings = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'surf-e2e-'))
   writeFileSync(join(dir, 'settings.json'), JSON.stringify({
     onboardingComplete: true,
@@ -16,6 +16,7 @@ export async function launch(env) {
     mascotName: 'Surf Bot',
     accent: 'orange',
     density: 'comfortable',
+    ...settings,
   }))
   const app = await electron.launch({
     args: ['.', '--no-sandbox', '--disable-gpu', '--force-device-scale-factor=1'],

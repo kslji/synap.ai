@@ -346,7 +346,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -367,6 +367,17 @@ jobs:
             rm -rf node_modules
           done
           exit 1
+      - name: Qwen 2B file id
+        id: weights
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
+          key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
+      - name: Download and verify Qwen 2B
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Build the desktop app
         run: npm run build -w @surf/desktop
       - name: Playwright smoke
@@ -374,9 +385,10 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
           DISPLAY: ":99"
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
         run: |
           Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
-          npx playwright test e2e/smoke.spec.mjs
+          npx playwright test e2e/smoke.spec.mjs e2e/model-reply.spec.mjs
 
   visual:
     runs-on: ubuntu-24.04
@@ -449,3 +461,49 @@ jobs:
           node apps/desktop/scripts/check-budget.mjs
       - name: RAM script when weights are absent
         run: npx tsx apps/desktop/scripts/measure-ram.ts
+
+  model-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Qwen 2B file id
+        id: weights
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
+          key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
+      - name: Download and verify Qwen 2B
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+      - name: Fetch llama.cpp sidecar for this OS
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
+      - name: Model eval subset
+        env:
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
+        run: npx tsx apps/desktop/scripts/model-eval.ts --mode subset --models qwen3.5-2b-q4_k_m --out harness/reports/model-eval.json
+      - name: Upload model eval
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-eval
+          path: harness/reports/

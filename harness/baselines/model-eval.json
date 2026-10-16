@@ -1,0 +1,28 @@
+{
+  "minAccuracy": 0.64,
+  "minNoFabrication": 0.45,
+  "note": "Floors sit under the first measured Qwen3.5-2B Q4_K_M subset on llama.cpp b11514 (46 questions, Linux CPU). A later run fails when accuracy or no-fabrication drops below them.",
+  "measured": {
+    "modelId": "qwen3.5-2b-q4_k_m",
+    "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+    "questions": 46,
+    "correct": 33,
+    "accuracy": 0.717,
+    "noFabricationCorrect": 6,
+    "noFabrication": 0.6,
+    "tokensPerSec": 31.88,
+    "ttftMs": 347.5,
+    "peakRssMb": 1535,
+    "tokenizer": "gguf"
+  },
+  "full": {
+    "modelId": "qwen3.5-2b-q4_k_m",
+    "questions": 101,
+    "accuracy": 0.703,
+    "noFabrication": 0.6,
+    "tokensPerSec": 29.74,
+    "ttftMs": 352,
+    "peakRssMb": 1542,
+    "tokenizer": "gguf"
+  }
+}

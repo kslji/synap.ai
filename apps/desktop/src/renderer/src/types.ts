@@ -36,6 +36,8 @@ export interface UiMsg {
   modelId?: string
   /** Earlier sibling answers for this reply. The latest text is `text`. */
   versions?: string[]
+  /** A token event arrived, so the reply was streamed. */
+  streamed?: boolean
 }
 
 export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
@@ -56,7 +58,10 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
   if (i < 0) return prev
   const m = next[i]
   m.id = e.messageId
-  if (e.type === 'token') m.text += e.text
+  if (e.type === 'token') {
+    m.text += e.text
+    m.streamed = true
+  }
   if (e.type === 'status') m.phase = e.phase
   if (e.type === 'sources') m.sources = e.sources
   if (e.type === 'tool') m.tools.push({ name: e.name, input: e.input, output: e.output })

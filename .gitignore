@@ -34,3 +34,4 @@ apps/desktop/resources/geo/*.cidr
 packages/*/dist
 *.gguf
 *.part
+.surf-models/

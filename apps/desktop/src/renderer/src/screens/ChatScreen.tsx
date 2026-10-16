@@ -356,7 +356,7 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
   }
   const creature = msg.pending ? mood : msg.error ? 'error' : msg.gate === 'answer' || msg.gate === 'web' ? 'success' : 'idle'
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
       <div className="pt-1"><StarSurf state={starStateFor(creature)} size={52} animate={animateMascot} /></div>
       <div className="min-w-0 flex-1">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}

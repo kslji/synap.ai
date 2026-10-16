@@ -4,9 +4,8 @@
  * They are absent unless NODE_ENV=development or SYNAP_DEV_WEB=1.
  * devWebTools() returns [] otherwise, so a production build never lists the names.
  *
- * The Code agent loop (draft PR #15, branch cursor/code-agent-loop-7dfa) is not
- * merged. Register these tools from that loop with codeAgentDevWebTools() in
- * ./code-agent/dev-web-hook.ts. Do not import the names into a production tool list.
+ * The Code agent loop registers them through codeAgentDevWebTools() in
+ * ./code-agent/dev-web-hook.ts. The production schema constant does not name them.
  *
  * web_search calls the local FastAPI proxy (SYNAP_API_URL). fetch_page runs on
  * this computer: robots.txt, a timeout, a byte cap, and script stripping.

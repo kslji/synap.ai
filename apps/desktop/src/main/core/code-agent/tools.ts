@@ -1,7 +1,10 @@
 /**
  * Tool names and OpenAI-style schemas for the Code agent.
- * Schemas are a constant so the native tool-call prefix stays cacheable.
+ * The built-in schemas stay a constant so the native tool-call prefix stays cacheable.
+ * Development web tools are appended only when dev web is on.
  */
+import { devWebToolSchemas } from './dev-web-hook.js'
+import type { EnvLike } from '../dev-web-tools.js'
 
 export const CODE_TOOL_NAMES = [
   'read_file',
@@ -18,8 +21,8 @@ export function isCodeTool(name: string): name is CodeToolName {
   return (CODE_TOOL_NAMES as readonly string[]).includes(name)
 }
 
-export function codeToolSchemas(): readonly unknown[] {
-  return SCHEMAS
+export function codeToolSchemas(env?: EnvLike): readonly unknown[] {
+  return [...SCHEMAS, ...devWebToolSchemas(env)]
 }
 
 const SCHEMAS = [

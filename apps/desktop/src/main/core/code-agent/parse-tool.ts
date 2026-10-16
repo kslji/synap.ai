@@ -3,7 +3,12 @@
  * Otherwise the reply is repaired into one JSON object.
  */
 import { stripMarkdownFences } from '../../../shared/model-output.js'
+import { devWebEnabled, type EnvLike } from '../dev-web-tools.js'
 import { isCodeTool, type CodeToolName } from './tools.js'
+
+const DEV_WEB_TOOLS = ['web_search', 'fetch_page'] as const
+type DevWebToolName = typeof DEV_WEB_TOOLS[number]
+export type LoopToolName = CodeToolName | DevWebToolName
 
 export interface ModelTurn {
   content: string | null
@@ -11,20 +16,20 @@ export interface ModelTurn {
 }
 
 export interface ParsedCall {
-  name: CodeToolName
+  name: LoopToolName
   arguments: Record<string, unknown>
 }
 
-export function parseModelTurn(turn: ModelTurn): ParsedCall | null {
+export function parseModelTurn(turn: ModelTurn, env?: EnvLike): ParsedCall | null {
   const native = turn.toolCalls?.[0]
   if (native?.name) {
     const args = parseArgs(native.arguments || '{}')
-    const name = asTool(native.name)
+    const name = asTool(native.name, env)
     if (args && name) return { name, arguments: args }
   }
   if (!turn.content) return null
   try {
-    return asCall(repairJson(turn.content))
+    return asCall(repairJson(turn.content), env)
   } catch {
     return null
   }
@@ -66,30 +71,30 @@ function parseArgs(raw: string): Record<string, unknown> | null {
   return null
 }
 
-function asCall(value: unknown): ParsedCall | null {
+function asCall(value: unknown, env?: EnvLike): ParsedCall | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
-  if (Array.isArray(record.tool_calls) && record.tool_calls[0]) return asCall(record.tool_calls[0])
+  if (Array.isArray(record.tool_calls) && record.tool_calls[0]) return asCall(record.tool_calls[0], env)
   const fn = record.function
   if (fn && typeof fn === 'object' && !Array.isArray(fn)) {
     const nested = fn as Record<string, unknown>
-    return build(nested.name, nested.arguments ?? record.arguments)
+    return build(nested.name, nested.arguments ?? record.arguments, env)
   }
   const name = record.tool ?? record.name
   if (typeof name !== 'string') return null
   if (record.arguments !== undefined || record.args !== undefined) {
-    return build(name, record.arguments ?? record.args)
+    return build(name, record.arguments ?? record.args, env)
   }
   const rest: Record<string, unknown> = {}
   for (const [key, item] of Object.entries(record)) {
     if (key === 'tool' || key === 'name') continue
     rest[key] = item
   }
-  return build(name, rest)
+  return build(name, rest, env)
 }
 
-function build(name: unknown, args: unknown): ParsedCall | null {
-  const tool = asTool(typeof name === 'string' ? name : '')
+function build(name: unknown, args: unknown, env?: EnvLike): ParsedCall | null {
+  const tool = asTool(typeof name === 'string' ? name : '', env)
   if (!tool) return null
   if (typeof args === 'string') {
     const parsed = parseArgs(args)
@@ -101,9 +106,11 @@ function build(name: unknown, args: unknown): ParsedCall | null {
   return null
 }
 
-function asTool(name: string): CodeToolName | null {
+function asTool(name: string, env?: EnvLike): LoopToolName | null {
   const cleaned = name.trim().replace(/^functions\./, '')
-  return isCodeTool(cleaned) ? cleaned : null
+  if (isCodeTool(cleaned)) return cleaned
+  if (devWebEnabled(env) && (DEV_WEB_TOOLS as readonly string[]).includes(cleaned)) return cleaned as DevWebToolName
+  return null
 }
 
 function unique(values: string[]): string[] {

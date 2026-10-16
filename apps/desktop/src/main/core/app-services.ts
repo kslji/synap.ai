@@ -611,6 +611,7 @@ export async function createServices(): Promise<Services> {
         mode: currentPermissionMode(),
         allowedCommands: readAllowed(root),
         signal,
+        devWeb: { apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal },
         onStep: (step) => { sendEvent(win, { type: 'code-step', messageId, step }) },
         onDiff: (diff) => { sendEvent(win, { type: 'code-diff', messageId, diff }) },
         ask: (request) => waitDecision(messageId, request.id, signal),

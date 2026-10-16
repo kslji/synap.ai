@@ -1,7 +1,9 @@
 /**
  * Open a signed NaCl secretbox delta next to a plaintext pack.sqlite.
- * The plaintext file is unchanged. A delta opens only when a 32-byte key
- * matches. The builder key is not shipped in the app.
+ * The plaintext file is unchanged. The builder encrypts with PACK_CONTENT_KEY.
+ * The app decrypts with that key after unwrapping the server's seal, or with
+ * the operator override SURF_PACK_CONTENT_KEY. The licence-derived key is
+ * only the wrap key.
  */
 import nacl from 'tweetnacl'
 import type { DB } from '../db.js'
@@ -11,11 +13,22 @@ export const DELTA_FILE = 'delta.sqlite.enc'
 const SQLITE_MAGIC = 'SQLite format 3\0'
 const SCAN_CAP = 2000
 
-export function packContentKeys(licenceKey: Buffer | null, envHex: string | undefined): Buffer[] {
+/** Cached unwrapped content key, then the optional operator override. */
+export function contentKeysForDelta(cached: Buffer | null, envHex: string | undefined): Buffer[] {
   const keys: Buffer[] = []
-  if (envHex && /^[0-9a-f]{64}$/i.test(envHex)) keys.push(Buffer.from(envHex, 'hex'))
-  if (licenceKey?.length === 32) keys.push(licenceKey)
+  if (cached?.length === 32) keys.push(cached)
+  if (envHex && /^[0-9a-f]{64}$/i.test(envHex)) {
+    const env = Buffer.from(envHex, 'hex')
+    if (!keys.some((key) => key.equals(env))) keys.push(env)
+  }
   return keys
+}
+
+/** Open the server's seal. The result is the 32-byte builder content key. */
+export function openSealedContentKey(sealed: Uint8Array, wrapKey: Uint8Array): Buffer | null {
+  const opened = secretboxOpen(sealed, wrapKey)
+  if (!opened || opened.length !== 32) return null
+  return Buffer.from(opened)
 }
 
 /** PyNaCl SecretBox.encrypt layout: 24-byte nonce, then the secretbox. */

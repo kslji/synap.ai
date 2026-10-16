@@ -20,7 +20,7 @@ import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { codePackDir, loadCodePack } from './code-pack.js'
-import { gatePackDecrypt } from './licence.js'
+import { derivePackKey, gatePackDecrypt, licenceAllowsUse } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
@@ -76,7 +76,8 @@ import { composeRouted, gatherOnline } from './search/run.js'
 import { historyHits, planRoute } from './search/router.js'
 import type { LocalHit, RegionChoice } from './search/types.js'
 import { classifyIntent } from './search/intent.js'
-import { decryptDelta, packContentKeys, searchDelta } from './search/delta.js'
+import { contentKeysForDelta, decryptDelta, openSealedContentKey, searchDelta } from './search/delta.js'
+import { loadPackContentKey, storePackContentKey } from './pack-content-cache.js'
 import { quoteFromHits, sectionNumber } from './search/legal.js'
 import { assertNetworkAllowed, OfflineOnlyError } from './offline-guard.js'
 import { safeSend } from './safe-send.js'
@@ -1042,6 +1043,8 @@ export async function createServices(): Promise<Services> {
         const deltaDbs: { name: string; db: DB }[] = []
         const packAllowed = await licences.allowsUse()
         const packKey = await licences.contentKey()
+        let deltaKeys = contentKeysForDelta(await loadPackContentKey(app.getPath('userData')), surfEnv('PACK_CONTENT_KEY'))
+        let askedForSeal = false
         for (const row of await readInstalled(packsRoot())) {
           const dir = join(packsRoot(), row.id, row.version)
           const dbPath = join(dir, 'pack.sqlite')
@@ -1049,7 +1052,12 @@ export async function createServices(): Promise<Services> {
           const hasSqlite = existsSync(dbPath)
           const hasEnc = existsSync(encPath)
           if (!hasSqlite && !hasEnc) continue
-          const packGate = gatePackDecrypt(true, { allowed: packAllowed, contentKey: packKey, encrypted: hasEnc && !hasSqlite })
+          const envKey = contentKeysForDelta(null, surfEnv('PACK_CONTENT_KEY'))[0] ?? null
+          const packGate = gatePackDecrypt(true, {
+            allowed: packAllowed,
+            contentKey: packKey ?? deltaKeys[0] ?? envKey,
+            encrypted: hasEnc && !hasSqlite,
+          })
           if (packGate.status !== 'ready') {
             console.warn('[surf] pack skipped: licence required')
             continue
@@ -1067,8 +1075,13 @@ export async function createServices(): Promise<Services> {
           }
           if (!hasEnc || packGate.status !== 'ready') continue
           try {
+            if (deltaKeys.length === 0 && !askedForSeal) {
+              askedForSeal = true
+              const fetched = await ensurePackContentKey()
+              if (fetched) deltaKeys = contentKeysForDelta(fetched, surfEnv('PACK_CONTENT_KEY'))
+            }
             await verifyPack(dir, { trustedKeys: trustedPackKeys(), expectedEmbedding: EMBEDDINGGEMMA2_256 })
-            const plain = decryptDelta(readFileSync(encPath), packContentKeys(packGate.contentKey, surfEnv('PACK_CONTENT_KEY')))
+            const plain = decryptDelta(readFileSync(encPath), deltaKeys)
             if (!plain) {
               console.warn('[surf] pack delta left sealed')
               continue
@@ -2319,6 +2332,42 @@ export async function createServices(): Promise<Services> {
     }
   }
 
+  async function acceptSealedContentKey(sealedHex: string, licenceId: string, deviceIdHash: string): Promise<Buffer | null> {
+    if (!/^[0-9a-f]+$/i.test(sealedHex) || sealedHex.length % 2 !== 0) return null
+    const wrap = derivePackKey({ licence_id: licenceId, device_id_hash: deviceIdHash })
+    const opened = openSealedContentKey(Buffer.from(sealedHex, 'hex'), wrap)
+    if (!opened) {
+      console.warn('[surf] pack content key stayed sealed')
+      return null
+    }
+    try {
+      await storePackContentKey(app.getPath('userData'), opened)
+    } catch (error) {
+      console.warn('[surf] pack content key kept in memory:', (error as Error).message)
+    }
+    return opened
+  }
+
+  async function ensurePackContentKey(): Promise<Buffer | null> {
+    const cached = await loadPackContentKey(app.getPath('userData'))
+    if (cached) return cached
+    const settings = readSettings()
+    if (settings.offlineOnly) return null
+    const licence = await licences.status()
+    if (!licence.licenceId || !licence.deviceIdHash || !licenceAllowsUse(licence.state)) return null
+    try {
+      assertNetworkAllowed(settings.offlineOnly)
+      const token = await freshAccess({ base: apiBase(settings), offlineOnly: settings.offlineOnly })
+      if (!token) return null
+      const updates = await fetchPackUpdates(apiBase(settings), token, '', licence.deviceIdHash)
+      if (!updates.contentKeySealed) return null
+      return await acceptSealedContentKey(updates.contentKeySealed, licence.licenceId, licence.deviceIdHash)
+    } catch (error) {
+      if (!(error instanceof OfflineOnlyError)) console.warn('[surf] pack content key:', (error as Error).message)
+      return null
+    }
+  }
+
   async function syncPacks(force: boolean): Promise<void> {
     const licence = await licences.status()
     if (!packAutoSyncAllowed({ state: licence.state, features: licence.features })) {
@@ -2352,7 +2401,15 @@ export async function createServices(): Promise<Services> {
       const token = await freshAccess({ base: apiBase(settings), offlineOnly: settings.offlineOnly })
       if (!token) throw new Error('Sign in to sync knowledge packs.')
       const installed = await readInstalled(packsRoot())
-      const updates = await fetchPackUpdates(apiBase(settings), token, installed.map((row) => `${row.id}@${row.version}`).join(','))
+      const updates = await fetchPackUpdates(
+        apiBase(settings),
+        token,
+        installed.map((row) => `${row.id}@${row.version}`).join(','),
+        licence.deviceIdHash,
+      )
+      if (updates.contentKeySealed && licence.licenceId && licence.deviceIdHash) {
+        await acceptSealedContentKey(updates.contentKeySealed, licence.licenceId, licence.deviceIdHash)
+      }
       catalogCache = updates.packs
       for (const pack of catalogCache) {
         if (inflight.size > 0) return

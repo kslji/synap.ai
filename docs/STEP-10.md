@@ -53,7 +53,13 @@ Web-derived answers keep an `[S1]` marker. Pack citations can include a pack ver
 
 Chat still opens plaintext `pack.sqlite` when that file is present. That path is unchanged.
 
-When `delta.sqlite.enc` is in the installed folder, chat checks the manifest signature and the file hash again, then tries to decrypt the NaCl secretbox. Keys tried, in order: `SURF_PACK_CONTENT_KEY` (64 hex characters), then the licence-derived pack key. The builder's `PACK_CONTENT_KEY_HEX` is not in the app, so a normal install cannot open a delta sealed with that private key. A wrong key leaves the delta sealed and still uses `pack.sqlite` if it is there. A decrypted copy is written under the app's data folder, outside the signed directory. Delta search uses the float32 embedding blobs plus keyword overlap, because that file has no FTS5 or vec0 index.
+The builder content key and the licence-derived key are different. `GET /v1/packs/updates?device_id_hash=` returns `content_key_sealed` when `PACK_CONTENT_KEY_HEX` is set and that account has an active licence on that device. The value is a NaCl SecretBox of the 32-byte content key. The wrap key is SHA-256 of `synap.pack.v1`, the licence id, and the device hash — the same string `derivePackKey` uses. The raw content key is not in the response. A missing key, a licence that is not active, or a device that is not activated leaves `content_key_sealed` null. The catalog is otherwise unchanged.
+
+The app unwraps that seal on pack sync, and again when chat finds a delta and no cached key. The unwrapped key is stored with Electron `safeStorage` (`pack-content.key.enc`, mode 0600). Linux `basic_text` and a machine with no OS secret store keep it in process memory only. It is not written as plaintext. `SURF_PACK_CONTENT_KEY` is an operator override and stays empty on a normal install.
+
+When `delta.sqlite.enc` is in the installed folder, chat checks the manifest signature and the file hash again, then decrypts with the cached content key (or the operator override). The licence-derived key does not decrypt the file. A wrong key or a missing seal leaves the delta sealed and still uses `pack.sqlite` if it is there. A decrypted copy is written under the app's data folder, outside the signed directory. Delta search uses the float32 embedding blobs plus keyword overlap, because that file has no FTS5 or vec0 index.
+
+Tests use the `22` repeated test content key. The API test builds a delta with `write_pack`, seals the key through `/v1/packs/updates`, and decrypts that file. The desktop test opens the same kind of builder bytes from `fixtures/builder-delta.json` after unwrapping the seal. Both sides assert the same wrap-key hex.
 
 ## Not in this step
 

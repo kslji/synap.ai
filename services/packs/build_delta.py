@@ -12,7 +12,10 @@ Keys come from the environment or flags. Nothing in this file is a real key.
 The output directory is a surf-pack the catalog can serve:
   manifest.json, manifest.sig, delta.sqlite.enc
 The encrypted file is the sqlite delta (new documents, chunks, 256-d blobs).
-This build's chat index still opens pack.sqlite when that file is present.
+Chat still opens plaintext pack.sqlite when that file is present. A normal
+install opens delta.sqlite.enc after the pack server seals PACK_CONTENT_KEY_HEX
+for the activated licence and device. The app unwraps that seal with the
+licence-derived key. This script does not put the content key in the app.
 """
 from __future__ import annotations
 

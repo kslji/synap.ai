@@ -64,14 +64,26 @@ export async function fetchCatalog(base: string, token: string, installed: strin
 }
 
 /** Prefer the updates route. An empty stub means the pack server has nothing published yet. */
-export async function fetchPackUpdates(base: string, token: string, installed: string, fetchImpl: typeof fetch = fetch): Promise<{ packs: RemotePack[]; stub: boolean }> {
+export async function fetchPackUpdates(
+  base: string,
+  token: string,
+  installed: string,
+  deviceIdHash?: string | null,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ packs: RemotePack[]; stub: boolean; contentKeySealed: string | null }> {
   const root = base.replace(/\/$/, '')
-  const url = `${root}/v1/packs/updates?installed=${encodeURIComponent(installed)}`
+  const device = deviceIdHash && /^[0-9a-f]{64}$/i.test(deviceIdHash)
+    ? `&device_id_hash=${encodeURIComponent(deviceIdHash)}`
+    : ''
+  const url = `${root}/v1/packs/updates?installed=${encodeURIComponent(installed)}${device}`
   const res = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` } })
-  if (res.status === 404) return { packs: await fetchCatalog(base, token, installed, fetchImpl), stub: false }
+  if (res.status === 404) return { packs: await fetchCatalog(base, token, installed, fetchImpl), stub: false, contentKeySealed: null }
   if (!res.ok) throw new Error(`pack updates failed (${res.status})`)
-  const body = await res.json() as { packs?: RemotePack[]; stub?: boolean }
-  return { packs: body.packs ?? [], stub: body.stub === true }
+  const body = await res.json() as { packs?: RemotePack[]; stub?: boolean; content_key_sealed?: unknown }
+  const sealed = typeof body.content_key_sealed === 'string' && /^[0-9a-f]+$/i.test(body.content_key_sealed)
+    ? body.content_key_sealed
+    : null
+  return { packs: body.packs ?? [], stub: body.stub === true, contentKeySealed: sealed }
 }
 
 export async function downloadFile(url: string, dest: string, headers: Record<string, string>, fetchImpl: typeof fetch = fetch): Promise<void> {

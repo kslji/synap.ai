@@ -196,9 +196,10 @@ export function inspectLicence(input: {
 }
 
 /**
- * SHA-256 of the licence id and device hash. The knowledge pack in this build
- * is still a plaintext stub. When a pack file is encrypted, open it with this
- * key. Callers must not open pack bytes when the gate says locked.
+ * SHA-256 of the licence id and device hash. This unwraps the pack content
+ * key the update server seals for this device. It is not the key that
+ * encrypts delta.sqlite.enc. Callers must not open pack bytes when the gate
+ * says locked.
  */
 export function derivePackKey(payload: Pick<LicencePayload, 'licence_id' | 'device_id_hash'>): Buffer {
   return createHash('sha256').update(`synap.pack.v1\n${payload.licence_id}\n${payload.device_id_hash}`).digest()

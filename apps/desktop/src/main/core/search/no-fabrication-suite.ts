@@ -31,7 +31,7 @@ interface Cited {
 export interface FabricationCase {
   id: string
   weight: number
-  fields: { ok: boolean; answer: string; required: string[]; forbidden: string[]; detail: string }
+  fields: { ok: boolean; answer: string; sources: string; required: string[]; forbidden: string[]; detail: string }
 }
 
 function citationFaults(text: string, citations: Cited['citations'], required: string[], forbidden: string[]): string[] {

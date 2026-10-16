@@ -1,0 +1,3 @@
+AssertionError: expected 1 to be 3
+ ❯ src/add.test.ts:4:12
+    at Object.<anonymous> (src/add.test.ts:4:16)

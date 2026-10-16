@@ -292,21 +292,21 @@ test('retries feed the exact check output back and then keep the patch that pass
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
-  const seen: string[] = []
-  const thinking: boolean[] = []
-  let checks = 0
-  try {
-    const result = await runSplitTask('Fix the typo in src/a.ts', base(root, facts({ files: ['src/a.ts'] }), async (req) => {
-      const user = userText(req)
-      seen.push(user)
-      thinking.push(req.thinking === true)
-      assert.equal(user.includes('Kind: plan'), false)
-      return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
-    }, async () => {
-      checks += 1
-      if (checks < 3) return { ok: false, output: 'BOOM line 3' }
-      return { ok: true, output: 'ok' }
-    }))
+    const seen: string[] = []
+    const thinking: boolean[] = []
+    let edits = 0
+    try {
+      const result = await runSplitTask('Fix the typo in src/a.ts', base(root, facts({ files: ['src/a.ts'] }), async (req) => {
+        const user = userText(req)
+        seen.push(user)
+        thinking.push(req.thinking === true)
+        assert.equal(user.includes('Kind: plan'), false)
+        edits += 1
+        return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
+      }, async () => {
+        if (edits < 3) return { ok: false, output: 'BOOM line 3' }
+        return { ok: true, output: 'ok' }
+      }))
     assert.equal(result.kind, 'edit')
     assert.equal(result.stopped, 'finish')
     assert.equal(result.attempts[0]?.tries, 3)

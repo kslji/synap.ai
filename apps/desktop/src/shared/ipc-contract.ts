@@ -145,6 +145,15 @@ export type ChatEvent =
 
 export type CodeStepStatus = 'running' | 'ok' | 'error' | 'waiting' | 'rejected' | 'applied'
 
+export interface CodeDiagnosticView {
+  file: string
+  line: number
+  column: number
+  message: string
+  rule: string
+  source: string
+}
+
 export interface CodeStepView {
   id: string
   index: number
@@ -152,6 +161,14 @@ export interface CodeStepView {
   status: CodeStepStatus
   title: string
   detail: string
+  /** Live check log. The tail is kept so the row stays small. */
+  output?: string
+  diagnostics?: CodeDiagnosticView[]
+  /** 1-based attempt or candidate counter. */
+  attempt?: number
+  attempts?: number
+  /** Best-effort sandbox note. Present when a command actually ran. */
+  note?: string
 }
 
 export type CodeDiffStatus = 'pending' | 'applied' | 'rejected' | 'error'

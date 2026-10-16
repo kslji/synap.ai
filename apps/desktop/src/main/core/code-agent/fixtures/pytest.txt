@@ -1,0 +1,3 @@
+E   AssertionError: assert add(1, 2) == 3
+tests/test_calc.py:4: AssertionError
+FAILED tests/test_legacy.py::test_legacy - AssertionError: legacy is still broken

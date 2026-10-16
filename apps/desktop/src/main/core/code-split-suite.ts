@@ -117,16 +117,16 @@ async function splitRetry(): Promise<Measurement> {
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
-  let checks = 0
+  let edits = 0
   let plannerCalls = 0
   try {
     const result = await runSplitTask('Fix the typo in src/a.ts', host(root, { indexed: true, files: ['src/a.ts'], symbols: [], edges: [] }, async (req) => {
       const user = userText(req)
       if (user.includes('Kind: plan') || user.includes('Kind: replan')) plannerCalls += 1
+      edits += 1
       return edit('src/a.ts', 'export const n = 1', 'export const n = 2')
     }, async () => {
-      checks += 1
-      if (checks < 3) return { ok: false, output: 'BOOM line 3' }
+      if (edits < 3) return { ok: false, output: 'BOOM line 3' }
       return { ok: true, output: 'ok' }
     }))
     return {
@@ -304,8 +304,116 @@ async function modeGate(): Promise<Measurement> {
   }
 }
 
+async function fixTs(): Promise<Measurement> {
+  const root = mkdtempSync(join(tmpdir(), 'surf-fix-ts-'))
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/add.ts'), 'export function add(a: number, b: number): number {\n  return a + b + extra\n}\n')
+  writeFileSync(join(root, 'src/legacy.ts'), "export const legacy: number = 'old'\n")
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
+  const prompts: string[] = []
+  let rolledBack = false
+  try {
+    const result = await runSplitTask('Fix the type error in src/add.ts', host(root, { indexed: true, files: ['src/add.ts', 'src/legacy.ts'], symbols: [], edges: [] }, async (req) => {
+      const user = userText(req)
+      prompts.push(user)
+      if (user.includes('rolled back')) rolledBack = readFileSync(join(root, 'src/add.ts'), 'utf8').includes('extra')
+      if (user.includes('TS2304') || user.includes('rolled back')) return edit('src/add.ts', 'return a + b + extra', 'return a + b')
+      return edit('src/add.ts', 'return a + b + extra', 'return a + b + worse')
+    }, async () => tsOutput(root)))
+    const add = readFileSync(join(root, 'src/add.ts'), 'utf8')
+    return {
+      id: 'fix-ts',
+      weight: 1,
+      fields: {
+        fixed: add.includes('return a + b\n') && !add.includes('extra') && !add.includes('worse'),
+        legacyKept: readFileSync(join(root, 'src/legacy.ts'), 'utf8').includes("'old'"),
+        rolledBack,
+        sawAddDiagnostic: prompts.some((item) => item.includes('TS2304')),
+        skippedLegacy: prompts.every((item) => !item.includes('src/legacy.ts')),
+        introduced: result.answer.includes('Introduced: none') ? 'none' : 'some',
+        tries: result.attempts[0]?.tries ?? 0,
+      },
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+async function fixPy(): Promise<Measurement> {
+  const root = mkdtempSync(join(tmpdir(), 'surf-fix-py-'))
+  mkdirSync(join(root, 'src'), { recursive: true })
+  mkdirSync(join(root, 'tests'), { recursive: true })
+  writeFileSync(join(root, 'src/calc.py'), 'def add(a, b):\n    return a - b\n')
+  writeFileSync(join(root, 'tests/test_calc.py'), 'def test_add():\n    assert add(1, 2) == 3\n')
+  writeFileSync(join(root, 'tests/test_legacy.py'), 'def test_legacy():\n    assert False\n')
+  writeFileSync(join(root, 'pytest.ini'), '[pytest]\n')
+  const prompts: string[] = []
+  const commands: string[] = []
+  let rolledBack = false
+  try {
+    const result = await runSplitTask('Fix the failing test for src/calc.py', host(root, { indexed: true, files: ['src/calc.py', 'tests/test_calc.py', 'tests/test_legacy.py'], symbols: [], edges: [] }, async (req) => {
+      const user = userText(req)
+      prompts.push(user)
+      if (user.includes('rolled back')) rolledBack = readFileSync(join(root, 'src/calc.py'), 'utf8').includes('return a - b')
+      if (user.includes('rolled back') || user.includes('F821') || user.includes('assert add(1, 2) == 3')) {
+        return edit('src/calc.py', 'return a - b', 'return a + b')
+      }
+      return edit('src/calc.py', 'return a - b', 'return explode')
+    }, async (command) => {
+      commands.push(command)
+      return pyOutput(root, command)
+    }))
+    const narrowAt = commands.findIndex((command) => command.includes('test_calc.py'))
+    const calc = readFileSync(join(root, 'src/calc.py'), 'utf8')
+    return {
+      id: 'fix-py',
+      weight: 1,
+      fields: {
+        fixed: calc.includes('return a + b'),
+        legacyKept: readFileSync(join(root, 'tests/test_legacy.py'), 'utf8').includes('assert False'),
+        rolledBack,
+        sawCalcDiagnostic: prompts.some((item) => item.includes('F821') || item.includes('tests/test_calc.py')),
+        skippedLegacy: prompts.every((item) => !item.includes('test_legacy') && !item.includes('legacy is still broken')),
+        narrowBeforeFull: narrowAt >= 0 && commands.slice(narrowAt + 1).includes('pytest'),
+        introduced: result.answer.includes('Introduced: none') ? 'none' : 'some',
+        tries: result.attempts[0]?.tries ?? 0,
+      },
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+function tsOutput(root: string): { ok: boolean; output: string } {
+  const add = readFileSync(join(root, 'src/add.ts'), 'utf8')
+  const legacy = readFileSync(join(root, 'src/legacy.ts'), 'utf8')
+  const lines: string[] = []
+  if (add.includes('worse')) lines.push("src/add.ts(2,10): error TS2322: Type 'string' is not assignable to type 'number'.")
+  else if (add.includes('extra')) lines.push("src/add.ts(2,10): error TS2304: Cannot find name 'extra'.")
+  if (legacy.includes("'old'")) lines.push("src/legacy.ts(1,14): error TS2322: Type 'string' is not assignable to type 'number'.")
+  return { ok: lines.length === 0, output: lines.join('\n') }
+}
+
+function pyOutput(root: string, command: string): { ok: boolean; output: string } {
+  const calc = readFileSync(join(root, 'src/calc.py'), 'utf8')
+  const full = command.trim() === 'pytest'
+  const lines: string[] = []
+  if (full || command.includes('test_calc') || command.includes('src/calc.py')) {
+    if (calc.includes('explode')) lines.push('src/calc.py:2:5: F821 Undefined name `explode`')
+    else if (!calc.includes('return a + b')) {
+      lines.push('E   AssertionError: assert add(1, 2) == 3')
+      lines.push('tests/test_calc.py:2: AssertionError')
+    }
+  }
+  if (full || command.includes('test_legacy')) {
+    lines.push('E   AssertionError: legacy is still broken')
+    lines.push('tests/test_legacy.py:2: AssertionError')
+  }
+  return { ok: lines.length === 0, output: lines.join('\n') || 'ok' }
+}
+
 async function measure(): Promise<Measurement[]> {
-  return [await splitOrder(), await splitRetry(), await splitReplan(), await splitSuggest(), await modeGate()]
+  return [await splitOrder(), await splitRetry(), await splitReplan(), await splitSuggest(), await modeGate(), await fixTs(), await fixPy()]
 }
 
 const main = process.argv[1] && /code-split-suite/.test(process.argv[1])

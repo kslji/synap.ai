@@ -2,10 +2,23 @@
  * Step 4: triage, plan, validate, then run each step with a checkpoint and a failure ladder.
  * Counts, ordering, checks, and the model suggestion stay in code.
  */
-import type { CodeDiffView, CodePlanView, CodeStepView } from '../../../shared/ipc-contract.js'
+import type { CodeDiagnosticView, CodeDiffView, CodePlanView, CodeStepView } from '../../../shared/ipc-contract.js'
 import type { ChatMessage } from '../llama-client.js'
-import { resolveCheck, fullTestCommand } from './checks.js'
+import { commandScript, fullTestCommand, resolveCheck } from './checks.js'
 import { captureCheckpoint, extendCheckpoint, restoreCheckpoint, type Checkpoint } from './checkpoint.js'
+import { parseCommandDiagnostics, type Diagnostic } from './diagnostics.js'
+import {
+  affectedFiles,
+  classifyStep,
+  FIX_CONTEXT_TOKENS,
+  fixPromptText,
+  formatFailureReport,
+  hasFailureNews,
+  inScopeDiagnostics,
+  judgeCheck,
+  narrowCommand,
+  type Classified,
+} from './fix-loop.js'
 import { runCodeAgent, type CodeAgentHost, type CompletionRequest } from './loop.js'
 import { preparePatchSet, writePrepared, type PreparedFile, type SearchReplace } from './patch.js'
 import { repairJson } from './parse-tool.js'
@@ -26,7 +39,7 @@ import {
   type TriageKind,
 } from './plan.js'
 import { suggestionSentence, suggestBiggerCodeModel, type CodeModelChoice, type ModelSuggestion } from './suggest-model.js'
-import { runProjectCommand } from './workspace.js'
+import { CHECK_TIMEOUT_MS, runProjectCommand, type CommandHooks } from './workspace.js'
 
 export const STEP_RETRIES = 3
 export const STEP_CANDIDATES = 3
@@ -49,6 +62,16 @@ interface GateSession {
   allowlist: Set<string>
   checkpointPaths: Set<string>
   acceptAll: boolean
+  /** Checks approved earlier in this run. A retry does not ask again. */
+  approvedCommands: Set<string>
+  baselines: Map<string, CheckBaseline>
+  /** Files from the previous failed check, so the next attempt reruns those first. */
+  focusFiles: string[]
+}
+
+interface CheckBaseline {
+  recorded: boolean
+  diagnostics: Diagnostic[]
 }
 
 export interface StepAttempt {
@@ -75,6 +98,7 @@ interface DoneStep {
   ok: boolean
   detail: string
   checkpoint: Checkpoint | null
+  report: Classified | null
 }
 
 export async function runSplitTask(
@@ -191,11 +215,11 @@ export async function executeSteps(steps: PlanStep[], host: SplitHost, allowRepl
       replanned: false,
     })
     if (outcome.halted) {
-      if (outcome.checkpoint && outcome.wrote) done.push({ step, ok: false, detail: outcome.detail, checkpoint: outcome.checkpoint })
+      if (outcome.checkpoint && outcome.wrote) done.push({ step, ok: false, detail: outcome.detail, checkpoint: outcome.checkpoint, report: outcome.report })
       return { ok: false, halted: outcome.halted, done, views, diffs, attempts }
     }
     if (outcome.ok) {
-      done.push({ step, ok: true, detail: outcome.detail, checkpoint: outcome.checkpoint })
+      done.push({ step, ok: true, detail: outcome.detail, checkpoint: outcome.checkpoint, report: outcome.report })
       index += 1
       continue
     }
@@ -215,7 +239,7 @@ export async function executeSteps(steps: PlanStep[], host: SplitHost, allowRepl
         continue
       }
     }
-    done.push({ step, ok: false, detail: outcome.detail, checkpoint: outcome.checkpoint })
+    done.push({ step, ok: false, detail: outcome.detail, checkpoint: outcome.checkpoint, report: outcome.report })
     return { ok: false, halted: null, done, views, diffs, attempts }
   }
   return { ok: true, halted: null, done, views, diffs, attempts }
@@ -276,35 +300,59 @@ async function runLadder(
   views: CodeStepView[],
   diffs: CodeDiffView[],
   session: GateSession,
-): Promise<{ ok: boolean; detail: string; checkpoint: Checkpoint | null; tries: number; candidates: number; halted: 'stopped' | 'cancelled' | null; wrote: boolean }> {
+): Promise<{ ok: boolean; detail: string; checkpoint: Checkpoint | null; tries: number; candidates: number; halted: 'stopped' | 'cancelled' | null; wrote: boolean; report: Classified | null }> {
   const state = {
     checkpoint: captureCheckpoint(host.root, step.id, targetFiles(step, host.facts)),
     wrote: false,
   }
   rememberCheckpoint(session, state.checkpoint)
+  session.focusFiles = []
   let error = ''
+  let lastReport: Classified | null = null
+  const finish = (ok: boolean, detail: string, tries: number, candidates: number, halted: 'stopped' | 'cancelled' | null, wrote: boolean) => ({
+    ok, detail, checkpoint: state.checkpoint, tries, candidates, halted, wrote, report: lastReport,
+  })
   try {
+    await ensureBaseline(resolveCheck(host.root, step.check).command, host, session, views)
     for (let attempt = 1; attempt <= STEP_RETRIES; attempt++) {
       const result = await tryOnce(step, host, state, views, diffs, session, { attempt, candidate: 0, error, thinking: attempt > 1 })
-      if (result.halted) return { ok: false, detail: result.detail, checkpoint: state.checkpoint, tries: attempt, candidates: 0, halted: result.halted, wrote: state.wrote }
-      if (result.ok) return { ok: true, detail: result.detail, checkpoint: state.checkpoint, tries: attempt, candidates: 0, halted: null, wrote: state.wrote }
-      error = result.detail
-      restoreCheckpoint(state.checkpoint)
-      state.wrote = false
+      lastReport = result.report ?? lastReport
+      if (result.halted) return finish(false, result.detail, attempt, 0, result.halted, state.wrote)
+      if (result.ok) return finish(true, result.detail, attempt, 0, null, state.wrote)
+      error = await rolledBackError(step, host, session, state, result)
+      rememberFocus(session, result.report)
     }
     for (let candidate = 1; candidate <= STEP_CANDIDATES; candidate++) {
       const result = await tryOnce(step, host, state, views, diffs, session, { attempt: STEP_RETRIES, candidate, error, thinking: true })
-      if (result.halted) return { ok: false, detail: result.detail, checkpoint: state.checkpoint, tries: STEP_RETRIES, candidates: candidate, halted: result.halted, wrote: state.wrote }
-      if (result.ok) return { ok: true, detail: result.detail, checkpoint: state.checkpoint, tries: STEP_RETRIES, candidates: candidate, halted: null, wrote: state.wrote }
-      error = result.detail
-      restoreCheckpoint(state.checkpoint)
-      state.wrote = false
+      lastReport = result.report ?? lastReport
+      if (result.halted) return finish(false, result.detail, STEP_RETRIES, candidate, result.halted, state.wrote)
+      if (result.ok) return finish(true, result.detail, STEP_RETRIES, candidate, null, state.wrote)
+      error = await rolledBackError(step, host, session, state, result)
+      rememberFocus(session, result.report)
     }
-    return { ok: false, detail: error, checkpoint: state.checkpoint, tries: STEP_RETRIES, candidates: STEP_CANDIDATES, halted: null, wrote: false }
+    return finish(false, error, STEP_RETRIES, STEP_CANDIDATES, null, false)
   } catch (error) {
     if (!isAbort(error)) throw error
-    return { ok: false, detail: 'Stopped.', checkpoint: state.checkpoint, tries: 0, candidates: 0, halted: 'stopped', wrote: state.wrote }
+    return finish(false, 'Stopped.', 0, 0, 'stopped', state.wrote)
   }
+}
+
+async function rolledBackError(
+  step: PlanStep,
+  host: SplitHost,
+  session: GateSession,
+  state: { checkpoint: Checkpoint; wrote: boolean },
+  result: { detail: string; report: Classified | null },
+): Promise<string> {
+  restoreCheckpoint(state.checkpoint)
+  state.wrote = false
+  const report = result.report
+  if (!report || (!report.introduced.length && !report.inScope.length)) return exactError(result.detail)
+  const command = resolveCheck(host.root, step.check).command
+  const recorded = command ? session.baselines.get(command) : undefined
+  const baseline = inScopeDiagnostics(recorded?.diagnostics ?? [], step.files)
+  const text = await fixPromptText(host.root, report, baseline, host.counter, FIX_CONTEXT_TOKENS)
+  return text || exactError(result.detail)
 }
 
 async function tryOnce(
@@ -315,10 +363,21 @@ async function tryOnce(
   diffs: CodeDiffView[],
   session: GateSession,
   pass: { attempt: number; candidate: number; error: string; thinking: boolean },
-): Promise<{ ok: boolean; detail: string; halted: 'stopped' | 'cancelled' | null }> {
+): Promise<{ ok: boolean; detail: string; halted: 'stopped' | 'cancelled' | null; report: Classified | null }> {
   throwIfAborted(host.signal)
   const editId = `${step.id}:edit`
-  pushView(host, views, { id: editId, index: views.length + 1, tool: 'edit', status: 'running', title: step.goal, detail: pass.candidate ? `Candidate ${pass.candidate}` : `Attempt ${pass.attempt}` })
+  const attemptNo = pass.candidate || pass.attempt
+  const attemptMax = pass.candidate ? STEP_CANDIDATES : STEP_RETRIES
+  pushView(host, views, {
+    id: editId,
+    index: views.length + 1,
+    tool: 'edit',
+    status: 'running',
+    title: step.goal,
+    detail: pass.candidate ? `Candidate ${pass.candidate}` : `Attempt ${pass.attempt}`,
+    attempt: attemptNo,
+    attempts: attemptMax,
+  })
   const pack = await host.search.context(step.goal, { tokenBudget: host.searchBudget })
   const turn = await host.complete({
     messages: [
@@ -334,7 +393,7 @@ async function tryOnce(
   const edits = readEdits(turn)
   if ('error' in edits) {
     pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'error', title: step.goal, detail: edits.error })
-    return { ok: false, detail: edits.error, halted: null }
+    return { ok: false, detail: edits.error, halted: null, report: null }
   }
   const targets = targetFiles(step, host.facts)
   const prepared = preparePatchSet(host.root, edits.edits, {
@@ -343,7 +402,7 @@ async function tryOnce(
   })
   if (!prepared.ok) {
     pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'error', title: step.goal, detail: prepared.message })
-    return { ok: false, detail: prepared.message, halted: null }
+    return { ok: false, detail: prepared.message, halted: null, report: null }
   }
   const approved: PreparedFile[] = []
   for (const file of prepared.files) {
@@ -359,7 +418,7 @@ async function tryOnce(
   }
   if (!approved.length) {
     pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'rejected', title: step.goal, detail: 'Rejected' })
-    return { ok: false, detail: 'The user rejected the edit. The file was not changed.', halted: 'cancelled' }
+    return { ok: false, detail: 'The user rejected the edit. The file was not changed.', halted: 'cancelled', report: null }
   }
   state.checkpoint = extendCheckpoint(state.checkpoint, approved.map((file) => file.path))
   rememberCheckpoint(session, state.checkpoint)
@@ -368,20 +427,20 @@ async function tryOnce(
   for (const file of approved) {
     storeDiff(host, diffs, { id: `${step.id}:${file.path}`, stepId: step.id, path: file.path, diff: file.diff, status: 'applied' })
   }
-  pushView(host, views, { id: editId, index: viewIndex(views, editId), tool: 'edit', status: 'applied', title: step.goal, detail: approved.map((file) => file.path).join(', ') })
-  const check = await runCheck(host, step, session, views)
-  if (check.halted) return { ok: false, detail: check.output, halted: check.halted }
-  const checkId = `${step.id}:check`
   pushView(host, views, {
-    id: checkId,
-    index: views.some((item) => item.id === checkId) ? viewIndex(views, checkId) : views.length + 1,
-    tool: 'check',
-    status: check.ok ? 'ok' : 'error',
-    title: `Check ${step.check.kind}`,
-    detail: oneLine(check.output),
+    id: editId,
+    index: viewIndex(views, editId),
+    tool: 'edit',
+    status: 'applied',
+    title: step.goal,
+    detail: approved.map((file) => file.path).join(', '),
+    attempt: attemptNo,
+    attempts: attemptMax,
   })
-  if (!check.ok) return { ok: false, detail: check.output, halted: null }
-  return { ok: true, detail: check.output, halted: null }
+  const check = await runCheck(host, step, session, views, { attempt: attemptNo, attempts: attemptMax })
+  if (check.halted) return { ok: false, detail: check.output, halted: check.halted, report: check.report }
+  if (!check.ok) return { ok: false, detail: check.output, halted: null, report: check.report }
+  return { ok: true, detail: check.output, halted: null, report: check.report }
 }
 
 async function runCheck(
@@ -389,40 +448,165 @@ async function runCheck(
   step: PlanStep,
   session: GateSession,
   views: CodeStepView[],
-): Promise<{ ok: boolean; output: string; halted: 'stopped' | 'cancelled' | null }> {
+  attempt: { attempt: number; attempts: number },
+): Promise<{ ok: boolean; output: string; halted: 'stopped' | 'cancelled' | null; report: Classified | null }> {
   const resolved = resolveCheck(host.root, step.check)
-  if (!resolved.command) return { ok: true, output: `No ${step.check.kind} command in this project.`, halted: null }
-  const verdict = await approveCommand(host, session, views, `${step.id}:check`, `Check ${step.check.kind}`, resolved.command)
-  throwIfAborted(host.signal)
-  if (verdict !== 'allow') {
-    return { ok: false, output: 'The user denied the command. It was not run.', halted: 'cancelled' }
+  if (!resolved.command) return { ok: true, output: `No ${step.check.kind} command in this project.`, halted: null, report: null }
+  const recorded = session.baselines.get(resolved.command) ?? { recorded: false, diagnostics: [] }
+  const focus = affectedFiles(host.root, [...step.files, ...session.focusFiles])
+  const narrow = narrowCommand(resolved.command, focus, commandScript(host.root, resolved.command))
+  const commands = narrow && narrow !== resolved.command ? [narrow, resolved.command] : [resolved.command]
+  let output = ''
+  let report = emptyReport()
+  for (let index = 0; index < commands.length; index++) {
+    const command = commands[index] ?? resolved.command
+    const run = await streamCommand(host, session, views, `${step.id}:check`, `Check ${step.check.kind}`, command, resolved.command, attempt)
+    if (run.halted) return { ok: false, output: run.output, halted: run.halted, report }
+    output = output ? `${output}\n${run.output}` : run.output
+    const parsed = run.ok ? [] : parseCommandDiagnostics(command, run.output, host.root)
+    report = classifyStep(recorded.diagnostics, parsed, step.files)
+    const decision = judgeCheck(report, run.ok, parsed.length)
+    showCheck(host, views, `${step.id}:check`, `Check ${step.check.kind}`, decision.ok, output, report, attempt, run.note)
+    const last = index === commands.length - 1
+    if (!decision.ok || last) {
+      return { ok: decision.ok, output, halted: null, report }
+    }
   }
-  const run = host.runCommand ?? ((command, signal) => runProjectCommand(host.root, command, signal))
+  return { ok: true, output, halted: null, report }
+}
+
+async function runSuite(host: SplitHost, session: GateSession, views: CodeStepView[]): Promise<{ command: string; ok: boolean; output: string; report: Classified | null } | null> {
+  const command = fullTestCommand(host.root)
+  if (!command) return null
+  await ensureBaseline(command, host, session, views)
+  const run = await streamCommand(host, session, views, 'suite', 'Full test suite', command, command)
+  if (run.halted) return { command, ok: false, output: run.output, report: null }
+  const recorded = session.baselines.get(command) ?? { recorded: false, diagnostics: [] }
+  const parsed = run.ok ? [] : parseCommandDiagnostics(command, run.output, host.root)
+  const report = classifyStep(recorded.diagnostics, parsed, ['__suite__'])
+  const decision = judgeCheck(report, run.ok, parsed.length)
+  showCheck(host, views, 'suite', 'Full test suite', decision.ok, run.output, report, undefined, run.note)
+  return { command, ok: decision.ok, output: run.output, report }
+}
+
+async function ensureBaseline(command: string | null, host: SplitHost, session: GateSession, views: CodeStepView[]): Promise<void> {
+  if (!command || session.baselines.has(command)) return
+  const id = `baseline:${session.baselines.size}`
+  const run = await streamCommand(host, session, views, id, 'Baseline', command, command)
+  if (run.halted) {
+    session.baselines.set(command, { recorded: false, diagnostics: [] })
+    const existing = views.find((item) => item.id === id)
+    if (existing) pushView(host, views, { ...existing, status: 'rejected', detail: run.output })
+    return
+  }
+  const diagnostics = parseCommandDiagnostics(command, run.output, host.root)
+  session.baselines.set(command, { recorded: true, diagnostics })
+  const report = classifyStep(diagnostics, diagnostics, ['__suite__'])
+  showCheck(host, views, id, 'Baseline', true, run.output, { ...report, fixed: [], introduced: [], inScope: [] }, undefined, run.note)
+}
+
+async function streamCommand(
+  host: SplitHost,
+  session: GateSession,
+  views: CodeStepView[],
+  id: string,
+  title: string,
+  command: string,
+  base: string,
+  attempt?: { attempt: number; attempts: number },
+): Promise<{ ok: boolean; output: string; note: string; halted: 'stopped' | 'cancelled' | null }> {
+  const verdict = await approveCommand(host, session, views, id, title, base)
+  throwIfAborted(host.signal)
+  if (verdict !== 'allow') return { ok: false, output: 'The user denied the command. It was not run.', note: '', halted: 'cancelled' }
+  let output = ''
+  const hooks: CommandHooks = {
+    onOutput(chunk) {
+      output += chunk
+      showRunning(host, views, id, title, command, output, attempt)
+    },
+  }
+  const run = host.runCommand ?? ((cmd, signal, hook) => runProjectCommand(host.root, cmd, signal, hook, { timeoutMs: CHECK_TIMEOUT_MS }))
   try {
-    const result = await run(resolved.command, host.signal)
+    showRunning(host, views, id, title, command, output, attempt)
+    const result = await run(command, host.signal, hooks)
     throwIfAborted(host.signal)
-    return { ok: result.ok, output: result.output, halted: null }
+    return { ok: result.ok, output: result.output || output, note: result.note ?? '', halted: null }
   } catch (error) {
     if (isAbort(error)) throw error
-    return { ok: false, output: error instanceof Error ? error.message : String(error), halted: null }
+    return { ok: false, output: error instanceof Error ? error.message : String(error), note: '', halted: null }
   }
 }
 
-async function runSuite(host: SplitHost, session: GateSession, views: CodeStepView[]): Promise<{ command: string; ok: boolean; output: string } | null> {
-  const command = fullTestCommand(host.root)
-  if (!command) return null
-  const verdict = await approveCommand(host, session, views, 'suite', 'Full test suite', command)
-  throwIfAborted(host.signal)
-  if (verdict !== 'allow') return { command, ok: false, output: 'The user denied the command. It was not run.' }
-  const run = host.runCommand ?? ((cmd, signal) => runProjectCommand(host.root, cmd, signal))
-  try {
-    const result = await run(command, host.signal)
-    throwIfAborted(host.signal)
-    return { command, ok: result.ok, output: result.output }
-  } catch (error) {
-    if (isAbort(error)) throw error
-    return { command, ok: false, output: error instanceof Error ? error.message : String(error) }
-  }
+function showRunning(
+  host: SplitHost,
+  views: CodeStepView[],
+  id: string,
+  title: string,
+  command: string,
+  output: string,
+  attempt?: { attempt: number; attempts: number },
+): void {
+  pushView(host, views, {
+    id,
+    index: views.some((item) => item.id === id) ? viewIndex(views, id) : views.length + 1,
+    tool: 'check',
+    status: 'running',
+    title,
+    detail: command,
+    output: tailText(output),
+    attempt: attempt?.attempt,
+    attempts: attempt?.attempts,
+  })
+}
+
+function showCheck(
+  host: SplitHost,
+  views: CodeStepView[],
+  id: string,
+  title: string,
+  ok: boolean,
+  output: string,
+  report: Classified,
+  attempt?: { attempt: number; attempts: number },
+  note?: string,
+): void {
+  const diagnostics: CodeDiagnosticView[] = [...report.introduced, ...report.inScope, ...report.preExisting].slice(0, 20).map((item) => ({
+    file: item.file,
+    line: item.line,
+    column: item.column,
+    message: item.message,
+    rule: item.rule,
+    source: item.source,
+  }))
+  pushView(host, views, {
+    id,
+    index: views.some((item) => item.id === id) ? viewIndex(views, id) : views.length + 1,
+    tool: 'check',
+    status: ok ? 'ok' : 'error',
+    title,
+    detail: oneLine(output),
+    output: tailText(output),
+    diagnostics,
+    attempt: attempt?.attempt,
+    attempts: attempt?.attempts,
+    note,
+  })
+}
+
+function rememberFocus(session: GateSession, report: Classified | null): void {
+  if (!report) return
+  const files = [...report.introduced, ...report.inScope].map((item) => item.file)
+  if (files.length) session.focusFiles = files
+}
+
+function emptyReport(): Classified {
+  return { fixed: [], introduced: [], preExisting: [], inScope: [] }
+}
+
+function tailText(text: string): string {
+  const max = 4_000
+  if (text.length <= max) return text
+  return text.slice(text.length - max)
 }
 
 async function approveEdit(
@@ -452,15 +636,24 @@ async function approveCommand(
   title: string,
   command: string,
 ): Promise<'allow' | 'reject' | 'deny'> {
+  const exact = exactCommand(command)
+  if (session.approvedCommands.has(exact)) return 'allow'
   const decision = decideApproval(session.mode, { kind: 'command', command }, gateContext(session))
   if (decision.action === 'deny') return 'deny'
-  if (decision.action === 'allow') return 'allow'
+  if (decision.action === 'allow') {
+    session.approvedCommands.add(exact)
+    return 'allow'
+  }
   const index = views.some((item) => item.id === id) ? viewIndex(views, id) : views.length + 1
   pushView(host, views, { id, index, tool: 'check', status: 'waiting', title, detail: command })
   const answer = await host.ask({ kind: 'command', id, command })
-  if (!answer.allow) return 'reject'
+  if (!answer.allow) {
+    const index = views.some((item) => item.id === id) ? viewIndex(views, id) : views.length + 1
+    pushView(host, views, { id, index, tool: 'check', status: 'rejected', title, detail: 'Denied' })
+    return 'reject'
+  }
+  session.approvedCommands.add(exact)
   if (answer.remember) {
-    const exact = exactCommand(command)
     session.remembered.add(exact)
     host.onRememberCommand?.(exact)
   }
@@ -474,17 +667,22 @@ function suggest(host: SplitHost): ModelSuggestion | null {
 
 export function summarize(
   done: DoneStep[],
-  suite: { command: string; ok: boolean; output: string } | null,
+  suite: { command: string; ok: boolean; output: string; report?: Classified | null } | null,
   suggestion: ModelSuggestion | null,
   replanned = false,
 ): string {
   const lines = done.map((item, index) => {
     const files = item.step.files.length ? item.step.files.join(', ') : 'no file list'
     const state = item.ok ? 'passed' : 'failed'
-    return `${index + 1}. ${item.step.goal} (${files}) — check ${state}. Undo restores the files from before this step.`
+    const report = item.report && hasFailureNews(item.report) ? `\n${formatFailureReport(item.report)}` : ''
+    return `${index + 1}. ${item.step.goal} (${files}) — check ${state}. Undo restores the files from before this step.${report}`
   })
   if (suite) {
-    lines.push(suite.ok ? `Full test suite passed (${suite.command}).` : `Full test suite failed (${suite.command}).\n${exactError(suite.output)}`)
+    const quiet = suite.report && suite.ok && suite.report.preExisting.length > 0 && !suite.report.introduced.length
+    if (quiet) lines.push(`Full test suite has no new failures (${suite.command}).`)
+    else if (suite.ok) lines.push(`Full test suite passed (${suite.command}).`)
+    else lines.push(`Full test suite failed (${suite.command}).\n${exactError(suite.output)}`)
+    if (suite.report && hasFailureNews(suite.report)) lines.push(formatFailureReport(suite.report))
   } else if (done.every((item) => item.ok)) {
     lines.push('No full test command was found.')
   }
@@ -631,6 +829,9 @@ function openSession(host: SplitHost): GateSession {
     allowlist: new Set([...(host.commandAllowlist ?? [])].map(exactCommand)),
     checkpointPaths: new Set(),
     acceptAll: false,
+    approvedCommands: new Set(),
+    baselines: new Map(),
+    focusFiles: [],
   }
 }
 

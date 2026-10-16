@@ -114,22 +114,34 @@ export function CodeTrace({
     blocks.push(createElement('ol', { key: 'steps', className: 'flex flex-col gap-1', 'data-code-steps': 'yes' }, steps.map((step) => (
       createElement('li', {
         key: step.id,
-        className: 'flex flex-wrap items-center gap-2 text-sm',
+        className: 'flex flex-col gap-1 text-sm',
         'data-code-step': step.status,
         'data-code-tool': step.tool,
       }, [
-        createElement('span', { key: 'title', className: 'min-w-0 flex-1' }, [
-          createElement('span', { key: 'n', className: 'text-[var(--muted)]' }, `${step.index}. `),
-          step.title,
-          step.detail ? createElement('span', { key: 'detail', className: 'mt-0.5 block text-xs text-[var(--muted)]' }, step.detail) : null,
+        createElement('div', { key: 'row', className: 'flex flex-wrap items-center gap-2' }, [
+          createElement('span', { key: 'title', className: 'min-w-0 flex-1' }, [
+            createElement('span', { key: 'n', className: 'text-[var(--muted)]' }, `${step.index}. `),
+            step.title,
+            step.detail ? createElement('span', { key: 'detail', className: 'mt-0.5 block text-xs text-[var(--muted)]' }, step.detail) : null,
+          ]),
+          step.attempt
+            ? createElement('span', { key: 'attempt', className: 'pill shrink-0', 'data-code-attempt': String(step.attempt) }, `Attempt ${step.attempt}${step.attempts ? ` of ${step.attempts}` : ''}`)
+            : null,
+          createElement('span', { key: 'status', className: 'pill shrink-0' }, STEP_LABEL[step.status]),
+          step.status === 'waiting' && (step.tool === 'run_command' || step.tool === 'check') && onDecide
+            ? createElement('span', { key: 'ask', className: 'flex flex-wrap gap-1' }, [
+              createElement('button', { key: 'allow', type: 'button', className: 'btn btn-primary', 'data-code-allow': 'yes', onClick: () => onDecide(messageId, step.id, true) }, 'Allow'),
+              createElement('button', { key: 'always', type: 'button', className: 'btn btn-ghost', 'data-code-always': 'yes', onClick: () => onDecide(messageId, step.id, true, true) }, 'Always allow this command for this project'),
+              createElement('button', { key: 'deny', type: 'button', className: 'btn btn-ghost', 'data-code-deny': 'yes', onClick: () => onDecide(messageId, step.id, false) }, 'Deny'),
+            ])
+            : null,
         ]),
-        createElement('span', { key: 'status', className: 'pill shrink-0' }, STEP_LABEL[step.status]),
-        step.status === 'waiting' && (step.tool === 'run_command' || step.tool === 'check') && onDecide
-          ? createElement('span', { key: 'ask', className: 'flex flex-wrap gap-1' }, [
-            createElement('button', { key: 'allow', type: 'button', className: 'btn btn-primary', 'data-code-allow': 'yes', onClick: () => onDecide(messageId, step.id, true) }, 'Allow'),
-            createElement('button', { key: 'always', type: 'button', className: 'btn btn-ghost', 'data-code-always': 'yes', onClick: () => onDecide(messageId, step.id, true, true) }, 'Always allow this command for this project'),
-            createElement('button', { key: 'deny', type: 'button', className: 'btn btn-ghost', 'data-code-deny': 'yes', onClick: () => onDecide(messageId, step.id, false) }, 'Deny'),
-          ])
+        step.note ? createElement('p', { key: 'note', className: 'text-xs text-[var(--muted)]', 'data-code-sandbox': 'yes' }, step.note) : null,
+        step.output ? createElement('pre', { key: 'output', className: 'max-h-40 overflow-auto text-xs leading-5', 'data-code-output': 'yes' }, step.output) : null,
+        step.diagnostics?.length
+          ? createElement('ul', { key: 'diags', className: 'flex flex-col gap-1 text-xs', 'data-code-diagnostics': 'yes' }, step.diagnostics.map((item, index) => (
+            createElement('li', { key: `${item.file}:${item.line}:${index}` }, `${item.file}:${item.line}:${item.column} ${item.rule} ${item.message}`)
+          )))
           : null,
       ])
     ))))

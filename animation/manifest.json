@@ -1,0 +1,18 @@
+{
+  "audio": false,
+  "shipReferenceClips": false,
+  "referenceDir": "animation/mp4",
+  "referenceNote": "Style reference only. This checkout has no mp4 files. Do not crop, trace, reuse frames, or remove watermarks. The app build does not package this folder.",
+  "states": {
+    "idle": { "id": "idle", "className": "is-idle", "durationMs": 3600, "kind": "css" },
+    "searching": { "id": "searching", "className": "is-searching", "durationMs": 700, "kind": "css" },
+    "thinking": { "id": "thinking", "className": "is-thinking", "durationMs": 2200, "kind": "css" },
+    "success": { "id": "success", "className": "is-success", "durationMs": 900, "kind": "css" },
+    "error": { "id": "error", "className": "is-error", "durationMs": 550, "kind": "css" }
+  },
+  "clicks": [
+    { "id": "click-hop", "className": "is-click-hop", "durationMs": 800, "kind": "css" },
+    { "id": "click-spin", "className": "is-click-spin", "durationMs": 900, "kind": "css" },
+    { "id": "click-spark", "className": "is-click-spark", "durationMs": 1000, "kind": "css" }
+  ]
+}

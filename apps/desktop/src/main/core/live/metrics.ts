@@ -5,6 +5,8 @@
 export interface UsageSample {
   at: number
   modelId: string
+  /** Empty when the sample was recorded before an agent id was stored. */
+  agentId?: string
   tasks: number
   steps: number
   tokensIn: number
@@ -39,6 +41,23 @@ export interface UsageDayRow {
   ttftP95Ms: number | null
 }
 
+export interface UsageAgentRow {
+  agentId: string
+  tasks: number
+  tokensIn: number
+  tokensOut: number
+}
+
+export interface UsageEntryRow {
+  day: string
+  agentId: string
+  modelId: string
+  tasks: number
+  tokensIn: number
+  tokensOut: number
+  tokensPerSec: number | null
+}
+
 export interface UsageReport {
   tasks: number
   steps: number
@@ -51,6 +70,8 @@ export interface UsageReport {
   cpuPercent: number | null
   models: UsageModelRow[]
   days: UsageDayRow[]
+  agents: UsageAgentRow[]
+  entries: UsageEntryRow[]
   localOnly: true
 }
 
@@ -66,6 +87,8 @@ export const EMPTY_USAGE: UsageReport = {
   cpuPercent: null,
   models: [],
   days: [],
+  agents: [],
+  entries: [],
   localOnly: true,
 }
 
@@ -81,6 +104,8 @@ export function aggregateUsage(samples: readonly UsageSample[]): UsageReport {
   const rows = samples.map(normalize)
   const byModel = new Map<string, UsageSample[]>()
   const byDay = new Map<string, UsageSample[]>()
+  const byAgent = new Map<string, UsageSample[]>()
+  const byEntry = new Map<string, UsageSample[]>()
   for (const sample of rows) {
     const model = byModel.get(sample.modelId) ?? []
     model.push(sample)
@@ -89,6 +114,14 @@ export function aggregateUsage(samples: readonly UsageSample[]): UsageReport {
     const list = byDay.get(day) ?? []
     list.push(sample)
     byDay.set(day, list)
+    const agentId = sample.agentId || ''
+    const agents = byAgent.get(agentId) ?? []
+    agents.push(sample)
+    byAgent.set(agentId, agents)
+    const entryKey = `${day}\n${agentId}\n${sample.modelId}`
+    const entry = byEntry.get(entryKey) ?? []
+    entry.push(sample)
+    byEntry.set(entryKey, entry)
   }
   return {
     ...summarize(rows),
@@ -98,8 +131,36 @@ export function aggregateUsage(samples: readonly UsageSample[]): UsageReport {
     days: [...byDay.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([day, list]) => ({ day, ...summarize(list) })),
+    agents: [...byAgent.entries()]
+      .map(([agentId, list]) => ({ agentId, tasks: summarize(list).tasks, tokensIn: summarize(list).tokensIn, tokensOut: summarize(list).tokensOut }))
+      .sort((a, b) => b.tokensOut - a.tokensOut || a.agentId.localeCompare(b.agentId)),
+    entries: [...byEntry.entries()]
+      .map(([key, list]) => {
+        const [day, agentId, modelId] = key.split('\n')
+        const summary = summarize(list)
+        return { day: day ?? '', agentId: agentId ?? '', modelId: modelId ?? '', tasks: summary.tasks, tokensIn: summary.tokensIn, tokensOut: summary.tokensOut, tokensPerSec: summary.tokensPerSec }
+      })
+      .sort((a, b) => a.day.localeCompare(b.day) || a.agentId.localeCompare(b.agentId) || a.modelId.localeCompare(b.modelId)),
     localOnly: true,
   }
+}
+
+const CSV_HEADER = 'day,agent,model,requests,tokens_in,tokens_out,measured_tokens_per_sec'
+
+/** Real recorded rows only. No cost column. Blank speed means it was not measured. */
+export function usageCsv(samples: readonly UsageSample[]): string {
+  const entries = aggregateUsage(samples).entries
+  const lines = [CSV_HEADER]
+  for (const row of entries) {
+    const speed = row.tokensPerSec == null ? '' : String(row.tokensPerSec)
+    lines.push([row.day, csvCell(row.agentId), csvCell(row.modelId), String(row.tasks), String(row.tokensIn), String(row.tokensOut), speed].join(','))
+  }
+  return `${lines.join('\n')}\n`
+}
+
+function csvCell(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+  return value
 }
 
 export function percentile(values: readonly number[], p: number): number | null {
@@ -126,6 +187,7 @@ export function metricLine(sample: UsageSample): string {
     `tokens_per_s=${num(speed)}`,
     `ram_mb=${num(row.ramMb)}`,
     `cpu_pct=${num(row.cpuPercent)}`,
+    `agent=${row.agentId}`,
   ].join(' ')
 }
 
@@ -148,7 +210,7 @@ export function cpuPercent(prevTicks: number, nextTicks: number, elapsedMs: numb
   return Math.round(Math.min(100, pct) * 10) / 10
 }
 
-function summarize(samples: readonly UsageSample[]): Omit<UsageReport, 'models' | 'days' | 'localOnly'> {
+function summarize(samples: readonly UsageSample[]): Omit<UsageReport, 'models' | 'days' | 'agents' | 'entries' | 'localOnly'> {
   let tasks = 0
   let steps = 0
   let tokensIn = 0
@@ -196,6 +258,7 @@ function normalize(sample: UsageSample): UsageSample {
     genMs: sample.genMs == null ? null : Math.max(0, sample.genMs),
     ramMb: sample.ramMb == null ? null : Math.max(0, sample.ramMb),
     cpuPercent: sample.cpuPercent == null ? null : Math.max(0, Math.min(100, sample.cpuPercent)),
+    agentId: typeof sample.agentId === 'string' ? sample.agentId.slice(0, 64) : '',
   }
 }
 

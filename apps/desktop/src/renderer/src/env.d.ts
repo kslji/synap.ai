@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import type { SurfApi } from '../../shared/ipc-contract'
 
-type SurfView = 'onboarding' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs'
+type SurfView = 'onboarding' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs' | 'usage'
 
 declare global {
   interface Window {

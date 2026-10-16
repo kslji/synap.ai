@@ -68,7 +68,10 @@ import { SESSION_MIGRATION, SessionStore } from './session-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
 import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, savedWebPack, savedWebStats, searchSavedWeb, staleNote, WEB_CACHE_MIGRATION } from './web-cache.js'
 import { SEARCH_CACHE_MIGRATION, clearSearchCache, searchCacheStats } from './search/cache.js'
-import { QUOTE_CACHE_MIGRATION } from './search/quotes.js'
+import { QUOTE_CACHE_MIGRATION, clearQuoteCache, quoteCacheStats } from './search/quotes.js'
+import { cleanAccent, cleanAnimate, cleanDensity, cleanMascotName } from './appearance.js'
+import { benchmarkFor, readBenchmarkFile, tokensPerSec, upsertBenchmark, writeBenchmarkFile, type BenchmarkRow } from './benchmark-store.js'
+import type { BenchmarkResult } from './ipc-contract.js'
 import { ensureCitationMarkers, withPackVersions } from './search/citations.js'
 import { renderJsPage } from './search/js-page.js'
 import { searchFixtureEnabled } from './search/mode.js'
@@ -193,6 +196,10 @@ const DEFAULT_SETTINGS: Settings = {
   idleUnloadMinutes: DEFAULT_IDLE_UNLOAD_MINUTES,
   speculativeDecoding: true,
   myRegion: '',
+  mascotName: 'Surf Bot',
+  accent: 'orange',
+  density: 'comfortable',
+  animateMascot: true,
 }
 
 export async function createServices(): Promise<Services> {
@@ -264,6 +271,10 @@ export async function createServices(): Promise<Services> {
       if (typeof raw.keepWarm !== 'boolean') merged.keepWarm = DEFAULT_SETTINGS.keepWarm
       if (typeof raw.speculativeDecoding !== 'boolean') merged.speculativeDecoding = DEFAULT_SETTINGS.speculativeDecoding
       merged.myRegion = typeof raw.myRegion === 'string' ? raw.myRegion.trim().slice(0, 80) : ''
+      merged.mascotName = cleanMascotName(raw.mascotName)
+      merged.accent = cleanAccent(raw.accent)
+      merged.density = cleanDensity(raw.density)
+      merged.animateMascot = cleanAnimate(raw.animateMascot, true)
       if (!explicitTab) merged.tabSuggestions = tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam(merged.codeModelId))
       offlineOnly = merged.offlineOnly
       if (raw.theme === 'system') writeSettings(merged)
@@ -298,6 +309,41 @@ export async function createServices(): Promise<Services> {
 
   function fits(m: ModelEntry): boolean {
     return m.tiers.includes(hw.tier) || m.min_ram_gb <= hw.totalRamGb + 0.8
+  }
+
+  function benchPath(): string {
+    return join(app.getPath('userData'), 'benchmarks.json')
+  }
+
+  function loadBenchmarks(): BenchmarkRow[] {
+    try { return readBenchmarkFile(readFileSync(benchPath(), 'utf8')) } catch { return [] }
+  }
+
+  async function benchmark(modelId: string): Promise<BenchmarkResult> {
+    const reg = registry()
+    const model = reg.models.find((m) => m.id === modelId && m.role === 'chat')
+    const blank = (reason: string): BenchmarkResult => ({ measured: false, modelId, tokensPerSec: null, tokens: null, elapsedMs: null, measuredAt: null, reason })
+    if (!model) return blank('unknown-model')
+    if (!(await installed(model.file, model.size_bytes))) return blank('not-installed')
+    try {
+      return await withModel(async () => {
+        const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+        const server = await ensure('chat', model, profile.serverCtx, '', 'general')
+        const client = new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey, sampling: { temperature: 0, top_k: 1 } })
+        const started = Date.now()
+        const res = await client.chat([{ role: 'user', content: 'Reply with the single word surf.' }], undefined, undefined, 16)
+        const elapsedMs = Date.now() - started
+        const tokens = res.usage?.completion_tokens ?? 0
+        const speed = tokensPerSec(tokens, elapsedMs)
+        if (speed == null) return { measured: false, modelId, tokensPerSec: null, tokens, elapsedMs, measuredAt: null, reason: 'no-tokens' }
+        const row: BenchmarkRow = { modelId, sizeBytes: model.size_bytes, tokens, elapsedMs, tokensPerSec: speed, measuredAt: Date.now() }
+        mkdirSync(app.getPath('userData'), { recursive: true })
+        writeFileSync(benchPath(), writeBenchmarkFile(upsertBenchmark(loadBenchmarks(), row)))
+        return { measured: true, modelId, tokensPerSec: speed, tokens, elapsedMs, measuredAt: row.measuredAt }
+      })
+    } catch (error) {
+      return blank((error as Error).message.slice(0, 200))
+    }
   }
 
   async function status(): Promise<ModelStatus> {
@@ -362,6 +408,15 @@ export async function createServices(): Promise<Services> {
       devWeb: devWebEnabled(),
       ...(devWebEnabled() ? { devApiUrl: apiBase(settings) } : {}),
       live: liveStatus(reg, settings, new Set(models.filter((model) => model.installed).map((model) => model.id))),
+      appVersion: app.getVersion(),
+      gpus: hw.gpus.filter((gpu) => gpu.model.trim() && gpu.model.trim().toLowerCase() !== 'unknown'),
+      contextTokens: (hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0).serverCtx,
+      promptCacheMiB: promptCacheMiB(hw.totalRamGb),
+      freeRamGb: hw.freeRamGb,
+      benchmarks: reg.models.flatMap((model) => {
+        const row = benchmarkFor(loadBenchmarks(), model.id, model.size_bytes)
+        return row ? [{ modelId: row.modelId, tokensPerSec: row.tokensPerSec, measuredAt: row.measuredAt, sizeBytes: row.sizeBytes }] : []
+      }),
     }
   }
 
@@ -906,7 +961,7 @@ export async function createServices(): Promise<Services> {
             const rest = batch.flush()
             if (rest) sendLiveModel(win, messageId, target.id, tailLive(liveText))
             const after = sampleProc(routed.pid)
-            recordUse(turnSample(target.id, turn.usage, first == null ? null : first - callStarted, Date.now() - callStarted, before, after))
+            recordUse(turnSample(target.id, turn.usage, first == null ? null : first - callStarted, Date.now() - callStarted, before, after, 0, 0, 'code'))
             return turn
           } finally {
             modelBusy = Math.max(0, modelBusy - 1)
@@ -1411,7 +1466,7 @@ export async function createServices(): Promise<Services> {
           answer = verbatimAnswer(ran.answer, toolOutputs)
           toolText = toolOutputs.map((item) => item.output).join('\n')
           replaceStream = answer !== streamed
-          recordUse(turnSample(chatModel.id, ran.usage ? { promptTokens: ran.usage.prompt_tokens, completionTokens: ran.usage.completion_tokens } : undefined, first == null ? null : first - callStarted, Date.now() - callStarted, before, sampleProc(server.pid), 1, ran.toolCalls.length))
+          recordUse(turnSample(chatModel.id, ran.usage ? { promptTokens: ran.usage.prompt_tokens, completionTokens: ran.usage.completion_tokens } : undefined, first == null ? null : first - callStarted, Date.now() - callStarted, before, sampleProc(server.pid), 1, ran.toolCalls.length, agentId))
         } finally {
           modelBusy = Math.max(0, modelBusy - 1)
           touchModel()
@@ -1434,7 +1489,7 @@ export async function createServices(): Promise<Services> {
           if (rest) sendEvent(win, { type: 'token', messageId, text: rest })
           const textOut = collected.choices[0]?.message.content
           if (typeof textOut === 'string' && textOut) answer = textOut
-          recordUse(turnSample(chatModel.id, collected.usage ? { promptTokens: collected.usage.prompt_tokens ?? 0, completionTokens: collected.usage.completion_tokens ?? 0 } : undefined, first == null ? null : first - callStarted, Date.now() - callStarted, before, sampleProc(server.pid), 1, 0))
+          recordUse(turnSample(chatModel.id, collected.usage ? { promptTokens: collected.usage.prompt_tokens ?? 0, completionTokens: collected.usage.completion_tokens ?? 0 } : undefined, first == null ? null : first - callStarted, Date.now() - callStarted, before, sampleProc(server.pid), 1, 0, agentId))
         } finally {
           modelBusy = Math.max(0, modelBusy - 1)
           touchModel()
@@ -1605,7 +1660,7 @@ export async function createServices(): Promise<Services> {
       },
       cancel(id) { inflight.get(id)?.abort() },
     },
-    models: { status, download },
+    models: { status, download, benchmark },
     conversations: {
       list: async () => store.list(),
       open: async (id) => store.open(id),
@@ -1682,6 +1737,10 @@ export async function createServices(): Promise<Services> {
         next.codeAgentAllowlist = (next.codeAgentAllowlist ?? []).filter((command) => commandRisk(command) === 'plain')
         next.tabSuggestionsOff = normalizeLanguagesOff(next.tabSuggestionsOff ?? [])
         next.idleUnloadMinutes = clampIdleMinutes(next.idleUnloadMinutes)
+        next.mascotName = cleanMascotName(next.mascotName)
+        next.accent = cleanAccent(next.accent)
+        next.density = cleanDensity(next.density)
+        next.animateMascot = cleanAnimate(next.animateMascot, true)
         if (next.codeAgentMode === 'auto' && !next.codeAgentAutoConfirmed) next.codeAgentMode = 'ask'
         writeSettings(next)
         if (p.keepWarm === false) maybeUnload()
@@ -1869,6 +1928,7 @@ export async function createServices(): Promise<Services> {
     usage: {
       get: async () => metrics.report(),
       reset: async () => metrics.reset(),
+      csv: async () => metrics.csv(),
     },
     storage: {
       report: () => storageReport(),
@@ -2135,11 +2195,13 @@ export async function createServices(): Promise<Services> {
     after: { ramMb: number | null; ticks: number | null },
     tasks = 0,
     steps = 0,
+    agentId = '',
   ): UsageSample {
     const cpu = before.ticks != null && after.ticks != null ? cpuPercent(before.ticks, after.ticks, genMs) : null
     return {
       at: Date.now(),
       modelId,
+      agentId,
       tasks,
       steps,
       tokensIn: usage?.promptTokens ?? 0,
@@ -2196,8 +2258,10 @@ export async function createServices(): Promise<Services> {
       { id: 'web', label: 'Saved web', bytes: 0, items: [
         { id: 'web', label: 'Saved web passages', bytes: webBytes },
         { id: 'search-cache', label: 'Search cache · searches 24h, pages 7 days', bytes: store.db ? searchCacheStats(store.db).bytes : 0 },
+        { id: 'quotes', label: 'Quote cache · 60 seconds', bytes: store.db ? quoteCacheStats(store.db).bytes : 0 },
       ] },
       { id: 'logs', label: 'Logs', bytes: 0, items: scanFiles(join(root, 'logs')) },
+      ...shotCategory(root),
     ]
     const disk = await diskSpace(root)
     return buildStorageReport({ categories, ...disk })
@@ -2218,6 +2282,7 @@ export async function createServices(): Promise<Services> {
     if (category === 'web') {
       if (store.db && (!itemId || itemId === 'web')) clearSavedWeb(store.db)
       if (store.db && (!itemId || itemId === 'search-cache')) clearSearchCache(store.db)
+      if (store.db && (!itemId || itemId === 'quotes')) clearQuoteCache(store.db)
       return storageReport()
     }
     const dir = categoryDir(category, root)
@@ -2256,11 +2321,20 @@ export async function createServices(): Promise<Services> {
     if (error) throw new Error(error)
   }
 
+  function shotCategory(root: string): StorageCategory[] {
+    const dir = join(root, 'screenshots')
+    if (!existsSync(dir)) return []
+    const items = scanFiles(dir)
+    if (!items.length) return []
+    return [{ id: 'shots', label: 'Saved screenshots', bytes: 0, items }]
+  }
+
   function categoryDir(category: StorageCategoryId, root: string): string {
     if (category === 'models') return modelsDir()
     if (category === 'packs') return packsRoot()
     if (category === 'indexes') return join(root, 'code-projects')
     if (category === 'logs') return join(root, 'logs')
+    if (category === 'shots') return join(root, 'screenshots')
     return root
   }
 
@@ -2268,7 +2342,7 @@ export async function createServices(): Promise<Services> {
     if (itemId.includes('/') || itemId.includes('\\') || itemId.includes('..')) throw new Error('refusing to delete outside app data')
     if (category === 'packs' && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(itemId)) throw new Error('refusing to delete outside app data')
     if (category === 'indexes' && !/^[a-f0-9]{16}$/.test(itemId)) throw new Error('refusing to delete outside app data')
-    if ((category === 'models' || category === 'logs') && !/^[^/\\]+$/.test(itemId)) throw new Error('refusing to delete outside app data')
+    if ((category === 'models' || category === 'logs' || category === 'shots') && !/^[^/\\]+$/.test(itemId)) throw new Error('refusing to delete outside app data')
     return itemId
   }
 

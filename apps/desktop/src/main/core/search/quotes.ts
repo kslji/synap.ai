@@ -173,3 +173,18 @@ export function quoteAnswer(snapshot: QuoteSnapshot, region: RegionChoice): { te
 function domainOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' }
 }
+
+export function quoteCacheStats(db: DB | null): { bytes: number; count: number } {
+  if (!db) return { bytes: 0, count: 0 }
+  try {
+    const row = db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(payload)), 0) AS bytes FROM quote_cache').get() as { count: number; bytes: number }
+    return { bytes: Number(row.bytes) || 0, count: Number(row.count) || 0 }
+  } catch {
+    return { bytes: 0, count: 0 }
+  }
+}
+
+export function clearQuoteCache(db: DB | null): void {
+  if (!db) return
+  try { db.prepare('DELETE FROM quote_cache').run() } catch { /* older databases have no quote table */ }
+}

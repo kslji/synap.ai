@@ -65,6 +65,8 @@ export function ChatScreen({
   onStop,
   tabSuggestions = false,
   tabSuggestionsOff = [],
+  onRegenerate,
+  animateMascot = true,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -110,6 +112,8 @@ export function ChatScreen({
   onStop?: () => void
   tabSuggestions?: boolean
   tabSuggestionsOff?: string[]
+  onRegenerate?: (messageId: string) => void
+  animateMascot?: boolean
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
@@ -224,7 +228,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} />)}
             </div>
           )}
         </div>
@@ -356,23 +360,27 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void }) {
+function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate }: { msg: UiMsg; mood: string; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void }) {
+  const [versionAt, setVersionAt] = useState<number | null>(null)
+  const history = msg.versions ?? []
+  const showingOld = versionAt != null && versionAt < history.length
+  const shown = showingOld ? history[versionAt] ?? msg.text : msg.text
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl bg-[var(--accent-soft)] px-4 py-3 text-[15px] leading-relaxed">{msg.text}</div>
+        <div className="max-w-[80%] rounded-[var(--radius)] bg-[var(--bubble-user)] px-4 py-3 text-[15px] leading-relaxed text-[var(--bubble-user-ink)]">{msg.text}</div>
       </div>
     )
   }
-  const creature = msg.pending ? mood : msg.error ? 'error' : 'idle'
+  const creature = msg.pending ? mood : msg.error ? 'error' : msg.gate === 'answer' || msg.gate === 'web' ? 'success' : 'idle'
   return (
     <div className="flex gap-3">
-      <div className="pt-1"><StarSurf state={starStateFor(creature)} size={52} /></div>
+      <div className="pt-1"><StarSurf state={starStateFor(creature)} size={52} animate={animateMascot} /></div>
       <div className="min-w-0 flex-1">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
         <div className="whitespace-pre-wrap text-[15px] leading-relaxed" data-model-error={msg.error ? 'yes' : 'no'}>
-          <CitedText text={msg.text || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
+          <CitedText text={shown || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
         </div>
         {msg.error && msg.smallerModelId && (
           <button className="btn btn-ghost mt-2" type="button" data-switch-smaller="yes" onClick={() => onSwitchSmaller(msg.smallerModelId!)}>
@@ -444,9 +452,86 @@ function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide, onCo
             ) : null)}
           </div>
         )}
+        {!msg.pending && msg.text && (
+          <ReplyBar
+            text={shown}
+            modelId={msg.modelId || modelLabel}
+            elapsedMs={showingOld ? null : msg.elapsedMs ?? null}
+            sources={msg.sources.map((source) => source.title).filter(Boolean)}
+            versionCount={history.length + 1}
+            versionAt={showingOld ? versionAt! : history.length}
+            onVersion={(index) => setVersionAt(index >= history.length ? null : index)}
+            onRegenerate={onRegenerate ? () => onRegenerate(msg.id) : undefined}
+          />
+        )}
       </div>
     </div>
   )
+}
+
+function ReplyBar({
+  text,
+  modelId,
+  elapsedMs,
+  sources,
+  versionCount,
+  versionAt,
+  onVersion,
+  onRegenerate,
+}: {
+  text: string
+  modelId: string
+  elapsedMs: number | null
+  sources: string[]
+  versionCount: number
+  versionAt: number
+  onVersion: (index: number) => void
+  onRegenerate?: () => void
+}) {
+  const [thumb, setThumb] = useState<'up' | 'down' | null>(null)
+  const [note, setNote] = useState('')
+  const [more, setMore] = useState(false)
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2" data-reply-actions="yes">
+      <button type="button" className="btn btn-ghost" data-reply-copy="yes" onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => setNote('Copied.')).catch(() => setNote('Copy failed on this computer.'))
+      }}>Copy</button>
+      <button type="button" className="btn btn-ghost" data-reply-up="yes" aria-pressed={thumb === 'up'} onClick={() => setThumb((current) => current === 'up' ? null : 'up')}>Thumbs up</button>
+      <button type="button" className="btn btn-ghost" data-reply-down="yes" aria-pressed={thumb === 'down'} onClick={() => setThumb((current) => current === 'down' ? null : 'down')}>Thumbs down</button>
+      <button type="button" className="btn btn-ghost" data-reply-aloud="yes" onClick={() => { void readAloud(text).then(setNote) }}>Read aloud</button>
+      {onRegenerate && <button type="button" className="btn btn-ghost" data-reply-regenerate="yes" onClick={onRegenerate}>Regenerate</button>}
+      <button type="button" className="btn btn-ghost" data-reply-more="yes" aria-expanded={more} onClick={() => setMore((open) => !open)}>More</button>
+      {versionCount > 1 && (
+        <span className="text-xs text-[var(--muted)]" data-reply-versions="yes">
+          <button type="button" className="btn btn-ghost" disabled={versionAt <= 0} onClick={() => onVersion(versionAt - 1)}>Previous</button>
+          {versionAt + 1}/{versionCount}
+          <button type="button" className="btn btn-ghost" disabled={versionAt >= versionCount - 1} onClick={() => onVersion(versionAt + 1)}>Next</button>
+        </span>
+      )}
+      {note && <span className="text-xs text-[var(--muted)]" data-reply-note="yes">{note}</span>}
+      {more && (
+        <div className="basis-full text-sm text-[var(--muted)]" data-reply-details="yes">
+          <p>Model: {modelId}</p>
+          <p>{elapsedMs == null ? 'Time: not measured yet' : `Time: ${Math.round(elapsedMs)} ms`}</p>
+          <p>{sources.length ? `Sources: ${sources.join(', ')}` : 'Sources: none on this reply'}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+async function readAloud(text: string): Promise<string> {
+  const synth = window.speechSynthesis
+  if (!synth) return 'No system voice is available on this computer.'
+  const ready = synth.getVoices()
+  const voices = ready.length ? ready : await new Promise<SpeechSynthesisVoice[]>((resolve) => {
+    const timer = window.setTimeout(() => resolve(synth.getVoices()), 400)
+    synth.addEventListener('voiceschanged', () => { window.clearTimeout(timer); resolve(synth.getVoices()) }, { once: true })
+  })
+  if (!voices.length) return 'No system voice is available on this computer.'
+  synth.cancel()
+  synth.speak(new SpeechSynthesisUtterance(text))
+  return ''
 }
 
 function CitedText({ text, sources, onOpen }: { text: string; sources: UiMsg['sources']; onOpen: (chunkId: number) => void }) {

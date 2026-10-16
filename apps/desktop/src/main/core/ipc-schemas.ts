@@ -31,6 +31,10 @@ export const SettingsPatch = z.object({
   keepWarm: z.boolean().optional(),
   idleUnloadMinutes: z.number().int().min(1).max(240).optional(),
   speculativeDecoding: z.boolean().optional(),
+  mascotName: z.string().trim().min(1).max(40).optional(),
+  accent: z.enum(['orange', 'blue', 'indigo', 'navy']).optional(),
+  density: z.enum(['compact', 'comfortable', 'relaxed']).optional(),
+  animateMascot: z.boolean().optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)
@@ -142,10 +146,10 @@ export const CodeFilePath = z.object({
   path: z.string().min(1).max(4096),
 }).strict()
 export const StorageClearReq = z.object({
-  category: z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs']),
+  category: z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs', 'shots']),
   itemId: z.string().trim().min(1).max(200).optional(),
 }).strict()
-export const StorageCategoryId = z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs'])
+export const StorageCategoryId = z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs', 'shots'])
 
 export const CodeFileSave = z.object({
   path: z.string().min(1).max(4096),

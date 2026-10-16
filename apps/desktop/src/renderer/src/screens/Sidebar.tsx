@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { StarSurf, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
@@ -9,6 +10,7 @@ const NAV: { id: View; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'agents', label: 'Agents' },
   { id: 'chats', label: 'Chats' },
+  { id: 'usage', label: 'Usage' },
   { id: 'library', label: 'Files' },
   { id: 'packs', label: 'Packs' },
   { id: 'settings', label: 'Settings' },
@@ -22,6 +24,10 @@ export function Sidebar({
   theme,
   onTheme,
   tourId,
+  mascotName,
+  animateMascot,
+  onMascotName,
+  onSignIn,
   onView,
   onNew,
   onOpen,
@@ -35,23 +41,52 @@ export function Sidebar({
   theme: ThemeChoice
   onTheme: (theme: ThemeChoice) => void
   tourId: string | null
+  mascotName: string
+  animateMascot: boolean
+  onMascotName: (name: string) => void
+  onSignIn: () => void
   onView: (v: View) => void
   onNew: () => void
   onOpen: (id: string) => void
   onDelete: (id: string) => void
   onAgent: (id: string) => void
 }) {
-  const mine = conversations.filter((chat) => chat.agentId === agentId)
+  const [query, setQuery] = useState('')
+  const [name, setName] = useState(mascotName)
+  useEffect(() => { setName(mascotName) }, [mascotName])
+  const needle = query.trim().toLowerCase()
+  const mine = conversations.filter((chat) => chat.agentId === agentId && (!needle || chat.title.toLowerCase().includes(needle)))
   const current = agents.find((agent) => agent.id === agentId)
   return (
     <aside className="flex h-full w-[248px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
       <div className="flex items-center gap-2 px-2">
-        <StarSurf state="idle" size={36} />
+        <StarSurf state="idle" size={36} animate={animateMascot} clickable label={mascotName} />
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-tight">{product.name}</div>
-          <div className="text-[11px] text-[var(--muted)]">On this computer</div>
+          <div className="truncate text-[15px] font-semibold tracking-tight" data-mascot-name="yes">{mascotName}</div>
+          <div className="text-[11px] text-[var(--muted)]">{product.name}</div>
         </div>
       </div>
+      <label className="mt-3 block px-2">
+        <span className="sr-only">Rename {mascotName}</span>
+        <input
+          className="field"
+          data-mascot-rename="yes"
+          aria-label="Mascot name"
+          value={name}
+          maxLength={40}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            const next = name.trim() || mascotName
+            setName(next)
+            if (next !== mascotName) onMascotName(next)
+          }}
+        />
+      </label>
+      <button className="btn btn-primary mt-3" type="button" data-new-chat="yes" onClick={onNew}>New chat</button>
+      <label className="mt-3 block px-2">
+        <span className="sr-only">Search chats</span>
+        <input className="field" data-chat-search="yes" aria-label="Search chats" placeholder="Search chats" value={query} onChange={(event) => setQuery(event.target.value)} />
+      </label>
       <nav className="mt-4 flex flex-col gap-0.5" aria-label="Main">
         {NAV.map((item) => (
           <NavButton key={item.id} current={view} id={item.id} onView={onView} tour={tourId === 'agents' && item.id === 'agents'}>{item.label}</NavButton>
@@ -94,8 +129,9 @@ export function Sidebar({
           </div>
         ))}
       </div>
-      <div className="mt-2 border-t border-[var(--line)] pt-3">
+      <div className="mt-2 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
         <ThemeSwitch value={theme} onChange={onTheme} compact />
+        <button className="btn btn-ghost" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
       </div>
     </aside>
   )

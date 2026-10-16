@@ -1,4 +1,5 @@
 export { Markdown, markdownHrefs, parseMarkdown, sourceUrls, splitFrontmatter } from './markdown'
 export { StarSurf, starStateFor, type StarSurfState } from './StarSurf'
+export { MASCOT_MANIFEST, pickClick } from './mascot'
 export { ThemeSwitch } from './ThemeSwitch'
 export { THEME_STORAGE_KEY, applyThemeChoice, persistThemeChoice, readThemeChoice, type ThemeChoice } from './theme'

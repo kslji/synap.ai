@@ -3,7 +3,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { aggregateUsage, appendSample, metricLine, type UsageReport, type UsageSample } from './metrics.js'
+import { aggregateUsage, appendSample, metricLine, usageCsv, type UsageReport, type UsageSample } from './metrics.js'
 
 export class MetricsLog {
   private samples: UsageSample[] = []
@@ -14,6 +14,10 @@ export class MetricsLog {
 
   report(): UsageReport {
     return aggregateUsage(this.samples)
+  }
+
+  csv(): string {
+    return usageCsv(this.samples)
   }
 
   record(sample: UsageSample): UsageReport {

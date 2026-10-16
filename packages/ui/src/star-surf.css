@@ -60,6 +60,29 @@
   animation: star-droop 0.55s ease-in-out infinite;
 }
 
+.star-surf.is-thinking .star-surf-bob {
+  animation: star-think 2.2s ease-in-out infinite;
+}
+
+.star-surf.is-click-hop .star-surf-bob {
+  animation: star-hop 0.8s ease-in-out 1;
+}
+
+.star-surf.is-click-spin .star-surf-bob {
+  animation: star-spin 0.9s ease-in-out 1;
+}
+
+.star-surf.is-click-spark .star-surf-bob {
+  animation: star-happy 1s ease-in-out 1;
+}
+
+.star-surf.is-still .star-surf-bob,
+.star-surf.is-still img,
+.star-surf.is-still .star-bubbles i,
+.star-surf.is-still .star-sparkles i {
+  animation: none;
+}
+
 .star-bubbles,
 .star-sparkles {
   position: absolute;
@@ -147,6 +170,16 @@
   0%, 100% { transform: translateX(0) rotate(8deg); }
   25% { transform: translateX(-4px) rotate(4deg); }
   75% { transform: translateX(4px) rotate(12deg); }
+}
+
+@keyframes star-think {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(0.96); }
+}
+
+@keyframes star-spin {
+  0% { transform: rotate(0deg) scale(1); }
+  100% { transform: rotate(360deg) scale(1); }
 }
 
 @keyframes star-rise {

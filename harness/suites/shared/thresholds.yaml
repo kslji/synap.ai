@@ -32,6 +32,9 @@ quick:
     no-fabrication:
       min_score: 1.0
       regression_tolerance: 0
+    step11:
+      min_score: 1.0
+      regression_tolerance: 0
 full:
   regression_tolerance: 0.05
   suites:
@@ -60,5 +63,8 @@ full:
       min_score: 1.0
       regression_tolerance: 0
     no-fabrication:
+      min_score: 1.0
+      regression_tolerance: 0
+    step11:
       min_score: 1.0
       regression_tolerance: 0

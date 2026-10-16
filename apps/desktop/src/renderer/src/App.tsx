@@ -13,6 +13,7 @@ import { codeModelLine, modelChoiceLabel } from '../../shared/model-label'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { StoragePanel, UsagePanel } from './screens/UsageStorage'
 import { createFrameBatcher } from '../../shared/stream-batch'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
@@ -130,7 +131,10 @@ export default function App() {
   }, [agentId, api, codeProject?.root])
 
   useEffect(() => {
-    if (settings) persistThemeChoice(settings.theme)
+    if (!settings) return
+    persistThemeChoice(settings.theme)
+    document.documentElement.dataset.accent = settings.accent || 'orange'
+    document.documentElement.dataset.density = settings.density || 'comfortable'
   }, [settings])
 
   useEffect(() => {
@@ -214,7 +218,8 @@ export default function App() {
     const body = `${text.trim() || (images.length ? 'Look at this screenshot.' : '')}${note}`.trim()
     if (!body) return
     const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
-    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true }
+    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || ''
+    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
@@ -226,6 +231,28 @@ export default function App() {
     } catch (e) {
       setStreaming(false)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, pending: false, error: true, text: (e as Error).message } : msg)))
+    }
+  }
+
+  async function regenerate(messageId: string) {
+    const current = messages.find((msg) => msg.id === messageId)
+    if (!current || current.role !== 'assistant' || current.pending || streaming) return
+    const index = messages.findIndex((msg) => msg.id === messageId)
+    const user = [...messages.slice(0, index)].reverse().find((msg) => msg.role === 'user')
+    if (!user?.text.trim()) return
+    const prior = current.versions ?? []
+    const versions = prior[prior.length - 1] === current.text ? prior : [...prior, current.text]
+    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || current.modelId || ''
+    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId }
+    setMessages((list) => list.map((msg) => (msg.id === messageId ? pending : msg)))
+    setStreaming(true)
+    try {
+      const res = await api.chat.send({ conversationId, text: user.text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      setConversationId(res.conversationId)
+      setMessages((list) => list.map((msg) => (msg.pending ? { ...msg, id: res.messageId, versions } : msg)))
+    } catch (e) {
+      setStreaming(false)
+      setMessages((list) => list.map((msg) => (msg.pending ? { ...msg, pending: false, error: true, text: (e as Error).message, versions } : msg)))
     }
   }
 
@@ -752,6 +779,10 @@ export default function App() {
         onView={setView}
         theme={settings.theme}
         onTheme={chooseTheme}
+        mascotName={settings.mascotName || 'Surf Bot'}
+        animateMascot={settings.animateMascot !== false}
+        onMascotName={(mascotName) => { void patch({ mascotName }) }}
+        onSignIn={() => setView('signin')}
         tourId={tourStep != null ? TOUR[tourStep]?.id ?? null : null}
         onNew={() => newChat()}
         onOpen={(id) => { void openConversation(id) }}
@@ -824,6 +855,8 @@ export default function App() {
           }}
           tabSuggestions={settings.tabSuggestions}
           tabSuggestionsOff={settings.tabSuggestionsOff}
+          animateMascot={settings.animateMascot !== false}
+          onRegenerate={(id) => { void regenerate(id) }}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)
@@ -869,13 +902,23 @@ export default function App() {
           onSelect={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
+      {view === 'usage' && (
+        <section className="flex-1 overflow-auto px-8 py-8" data-usage-view="yes">
+          <div className="mx-auto flex max-w-xl flex-col gap-4">
+            <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
+            <UsagePanel />
+            <h2 className="text-lg font-semibold tracking-tight">Cache</h2>
+            <StoragePanel />
+          </div>
+        </section>
+      )}
       {view === 'settings' && (
         <SettingsScreen
           status={status}
           settings={settings}
           account={shownAccount}
           devices={demoDevices ?? licenceDevices.map((device) => ({ ...device, status: 'active' }))}
-          plan={demoAccount?.plan ?? licence.plan}
+          licenceState={licence.state}
           termMonths={demoAccount ? null : licence.termMonths}
           subscriptionEndsAt={demoAccount ? null : licence.subscriptionEndsAt}
           knowledgePack={(() => {

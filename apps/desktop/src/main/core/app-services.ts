@@ -21,9 +21,11 @@ import { gatePackDecrypt } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { workspaceFacts } from './code-agent/plan.js'
-import { readCheckpointDir, restoreCheckpoint, writeCheckpointDir, type Checkpoint } from './code-agent/checkpoint.js'
+import { readCheckpointDir, restoreAll, restoreCheckpoint, writeCheckpointDir, type Checkpoint } from './code-agent/checkpoint.js'
+import { detectAllowlist, mergeAllowlist } from './code-agent/checks.js'
+import { readModeMap, projectMode, saveProjectMode } from './code-agent/mode-store.js'
+import { commandRisk } from './code-agent/permission.js'
 import { runSplitTask } from './code-agent/split.js'
-import { currentPermissionMode } from './code-agent/permission.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
 import { downloadVerified } from './model-download.js'
@@ -139,6 +141,9 @@ const DEFAULT_SETTINGS: Settings = {
   apiBaseUrl: DEFAULT_API_BASE,
   packSyncHours: 6,
   updateChannel: 'stable',
+  codeAgentMode: 'ask',
+  codeAgentAllowlist: [],
+  codeAgentAutoConfirmed: false,
 }
 
 export async function createServices(): Promise<Services> {
@@ -147,7 +152,7 @@ export async function createServices(): Promise<Services> {
   const store = await openStore()
   const calc = new Calculator(calcWorker)
   const inflight = new Map<string, AbortController>()
-  const decisions = new Map<string, (value: { allow: boolean; remember?: boolean }) => void>()
+  const decisions = new Map<string, (value: { allow: boolean; remember?: boolean; all?: boolean }) => void>()
   let downloading: { id: string; done: number; total: number } | null = null
   let downloadAbort: AbortController | null = null
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; server: LlamaServer } | null = null
@@ -537,19 +542,20 @@ export async function createServices(): Promise<Services> {
     writeFileSync(file, JSON.stringify(raw), { mode: 0o600 })
   }
 
-  const planWaits = new Map<string, (order: string[]) => void>()
+  const planWaits = new Map<string, (body: { order: string[]; edits?: { id: string; goal: string }[] }) => void>()
   const undos = new Map<string, Checkpoint[]>()
+  const acceptAllEdits = new Set<string>()
 
-  function waitPlan(messageId: string, signal: AbortSignal): Promise<string[]> {
+  function waitPlan(messageId: string, signal: AbortSignal): Promise<{ order: string[]; edits?: { id: string; goal: string }[] }> {
     return new Promise((resolve, reject) => {
       let settled = false
-      const finish = (error: Error | null, value?: string[]) => {
+      const finish = (error: Error | null, value?: { order: string[]; edits?: { id: string; goal: string }[] }) => {
         if (settled) return
         settled = true
         signal.removeEventListener('abort', onAbort)
         planWaits.delete(messageId)
         if (error) reject(error)
-        else resolve(value ?? [])
+        else resolve(value ?? { order: [] })
       }
       const onAbort = () => {
         const error = new Error('aborted')
@@ -558,15 +564,15 @@ export async function createServices(): Promise<Services> {
       }
       if (signal.aborted) { onAbort(); return }
       signal.addEventListener('abort', onAbort, { once: true })
-      planWaits.set(messageId, (order) => finish(null, order))
+      planWaits.set(messageId, (body) => finish(null, body))
     })
   }
 
-  function waitDecision(messageId: string, id: string, signal: AbortSignal): Promise<{ allow: boolean; remember?: boolean }> {
+  function waitDecision(messageId: string, id: string, signal: AbortSignal): Promise<{ allow: boolean; remember?: boolean; all?: boolean }> {
     const key = `${messageId}:${id}`
     return new Promise((resolve, reject) => {
       let settled = false
-      const finish = (error: Error | null, value?: { allow: boolean; remember?: boolean }) => {
+      const finish = (error: Error | null, value?: { allow: boolean; remember?: boolean; all?: boolean }) => {
         if (settled) return
         settled = true
         signal.removeEventListener('abort', onAbort)
@@ -636,8 +642,11 @@ export async function createServices(): Promise<Services> {
       const started = Date.now()
       const indexed = codeApi.indexed()
       const facts = indexed ? await indexed.planFacts() : workspaceFacts(root)
-      const mode = currentPermissionMode()
-      const result = await runSplitTask(req.text, {
+      const mode = projectMode(readModeMap(codeAgentDir()), root, settings.codeAgentMode, settings.codeAgentAutoConfirmed)
+      const allowlist = mergeAllowlist(detectAllowlist(root), settings.codeAgentAllowlist)
+      let result
+      try {
+      result = await runSplitTask(req.text, {
         complete: llamaCompleter(client),
         search: projectSearchFor(root, indexed),
         root,
@@ -648,6 +657,7 @@ export async function createServices(): Promise<Services> {
         answerTokens: profile.answerMin,
         mode,
         allowedCommands: readAllowed(root),
+        commandAllowlist: allowlist,
         signal,
         devWeb: { apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal },
         facts,
@@ -667,10 +677,16 @@ export async function createServices(): Promise<Services> {
         onStep: (step) => { sendEvent(win, { type: 'code-step', messageId, step }) },
         onDiff: (diff) => { sendEvent(win, { type: 'code-diff', messageId, diff }) },
         onPlan: (plan) => { sendEvent(win, { type: 'code-plan', messageId, plan }) },
-        ask: (request) => waitDecision(messageId, request.id, signal),
+        ask: (request) => {
+          if (request.kind === 'edit' && acceptAllEdits.has(messageId)) return Promise.resolve({ allow: true, all: true })
+          return waitDecision(messageId, request.id, signal)
+        },
         reviewPlan: mode === 'ask' ? () => waitPlan(messageId, signal) : undefined,
         onRememberCommand: (command) => writeAllowed(root, command),
       }, history)
+      } finally {
+        acceptAllEdits.delete(messageId)
+      }
       if (result.checkpoints.length) {
         undos.set(messageId, result.checkpoints)
         writeCheckpointDir(join(codeAgentDir(), 'undo', messageId), result.checkpoints)
@@ -1135,7 +1151,10 @@ export async function createServices(): Promise<Services> {
     settings: {
       get: async () => readSettings(),
       set: async (p) => {
-        const next = { ...readSettings(), ...p }
+        const current = readSettings()
+        const next = { ...current, ...p }
+        next.codeAgentAllowlist = (next.codeAgentAllowlist ?? []).filter((command) => commandRisk(command) === 'plain')
+        if (next.codeAgentMode === 'auto' && !next.codeAgentAutoConfirmed) next.codeAgentMode = 'ask'
         writeSettings(next)
         if (next.offlineOnly) {
           apiReachable = false
@@ -1210,25 +1229,63 @@ export async function createServices(): Promise<Services> {
         return { root: status?.root ?? codeApi.root() }
       },
       decide: async (body) => {
+        if (body.all && body.allow) {
+          acceptAllEdits.add(body.messageId)
+          const pending = decisions.get(`${body.messageId}:${body.id}`)
+          if (pending) pending({ allow: true, all: true, remember: body.remember })
+          return { ok: true }
+        }
         const resolve = decisions.get(`${body.messageId}:${body.id}`)
         if (!resolve) return { ok: false }
-        resolve({ allow: body.allow, remember: body.remember })
+        resolve({ allow: body.allow, remember: body.remember, all: body.all })
         return { ok: true }
       },
       revise: async (body) => {
         const resolve = planWaits.get(body.messageId)
         if (!resolve) return { ok: false }
-        resolve(body.order)
+        resolve({ order: body.order, edits: body.edits })
         return { ok: true }
       },
       undo: async (body) => {
         const root = codeApi.root()
         if (!root) return { ok: false }
         const saved = undos.get(body.messageId) ?? readCheckpointDir(join(codeAgentDir(), 'undo', body.messageId))
-        const checkpoint = saved.find((item) => item.stepId === body.stepId)
-        if (!checkpoint || checkpoint.root !== root) return { ok: false }
+        const owned = saved.filter((item) => item.root === root)
+        if (body.all) {
+          if (!owned.length) return { ok: false }
+          restoreAll(owned)
+          return { ok: true }
+        }
+        const checkpoint = owned.find((item) => item.stepId === body.stepId)
+        if (!checkpoint) return { ok: false }
         restoreCheckpoint(checkpoint)
         return { ok: true }
+      },
+      mode: async () => {
+        const root = codeApi.root()
+        const settings = readSettings()
+        const map = readModeMap(codeAgentDir())
+        const project = root ? map[root] ?? null : null
+        return {
+          mode: projectMode(map, root ?? '', settings.codeAgentMode, settings.codeAgentAutoConfirmed),
+          autoConfirmed: settings.codeAgentAutoConfirmed,
+          allowlist: root ? mergeAllowlist(detectAllowlist(root), settings.codeAgentAllowlist) : [...settings.codeAgentAllowlist],
+          defaultMode: settings.codeAgentMode,
+          projectMode: project,
+        }
+      },
+      setMode: async (body) => {
+        const root = codeApi.root()
+        const settings = readSettings()
+        if (!root) return { ok: false, needsConfirm: false, mode: 'ask' as const }
+        if (body.mode === 'auto' && !settings.codeAgentAutoConfirmed && !body.confirmAuto) {
+          return { ok: false, needsConfirm: true, mode: projectMode(readModeMap(codeAgentDir()), root, settings.codeAgentMode, settings.codeAgentAutoConfirmed) }
+        }
+        if (body.mode === 'auto' && body.confirmAuto && !settings.codeAgentAutoConfirmed) {
+          writeSettings({ ...settings, codeAgentAutoConfirmed: true })
+        }
+        saveProjectMode(codeAgentDir(), root, body.mode)
+        return { ok: true, needsConfirm: false, mode: body.mode }
       },
     },
     devWeb: {

@@ -5,9 +5,9 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentUndoReq as CodeAgentUndo, type CodeProjectStatus, type CodeStorageUsage, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeProjectStatus, type CodeStorageUsage, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StoredMessage, type UpdateOffer, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentUndoReq, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
+import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, type ParsedChat } from './ipc-schemas.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -134,6 +134,8 @@ export interface Services {
     decide(req: CodeAgentDecide): Promise<{ ok: boolean }>
     revise(req: CodeAgentRevise): Promise<{ ok: boolean }>
     undo(req: CodeAgentUndo): Promise<{ ok: boolean }>
+    mode(): Promise<CodeAgentModeState>
+    setMode(req: CodeAgentSetMode): Promise<CodeAgentSetModeResult>
   }
   devWeb: {
     run(req: DevWebRunReq): Promise<DevWebRunResult>
@@ -244,6 +246,8 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.codeAgentDecide, (e, raw) => { assertTrusted(e); return s.codeAgent.decide(CodeAgentDecideReq.parse(raw)) })
   handle(IPC.codeAgentRevise, (e, raw) => { assertTrusted(e); return s.codeAgent.revise(CodeAgentReviseReq.parse(raw)) })
   handle(IPC.codeAgentUndo, (e, raw) => { assertTrusted(e); return s.codeAgent.undo(CodeAgentUndoReq.parse(raw)) })
+  handle(IPC.codeAgentMode, (e) => { assertTrusted(e); return s.codeAgent.mode() })
+  handle(IPC.codeAgentSetMode, (e, raw) => { assertTrusted(e); return s.codeAgent.setMode(CodeAgentSetModeReq.parse(raw)) })
   handle(IPC.devWebRun, (e, raw) => {
     assertTrusted(e)
     return s.devWeb.run(DevWebRun.parse(raw))

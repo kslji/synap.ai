@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import type { CompletionRequest } from './code-agent/loop.js'
 import type { ModelTurn } from './code-agent/parse-tool.js'
 import type { PlanFacts } from './code-agent/plan.js'
+import { runCodeAgent } from './code-agent/loop.js'
 import { runSplitTask, type SplitHost } from './code-agent/split.js'
 import { heuristicCounter } from './token-budget.js'
 
@@ -228,8 +229,83 @@ async function splitSuggest(): Promise<Measurement> {
   }
 }
 
+async function modeGate(): Promise<Measurement> {
+  const root = mkdtempSync(join(tmpdir(), 'surf-mode-gate-'))
+  mkdirSync(join(root, 'src'), { recursive: true })
+  const file = join(root, 'src/a.ts')
+  writeFileSync(file, 'export const n = 1\n')
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"', typecheck: 'tsc --noEmit' } }))
+  const facts: PlanFacts = { indexed: true, files: ['src/a.ts'], symbols: [], edges: [] }
+  let wroteBeforeAsk = false
+  const deniedRan: string[] = []
+  try {
+    const denied = await runSplitTask('Fix the typo in src/a.ts', {
+      ...host(root, facts, async () => edit('src/a.ts', 'export const n = 1', 'export const n = 2'), async (command) => {
+        deniedRan.push(command)
+        return { ok: true, output: 'ok' }
+      }),
+      reviewPlan: async (steps) => steps.map((step) => step.id),
+      async ask() {
+        wroteBeforeAsk = readFileSync(file, 'utf8').includes('export const n = 2')
+        return { allow: false }
+      },
+    })
+    const askUnchanged = denied.stopped === 'cancelled' && readFileSync(file, 'utf8') === 'export const n = 1\n'
+    const autoRan: string[] = []
+    const autoAsked: string[] = []
+    const auto = await runSplitTask('Fix the typo in src/a.ts', {
+      ...host(root, facts, async () => edit('src/a.ts', 'export const n = 1', 'export const n = 2'), async (command) => {
+        autoRan.push(command)
+        return { ok: true, output: 'ok' }
+      }),
+      mode: 'auto',
+      commandAllowlist: ['npm run typecheck', 'npm test'],
+      async ask(request) {
+        autoAsked.push(request.command ?? request.kind)
+        return { allow: false }
+      },
+    })
+    const paused: string[] = []
+    const dangerRan: string[] = []
+    const dangerCommands = ['npm test', 'npm install left-pad', 'rm -rf src/a.ts']
+    await runCodeAgent('go', {
+      ...host(root, facts, async () => ({ content: '' }), async (command) => {
+        dangerRan.push(command)
+        return { ok: true, output: 'ok' }
+      }),
+      mode: 'auto',
+      commandAllowlist: ['npm test'],
+      async complete() {
+        const command = dangerCommands.shift()
+        if (!command) return { content: '{"tool":"finish","arguments":{"summary":"Done."}}' }
+        return { content: JSON.stringify({ tool: 'run_command', arguments: { command } }) }
+      },
+      async ask(request) {
+        paused.push(request.command ?? '')
+        return { allow: false }
+      },
+    })
+    return {
+      id: 'mode-gate',
+      weight: 1,
+      fields: {
+        wroteBeforeAsk,
+        askUnchanged,
+        askNoCommand: deniedRan.length === 0,
+        autoWrote: auto.stopped === 'finish' && readFileSync(file, 'utf8').includes('export const n = 2'),
+        autoRanCheck: autoRan.includes('npm run typecheck'),
+        autoNoAsk: autoAsked.length === 0,
+        pausedInstall: paused.includes('npm install left-pad'),
+        blockedDelete: !dangerRan.includes('rm -rf src/a.ts') && dangerRan.includes('npm test'),
+      },
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
 async function measure(): Promise<Measurement[]> {
-  return [await splitOrder(), await splitRetry(), await splitReplan(), await splitSuggest()]
+  return [await splitOrder(), await splitRetry(), await splitReplan(), await splitSuggest(), await modeGate()]
 }
 
 const main = process.argv[1] && /code-split-suite/.test(process.argv[1])

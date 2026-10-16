@@ -41,6 +41,11 @@ export function extendCheckpoint(checkpoint: Checkpoint, paths: readonly string[
   return { ...checkpoint, files: [...checkpoint.files, ...extra.files] }
 }
 
+/** Undo every step, last write first, so each file ends at its earliest snapshot. */
+export function restoreAll(checkpoints: readonly Checkpoint[]): void {
+  for (const checkpoint of [...checkpoints].reverse()) restoreCheckpoint(checkpoint)
+}
+
 export function restoreCheckpoint(checkpoint: Checkpoint): void {
   for (const file of checkpoint.files) {
     const abs = resolveInside(checkpoint.root, file.path)

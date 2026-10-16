@@ -1,6 +1,6 @@
 /** createElement keeps this renderable from the node unit test without a JSX transform. */
 import { createElement, useState, type ReactNode } from 'react'
-import type { CodeDiffView, CodePlanView, CodeStepView } from '../../../shared/ipc-contract'
+import { AUTO_MODE_SUMMARY, type CodeDiffView, type CodePlanView, type CodeStepView } from '../../../shared/ipc-contract'
 
 const STEP_LABEL: Record<CodeStepView['status'], string> = {
   running: 'Running',
@@ -19,18 +19,22 @@ export function CodeTrace({
   onDecide,
   onRevise,
   onUndo,
+  onUndoAll,
 }: {
   messageId: string
   steps: CodeStepView[]
   diffs: CodeDiffView[]
   plan?: CodePlanView | null
-  onDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void
-  onRevise?: (messageId: string, order: string[]) => void
+  onDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void
+  onRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void
   onUndo?: (messageId: string, stepId: string) => void
+  onUndoAll?: (messageId: string) => void
 }) {
   const [draft, setDraft] = useState<string[]>(() => plan?.steps.map((step) => step.id) ?? [])
   const [removed, setRemoved] = useState<string[]>([])
   const [restored, setRestored] = useState<string[]>([])
+  const [goals, setGoals] = useState<Record<string, string>>(() => Object.fromEntries((plan?.steps ?? []).map((step) => [step.id, step.goal])))
+  const [editing, setEditing] = useState<string | null>(null)
   if (!steps.length && !diffs.length && !plan?.steps.length) return null
   const blocks: ReactNode[] = []
   if (plan?.steps.length) {
@@ -44,7 +48,16 @@ export function CodeTrace({
         createElement('li', { key: step.id, className: 'flex flex-wrap items-center gap-2 text-sm', 'data-code-plan-step': step.id }, [
           createElement('span', { key: 'goal', className: 'min-w-0 flex-1' }, [
             createElement('span', { key: 'n', className: 'text-[var(--muted)]' }, `${index + 1}. `),
-            step.goal,
+            reviewing && editing === step.id
+              ? createElement('input', {
+                key: 'goal',
+                className: 'field mt-1',
+                'aria-label': `Edit step ${step.id}`,
+                'data-code-plan-goal': step.id,
+                value: goals[step.id] ?? step.goal,
+                onChange: (event: { target: { value: string } }) => setGoals((prev) => ({ ...prev, [step.id]: event.target.value })),
+              })
+              : (goals[step.id] || step.goal),
             createElement('span', { key: 'meta', className: 'mt-0.5 block text-xs text-[var(--muted)]' }, [
               step.files.join(', ') || 'new file',
               step.symbols.length ? ` · ${step.symbols.join(', ')}` : '',
@@ -57,6 +70,7 @@ export function CodeTrace({
               createElement('button', { key: 'up', type: 'button', className: 'btn btn-ghost', 'data-code-plan-up': step.id, onClick: () => moveDraft(step.id, -1, draft, removed, setDraft) }, 'Up'),
               createElement('button', { key: 'down', type: 'button', className: 'btn btn-ghost', 'data-code-plan-down': step.id, onClick: () => moveDraft(step.id, 1, draft, removed, setDraft) }, 'Down'),
               createElement('button', { key: 'remove', type: 'button', className: 'btn btn-ghost', 'data-code-plan-remove': step.id, onClick: () => setRemoved((prev) => prev.includes(step.id) ? prev : [...prev, step.id]) }, 'Remove'),
+              createElement('button', { key: 'edit', type: 'button', className: 'btn btn-ghost', 'data-code-plan-edit': step.id, onClick: () => setEditing((prev) => prev === step.id ? null : step.id) }, editing === step.id ? 'Done' : 'Edit'),
             ])
             : null,
           !reviewing && plan.undos?.some((undo) => undo.stepId === step.id) && onUndo
@@ -76,8 +90,23 @@ export function CodeTrace({
           type: 'button',
           className: 'btn btn-primary mt-2',
           'data-code-plan-run': 'yes',
-          onClick: () => onRevise(messageId, draft.filter((id) => !removed.includes(id))),
+          onClick: () => {
+            const order = draft.filter((id) => !removed.includes(id))
+            const edits = order
+              .map((id) => ({ id, goal: (goals[id] ?? '').trim() }))
+              .filter((edit) => edit.goal && edit.goal !== plan.steps.find((step) => step.id === edit.id)?.goal)
+            onRevise(messageId, order, edits)
+          },
         }, 'Run')
+        : null,
+      !reviewing && plan.undos?.length && onUndoAll
+        ? createElement('button', {
+          key: 'undo-all',
+          type: 'button',
+          className: 'btn btn-ghost mt-2',
+          'data-code-undo-all': 'yes',
+          onClick: () => onUndoAll(messageId),
+        }, 'Undo all')
         : null,
     ]))
   }
@@ -95,15 +124,25 @@ export function CodeTrace({
           step.detail ? createElement('span', { key: 'detail', className: 'mt-0.5 block text-xs text-[var(--muted)]' }, step.detail) : null,
         ]),
         createElement('span', { key: 'status', className: 'pill shrink-0' }, STEP_LABEL[step.status]),
-        step.status === 'waiting' && step.tool === 'run_command' && onDecide
+        step.status === 'waiting' && (step.tool === 'run_command' || step.tool === 'check') && onDecide
           ? createElement('span', { key: 'ask', className: 'flex flex-wrap gap-1' }, [
             createElement('button', { key: 'allow', type: 'button', className: 'btn btn-primary', 'data-code-allow': 'yes', onClick: () => onDecide(messageId, step.id, true) }, 'Allow'),
-            createElement('button', { key: 'always', type: 'button', className: 'btn btn-ghost', 'data-code-always': 'yes', onClick: () => onDecide(messageId, step.id, true, true) }, 'Always allow'),
+            createElement('button', { key: 'always', type: 'button', className: 'btn btn-ghost', 'data-code-always': 'yes', onClick: () => onDecide(messageId, step.id, true, true) }, 'Always allow this command for this project'),
             createElement('button', { key: 'deny', type: 'button', className: 'btn btn-ghost', 'data-code-deny': 'yes', onClick: () => onDecide(messageId, step.id, false) }, 'Deny'),
           ])
           : null,
       ])
     ))))
+  }
+  const pendingDiff = diffs.find((diff) => diff.status === 'pending')
+  if (pendingDiff && onDecide) {
+    blocks.push(createElement('button', {
+      key: 'accept-all',
+      type: 'button',
+      className: 'btn btn-primary',
+      'data-code-accept-all': 'yes',
+      onClick: () => onDecide(messageId, pendingDiff.id, true, false, true),
+    }, 'Accept all'))
   }
   for (const diff of diffs) {
     blocks.push(createElement('article', { key: diff.id, className: 'card overflow-hidden', 'data-code-diff': diff.status }, [
@@ -122,6 +161,52 @@ export function CodeTrace({
     ]))
   }
   return createElement('div', { className: 'mt-3 flex flex-col gap-2', 'data-code-trace': 'yes' }, blocks)
+}
+
+export function CodeModeBar({
+  mode,
+  confirming,
+  onChoose,
+  onConfirm,
+  onCancel,
+}: {
+  mode: 'ask' | 'auto'
+  confirming: boolean
+  onChoose: (mode: 'ask' | 'auto') => void
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return createElement('div', { className: 'flex flex-col items-end gap-2', 'data-code-mode': mode }, [
+    createElement('div', { key: 'toggle', role: 'radiogroup', 'aria-label': 'Code agent mode', className: 'flex gap-1' }, [
+      createElement('button', {
+        key: 'ask',
+        type: 'button',
+        role: 'radio',
+        'aria-checked': mode === 'ask',
+        className: mode === 'ask' ? 'btn btn-primary' : 'btn btn-ghost',
+        'data-code-mode-ask': 'yes',
+        onClick: () => onChoose('ask'),
+      }, 'Ask'),
+      createElement('button', {
+        key: 'auto',
+        type: 'button',
+        role: 'radio',
+        'aria-checked': mode === 'auto',
+        className: mode === 'auto' ? 'btn btn-primary' : 'btn btn-ghost',
+        'data-code-mode-auto': 'yes',
+        onClick: () => onChoose('auto'),
+      }, 'Auto'),
+    ]),
+    confirming
+      ? createElement('div', { key: 'confirm', className: 'card max-w-md px-3 py-3 text-left', 'data-code-auto-confirm': 'yes' }, [
+        createElement('p', { key: 'text', className: 'text-sm leading-relaxed' }, AUTO_MODE_SUMMARY),
+        createElement('div', { key: 'actions', className: 'mt-2 flex gap-2' }, [
+          createElement('button', { key: 'yes', type: 'button', className: 'btn btn-primary', 'data-code-auto-enable': 'yes', onClick: onConfirm }, 'Enable Auto'),
+          createElement('button', { key: 'no', type: 'button', className: 'btn btn-ghost', 'data-code-auto-cancel': 'yes', onClick: onCancel }, 'Stay on Ask'),
+        ]),
+      ])
+      : null,
+  ])
 }
 
 function moveDraft(id: string, dir: -1 | 1, draft: string[], removed: string[], setDraft: (order: string[]) => void): void {

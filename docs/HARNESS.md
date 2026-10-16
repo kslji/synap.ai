@@ -39,7 +39,7 @@ Numeric comparison, ordering, counting, and arithmetic in the shared cases are a
 
 The `documents` suite does not call the model. `apps/desktop/src/main/core/document-suite.ts` builds fixtures in memory, converts and fills them, and prints measurements. `harness/core/documents.py` scores fill accuracy, citations, the exact string `not found in source`, injection refusal, and formatting (font, size, color, bold, italic, page count, pixel diff outside the filled box, and an unchanged original hash). It runs in quick mode before Electron. See `docs/DOCUMENTS.md`.
 
-The `code-split` suite also skips the model. `apps/desktop/src/main/core/code-split-suite.ts` runs four scripted tasks through the code-agent splitter: graph order (definition, then caller, then test) shown before the run, a three-try retry on a one-file edit, a replan of a failed step, and a larger-model suggestion that does not download. `harness/core/code_split.py` scores those measurements. It runs before Electron in both quick and full mode.
+The `code-split` suite also skips the model. `apps/desktop/src/main/core/code-split-suite.ts` runs scripted tasks through the code-agent splitter: graph order (definition, then caller, then test) shown before the run, a three-try retry on a one-file edit, a replan of a failed step, a larger-model suggestion that does not download, and an Ask/Auto gate (no write or command before approval, allow-listed checks in Auto, install paused, delete outside a checkpoint refused). `harness/core/code_split.py` scores those measurements. It runs before Electron in both quick and full mode.
 
 ## Add a niche
 

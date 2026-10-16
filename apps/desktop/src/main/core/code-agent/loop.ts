@@ -1,7 +1,7 @@
 /**
  * Code agent loop: plan, act, observe, repeat.
  * Ask mode waits on edits and on commands that were not allowed before.
- * Auto mode is selected by currentPermissionMode() in a later step; the wait is already skipped.
+ * Auto writes inside the project and runs the allowlist. Other commands pause.
  */
 import type { CodeDiffView, CodeStepView } from '../../../shared/ipc-contract.js'
 import type { ChatMessage } from '../llama-client.js'
@@ -10,7 +10,7 @@ import { fitAgentMessages } from './budget.js'
 import { applyPlannedEdit, planEdit } from './edit.js'
 import { toolCallGbnf, toolCallJsonSchema } from './grammar.js'
 import { parseModelTurn, type ModelTurn } from './parse-tool.js'
-import { exactCommand, permissionNeeded, type PermissionMode } from './permission.js'
+import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode } from './permission.js'
 import type { ProjectSearch } from './project-search.js'
 import { codeSystemPrompt } from './system-rules.js'
 import { codeAgentDevWebTools, resolveSynapApiUrl, type DevWebHost } from './dev-web-hook.js'
@@ -51,12 +51,14 @@ export interface CodeAgentHost {
   answerTokens: number
   mode?: PermissionMode
   allowedCommands?: Iterable<string>
+  /** Test, lint, typecheck, and build commands Auto may run without asking. */
+  commandAllowlist?: Iterable<string>
   limits?: Partial<CodeAgentLimits>
   signal?: AbortSignal
   observationTokens?: number
   onStep?(step: CodeStepView): void
   onDiff?(diff: CodeDiffView): void
-  ask(request: { kind: 'command' | 'edit'; id: string; command?: string; path?: string; diff?: string }): Promise<{ allow: boolean; remember?: boolean }>
+  ask(request: { kind: 'command' | 'edit'; id: string; command?: string; path?: string; diff?: string }): Promise<{ allow: boolean; remember?: boolean; all?: boolean }>
   runCommand?(command: string, signal?: AbortSignal): Promise<{ ok: boolean; output: string }>
   onRememberCommand?(command: string): void
   /** Local web search. Tools stay empty unless dev web is enabled on env. */
@@ -78,6 +80,8 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   const limits = { ...CODE_AGENT_LIMITS, ...host.limits }
   const mode = host.mode ?? 'ask'
   const allowed = new Set([...host.allowedCommands ?? []].map(exactCommand))
+  const allowlist = new Set([...host.commandAllowlist ?? []].map(exactCommand))
+  const session = { acceptAll: false }
   const steps: CodeStepView[] = []
   const diffs: CodeDiffView[] = []
   const seen = new Map<string, number>()
@@ -112,7 +116,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'ok', title, detail: summary })
       return { answer: summary, steps, diffs, stopped: 'finish' }
     }
-    const observation = await act(host, mode, allowed, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`)
+    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`)
     messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
     messages.push({ role: 'user', content: `Result:\n${observation}` })
   }
@@ -161,6 +165,8 @@ async function act(
   host: CodeAgentHost,
   mode: PermissionMode,
   allowed: Set<string>,
+  allowlist: Set<string>,
+  session: { acceptAll: boolean },
   id: string,
   title: string,
   name: string,
@@ -202,10 +208,19 @@ async function act(
     const diff: CodeDiffView = { id: diffId, stepId: id, path: planned.path, diff: planned.diff, status: 'pending' }
     host.onDiff?.(diff)
     diffs.push(diff)
-    if (permissionNeeded(mode, allowed, { kind: 'edit' })) {
+    const editGate = decideApproval(mode, { kind: 'edit' }, gateContext(allowed, allowlist))
+    if (editGate.action === 'deny') {
+      diff.status = 'rejected'
+      host.onDiff?.(diff)
+      pushStep(host, steps, { id, index, tool: name, status: 'rejected', title, detail: editGate.reason })
+      return `error: ${editGate.reason}`
+    }
+    if (editGate.action === 'ask' && !session.acceptAll) {
       pushStep(host, steps, { id, index, tool: name, status: 'waiting', title, detail: planned.path })
       const decision = await host.ask({ kind: 'edit', id: diffId, path: planned.path, diff: planned.diff })
-      if (!decision.allow) {
+      throwIfAborted(host.signal)
+      if (decision.all) session.acceptAll = true
+      if (!decision.allow && !decision.all) {
         diff.status = 'rejected'
         host.onDiff?.(diff)
         pushStep(host, steps, { id, index, tool: name, status: 'rejected', title, detail: 'Rejected' })
@@ -231,9 +246,15 @@ async function act(
       pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: split.reason })
       return `error: ${split.reason}`
     }
-    if (permissionNeeded(mode, allowed, { kind: 'command', command })) {
+    const commandGate = decideApproval(mode, { kind: 'command', command }, gateContext(allowed, allowlist))
+    if (commandGate.action === 'deny') {
+      pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: commandGate.reason })
+      return `error: ${commandGate.reason} It was not run.`
+    }
+    if (commandGate.action === 'ask') {
       pushStep(host, steps, { id, index, tool: name, status: 'waiting', title, detail: command })
       const decision = await host.ask({ kind: 'command', id, command })
+      throwIfAborted(host.signal)
       if (!decision.allow) {
         pushStep(host, steps, { id, index, tool: name, status: 'rejected', title, detail: 'Denied' })
         return 'The user denied the command. It was not run.'
@@ -247,6 +268,7 @@ async function act(
     pushStep(host, steps, { id, index, tool: name, status: 'running', title, detail: command })
     const run = host.runCommand ?? ((cmd, signal) => runProjectCommand(host.root, cmd, signal))
     const result = await run(command, host.signal)
+    throwIfAborted(host.signal)
     pushStep(host, steps, { id, index, tool: name, status: result.ok ? 'ok' : 'error', title, detail: oneLine(result.output) })
     return clip(host, result.output)
   }
@@ -258,6 +280,10 @@ async function act(
   }
   pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: 'Unknown tool' })
   return `error: unknown tool ${name}`
+}
+
+function gateContext(remembered: ReadonlySet<string>, allowlist: ReadonlySet<string>): ApprovalContext {
+  return { remembered, allowlist, checkpointPaths: new Set() }
 }
 
 function devWebFor(host: CodeAgentHost): DevWebHost {

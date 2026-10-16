@@ -3,7 +3,7 @@
  * Whole-file rewrites of longer files are rejected.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, relative, sep } from 'node:path'
 import { unifiedDiff } from './edit.js'
 import { resolveInside } from './paths.js'
 import { normPath } from './plan.js'
@@ -41,10 +41,6 @@ export function preparePatchSet(
     if (rel.split('/').includes('..')) return { ok: false, message: 'path is outside the project' }
     let current = working.get(rel)
     if (!current) {
-      if (options.allowCreate) {
-        const parent = dirname(rel)
-        if (parent && parent !== '.') mkdirSync(join(root, parent), { recursive: true })
-      }
       const abs = resolveInside(root, rel)
       if (!abs) return { ok: false, message: 'path is outside the project' }
       const exists = existsSync(abs)

@@ -1,8 +1,8 @@
 /**
  * Unified diffs for propose_edit. Applying a diff is a separate step from proposing it.
  */
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { relative, sep } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, relative, sep } from 'node:path'
 import { resolveInside } from './paths.js'
 
 const MAX_DIFF_CHARS = 20_000
@@ -46,6 +46,7 @@ export function applyPlannedEdit(root: string, rel: string, diff: string): { ok:
   const current = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
   const applied = applyUnifiedDiff(current, diff)
   if (!applied.ok) return applied
+  mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, applied.text, 'utf8')
   return { ok: true }
 }

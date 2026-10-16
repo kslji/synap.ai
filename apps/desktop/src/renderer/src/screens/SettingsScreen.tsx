@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ThemeSwitch } from '@surf/ui'
 import { product } from '@surf/shared'
-import type { CodeStorageUsage, DeviceInfo, ModelStatus, SettingsPatch, WebCacheStatus } from '../../../shared/ipc-contract'
+import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
 import { DevWebPanel } from './DevWebPanel'
 import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
@@ -134,6 +134,9 @@ export function SettingsScreen({
             )}
           </div>
         </Group>
+        <Group title="Code agent">
+          <CodeAgentSettings settings={settings} onPatch={onPatch} />
+        </Group>
         <Group title="Privacy and permissions">
         <Row
           title="Offline only"
@@ -236,6 +239,62 @@ export function SettingsScreen({
         </Group>
       </div>
     </section>
+  )
+}
+
+function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsPatch>; onPatch: (p: SettingsPatch) => void }) {
+  const [list, setList] = useState(settings.codeAgentAllowlist.join('\n'))
+  const [confirming, setConfirming] = useState(false)
+  useEffect(() => { setList(settings.codeAgentAllowlist.join('\n')) }, [settings.codeAgentAllowlist])
+  const mode = settings.codeAgentMode === 'auto' ? 'auto' : 'ask'
+  function choose(next: 'ask' | 'auto') {
+    if (next === 'ask') {
+      setConfirming(false)
+      onPatch({ codeAgentMode: 'ask' })
+      return
+    }
+    if (!settings.codeAgentAutoConfirmed) {
+      setConfirming(true)
+      return
+    }
+    onPatch({ codeAgentMode: 'auto' })
+  }
+  return (
+    <div className="card px-4 py-4" data-code-agent-settings="yes">
+      <div className="text-sm font-semibold">Default mode</div>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+        New projects start here. A project keeps its own choice after you change it in the Code agent. Ask is the default.
+      </p>
+      <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Default code agent mode">
+        <button type="button" className={mode === 'ask' ? 'btn btn-primary' : 'btn btn-ghost'} data-code-default-mode="ask" aria-checked={mode === 'ask'} role="radio" onClick={() => choose('ask')}>Ask</button>
+        <button type="button" className={mode === 'auto' ? 'btn btn-primary' : 'btn btn-ghost'} data-code-default-mode="auto" aria-checked={mode === 'auto'} role="radio" onClick={() => choose('auto')}>Auto</button>
+      </div>
+      {confirming && (
+        <div className="mt-3" data-code-auto-settings-confirm="yes">
+          <p className="text-sm leading-relaxed">{AUTO_MODE_SUMMARY}</p>
+          <div className="mt-2 flex gap-2">
+            <button type="button" className="btn btn-primary" data-code-auto-settings-enable="yes" onClick={() => { setConfirming(false); onPatch({ codeAgentMode: 'auto', codeAgentAutoConfirmed: true }) }}>Enable Auto</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Stay on Ask</button>
+          </div>
+        </div>
+      )}
+      <div className="mt-4 text-sm font-semibold">Command allowlist</div>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+        Auto runs these commands, plus test, lint, typecheck, and build commands detected in the open project. One exact command per line. Install and network commands are never added.
+      </p>
+      <textarea
+        className="field mt-3 min-h-24"
+        aria-label="Command allowlist"
+        data-code-allowlist="yes"
+        value={list}
+        spellCheck={false}
+        onChange={(event) => setList(event.target.value)}
+        onBlur={() => {
+          const commands = list.split('\n').map((line) => line.trim()).filter(Boolean)
+          onPatch({ codeAgentAllowlist: commands })
+        }}
+      />
+    </div>
   )
 }
 

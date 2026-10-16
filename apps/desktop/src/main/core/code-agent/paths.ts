@@ -14,13 +14,23 @@ export function resolveInside(root: string, input: string): string | null {
   const abs = resolve(rootReal, rel)
   try {
     if (existsSync(abs)) return inside(rootReal, realpathSync(abs))
-    const parent = resolve(abs, '..')
-    if (!existsSync(parent)) return null
-    const parentReal = realpathSync(parent)
-    if (!inside(rootReal, parentReal)) return null
-    const name = basename(abs)
-    if (!name || name === '.' || name === '..') return null
-    return inside(rootReal, resolve(parentReal, name))
+    // Missing parents stay missing until an approved write creates them.
+    const missing: string[] = []
+    let cursor = abs
+    while (!existsSync(cursor)) {
+      const parent = resolve(cursor, '..')
+      if (parent === cursor) return null
+      const name = basename(cursor)
+      if (!name || name === '.' || name === '..') return null
+      missing.push(name)
+      cursor = parent
+    }
+    let anchor: string
+    try { anchor = realpathSync(cursor) } catch { return null }
+    if (anchor !== rootReal && !inside(rootReal, anchor)) return null
+    let built = anchor
+    for (const name of missing.reverse()) built = resolve(built, name)
+    return inside(rootReal, built)
   } catch {
     return null
   }

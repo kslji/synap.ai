@@ -330,8 +330,18 @@ export function orderPlan(steps: PlanStep[], facts: PlanFacts): { ok: true; step
   return { ok: true, steps: sorted }
 }
 
-/** Ask-mode reorder and remove. Ids omitted from `order` are dropped. Unknown ids are ignored. */
-export function applyPlanEdit(steps: PlanStep[], order: readonly string[]): PlanStep[] {
+export interface PlanGoalEdit {
+  id: string
+  goal: string
+}
+
+/** Ask-mode reorder, remove, and goal edit. Ids omitted from `order` are dropped. Unknown ids are ignored. */
+export function applyPlanEdit(steps: PlanStep[], order: readonly string[], edits: readonly PlanGoalEdit[] = []): PlanStep[] {
+  const goals = new Map<string, string>()
+  for (const edit of edits) {
+    const goal = edit.goal.trim().slice(0, 400)
+    if (goal) goals.set(edit.id, goal)
+  }
   const byId = new Map(steps.map((step) => [step.id, step]))
   const next: PlanStep[] = []
   const seen = new Set<string>()
@@ -339,7 +349,8 @@ export function applyPlanEdit(steps: PlanStep[], order: readonly string[]): Plan
     const step = byId.get(id)
     if (!step || seen.has(id)) continue
     seen.add(id)
-    next.push(step)
+    const goal = goals.get(step.id)
+    next.push(goal ? { ...step, goal } : step)
   }
   return next
 }

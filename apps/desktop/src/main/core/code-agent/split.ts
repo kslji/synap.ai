@@ -3,6 +3,7 @@
  * Counts, ordering, checks, and the model suggestion stay in code.
  */
 import type { CodeDiagnosticView, CodeDiffView, CodePlanView, CodeStepView } from '../../../shared/ipc-contract.js'
+import { takeOutputUpdate } from '../../../shared/stream-batch.js'
 import type { ChatMessage } from '../llama-client.js'
 import { commandScript, fullTestCommand, resolveCheck } from './checks.js'
 import { captureCheckpoint, extendCheckpoint, restoreCheckpoint, type Checkpoint } from './checkpoint.js'
@@ -260,6 +261,7 @@ async function plannedSteps(task: string, host: SplitHost): Promise<{ ok: true; 
       ],
       responseFormat: planResponseFormat(),
       thinking: true,
+      stepKind: 'plan',
       maxTokens: host.answerTokens,
       signal: host.signal,
     })
@@ -281,6 +283,7 @@ async function replan(note: string, _group: PlanStep[], host: SplitHost): Promis
       ],
       responseFormat: planResponseFormat(),
       thinking: true,
+      stepKind: 'plan',
       maxTokens: host.answerTokens,
       signal: host.signal,
     })
@@ -386,6 +389,7 @@ async function tryOnce(
     ],
     responseFormat: patchResponseFormat(),
     thinking: pass.thinking,
+    stepKind: pass.thinking ? 'hard-fix' : 'edit',
     maxTokens: host.answerTokens,
     signal: host.signal,
   })
@@ -519,10 +523,13 @@ async function streamCommand(
   throwIfAborted(host.signal)
   if (verdict !== 'allow') return { ok: false, output: 'The user denied the command. It was not run.', note: '', halted: 'cancelled' }
   let output = ''
+  let pending = ''
   const hooks: CommandHooks = {
     onOutput(chunk) {
       output += chunk
-      showRunning(host, views, id, title, command, output, attempt)
+      const next = takeOutputUpdate(pending, chunk)
+      pending = next.pending
+      if (next.emit) showRunning(host, views, id, title, command, output, attempt)
     },
   }
   const run = host.runCommand ?? ((cmd, signal, hook) => runProjectCommand(host.root, cmd, signal, hook, { timeoutMs: CHECK_TIMEOUT_MS }))

@@ -29,6 +29,7 @@ export interface CodeApi {
   root(): string | null
   /** The open index after a successful pass. Null until the project is indexed. */
   indexed(): CodeIndex | null
+  currentId(): string | null
   shutdown(): void
 }
 
@@ -147,6 +148,9 @@ export function createCodeService(opts: {
       } catch {
         return null
       }
+    },
+    currentId() {
+      return current?.id ?? null
     },
     shutdown() {
       generation += 1

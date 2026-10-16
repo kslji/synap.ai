@@ -24,6 +24,7 @@ import {
   type CodeDb, type ImpactHit, type RefHit, type RelatedHit, type SymbolHit,
 } from './store.js'
 import { watchProject } from './watch.js'
+import { BackgroundIndex } from '../live/index-queue.js'
 
 export type { CodeProjectStatus }
 
@@ -62,6 +63,7 @@ export class CodeIndex {
   private error: string | null = null
   private embedder: CodeEmbedder | null
   private closed = false
+  private bg!: BackgroundIndex
   readonly id: string
   readonly root: string
   readonly dbPath: string
@@ -83,6 +85,14 @@ export class CodeIndex {
     this.onProgress = opts.onProgress
     this.id = projectIdFor(this.root)
     this.db = openCodeDb(opts.dbPath, opts.keyHex)
+    this.bg = new BackgroundIndex(
+      async (rel) => {
+        if (this.closed) return
+        await this.exclusive(() => this.indexPaths([rel]))
+      },
+      () => { void this.embedPending() },
+      (error) => this.fail(error),
+    )
   }
 
   private readonly grammarDir: string
@@ -114,7 +124,7 @@ export class CodeIndex {
 
   /** Index the tree. Keyword rows land first; embeddings follow in small batches. */
   async run(): Promise<CodeProjectStatus> {
-    await this.exclusive(async () => { await this.indexAll() })
+    await this.indexAll()
     await this.embedPending()
     return this.status()
   }
@@ -126,7 +136,7 @@ export class CodeIndex {
 
   watch(): void {
     this.watcher?.close()
-    this.watcher = watchProject(this.root, (rels) => { void this.update(rels).catch((error: unknown) => this.fail(error)) })
+    this.watcher = watchProject(this.root, (rels) => { this.bg.enqueue(rels) })
   }
 
   close(): void {
@@ -139,27 +149,27 @@ export class CodeIndex {
   }
 
   search(query: string): Promise<CodeHit[]> {
-    return this.exclusive(async () => {
+    return this.read(async () => {
       const qvec = await this.queryVector(query)
       return searchCode(this.db, query, qvec)
     })
   }
 
   definition(name: string, preferPath?: string): Promise<SymbolHit[]> {
-    return this.exclusive(async () => definitions(this.db, name, preferPath))
+    return this.read(async () => definitions(this.db, name, preferPath))
   }
 
   references(name: string): Promise<RefHit[]> {
-    return this.exclusive(async () => referencesTo(this.db, name))
+    return this.read(async () => referencesTo(this.db, name))
   }
 
   related(path: string): Promise<RelatedHit[]> {
-    return this.exclusive(async () => relatedFiles(this.db, path))
+    return this.read(async () => relatedFiles(this.db, path))
   }
 
   /** Callers, references, and imports of a symbol: what may break if it changes. */
   impact(name: string): Promise<ImpactHit[]> {
-    return this.exclusive(async () => impactOf(this.db, name))
+    return this.read(async () => impactOf(this.db, name))
   }
 
   /**
@@ -167,7 +177,7 @@ export class CodeIndex {
    * Otherwise the tree-sitter graph.
    */
   exactReferences(name: string): Promise<{ source: 'lsp' | 'graph'; items: { path: string; line: number }[] }> {
-    return this.exclusive(async () => {
+    return this.read(async () => {
       const defs = definitions(this.db, name)
       const graph = () => referencesTo(this.db, name).map((hit) => ({ path: hit.path, line: hit.line }))
       const def = defs[0]
@@ -189,12 +199,12 @@ export class CodeIndex {
   }
 
   context(task: string, options: ContextOptions): Promise<ContextPack> {
-    return this.exclusive(async () => buildContext(this.db, task, { ...options, embedder: options.embedder ?? this.embedder }))
+    return this.read(async () => buildContext(this.db, task, { ...options, embedder: options.embedder ?? this.embedder }))
   }
 
   /** Imported symbols and definitions above a cursor line, for inline completion. */
   completionHints(path: string, line: number): Promise<{ imported: SymbolHit[]; nearby: SymbolHit[] }> {
-    return this.exclusive(async () => ({
+    return this.read(async () => ({
       imported: importedDefinitions(this.db, path, 6),
       nearby: nearbyDefinitions(this.db, path, line, 6),
     }))
@@ -202,7 +212,12 @@ export class CodeIndex {
 
   /** Indexed files, symbols, and caller→definition edges. Used to validate a plan. */
   planFacts(): Promise<{ indexed: true; files: string[]; symbols: { name: string; qualified: string; kind: string; path: string }[]; edges: { from: string; to: string; kind: string }[] }> {
-    return this.exclusive(async () => ({ indexed: true as const, ...readPlanFacts(this.db) }))
+    return this.read(async () => ({ indexed: true as const, ...readPlanFacts(this.db) }))
+  }
+
+  /** Search and graph reads jump ahead of files that have not been indexed yet. */
+  private read<T>(fn: () => Promise<T>): Promise<T> {
+    return this.bg.prioritize(() => this.exclusive(fn))
   }
 
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -228,29 +243,38 @@ export class CodeIndex {
   }
 
   private async indexAll(): Promise<void> {
-    this.state = 'indexing'
-    this.error = null
     const scan = scanProject(this.root)
-    const existing = new Map(listFiles(this.db).map((file) => [file.path, file.sha256]))
-    const seen = new Set(scan.files.map((file) => file.rel))
-    for (const path of existing.keys()) if (!seen.has(path)) deletePath(this.db, path)
-    this.planned = scan.files.length
-    this.done = 0
-    this.emit()
+    let existing = new Map<string, string>()
+    await this.exclusive(async () => {
+      this.state = 'indexing'
+      this.error = null
+      existing = new Map(listFiles(this.db).map((file) => [file.path, file.sha256]))
+      const seen = new Set(scan.files.map((file) => file.rel))
+      for (const path of existing.keys()) if (!seen.has(path)) deletePath(this.db, path)
+      this.planned = scan.files.length
+      this.done = 0
+      this.emit()
+    })
     for (const file of scan.files) {
       if (this.closed) return
-      const text = readFileSync(file.abs, 'utf8')
-      const hash = digest(text)
-      this.done++
-      if (existing.get(file.rel) === hash) continue
-      await this.indexText(file, text, hash)
-      if (this.done % 8 === 0) this.emit()
+      await this.exclusive(async () => {
+        if (this.closed) return
+        const text = readFileSync(file.abs, 'utf8')
+        const hash = digest(text)
+        this.done++
+        if (existing.get(file.rel) === hash) return
+        await this.indexText(file, text, hash)
+        if (this.done % 8 === 0) this.emit()
+      })
       await new Promise((resolveWait) => setImmediate(resolveWait))
     }
     if (this.closed) return
-    linkEdges(this.db)
-    this.state = 'ready'
-    this.emit()
+    await this.exclusive(async () => {
+      if (this.closed) return
+      linkEdges(this.db)
+      this.state = 'ready'
+      this.emit()
+    })
   }
 
   private async indexPaths(rels: string[]): Promise<void> {

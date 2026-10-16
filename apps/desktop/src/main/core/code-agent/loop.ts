@@ -13,6 +13,7 @@ import { parseModelTurn, type ModelTurn } from './parse-tool.js'
 import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode } from './permission.js'
 import type { ProjectSearch } from './project-search.js'
 import { codeSystemPrompt } from './system-rules.js'
+import { takeOutputUpdate } from '../../../shared/stream-batch.js'
 import { codeAgentDevWebTools, resolveSynapApiUrl, type DevWebHost } from './dev-web-hook.js'
 import { codeToolSchemas } from './tools.js'
 import { listProjectDir, readProjectFile, runProjectCommand, splitCommand } from './workspace.js'
@@ -26,6 +27,11 @@ export interface CompletionRequest {
   thinking?: boolean
   maxTokens: number
   signal?: AbortSignal
+  /** triage and edit stay on the small model. plan and hard-fix use the larger one when both fit. */
+  stepKind?: 'triage' | 'edit' | 'plan' | 'hard-fix'
+  /** True when this request's stable prefix matches the previous one. */
+  cachePrompt?: boolean
+  onDelta?: (text: string) => void
 }
 
 export interface CodeAgentLimits {
@@ -152,13 +158,14 @@ async function obtainCall(host: CodeAgentHost, messages: ChatMessage[], maxParse
 }
 
 function requestFor(constraint: Constraint, messages: ChatMessage[], host: CodeAgentHost): CompletionRequest {
+  const stepKind = 'triage' as const
   if (constraint === 'json_schema') {
-    return { messages, responseFormat: toolCallJsonSchema(), maxTokens: host.answerTokens, signal: host.signal }
+    return { messages, responseFormat: toolCallJsonSchema(), maxTokens: host.answerTokens, signal: host.signal, stepKind }
   }
   if (constraint === 'gbnf') {
-    return { messages, grammar: toolCallGbnf(), maxTokens: host.answerTokens, signal: host.signal }
+    return { messages, grammar: toolCallGbnf(), maxTokens: host.answerTokens, signal: host.signal, stepKind }
   }
-  return { messages, tools: codeToolSchemas(host.devWeb?.env), maxTokens: host.answerTokens, signal: host.signal }
+  return { messages, tools: codeToolSchemas(host.devWeb?.env), maxTokens: host.answerTokens, signal: host.signal, stepKind }
 }
 
 async function act(
@@ -266,12 +273,15 @@ async function act(
       }
     }
     let streamed = ''
+    let pending = ''
     pushStep(host, steps, { id, index, tool: name, status: 'running', title, detail: command, output: '' })
     const run = host.runCommand ?? ((cmd, signal, hooks) => runProjectCommand(host.root, cmd, signal, hooks))
     const result = await run(command, host.signal, {
       onOutput(chunk) {
         streamed += chunk
-        pushStep(host, steps, { id, index, tool: name, status: 'running', title, detail: command, output: tail(streamed) })
+        const next = takeOutputUpdate(pending, chunk)
+        pending = next.pending
+        if (next.emit) pushStep(host, steps, { id, index, tool: name, status: 'running', title, detail: command, output: tail(streamed) })
       },
     })
     throwIfAborted(host.signal)

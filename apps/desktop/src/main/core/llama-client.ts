@@ -38,6 +38,8 @@ export interface ChatCompletionExtras {
   grammar?: string;
   /** Qwen thinking stays off except for planning and hard fixes. */
   enableThinking?: boolean;
+  /** Ask llama-server to reuse the KV cache when the prompt prefix matches the previous request. */
+  cachePrompt?: boolean;
 }
 
 export class LlamaClient {
@@ -77,6 +79,8 @@ export class LlamaClient {
       chat_template_kwargs: kwargs,
       ...(extras?.response_format ? { response_format: extras.response_format } : {}),
       ...(extras?.grammar ? { grammar: extras.grammar } : {}),
+      ...(extras?.cachePrompt ? { cache_prompt: true } : {}),
+      ...(stream ? { stream_options: { include_usage: true } } : {}),
     };
   }
 
@@ -122,15 +126,107 @@ export class LlamaClient {
     }
   }
 
-  /** Let the model call tools until it produces a final answer (bounded to avoid loops). */
+  /**
+   * Stream a chat completion, forwarding content deltas, and return the assembled message.
+   * Tool-call deltas are collected so the caller still sees native tool_calls.
+   */
+  async chatCollect(
+    messages: ChatMessage[],
+    tools: readonly unknown[] | undefined,
+    signal: AbortSignal | undefined,
+    maxTokens: number,
+    extras: ChatCompletionExtras | undefined,
+    onDelta: (text: string) => void,
+  ): Promise<{ choices: { message: ChatMessage; finish_reason: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }> {
+    const r = await fetch(`${this.o.baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.o.apiKey}` },
+      body: JSON.stringify(this.chatBody(messages, tools, maxTokens, true, extras)),
+      signal,
+    });
+    if (!r.ok || !r.body) throw new Error(`llama-server /v1/chat/completions: HTTP ${r.status} ${await r.text()}`);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let content = '';
+    let finish = 'stop';
+    let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    const calls = new Map<number, { id: string; name: string; arguments: string }>();
+    const take = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === '[DONE]') return;
+      try {
+        const json = JSON.parse(data) as {
+          choices?: { finish_reason?: string | null; delta?: { content?: string; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[]
+          usage?: { prompt_tokens?: number; completion_tokens?: number }
+        };
+        if (json.usage) usage = json.usage;
+        const choice = json.choices?.[0];
+        if (choice?.finish_reason) finish = choice.finish_reason;
+        const delta = choice?.delta;
+        if (delta?.content) {
+          content += delta.content;
+          onDelta(delta.content);
+        }
+        for (const call of delta?.tool_calls ?? []) {
+          const index = call.index ?? 0;
+          const row = calls.get(index) ?? { id: '', name: '', arguments: '' };
+          if (call.id) row.id = call.id;
+          if (call.function?.name) row.name += call.function.name;
+          if (call.function?.arguments) row.arguments += call.function.arguments;
+          calls.set(index, row);
+        }
+      } catch { /* partial keepalive */ }
+    };
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) take(line);
+    }
+    if (buf.trim()) take(buf);
+    const toolCalls = [...calls.entries()].sort((a, b) => a[0] - b[0]).map(([, call]) => ({
+      id: call.id || `call-${calls.size}`,
+      type: 'function' as const,
+      function: { name: call.name, arguments: call.arguments },
+    })).filter((call) => call.function.name);
+    const message: ChatMessage = {
+      role: 'assistant',
+      content,
+      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+    };
+    return { choices: [{ message, finish_reason: finish }], ...(usage ? { usage } : {}) };
+  }
+
+  /** Let the model call tools until it produces a final answer (bounded to avoid loops). Content tokens stream as they arrive. */
   async runWithTools(messages: ChatMessage[], tools: readonly unknown[], handlers: Record<string, ToolHandler>,
-    maxSteps = 4, signal?: AbortSignal): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[] }> {
+    maxSteps = 4, signal?: AbortSignal, hooks?: { onDelta?: (text: string) => void; maxTokens?: number; cachePrompt?: boolean }): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[]; usage?: { prompt_tokens: number; completion_tokens: number } }> {
     const msgs = [...messages];
     const used: ToolCall[] = [];
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let sawUsage = false;
     for (let step = 0; step < maxSteps; step++) {
-      const { message } = (await this.chat(msgs, tools, signal)).choices[0];
+      const res = await this.chatCollect(msgs, tools, signal, hooks?.maxTokens ?? 1024, hooks?.cachePrompt ? { cachePrompt: true } : undefined, (piece) => hooks?.onDelta?.(piece));
+      if (res.usage) {
+        sawUsage = true;
+        promptTokens += res.usage.prompt_tokens ?? 0;
+        completionTokens += res.usage.completion_tokens ?? 0;
+      }
+      const message = res.choices[0]?.message ?? { role: 'assistant' as const, content: '' };
       msgs.push(message);
-      if (!message.tool_calls?.length) return { answer: String(message.content ?? ''), messages: msgs, toolCalls: used };
+      if (!message.tool_calls?.length) {
+        return {
+          answer: String(message.content ?? ''),
+          messages: msgs,
+          toolCalls: used,
+          ...(sawUsage ? { usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens } } : {}),
+        };
+      }
       for (const call of message.tool_calls) {
         used.push(call);
         const h = handlers[call.function.name];
@@ -145,7 +241,12 @@ export class LlamaClient {
         msgs.push({ role: 'tool', tool_call_id: call.id, content: out });
       }
     }
-    return { answer: 'Sorry, I could not finish that request.', messages: msgs, toolCalls: used };
+    return {
+      answer: 'Sorry, I could not finish that request.',
+      messages: msgs,
+      toolCalls: used,
+      ...(sawUsage ? { usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens } } : {}),
+    };
   }
 }
 

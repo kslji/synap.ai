@@ -128,7 +128,7 @@ export interface SettingsPatch {
   mascotName?: string
   accent?: 'orange' | 'blue' | 'indigo' | 'navy'
   density?: 'compact' | 'comfortable' | 'relaxed'
-  /** CSS motion for the mascot. There is no audio. */
+  /** SVG motion for the mascot. There is no audio. */
   animateMascot?: boolean
   /** Offline blocks every network call. Online allows web and pack sync. Auto follows the connection. */
   networkMode?: 'offline' | 'online' | 'auto'

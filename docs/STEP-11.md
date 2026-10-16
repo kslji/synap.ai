@@ -32,5 +32,3 @@ No clips were in `animation/mp4` in this checkout, so none were watermark-inspec
 ## Release
 
 A `v*` tag runs the CI workflow, including the no-fabrication gate and the Step 11 suite, and only then builds installers. This step does not push a tag.
-
-The 4B and 9B RAM script reports file size when the GGUF is present and exits 0 when it is absent. It does not start llama-server.

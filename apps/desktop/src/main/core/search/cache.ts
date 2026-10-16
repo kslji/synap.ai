@@ -50,15 +50,19 @@ export function clearSearchCache(db: DB | null): void {
 }
 
 export function readCache(db: DB | null, kind: CacheKind, region: string, value: string, now = Date.now()): string | null {
+  return readCacheMeta(db, kind, region, value, now)?.payload ?? null
+}
+
+export function readCacheMeta(db: DB | null, kind: CacheKind, region: string, value: string, now = Date.now()): { payload: string; fetchedAt: number } | null {
   if (!ready(db)) return null
   const key = cacheKey(kind, region, value)
-  const row = db.prepare('SELECT payload, expires_at AS expiresAt FROM search_disk_cache WHERE cache_key = ?').get(key) as { payload: string; expiresAt: number } | undefined
+  const row = db.prepare('SELECT payload, fetched_at AS fetchedAt, expires_at AS expiresAt FROM search_disk_cache WHERE cache_key = ?').get(key) as { payload: string; fetchedAt: number; expiresAt: number } | undefined
   if (!row) return null
   if (row.expiresAt <= now) {
     db.prepare('DELETE FROM search_disk_cache WHERE cache_key = ?').run(key)
     return null
   }
-  return row.payload
+  return { payload: row.payload, fetchedAt: row.fetchedAt }
 }
 
 export function writeCache(db: DB | null, kind: CacheKind, region: string, value: string, payload: string, now = Date.now()): void {

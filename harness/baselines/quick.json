@@ -20,6 +20,15 @@
       "min_score": 1.0,
       "ok": true
     },
+    "no-fabrication": {
+      "score": 1.0,
+      "cases": 30,
+      "passed": 30,
+      "weight": 30.0,
+      "passed_weight": 30.0,
+      "min_score": 1.0,
+      "ok": true
+    },
     "shared": {
       "score": 1.0,
       "cases": 12,

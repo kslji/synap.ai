@@ -5,7 +5,7 @@
 import type { Citation } from '../ipc-contract.js'
 import type { DB } from '../db.js'
 import { dropBlocked } from './blocked.js'
-import { readCache, writeCache } from './cache.js'
+import { readCacheMeta, writeCache } from './cache.js'
 import { runConnectors } from './connectors.js'
 import { searchDdg } from './ddg.js'
 import {
@@ -17,6 +17,7 @@ import {
   fetchOfficialEod,
   findNav,
   navAnswer,
+  navQuery,
   parseAmfiNav,
   parsePnlQuestion,
   parseRss,
@@ -36,6 +37,18 @@ import { classifyIntent, financeNeedsLive } from './intent.js'
 import { legalAnswer, legalUnavailable, quoteFromHits, searchLegalWeb } from './legal.js'
 import { readPage } from './reader.js'
 import type { ConnectorHit, LocalHit, RegionChoice } from './types.js'
+import {
+  NAV_MAX_AGE_MS,
+  NEWS_MAX_AGE_MS,
+  PRICE_MAX_AGE_MS,
+  STOCK_MAX_AGE_MS,
+  claimTopic,
+  recordsFromCitations,
+  sourceUsable,
+  unableMessage,
+  verifyGroundedAnswer,
+} from './verify-answer.js'
+import { regionBanner } from './region.js'
 
 export interface ComposedAnswer {
   text: string
@@ -49,6 +62,25 @@ function asFinance(answer: FinanceAnswer, gate: ComposedAnswer['gate'] = 'answer
   return { text: answer.text, citations: answer.citations, gate }
 }
 
+function publishFinance(question: string, region: RegionChoice, answer: FinanceAnswer, kind: 'math' | 'crypto' | 'nav' | 'news' | 'stock', now: number): ComposedAnswer {
+  const checked = verifyGroundedAnswer({
+    answer: answer.text,
+    question,
+    records: recordsFromCitations(answer.citations, kind),
+    now,
+  })
+  const fallback = kind === 'news' ? 'news' : 'price'
+  if (checked.blocked.length) return asFinance(unavailableFinance(region, fallback), 'insufficient')
+  return { text: checked.text, citations: answer.citations, gate: 'answer' }
+}
+
+/** A web search that came back empty. A price, news, or legal question gets the unable message. */
+export function emptyWebAnswer(question: string, region: RegionChoice, fallback: string): string {
+  const topic = claimTopic(question)
+  if (!topic) return fallback
+  return `${regionBanner(region.label)}\n${unableMessage(topic)}`
+}
+
 export async function composeRouted(input: {
   question: string
   hits: LocalHit[]
@@ -59,43 +91,45 @@ export async function composeRouted(input: {
   signal?: AbortSignal
   navText?: string
   bhavText?: string
+  now?: number
 }): Promise<ComposedAnswer | null> {
   const intent = classifyIntent(input.question)
   const net: Net = { offlineOnly: input.offlineOnly, fetchImpl: input.fetchImpl, signal: input.signal }
-  if (intent === 'finance') return composeFinance(input.question, input.region, input.webAllowed, net, input.navText, input.bhavText)
-  if (intent === 'legal') return composeLegal(input.question, input.hits, input.region, input.webAllowed, net)
+  const now = input.now ?? Date.now()
+  if (intent === 'finance') return composeFinance(input.question, input.region, input.webAllowed, net, now, input.navText, input.bhavText)
+  if (intent === 'legal') return composeLegal(input.question, input.hits, input.region, input.webAllowed, net, now)
   return null
 }
 
-async function composeFinance(question: string, region: RegionChoice, webAllowed: boolean, net: Net, navText?: string, bhavText?: string): Promise<ComposedAnswer> {
+async function composeFinance(question: string, region: RegionChoice, webAllowed: boolean, net: Net, now: number, navText?: string, bhavText?: string): Promise<ComposedAnswer> {
   const sip = parseSipQuestion(question)
-  if (sip) return asFinance(sipAnswer(sip, region))
+  if (sip) return publishFinance(question, region, sipAnswer(sip, region), 'math', now)
   const pnl = parsePnlQuestion(question)
-  if (pnl) return asFinance(pnlAnswer(pnl, region))
+  if (pnl) return publishFinance(question, region, pnlAnswer(pnl, region), 'math', now)
   const tax = question.match(/\b(stcg|ltcg|capital gain)\b/i)
   if (tax) {
     const gain = Number(question.match(/(\d+(?:\.\d+)?)\s*(?:inr|rupees|rs)?/i)?.[1] ?? '0')
     const days = Number(question.match(/(\d+)\s*days?/i)?.[1] ?? (/\bltcg\b/i.test(question) ? '400' : '10'))
     const india = region.code === 'IN' || /\bindia\b/i.test(question)
-    return asFinance(taxAnswer(gain, days, region, india))
+    return publishFinance(question, region, taxAnswer(gain, days, region, india), 'math', now)
   }
   if (!webAllowed || net.offlineOnly || !financeNeedsLive(question)) {
-    return asFinance(unavailableFinance(region, 'That live figure'), 'insufficient')
+    return asFinance(unavailableFinance(region, 'price'), 'insufficient')
   }
   const coin = coinId(question)
   if (coin) {
     const price = await fetchCoin(coin, net)
-    if (!price) return asFinance(unavailableFinance(region, `${coin} price`), 'insufficient')
-    return asFinance(coinAnswer(coin, price, region))
+    if (!price || !sourceUsable(price.at, now, PRICE_MAX_AGE_MS)) return asFinance(unavailableFinance(region, 'price'), 'insufficient')
+    return publishFinance(question, region, coinAnswer(coin, price, region), 'crypto', now)
   }
   if (region.code === 'IN' && /\b(nav|amfi|mutual fund)\b/i.test(question)) {
     const text = navText ?? await (async () => {
       const res = await politeFetch(AMFI_NAV_URL, { ...net, timeoutMs: 8000, perMinute: 4, headers: { accept: 'text/plain' } })
       return res ? res.text() : null
     })()
-    const row = text ? findNav(parseAmfiNav(text), question.replace(/\b(amfi|nav|of|the|fund|what|is)\b/gi, ' ').replace(/\s+/g, ' ').trim()) : null
-    if (!row) return asFinance(unavailableFinance(region, 'AMFI NAV'), 'insufficient')
-    return asFinance(navAnswer(row, region))
+    const row = text ? findNav(parseAmfiNav(text), navQuery(question)) : null
+    if (!row || !sourceUsable(row.date, now, NAV_MAX_AGE_MS)) return asFinance(unavailableFinance(region, 'price'), 'insufficient')
+    return publishFinance(question, region, navAnswer(row, region), 'nav', now)
   }
   if (/\b(sebi|rbi|circular)\b/i.test(question)) {
     const feeds = [
@@ -104,32 +138,43 @@ async function composeFinance(question: string, region: RegionChoice, webAllowed
     ]
     for (const feed of feeds) {
       const res = await politeFetch(feed.url, { ...net, perMinute: 4, headers: { accept: 'application/rss+xml, application/xml, text/xml' } })
-      const items = res ? parseRss(await res.text()) : []
-      if (items.length) return asFinance(feedAnswer(feed.name, feed.url, items, region))
+      const items = res ? parseRss(await res.text()).filter((item) => sourceUsable(item.date, now, NEWS_MAX_AGE_MS)) : []
+      if (items.length) return publishFinance(question, region, feedAnswer(feed.name, feed.url, items, region), 'news', now)
     }
-    return asFinance(unavailableFinance(region, 'Official circular feed'), 'insufficient')
+    return asFinance(unavailableFinance(region, 'news'), 'insufficient')
   }
   if (/\b(nse|bse|stock price|share price|nifty|sensex)\b/i.test(question)) {
     if (region.code !== 'IN' && !/\b(nse|bse|india)\b/i.test(question)) {
-      return asFinance(unavailableFinance(region, 'End-of-day stock file for this region'), 'insufficient')
+      return asFinance(unavailableFinance(region, 'price'), 'insufficient')
     }
     const symbol = stockSymbol(question)
-    if (!symbol) return asFinance(unavailableFinance(region, 'Official end-of-day stock file'), 'insufficient')
+    if (!symbol) return asFinance(unavailableFinance(region, 'price'), 'insufficient')
     const row = await fetchOfficialEod(symbol, net, bhavText)
-    if (!row) return asFinance(unavailableFinance(region, 'Official end-of-day stock file'), 'insufficient')
-    return asFinance(eodAnswer(row, region))
+    if (!row || !sourceUsable(row.date, now, STOCK_MAX_AGE_MS)) return asFinance(unavailableFinance(region, 'price'), 'insufficient')
+    return publishFinance(question, region, eodAnswer(row, region), 'stock', now)
   }
-  return asFinance(unavailableFinance(region, 'That live figure'), 'insufficient')
+  return asFinance(unavailableFinance(region, 'price'), 'insufficient')
 }
 
-async function composeLegal(question: string, hits: LocalHit[], region: RegionChoice, webAllowed: boolean, net: Net): Promise<ComposedAnswer> {
+async function composeLegal(question: string, hits: LocalHit[], region: RegionChoice, webAllowed: boolean, net: Net, now: number): Promise<ComposedAnswer> {
   const local = quoteFromHits(question, hits)
-  if (local) return { ...legalAnswer(local, region), gate: 'answer' }
+  if (local) return publishLegal(question, region, legalAnswer(local, region), now)
   if (webAllowed && !net.offlineOnly) {
     const remote = await searchLegalWeb(question, region, net)
-    if (remote?.text) return { ...legalAnswer(remote, region), gate: 'answer' }
+    if (remote?.text) return publishLegal(question, region, legalAnswer(remote, region), now)
   }
   return { ...legalUnavailable(region), gate: 'insufficient' }
+}
+
+function publishLegal(question: string, region: RegionChoice, answer: { text: string; citations: Citation[] }, now: number): ComposedAnswer {
+  const checked = verifyGroundedAnswer({
+    answer: answer.text,
+    question,
+    records: recordsFromCitations(answer.citations, 'legal'),
+    now,
+  })
+  if (checked.blocked.length) return { ...legalUnavailable(region), gate: 'insufficient' }
+  return { text: checked.text, citations: answer.citations, gate: 'answer' }
 }
 
 export interface GatheredPage {
@@ -138,6 +183,7 @@ export interface GatheredPage {
   text: string
   published: string | null
   source: string
+  cachedAt: number | null
 }
 
 export async function gatherOnline(input: {
@@ -153,10 +199,11 @@ export async function gatherOnline(input: {
   const intent = classifyIntent(input.question)
   const ctx = { offlineOnly: input.offlineOnly, fetchImpl: input.fetchImpl, signal: input.signal }
   const now = input.now ?? Date.now()
-  const cached = readCache(input.db, 'search', input.region.code, input.question, now)
+  const cached = readCacheMeta(input.db, 'search', input.region.code, input.question, now)
   let hits: ConnectorHit[] = []
   if (cached) {
-    try { hits = JSON.parse(cached) as ConnectorHit[] } catch { hits = [] }
+    try { hits = JSON.parse(cached.payload) as ConnectorHit[] } catch { hits = [] }
+    hits = hits.map((hit) => ({ ...hit, cachedAt: cached.fetchedAt }))
   }
   if (!hits.length) {
     try { hits = await runConnectors(intent, input.question, ctx) } catch { hits = [] }
@@ -170,16 +217,16 @@ export async function gatherOnline(input: {
   }
   const pages: GatheredPage[] = []
   for (const hit of hits.slice(0, 3)) {
-    const cachedPage = readCache(input.db, 'page', input.region.code, hit.url, now)
+    const cachedPage = readCacheMeta(input.db, 'page', input.region.code, hit.url, now)
     if (cachedPage) {
-      pages.push({ url: hit.url, title: hit.title, text: cachedPage, published: hit.published, source: hit.source })
+      pages.push({ url: hit.url, title: hit.title, text: cachedPage.payload, published: hit.published, source: hit.source, cachedAt: cachedPage.fetchedAt })
       continue
     }
     const page = await readPage(hit.url, { ...ctx, jsRender: input.jsRender }).catch(() => null)
     const text = page?.markdown || hit.snippet
     if (!text.trim()) continue
     if (page?.markdown) writeCache(input.db, 'page', input.region.code, hit.url, page.markdown, now)
-    pages.push({ url: hit.url, title: page?.title || hit.title, text, published: hit.published, source: hit.source })
+    pages.push({ url: hit.url, title: page?.title || hit.title, text, published: hit.published, source: hit.source, cachedAt: hit.cachedAt ?? null })
   }
   return { hits, pages }
 }

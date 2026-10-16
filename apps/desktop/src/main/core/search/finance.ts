@@ -7,6 +7,7 @@ import JSZip from 'jszip'
 import type { Citation } from '../ipc-contract.js'
 import { politeFetch, type PoliteOpts } from './http.js'
 import { regionBanner } from './region.js'
+import { UNABLE_NEWS, UNABLE_PRICE } from './verify-answer.js'
 import type { RegionChoice } from './types.js'
 
 export const FINANCE_DISCLAIMER = 'These figures are calculations from the cited source. This is not a recommendation to buy or sell.'
@@ -109,6 +110,14 @@ export function parseAmfiNav(text: string): NavRow[] {
     rows.push({ code: parts[0].trim(), name: parts[3].trim(), nav, date: parts[5].trim() })
   }
   return rows
+}
+
+export function navQuery(question: string): string {
+  return question
+    .replace(/[?.,!;:]+/g, ' ')
+    .replace(/\b(amfi|nav|what|is|of|the|a|an|please|show|me)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export function findNav(rows: NavRow[], query: string): NavRow | null {
@@ -216,11 +225,12 @@ export function eodAnswer(
   row: { symbol: string; close: number; date: string; source: string; url: string },
   region: RegionChoice,
 ): FinanceAnswer {
-  const excerpt = `${row.symbol} close ${row.close} on ${row.date || 'the file date'}. Source: ${row.source}. End of day only.`
+  const shown = money(row.close)
+  const excerpt = `${row.symbol} close ${shown} on ${row.date || 'the file date'}. Source: ${row.source}. End of day only.`
   return {
     text: [
       regionBanner(region.label),
-      `${row.symbol} close ${row.close} on ${row.date || 'the file date'} [S1].`,
+      `${row.symbol} close ${shown} on ${row.date || 'the file date'} [S1].`,
       excerpt,
       FINANCE_DISCLAIMER,
     ].join('\n'),
@@ -278,7 +288,7 @@ export interface FinanceAnswer {
 export function sipAnswer(input: { monthly: number; annualRate: number; months: number }, region: RegionChoice): FinanceAnswer {
   const value = sipFutureValue(input.monthly, input.annualRate, input.months)
   const shown = money(value)
-  const excerpt = `End-of-month SIP future value. Monthly ${input.monthly}, annual rate ${input.annualRate}, months ${input.months}.`
+  const excerpt = `End-of-month SIP future value ${shown}. Monthly ${input.monthly}, annual rate ${input.annualRate}, months ${input.months}.`
   return {
     text: [
       regionBanner(region.label),
@@ -293,7 +303,7 @@ export function sipAnswer(input: { monthly: number; annualRate: number; months: 
 
 export function pnlAnswer(input: { qty: number; buy: number; sell: number }, region: RegionChoice): FinanceAnswer {
   const result = profitLoss(input.qty, input.buy, input.sell)
-  const excerpt = `${input.qty} shares, buy ${input.buy}, sell ${input.sell}.`
+  const excerpt = `Profit or loss ${money(result.pnl)} (${(result.pct * 100).toFixed(2)}%). ${input.qty} shares, buy ${input.buy}, sell ${input.sell}.`
   return {
     text: [
       regionBanner(region.label),
@@ -318,7 +328,7 @@ export function taxAnswer(gain: number, days: number, region: RegionChoice, indi
     }
   }
   const tax = indiaEquityTax(gain, days)
-  const excerpt = `${tax.kind.toUpperCase()} at ${(tax.rate * 100).toFixed(1)}% on gain ${gain} held ${days} days. Table date ${INDIA_EQUITY_TAX.asOf}.`
+  const excerpt = `Tax ${money(tax.tax)}. ${tax.kind.toUpperCase()} at ${(tax.rate * 100).toFixed(1)}% on gain ${gain} held ${days} days. Table date ${INDIA_EQUITY_TAX.asOf}.`
   return {
     text: [
       regionBanner(region.label),
@@ -340,9 +350,9 @@ export async function fetchNav(query: string, ctx: FetchCtx, fixture?: string): 
     return res ? res.text() : null
   })()
   if (!text) return null
-  const row = findNav(parseAmfiNav(text), query.replace(/\b(amfi|nav|of|the|fund)\b/gi, ' ').replace(/\s+/g, ' ').trim())
+  const row = findNav(parseAmfiNav(text), navQuery(query))
   if (!row) return null
-  const excerpt = `${row.name} NAV ${row.nav} on ${row.date}.`
+  const excerpt = `${row.name} NAV ${money(row.nav)} on ${row.date}.`
   return {
     text: '',
     citations: [cite(row.name, AMFI_NAV_URL, excerpt, row.date, 'amfi')],
@@ -350,11 +360,12 @@ export async function fetchNav(query: string, ctx: FetchCtx, fixture?: string): 
 }
 
 export function navAnswer(row: { name: string; nav: number; date: string }, region: RegionChoice): FinanceAnswer {
-  const excerpt = `${row.name} NAV ${row.nav} on ${row.date}. File: ${AMFI_NAV_URL}.`
+  const shown = money(row.nav)
+  const excerpt = `${row.name} NAV ${shown} on ${row.date}. File: ${AMFI_NAV_URL}.`
   return {
     text: [
       regionBanner(region.label),
-      `NAV ${row.nav} on ${row.date} [S1].`,
+      `NAV ${shown} on ${row.date} [S1].`,
       excerpt,
       FINANCE_DISCLAIMER,
     ].join('\n'),
@@ -366,19 +377,26 @@ export async function fetchCoin(id: string, ctx: FetchCtx): Promise<{ price: num
   const url = `${COINGECKO_PRICE}?ids=${encodeURIComponent(id)}&vs_currencies=usd&include_last_updated_at=true`
   const res = await politeFetch(url, { ...ctx, perMinute: 10 })
   if (!res) return null
-  const body = await res.json() as Record<string, { usd?: number; last_updated_at?: number }>
+  let body: Record<string, { usd?: number; last_updated_at?: number }>
+  try {
+    body = await res.json() as Record<string, { usd?: number; last_updated_at?: number }>
+  } catch {
+    return null
+  }
   const row = body[id]
-  if (!row || typeof row.usd !== 'number') return null
-  const at = row.last_updated_at ? new Date(row.last_updated_at * 1000).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+  if (!row || typeof row.usd !== 'number' || typeof row.last_updated_at !== 'number') return null
+  const at = new Date(row.last_updated_at * 1000).toISOString()
   return { price: row.usd, currency: 'usd', at }
 }
 
 export function coinAnswer(id: string, price: { price: number; currency: string; at: string }, region: RegionChoice): FinanceAnswer {
-  const excerpt = `${id} ${price.price} ${price.currency} as of ${price.at}. Source: CoinGecko simple price.`
+  const day = price.at.slice(0, 10)
+  const shown = money(price.price)
+  const excerpt = `${id} ${shown} ${price.currency} as of ${price.at}. Source: CoinGecko simple price.`
   return {
     text: [
       regionBanner(region.label),
-      `${id} ${price.price} ${price.currency.toUpperCase()} as of ${price.at} [S1].`,
+      `${id} ${shown} ${price.currency.toUpperCase()} as of ${day} [S1].`,
       excerpt,
       FINANCE_DISCLAIMER,
     ].join('\n'),
@@ -386,14 +404,9 @@ export function coinAnswer(id: string, price: { price: number; currency: string;
   }
 }
 
-export function unavailableFinance(region: RegionChoice, what: string): FinanceAnswer {
+export function unavailableFinance(region: RegionChoice, topic: 'price' | 'news' = 'price'): FinanceAnswer {
   return {
-    text: [
-      regionBanner(region.label),
-      `${what} is not available from the official source right now [S1].`,
-      'No number was filled in from the model.',
-      FINANCE_DISCLAIMER,
-    ].join('\n'),
-    citations: [cite(what, '', 'Live source did not return a figure.', null, 'finance')],
+    text: [regionBanner(region.label), topic === 'news' ? UNABLE_NEWS : UNABLE_PRICE, FINANCE_DISCLAIMER].join('\n'),
+    citations: [],
   }
 }

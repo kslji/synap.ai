@@ -72,7 +72,8 @@ import { ensureCitationMarkers, withPackVersions } from './search/citations.js'
 import { renderJsPage } from './search/js-page.js'
 import { searchFixtureEnabled } from './search/mode.js'
 import { regionBanner, resolveRegion } from './search/region.js'
-import { composeRouted, gatherOnline } from './search/run.js'
+import { composeRouted, emptyWebAnswer, gatherOnline } from './search/run.js'
+import { cacheLabel, recordsFromContext, unableMessage, verifyGroundedAnswer } from './search/verify-answer.js'
 import { historyHits, planRoute } from './search/router.js'
 import type { LocalHit, RegionChoice } from './search/types.js'
 import { classifyIntent } from './search/intent.js'
@@ -139,6 +140,7 @@ interface WebPiece {
   cosine: number
   vec: Float32Array
   downrank?: boolean
+  cachedAt?: number | null
 }
 
 const WEB_FLOOR = 0.42
@@ -662,12 +664,14 @@ export async function createServices(): Promise<Services> {
         ignored.push({ url: page.url, title: page.title, flags: filtered.injection.flags })
         return []
       }
-      return chunkBlocks([{ text: filtered.text, heading: page.title }]).slice(0, 2).map((chunk) => ({
+      const label = page.cachedAt ? `${cacheLabel(page.cachedAt)}\n` : ''
+      return chunkBlocks([{ text: `${label}${filtered.text}`, heading: page.title }]).slice(0, 2).map((chunk) => ({
         text: chunk.text,
         title: page.title || domainOf(page.url),
         url: page.url,
         published: page.published,
         downrank: filtered.injection.action === 'downrank',
+        cachedAt: page.cachedAt,
       }))
     })
     if (!pieces.length) return { pieces: [], ignored }
@@ -1195,8 +1199,8 @@ export async function createServices(): Promise<Services> {
         const intent = classifyIntent(text)
         if (intent === 'finance' || intent === 'legal') {
           const message = intent === 'legal'
-            ? `${regionBanner(activeRegion.label)}\nI don't have that section in the sources on this computer.\nThis is not legal advice.`
-            : `${regionBanner(activeRegion.label)}\nThat live figure is not available from the official source right now [S1].\nThese figures are calculations from the cited source. This is not a recommendation to buy or sell.`
+            ? `${regionBanner(activeRegion.label)}\n${unableMessage('legal')}\nThis is not legal advice.`
+            : `${regionBanner(activeRegion.label)}\n${unableMessage('price')}\nThese figures are calculations from the cited source. This is not a recommendation to buy or sell.`
           await emitText(win, messageId, message)
           finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
           return
@@ -1282,7 +1286,7 @@ export async function createServices(): Promise<Services> {
           webHits = []
         }
         if (plan.branch === 'web' && webHits.length === 0) {
-          const message = refusalMessage(HINT_FAILED)
+          const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
           await emitText(win, messageId, message)
           finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
           return
@@ -1363,6 +1367,7 @@ export async function createServices(): Promise<Services> {
       })
 
       let answer = ''
+      let toolText = ''
       const systemMessage = budget.messages.find((message) => message.role === 'system')
       const systemText = typeof systemMessage?.content === 'string' ? systemMessage.content : ''
       if (prefixModelId !== chatModel.id) {
@@ -1401,6 +1406,7 @@ export async function createServices(): Promise<Services> {
             sendEvent(win, { type: 'tool', messageId, name: call.function.name, input: call.function.arguments, output })
           }
           answer = verbatimAnswer(ran.answer, toolOutputs)
+          toolText = toolOutputs.map((item) => item.output).join('\n')
           replaceStream = answer !== streamed
           recordUse(turnSample(chatModel.id, ran.usage ? { promptTokens: ran.usage.prompt_tokens, completionTokens: ran.usage.completion_tokens } : undefined, first == null ? null : first - callStarted, Date.now() - callStarted, before, sampleProc(server.pid), 1, ran.toolCalls.length))
         } finally {
@@ -1434,7 +1440,28 @@ export async function createServices(): Promise<Services> {
       const corpus = [...localChunks, ...webChunks].map((chunk) => `${chunk.title}\n${chunk.text}`).join('\n')
       const checked = checkAnswer(answer, text, corpus)
       answer = checked.text
-      if (webHits.length) {
+      const grounded = verifyGroundedAnswer({
+        answer,
+        question: text,
+        records: recordsFromContext({
+          question: text,
+          toolText,
+          chunks: [
+            ...localChunks.map((chunk) => ({ title: chunk.title, text: chunk.text })),
+            ...webHits.map((hit) => ({ title: hit.title, text: hit.text, url: hit.url, published: hit.published, cachedAt: hit.cachedAt ?? null })),
+          ],
+        }),
+      })
+      let answerSources = sources
+      if (grounded.blocked.length) {
+        answer = `${regionBanner(activeRegion.label)}\n${grounded.text}`
+        answerSources = []
+        replaceStream = true
+      } else if (grounded.text !== answer) {
+        answer = grounded.text
+        replaceStream = true
+      }
+      if (webHits.length && !grounded.blocked.length) {
         const banner = regionBanner(activeRegion.label)
         if (!answer.includes(banner)) answer = `${banner}\n${answer}`
         answer = ensureCitationMarkers(answer, sources)
@@ -1455,7 +1482,7 @@ export async function createServices(): Promise<Services> {
           vec: hit.vec,
         })))
       }
-      finish(conversationId, messageId, userMessageId, win, answer, sources, gate, replaceStream || checked.unknownUrls.length > 0 || checked.echoed, {
+      finish(conversationId, messageId, userMessageId, win, answer, answerSources, gate, replaceStream || checked.unknownUrls.length > 0 || checked.echoed, {
         counter: budget.report.counter,
         total: budget.report.total,
         droppedChunks: budget.report.droppedChunks,

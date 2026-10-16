@@ -26,6 +26,7 @@ export interface ConnectorHit {
   url: string
   snippet: string
   published: string | null
+  cachedAt?: number | null
 }
 
 export interface RegionChoice {

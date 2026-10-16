@@ -5,6 +5,7 @@
 import type { Citation } from '../ipc-contract.js'
 import { politeFetch, type PoliteOpts } from './http.js'
 import { regionBanner } from './region.js'
+import { UNABLE_LEGAL } from './verify-answer.js'
 import type { LocalHit, RegionChoice } from './types.js'
 
 export const LEGAL_DISCLAIMER = 'This is not legal advice.'
@@ -104,7 +105,7 @@ export function legalUnavailable(region: RegionChoice): { text: string; citation
   return {
     text: [
       regionBanner(region.label),
-      'I don\'t have that section in the sources on this computer.',
+      UNABLE_LEGAL,
       LEGAL_DISCLAIMER,
     ].join('\n'),
     citations: [],

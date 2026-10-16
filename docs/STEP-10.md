@@ -37,11 +37,24 @@ Live numbers come from the cited source. The model is not asked for the figure.
 - The India equity rates are a bundled table dated 2024-07-23. They are not a live statute fetch. They are used only when the region is India or the question says India.
 - Mutual-fund NAV is the AMFI daily file, and only when the region is India.
 - Coin prices are the CoinGecko free API.
-- SEBI and RBI items are their RSS feeds. If a feed fails, the answer says the figure is unavailable. It does not invent one.
+- SEBI and RBI items are their RSS feeds. If a feed fails, the answer uses the unable sentence below. It does not invent one.
 - Stocks are end-of-day files from the NSE and BSE download URLs, and only when the region is India or the question names NSE, BSE, or India. Those downloads often fail from a datacenter. Failure is the designed result.
 - Every finance answer includes the disclaimer that this is not a recommendation to buy or sell.
 
 Legal answers quote a local document or an India Code search result and say "This is not legal advice." India Code is one provider. Another country is another entry in `LEGAL_PROVIDERS`. If the section is not in the sources, the answer says so and does not invent a section.
+
+A figure is allowed only when the fetch succeeded and the source date is inside its window: coin prices 6 hours, mutual-fund NAV 7 days, exchange end-of-day files 10 days, news and circulars 14 days. A future date, a blank date, or a clock older than that window is not usable. The answer then is exactly one of these, plus the finance or legal disclaimer, and it has no citation:
+
+- `Unable to find the price right now. Please try again in a moment.`
+- `Unable to find that news right now. Please try again in a moment.`
+- `Unable to find that section right now. Please try again in a moment.`
+- `Unable to find that fact right now. Please try again in a moment.`
+
+The same sentences are used when AMFI, CoinGecko, NSE, BSE, SEBI, RBI, India Code, or DuckDuckGo time out, return nothing, or return a partial row. A number typed in the question does not count as a fetched price. SIP, P&L, and the tax table stay in-app maths: the displayed figure is the citation excerpt, not a live quote.
+
+After the model writes an answer, `verifyGroundedAnswer` checks prices, other numbers on a price question, dates, URLs, section numbers, and quotes against the source records in context. Anything that does not match is removed by replacing the answer with the unable sentence above. Citations on that answer are dropped. A cached row that is still inside its window is kept and labeled `Cached on YYYY-MM-DD. Not a live fetch.` It is not described as live. The offline refusal for a general question such as rope price stays the existing sentence; that path does not call a source.
+
+The `no-fabrication` suite is a blocking gate on quick and full evals (`min_score` 1.0). It does not call the live sites. It feeds timeouts, empty bodies, stale dates, partial rows, unknown funds and tickers, future dates, and prompts that press for a guess.
 
 Web-derived answers keep an `[S1]` marker. Pack citations can include a pack version line. The fresh-info eval case is still `web-saved` (beacon `SB-4417`) on the fixture. Finance and legal eval cases are answered in code before the model.
 

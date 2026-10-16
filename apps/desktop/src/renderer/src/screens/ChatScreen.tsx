@@ -48,6 +48,8 @@ export function ChatScreen({
   project,
   onOpenProject,
   onCodeDecide,
+  onCodeRevise,
+  onCodeUndo,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -79,6 +81,8 @@ export function ChatScreen({
   project?: CodeProjectStatus | null
   onOpenProject?: () => void
   onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void
+  onCodeRevise?: (messageId: string, order: string[]) => void
+  onCodeUndo?: (messageId: string, stepId: string) => void
 }) {
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
@@ -172,7 +176,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} />)}
             </div>
           )}
         </div>
@@ -286,7 +290,7 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void }) {
+function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo }: { msg: UiMsg; mood: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean) => void; onCodeRevise?: (messageId: string, order: string[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void }) {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -309,7 +313,7 @@ function Bubble({ msg, mood, onOpenCitation, onSwitchSmaller, onCodeDecide }: { 
             Switch to smaller model
           </button>
         )}
-        <CodeTrace messageId={msg.id} steps={msg.steps ?? []} diffs={msg.diffs ?? []} onDecide={onCodeDecide} />
+        <CodeTrace messageId={msg.id} steps={msg.steps ?? []} diffs={msg.diffs ?? []} plan={msg.plan} onDecide={onCodeDecide} onRevise={onCodeRevise} onUndo={onCodeUndo} />
         {msg.tools.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {msg.tools.map((t, i) => (

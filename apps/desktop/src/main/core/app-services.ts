@@ -20,7 +20,9 @@ import { codePackDir, loadCodePack } from './code-pack.js'
 import { gatePackDecrypt } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
 import { llamaCompleter } from './code-agent/llama.js'
-import { runCodeAgent } from './code-agent/loop.js'
+import { workspaceFacts } from './code-agent/plan.js'
+import { readCheckpointDir, restoreCheckpoint, writeCheckpointDir, type Checkpoint } from './code-agent/checkpoint.js'
+import { runSplitTask } from './code-agent/split.js'
 import { currentPermissionMode } from './code-agent/permission.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
@@ -535,6 +537,31 @@ export async function createServices(): Promise<Services> {
     writeFileSync(file, JSON.stringify(raw), { mode: 0o600 })
   }
 
+  const planWaits = new Map<string, (order: string[]) => void>()
+  const undos = new Map<string, Checkpoint[]>()
+
+  function waitPlan(messageId: string, signal: AbortSignal): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (error: Error | null, value?: string[]) => {
+        if (settled) return
+        settled = true
+        signal.removeEventListener('abort', onAbort)
+        planWaits.delete(messageId)
+        if (error) reject(error)
+        else resolve(value ?? [])
+      }
+      const onAbort = () => {
+        const error = new Error('aborted')
+        error.name = 'AbortError'
+        finish(error)
+      }
+      if (signal.aborted) { onAbort(); return }
+      signal.addEventListener('abort', onAbort, { once: true })
+      planWaits.set(messageId, (order) => finish(null, order))
+    })
+  }
+
   function waitDecision(messageId: string, id: string, signal: AbortSignal): Promise<{ allow: boolean; remember?: boolean }> {
     const key = `${messageId}:${id}`
     return new Promise((resolve, reject) => {
@@ -607,24 +634,47 @@ export async function createServices(): Promise<Services> {
         }
       }
       const started = Date.now()
-      const result = await runCodeAgent(req.text, {
+      const indexed = codeApi.indexed()
+      const facts = indexed ? await indexed.planFacts() : workspaceFacts(root)
+      const mode = currentPermissionMode()
+      const result = await runSplitTask(req.text, {
         complete: llamaCompleter(client),
-        search: projectSearchFor(root, codeApi.indexed()),
+        search: projectSearchFor(root, indexed),
         root,
         rules: rules.text,
         counter,
         promptBudget: Math.max(512, profile.total - profile.answerMin),
         searchBudget: profile.retrieved,
         answerTokens: profile.answerMin,
-        mode: currentPermissionMode(),
+        mode,
         allowedCommands: readAllowed(root),
         signal,
         devWeb: { apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal },
+        facts,
+        totalRamGb: hw.totalRamGb,
+        currentModelId: chatModel.id,
+        catalog: reg.models.filter((model) => model.role === 'chat').map((model) => ({
+          id: model.id,
+          family: model.family,
+          paramsB: model.params_b ?? null,
+          sizeBytes: model.size_bytes,
+          minRamGb: model.min_ram_gb,
+          agents: model.agents,
+          defaultFor: model.default_for,
+          label: model.label,
+          sizeName: model.size_name,
+        })),
         onStep: (step) => { sendEvent(win, { type: 'code-step', messageId, step }) },
         onDiff: (diff) => { sendEvent(win, { type: 'code-diff', messageId, diff }) },
+        onPlan: (plan) => { sendEvent(win, { type: 'code-plan', messageId, plan }) },
         ask: (request) => waitDecision(messageId, request.id, signal),
+        reviewPlan: mode === 'ask' ? () => waitPlan(messageId, signal) : undefined,
         onRememberCommand: (command) => writeAllowed(root, command),
       }, history)
+      if (result.checkpoints.length) {
+        undos.set(messageId, result.checkpoints)
+        writeCheckpointDir(join(codeAgentDir(), 'undo', messageId), result.checkpoints)
+      }
       console.info(`[surf] code agent stopped=${result.stopped} steps=${result.steps.length} ms=${Date.now() - started}`)
       await emitText(win, messageId, result.answer)
       finish(conversationId, messageId, userMessageId, win, result.answer, [], 'answer')
@@ -1163,6 +1213,21 @@ export async function createServices(): Promise<Services> {
         const resolve = decisions.get(`${body.messageId}:${body.id}`)
         if (!resolve) return { ok: false }
         resolve({ allow: body.allow, remember: body.remember })
+        return { ok: true }
+      },
+      revise: async (body) => {
+        const resolve = planWaits.get(body.messageId)
+        if (!resolve) return { ok: false }
+        resolve(body.order)
+        return { ok: true }
+      },
+      undo: async (body) => {
+        const root = codeApi.root()
+        if (!root) return { ok: false }
+        const saved = undos.get(body.messageId) ?? readCheckpointDir(join(codeAgentDir(), 'undo', body.messageId))
+        const checkpoint = saved.find((item) => item.stepId === body.stepId)
+        if (!checkpoint || checkpoint.root !== root) return { ok: false }
+        restoreCheckpoint(checkpoint)
         return { ok: true }
       },
     },

@@ -748,6 +748,8 @@ export default function App() {
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
           onCodeDecide={(messageId, id, allow, remember) => { void api.codeAgent.decide({ messageId, id, allow, remember }).catch((e: unknown) => setError((e as Error).message)) }}
+          onCodeRevise={(messageId, order) => { void api.codeAgent.revise({ messageId, order }).catch((e: unknown) => setError((e as Error).message)) }}
+          onCodeUndo={(messageId, stepId) => { void api.codeAgent.undo({ messageId, stepId }).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
       {view === 'library' && (

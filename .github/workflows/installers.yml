@@ -175,7 +175,30 @@ jobs:
             find dist -name '*.app' -maxdepth 3 -print || true
             exit 1
           fi
-          smoke_native "$native_app" "$(bundle_bin "$native_app")"
+          native_bin="$(bundle_bin "$native_app")"
+          native_archs="$(lipo -archs "$native_bin" 2>/dev/null || echo unknown)"
+          dmg_arch="x64"
+          if printf '%s\n' "$native_archs" | grep -q arm64; then dmg_arch="arm64"; fi
+          dmg="$(find dist -name "*-${dmg_arch}.dmg" -print -quit)"
+          if [ -z "$dmg" ]; then
+            echo "missing disk image for $dmg_arch"
+            find dist -name '*.dmg' -print || true
+            exit 1
+          fi
+          mnt="$(mktemp -d)"
+          installed="$(mktemp -d)"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
+          dmg_app="$(find "$mnt" -name '*.app' -maxdepth 3 -print -quit)"
+          if [ -z "$dmg_app" ]; then
+            echo "disk image has no app: $dmg"
+            hdiutil detach "$mnt" || true
+            exit 1
+          fi
+          cp -R "$dmg_app" "$installed/"
+          hdiutil detach "$mnt"
+          installed_app="$installed/$(basename "$dmg_app")"
+          echo "installed $installed_app from $dmg"
+          smoke_native "$installed_app" "$(bundle_bin "$installed_app")"
           for app in "${apps[@]}"; do
             if [ "$app" = "$native_app" ]; then continue; fi
             bin="$(bundle_bin "$app")"

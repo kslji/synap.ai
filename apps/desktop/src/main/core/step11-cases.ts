@@ -15,6 +15,7 @@ import { decideWeb, wantsFresh } from './web-decision.js'
 import { classifyShotUse } from './vision/intent.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { MASCOT_MANIFEST, pickClick } from '../../../../../packages/ui/src/mascot.js'
+import { scoreEvalQuestions } from './step11-questions.js'
 
 export interface Step11Row {
   id: string
@@ -164,5 +165,6 @@ export function step11Cases(): Step11Row[] {
   for (const phrase of ['today', 'TODAY', 'Latest', 'Price', 'prices']) check(`word-${phrase}`, wantsFresh(phrase) === true)
   for (const phrase of ['yesterday note', 'a document', 'hello']) check(`quiet-${phrase}`, wantsFresh(phrase) === false)
 
+  rows.push(...scoreEvalQuestions())
   return rows
 }

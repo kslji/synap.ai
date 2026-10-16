@@ -25,6 +25,10 @@ Desktop version **0.2.0**.
 
 No clips were in `animation/mp4` in this checkout, so none were watermark-inspected and none are packaged. Timings are the original CSS durations in `packages/ui/src/star-surf.css` and `animation/manifest.json` (idle 3.6s, searching 0.7s, thinking 2.2s, success 0.9s, error 0.55s, clicks 0.8s / 0.9s / 1.0s). No audio files were added.
 
+## Eval
+
+`step11-questions.ts` scores 101 questions with the real gates: coding 20, splitting 15, run/fix 10, screenshots 13, fresh info 12, finance 12, legal 9, no-fabrication 10. With the other Step 11 checks the suite is 222 rows, all required to pass. The separate no-fabrication suite is 42 cases. None of these questions call a model. `scripts/measure-ram.ts` looks for a Qwen 4B and 9B GGUF, prints the file size when the file is there, and exits 0 when it is not. It does not start llama-server, so it does not report process RAM.
+
 ## Release
 
 A `v*` tag runs the CI workflow, including the no-fabrication gate and the Step 11 suite, and only then builds installers. This step does not push a tag.

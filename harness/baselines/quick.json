@@ -31,10 +31,10 @@
     },
     "step11": {
       "score": 1.0,
-      "cases": 121,
-      "passed": 121,
-      "weight": 121.0,
-      "passed_weight": 121.0,
+      "cases": 222,
+      "passed": 222,
+      "weight": 222.0,
+      "passed_weight": 222.0,
       "min_score": 1.0,
       "ok": true
     },

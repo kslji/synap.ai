@@ -1,11 +1,48 @@
-/** Clean chat-model name from the registry row. File names and quant strings stay out of the main UI. */
-export function chatModelLabel(model: { family?: string | null; params_b?: number | null; label?: string | null }): string {
-  const custom = model.label?.trim()
-  if (custom) return custom
-  const family = familyDisplayName(model.family)
-  if (model.params_b == null || !Number.isFinite(model.params_b)) return family || 'Model'
-  const size = Number.isInteger(model.params_b) ? String(model.params_b) : String(model.params_b)
-  return family ? `${family} ${size}B` : `${size}B`
+/** Name people see: family plus size, such as Qwen 2B. Version, file, and quant stay out. */
+export function friendlyModelName(model: {
+  id?: string | null
+  family?: string | null
+  params_b?: number | null
+  paramsB?: number | null
+}): string {
+  const fromId = friendlyNameFromId(model.id)
+  if (fromId) return fromId
+  const params = model.params_b ?? model.paramsB ?? null
+  const family = publicFamily(model.family)
+  if (params == null || !Number.isFinite(params)) return family || 'Model'
+  return family ? `${family} ${formatParams(params)}` : formatParams(params)
+}
+
+/** Registry id to a short name. Unknown ids return null so the caller can keep its own text. */
+export function friendlyNameFromId(id: string | null | undefined): string | null {
+  if (!id) return null
+  const bare = id.split('#')[0] ?? ''
+  if (/^qwen/i.test(bare)) {
+    const size = /(?:^|-)(\d+(?:\.\d+)?)b(?:-|$)/i.exec(bare)
+    if (size) return `Qwen ${size[1]}B`
+  }
+  if (/^gemma/i.test(bare)) {
+    const size = /(?:^|-)(?:e)?(\d+(?:\.\d+)?)b(?:-|$)/i.exec(bare)
+    if (size) return `Gemma ${size[1]}B`
+  }
+  return null
+}
+
+/** Clean chat-model name. Custom registry labels are not shown when they carry a version or quant. */
+export function chatModelLabel(model: { id?: string | null; family?: string | null; params_b?: number | null; label?: string | null }): string {
+  return friendlyModelName(model)
+}
+
+function publicFamily(family: string | null | undefined): string {
+  if (!family) return ''
+  const key = family.toLowerCase()
+  if (key.startsWith('qwen')) return 'Qwen'
+  if (key.startsWith('gemma')) return 'Gemma'
+  return family
+}
+
+function formatParams(params: number): string {
+  return `${Number.isInteger(params) ? String(params) : String(params)}B`
 }
 
 export function familyDisplayName(family: string | null | undefined): string {

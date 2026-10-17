@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
+import { persistThemeChoice, BlobMascot, useMascotColorSetter, type ThemeChoice } from '@surf/ui'
+import { useMascotActivity } from './mascot-activity'
 import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
+import { switchAgentChat } from '../../shared/chat-title'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
 import { readShotFile, type CodeShot } from './screens/CodeShots'
 import { AgentsScreen, ChatsScreen, HomeScreen } from './screens/HomeScreen'
-import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelsScreen } from './screens/ModelsScreen'
-import { codeModelLine, modelChoiceLabel } from '../../shared/model-label'
+import { activeChatModel, activeCodeModel, ModelsScreen } from './screens/ModelsScreen'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
-import { StoragePanel, UsagePanel } from './screens/UsageStorage'
+import { UsagePanel } from './screens/UsageStorage'
 import { createFrameBatcher } from '../../shared/stream-batch'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
@@ -42,8 +43,6 @@ export default function App() {
   const [messages, setMessages] = useState<UiMsg[]>([])
   const [shots, setShots] = useState<CodeShot[]>([])
   const [streaming, setStreaming] = useState(false)
-  const [progress, setProgress] = useState<Record<string, number>>({})
-  const [busyId, setBusyId] = useState<string | null>(null)
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
@@ -60,6 +59,14 @@ export default function App() {
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
+  const setMascotColor = useMascotColorSetter()
+  const { setOffline } = useMascotActivity()
+  useEffect(() => {
+    if (settings?.mascotColor) setMascotColor(settings.mascotColor)
+  }, [settings?.mascotColor, setMascotColor])
+  useEffect(() => {
+    setOffline(Boolean(status && (status.offlineOnly || !status.online)))
+  }, [setOffline, status])
 
   const refresh = useCallback(async () => {
     const [st, se, conv, auth, listed, lic] = await Promise.all([
@@ -112,12 +119,7 @@ export default function App() {
     })
     void api.library.list().then(setFiles).catch(() => undefined)
     const offModels = api.models.onEvent((e) => {
-      setProgress((p) => ({ ...p, [e.id]: e.total ? e.done / e.total : 0 }))
-      if (e.state === 'error' && e.error) setError(e.error)
-      if (e.state === 'done' || e.state === 'error') {
-        setBusyId(null)
-        void refresh()
-      }
+      if (e.state === 'done') void refresh()
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
     return () => { frames.cancel(); offChat(); offModels(); offLib(); offDocs(); offCode(); window.clearInterval(timer) }
@@ -125,10 +127,11 @@ export default function App() {
 
   const booted = useRef(false)
   useEffect(() => {
-    if (!status || booted.current) return
+    if (!status || !licence || booted.current) return
     booted.current = true
-    if (status.onboardingComplete) setView('home')
-  }, [status])
+    if (licence.state === 'dev') setView('chat')
+    else if (status.onboardingComplete) setView('home')
+  }, [status, licence])
 
   useEffect(() => {
     if (agentId !== 'code') return
@@ -156,33 +159,13 @@ export default function App() {
 
   async function patch(p: SettingsPatch) {
     if (p.theme) persistThemeChoice(p.theme)
+    setSettings((current) => (current ? { ...current, ...p } : current))
     await api.settings.set(p)
     await refresh()
     if (p.codeAgentMode !== undefined || p.codeAgentAutoConfirmed !== undefined || p.codeAgentAllowlist !== undefined) {
       const next = await api.codeAgent.mode().catch(() => null)
       if (next) setCodeMode(next)
     }
-  }
-
-  async function download(id: string) {
-    setError(null)
-    setBusyId(id)
-    setProgress((p) => ({ ...p, [id]: 0 }))
-    try {
-      await api.models.download(id)
-    } catch (e) {
-      setError((e as Error).message)
-      setBusyId(null)
-      throw e
-    }
-  }
-
-  async function downloadChatAndEmbed(chatId: string) {
-    const st = status ?? await refresh()
-    const embed = st.models.find((m) => m.role === 'embedding')
-    if (!st.models.find((m) => m.id === chatId)?.installed) await download(chatId)
-    if (embed && !embed.installed) await download(embed.id)
-    await refresh()
   }
 
   async function addShots(files: File[]) {
@@ -224,13 +207,14 @@ export default function App() {
     const body = `${text.trim() || (images.length ? 'Look at this screenshot.' : '')}${note}`.trim()
     if (!body) return
     const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
-    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || ''
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    const modelId = (boundAgent === 'code' ? status?.codeModelId : status?.chatModelId) || ''
     const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text: body, agentId, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
       if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
@@ -248,11 +232,12 @@ export default function App() {
     if (!user?.text.trim()) return
     const prior = current.versions ?? []
     const versions = prior[prior.length - 1] === current.text ? prior : [...prior, current.text]
-    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || current.modelId || ''
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    const modelId = (boundAgent === 'code' ? status?.codeModelId : status?.chatModelId) || current.modelId || ''
     setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId, error: false } : msg)))
     setStreaming(true)
     try {
-      const res = await api.chat.send({ conversationId, text: user.text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope, replaceMessageId: messageId })
+      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope, replaceMessageId: messageId })
       setConversationId(res.conversationId)
       setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, id: res.messageId, versions } : msg)))
     } catch (e) {
@@ -284,23 +269,29 @@ export default function App() {
     setView('chat')
   }
 
+  function openAgent(nextAgent: string) {
+    const agent = agents.find((item) => item.id === nextAgent)
+    if (!agent || !agentCanChat(agent)) return
+    const current = conversations.find((chat) => chat.id === conversationId)
+    const choice = switchAgentChat(conversationId, current?.agentId ?? null, agent.id, conversations)
+    if (choice.kind === 'stay') {
+      setAgentId(agent.id)
+      setView('chat')
+      return
+    }
+    if (choice.kind === 'open') {
+      void openConversation(choice.id)
+      return
+    }
+    newChat(agent.id)
+  }
+
   async function chooseChatModel(id: string) {
     const model = status?.models.find((item) => item.id === id && item.role === 'chat')
-    if (!model) return
-    if (!model.installed) await download(id)
+    if (!model?.installed) return
     const codeOnly = model.agents.includes('code') && !model.agents.includes('general')
     await patch(codeOnly ? { codeModelId: id } : { chatModelId: id })
   }
-
-  const codeAuto = useRef(false)
-  useEffect(() => {
-    if (codeAuto.current || agentId !== 'code' || !status || !settings) return
-    if (settings.codeModelId || status.offlineOnly) return
-    const def = status.models.find((model) => model.defaultFor?.includes('code'))
-    if (!def || def.installed) return
-    codeAuto.current = true
-    void download(def.id).catch((e: unknown) => setError((e as Error).message))
-  }, [agentId, status, settings])
 
   async function deleteConversation(id: string) {
     await api.conversations.remove(id)
@@ -314,7 +305,8 @@ export default function App() {
   }
 
   async function attach(paths: string[], createConversation: boolean) {
-    const res = await api.library.add(paths, createConversation ? conversationId : null, createConversation)
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    const res = await api.library.add(paths, createConversation ? conversationId : null, createConversation, boundAgent)
     if (res.conversationId) setConversationId(res.conversationId)
     setFiles(await api.library.list())
     if (createConversation) setView('chat')
@@ -459,9 +451,9 @@ export default function App() {
       if (scene === 'home') {
         setView('home')
         setConversations([
-          { id: 'c-general', title: 'Harbor ferry', agentId: 'general', updatedAt: 3 },
-          { id: 'c-code', title: 'Button spacing', agentId: 'code', updatedAt: 2 },
-          { id: 'c-assistant', title: 'Invoice draft', agentId: 'assistant', updatedAt: 1 },
+          { id: 'c-general', title: 'Harbor ferry', agentId: 'general', updatedAt: 3, preview: 'On this computer.' },
+          { id: 'c-code', title: 'Button spacing', agentId: 'code', updatedAt: 2, preview: 'Ask mode is on.' },
+          { id: 'c-assistant', title: 'Invoice draft', agentId: 'assistant', updatedAt: 1, preview: 'The draft stays here.' },
         ])
         return
       }
@@ -471,10 +463,28 @@ export default function App() {
         setView('chat')
         setPreview(null)
         setFiles([])
+        setConversationId(`c-${agentScene}`)
+        setConversations((prev) => prev.some((chat) => chat.id === `c-${agentScene}`) ? prev : [
+          { id: `c-${agentScene}`, title: 'Harbor ferry', agentId: agentScene, updatedAt: Date.now(), preview: 'On this computer.' },
+          ...prev,
+        ])
         setMessages([
           { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
-          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [] },
+          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 2B' },
         ])
+        return
+      }
+      if (scene === 'empty') {
+        setView('chat')
+        setMessages([])
+        setFiles([])
+        setPreview(null)
+        setConversationId(null)
+        setConversations([])
+        setStatus((current) => current && {
+          ...current,
+          models: current.models.map((model) => model.id === 'qwen3.5-2b-q4_k_m' ? { ...model, installed: true } : model),
+        })
         return
       }
       if (scene === 'update') {
@@ -543,8 +553,14 @@ export default function App() {
       }
       if (scene === 'versions') {
         setView('chat')
+        setAgentId('general')
         setPreview(null)
         setFiles([])
+        setConversationId('c-general')
+        setConversations([
+          { id: 'c-general', title: 'Hello', agentId: 'general', updatedAt: 3, preview: 'Second answer' },
+          { id: 'c-code', title: 'Button spacing', agentId: 'code', updatedAt: 2, preview: 'Ask mode is on.' },
+        ])
         setMessages([
           { id: '11111111-1111-4111-8111-111111111111', role: 'user', text: 'Hello', sources: [], tools: [] },
           { id: '22222222-2222-4222-8222-222222222222', role: 'assistant', text: 'Second answer', sources: [], tools: [], versions: ['First answer'] },
@@ -700,7 +716,7 @@ export default function App() {
   if (!status || !settings || !licence) {
     return (
       <main className="flex h-full flex-col items-center justify-center gap-2" data-ready="no">
-        <StarSurf state="searching" size={160} />
+        <BlobMascot state="searching" size={160} />
         <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Synap.surf'}</p>
       </main>
     )
@@ -727,7 +743,6 @@ export default function App() {
             await api.licence.activate(key)
             await refresh()
           }}
-          onBuy={() => { void api.links.open(licence.buyUrl) }}
         />
       </div>
     )
@@ -735,8 +750,10 @@ export default function App() {
 
   const shownAccount = demoAccount ?? account
   const shownPacks = demoPacks ?? packs
+  const devMode = licence.state === 'dev'
+  const screen: View = devMode && view === 'onboarding' ? 'chat' : view
 
-  if (view === 'signin') {
+  if (screen === 'signin') {
     return (
       <div className="h-full" data-ready="yes" data-screen="signin">
         <SignInScreen
@@ -756,28 +773,24 @@ export default function App() {
     )
   }
 
-  if (view === 'onboarding') {
+  if (screen === 'onboarding') {
     return (
       <div className="h-full" data-ready="yes" data-screen="onboarding">
         <Onboarding
           status={status}
-          progress={busyId ? (progress[busyId] ?? 0) : 0}
-          error={error}
           theme={settings.theme}
           onTheme={chooseTheme}
-          onDownload={downloadChatAndEmbed}
-          onReady={(chatId) => { void patch({ onboardingComplete: true, chatModelId: chatId }).then(() => { setView('home'); setTourStep(0) }) }}
+          onReady={() => { void patch({ onboardingComplete: true }).then(() => { setView('home'); setTourStep(0) }) }}
         />
       </div>
     )
   }
 
   return (
-    <div className="relative flex h-full flex-col" data-ready="yes" data-screen={view}>
+    <div className="app-shell relative flex h-full flex-col" data-ready="yes" data-screen={screen}>
       {licence.subscriptionWarning && licence.subscriptionEndsAt && (
         <div className="border-b border-[var(--line)] px-4 py-2 text-center text-sm" data-licence-ending="yes">
-          This subscription ends on {licence.subscriptionEndsAt.slice(0, 10)}. Renew to keep using Synap.surf.{' '}
-          <button className="underline" type="button" data-licence-renew="yes" onClick={() => { void api.links.open(licence.buyUrl) }}>Renew</button>
+          This subscription ends on {licence.subscriptionEndsAt.slice(0, 10)}. Renew to keep using Synap.surf.
         </div>
       )}
       {licence.state === 'grace' && (
@@ -786,7 +799,8 @@ export default function App() {
       {updateOffer && <UpdateBanner offer={updateOffer} onApply={() => { void api.updates.apply().catch((e: unknown) => setError((e as Error).message)) }} />}
       <div className="flex min-h-0 flex-1">
       <Sidebar
-        view={view}
+        view={screen}
+        devMode={devMode}
         conversations={conversations}
         activeId={conversationId}
         agentId={agentId}
@@ -797,31 +811,38 @@ export default function App() {
         animateMascot={settings.animateMascot !== false}
         onMascotName={(mascotName) => { void patch({ mascotName }) }}
         onSignIn={() => setView('signin')}
+        signedIn={Boolean(shownAccount)}
+        onSignOut={() => {
+          setDemoAccount(null)
+          setDemoDevices(null)
+          void api.auth.signOut().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
+        }}
         tourId={tourStep != null ? TOUR[tourStep]?.id ?? null : null}
         onNew={() => newChat()}
         onOpen={(id) => { void openConversation(id) }}
         onDelete={(id) => { void deleteConversation(id) }}
-        onAgent={(id) => newChat(id)}
+        onAgent={(id) => openAgent(id)}
         sync={status.sync}
       />
-      {view === 'home' && (
+      <div key={screen} className="view-pane flex min-h-0 min-w-0 flex-1">
+      {screen === 'home' && (
         <HomeScreen
           agents={agents}
           conversations={conversations}
           onStart={(id) => newChat(id)}
           onOpen={(id) => { void openConversation(id) }}
           onAsk={() => newChat('general')}
-          onDocument={() => { newChat(agentId); void api.library.pick(null, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onDocument={() => { const id = agentId; newChat(id); void api.library.pick(null, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
           onFill={() => { void openFill({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
           onConvert={() => { void openConvert({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
           onSearch={() => setView('library')}
         />
       )}
-      {view === 'agents' && <AgentsScreen agents={agents} onStart={(id) => newChat(id)} />}
-      {view === 'chats' && (
+      {screen === 'agents' && <AgentsScreen agents={agents} onStart={(id) => newChat(id)} />}
+      {screen === 'chats' && (
         <ChatsScreen agents={agents} conversations={conversations} agentId={agentId} onOpen={(id) => { void openConversation(id) }} onNew={() => newChat()} />
       )}
-      {view === 'chat' && (
+      {screen === 'chat' && (
         <ChatScreen
           messages={messages}
           streaming={streaming}
@@ -831,11 +852,10 @@ export default function App() {
           preview={preview}
           webSearchAllowed={settings.webSearchAllowed}
           chatWeb={chatWeb}
-          agentName={agents.find((agent) => agent.id === agentId)?.name ?? 'General'}
-          agentNote={agents.find((agent) => agent.id === agentId)?.notes}
-          modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen3.5'}
-          chatChoices={(agentId === 'code' ? codeModels(status) : chatModels(status)).map((model) => ({ id: model.id, label: agentId === 'code' ? codeModelLine(model) : modelChoiceLabel(model) }))}
-          chatModelId={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.id ?? ''}
+          agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'General'}
+          agentNote={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.notes}
+          title={conversations.find((chat) => chat.id === conversationId)?.title}
+          modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           onSend={(t, images) => { void send(t, images) }}
           shots={agentId === 'code' ? shots : []}
@@ -845,12 +865,11 @@ export default function App() {
           onCaptureShot={agentId === 'code' ? () => { void captureShot() } : undefined}
           onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}
-          onPick={() => { void api.library.pick(conversationId, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onPick={() => { const id = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId; void api.library.pick(conversationId, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
           onScope={setScope}
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}
           modelGuide={agentId === 'code'}
-          onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
@@ -876,7 +895,7 @@ export default function App() {
           } : undefined}
         />
       )}
-      {view === 'library' && (
+      {screen === 'library' && (
         <LibraryScreen
           files={files}
           preview={preview}
@@ -890,10 +909,11 @@ export default function App() {
           onFill={(file) => { void openFill(file).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
-      {view === 'packs' && (
+      {screen === 'packs' && (
         <PacksScreen
           packs={shownPacks}
           busy={packBusy}
+          syncOff={devMode}
           error={error}
           onSync={() => {
             setPackBusy(true)
@@ -905,27 +925,13 @@ export default function App() {
           }}
         />
       )}
-      {view === 'models' && (
-        <ModelsScreen
-          status={status}
-          progress={progress}
-          busyId={busyId}
-          error={error}
-          onDownload={(id) => { void download(id).catch(() => undefined) }}
-          onSelect={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
-        />
+      {screen === 'models' && (
+        <ModelsScreen status={status} />
       )}
-      {view === 'usage' && (
-        <section className="flex-1 overflow-auto px-8 py-8" data-usage-view="yes">
-          <div className="mx-auto flex max-w-xl flex-col gap-4">
-            <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
-            <UsagePanel />
-            <h2 className="text-lg font-semibold tracking-tight">Cache</h2>
-            <StoragePanel />
-          </div>
-        </section>
+      {screen === 'usage' && (
+        <UsagePanel machine={{ cpuModel: status.cpuModel, ramGb: status.ramGb }} />
       )}
-      {view === 'settings' && (
+      {screen === 'settings' && (
         <SettingsScreen
           status={status}
           settings={settings}
@@ -961,21 +967,32 @@ export default function App() {
             void api.licence.deactivate().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
           }}
           onPatch={(p) => { void patch(p) }}
-          progress={progress}
-          busyId={busyId}
-          error={error}
-          onDownload={(id) => { void download(id).catch(() => undefined) }}
-          onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
+          onBack={() => setView('chat')}
+          onSave={() => { void patch({}) }}
+          onRestore={() => {
+            void patch({
+              theme: 'light',
+              accent: 'orange',
+              density: 'comfortable',
+              mascotName: 'Surf Bot',
+              mascotColor: '#f2740f',
+              animateMascot: true,
+              networkMode: 'auto',
+              webSearchAllowed: false,
+              telemetryOptIn: false,
+            })
+          }}
           onCheckUpdates={async () => {
             const offer = await api.updates.check()
             setUpdateOffer(offer)
             if (!offer) return 'You are up to date.'
             return offer.kind === 'manual'
-              ? `Version ${offer.version} is available. Download the disk image from the banner.`
+              ? `Version ${offer.version} is ready. Use the banner to download it.`
               : `Version ${offer.version} can install over this copy.`
           }}
         />
       )}
+      </div>
       {convertJob && (
         <ConvertDialog
           state={convertJob}
@@ -988,7 +1005,7 @@ export default function App() {
       {tourStep != null && TOUR[tourStep] && (
         <div className="tour-shade" role="dialog" aria-label="Guided tour">
           <div className="tour-card card px-5 py-5">
-            <StarSurf state="guiding" size={72} />
+            <BlobMascot state="guiding" size={72} />
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Step {tourStep + 1} of {TOUR.length}</p>
             <h2 className="mt-1 text-lg font-semibold">{TOUR[tourStep].title}</h2>
             <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{TOUR[tourStep].body}</p>
@@ -1004,7 +1021,7 @@ export default function App() {
       {error && (
         <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center px-4">
           <div className="card pointer-events-auto flex items-center gap-3 px-4 py-3 text-sm" role="alert">
-            <StarSurf state="error" size={40} />
+            <BlobMascot state="error" size={40} />
             <span>{error}</span>
             <button className="btn btn-ghost" type="button" onClick={() => setError(null)}>Dismiss</button>
           </div>

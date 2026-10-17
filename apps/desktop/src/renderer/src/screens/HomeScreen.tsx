@@ -1,4 +1,4 @@
-import { StarSurf } from '@surf/ui'
+import { BlobMascot } from '@surf/ui'
 import { agentCanChat, type AgentMeta } from '../../../../../../packages/shared/src/agents'
 import type { ConversationSummary } from '../../../shared/ipc-contract'
 
@@ -35,7 +35,7 @@ export function HomeScreen({
     <section className="flex-1 overflow-auto px-8 py-8" data-screen="home">
       <div className="mx-auto max-w-4xl">
         <div className="flex items-center gap-4">
-          <StarSurf state="idle" size={88} />
+          <BlobMascot state="idle" size={88} />
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">{greeting()}</h1>
             <p className="mt-1 text-sm text-[var(--muted)]">Pick an agent, or jump back into a chat.</p>
@@ -53,7 +53,7 @@ export function HomeScreen({
         <h2 className="mt-10 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Recent chats</h2>
         {recent.length === 0 ? (
           <div className="mt-3 flex items-center gap-3 rounded-2xl border border-dashed border-[var(--line)] px-4 py-6">
-            <StarSurf state="idle" size={56} />
+            <BlobMascot state="idle" size={56} />
             <p className="text-sm text-[var(--muted)]">No chats yet. Start with General.</p>
           </div>
         ) : (
@@ -115,7 +115,7 @@ export function ChatsScreen({
         </div>
         {mine.length === 0 ? (
           <div className="mt-8 flex flex-col items-center px-6 py-10 text-center">
-            <StarSurf state="idle" size={120} />
+            <BlobMascot state="idle" size={120} />
             <p className="mt-2 text-sm text-[var(--muted)]">No chats with {agent?.name ?? 'this agent'} yet.</p>
           </div>
         ) : (

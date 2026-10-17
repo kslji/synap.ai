@@ -140,7 +140,7 @@ export function step11Cases(): Step11Row[] {
   check('click-mid', pickClick(0.5).id === 'click-spin')
   check('click-high', pickClick(0.99).id === 'click-spark')
   const here = dirname(fileURLToPath(import.meta.url))
-  const css = readFileSync(join(here, '../../../../../packages/ui/src/star-surf.css'), 'utf8')
+  const css = readFileSync(join(here, '../../../../../packages/ui/src/blob.css'), 'utf8')
   check('css-think', css.includes('2.2s') && MASCOT_MANIFEST.states.thinking.durationMs === 2200)
   check('css-search', css.includes('0.7s') && MASCOT_MANIFEST.states.searching.durationMs === 700)
   const builder = readFileSync(join(here, '../../../electron-builder.cjs'), 'utf8')

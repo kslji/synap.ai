@@ -9,6 +9,8 @@ export const IPC = {
   chatEvent: 'chat:event',
   modelsStatus: 'models:status',
   modelsDownload: 'models:download',
+  modelsCancel: 'models:cancel',
+  modelsImportLocal: 'models:import-local',
   modelsEvent: 'models:event',
   packsList: 'packs:list',
   packsSync: 'packs:sync',
@@ -124,8 +126,10 @@ export interface SettingsPatch {
   idleUnloadMinutes?: number
   /** Prefer speculative decoding when a draft model is installed and RAM allows it. */
   speculativeDecoding?: boolean
-  /** Display name for the star mascot. Saved on this computer. */
+  /** Display name for the blob mascot. Saved on this computer. */
   mascotName?: string
+  /** Body colour for the blob. The installed icon stays the default orange. */
+  mascotColor?: string
   accent?: 'orange' | 'blue' | 'indigo' | 'navy'
   density?: 'compact' | 'comfortable' | 'relaxed'
   /** SVG motion for the mascot. There is no audio. */
@@ -375,6 +379,8 @@ export interface ModelStatus {
   cpuModel: string
   cores: number
   chatModelId: string
+  /** First-run model from synap://setup, or the Qwen 2B default when no link arrived. */
+  setupModelId?: string
   /** Code agent selection. The smallest Code model when the user has not picked. */
   codeModelId: string
   arch: string
@@ -425,6 +431,8 @@ export interface SyncChip {
   tooltip: string
   detail: string
   refreshWarning: string | null
+  /** False in dev mode. The chip then shows only its label. */
+  showMode?: boolean
 }
 
 export interface BenchmarkResult {
@@ -442,6 +450,8 @@ export interface ConversationSummary {
   title: string
   agentId: string
   updatedAt: number
+  /** Last message on this computer, trimmed. Empty when the chat has no messages. */
+  preview?: string
 }
 
 export interface Citation {
@@ -721,7 +731,6 @@ export interface SurfApi {
   }
   models: {
     status(): Promise<ModelStatus>
-    download(modelId: string): Promise<void>
     benchmark(modelId: string): Promise<BenchmarkResult>
     onEvent(cb: (e: ModelEvent) => void): () => void
   }
@@ -775,8 +784,8 @@ export interface SurfApi {
   }
   library: {
     pathForFile(file: File): string
-    add(paths: string[], conversationId: string | null, createConversation?: boolean): Promise<{ conversationId: string | null; files: LibraryFile[] }>
-    pick(conversationId: string | null, createConversation?: boolean): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    add(paths: string[], conversationId: string | null, createConversation?: boolean, agentId?: string): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    pick(conversationId: string | null, createConversation?: boolean, agentId?: string): Promise<{ conversationId: string | null; files: LibraryFile[] }>
     list(): Promise<LibraryFile[]>
     retry(jobId: string): Promise<void>
     cancel(jobId: string): Promise<void>

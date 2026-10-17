@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
-import { StarSurf } from '@surf/ui'
-import { embeddingModel, modelTiers, product } from '@surf/shared'
+import { BlobMascot } from '@surf/ui'
+import { modelTiers, product } from '@surf/shared'
 import { agents } from '../../../packages/shared/src/agent-catalog'
 import { AgentCards } from './AgentCards'
 import { agentPosts } from './agent-blog'
@@ -57,7 +57,7 @@ const FAQ = [
   },
   {
     q: 'What hardware does the model need?',
-    a: `Under 8 GB of memory uses ${modelTiers[0].chat}. 8 GB uses ${modelTiers[1].chat}. 16 GB and above uses ${modelTiers[2].chat}. Embeddings are ${embeddingModel.name}.`,
+    a: `Under 8 GB of memory uses ${modelTiers[0].chat}. 8 GB uses ${modelTiers[1].chat}. 16 GB and above uses ${modelTiers[2].chat}.`,
   },
 ]
 
@@ -71,7 +71,7 @@ export function Landing() {
           <div>
             <p className="pill">On your computer</p>
             <h1 className="mt-4 text-5xl font-semibold leading-[1.02] tracking-tight md:text-6xl">
-              Meet Star Surf, your offline companion.
+              Meet Surf Bot, your offline companion.
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
               {product.tagline} Chat, your files, and the calculator stay here. The network is optional.
@@ -81,17 +81,17 @@ export function Landing() {
             </div>
           </div>
           <div className="flex flex-col items-center">
-            <StarSurf state="arrive" size={280} followCursor label="Star Surf, your offline companion" />
+            <BlobMascot state="idle" size={280} followCursor label="Surf Bot, your offline companion" />
           </div>
         </section>
 
         <Block id="companion">
           <h2 className="text-3xl font-semibold tracking-tight">Meet your companion</h2>
-          <p className="mt-3 max-w-2xl text-[var(--muted)]">Star Surf stays in motion. The pose tells you what the app is doing.</p>
+          <p className="mt-3 max-w-2xl text-[var(--muted)]">Surf Bot stays in motion. The pose tells you what the app is doing.</p>
           <div className="mt-8 grid gap-4 md:grid-cols-3">
-            <Vignette state="searching" title="Searching" body="Web lookup, file search, indexing, and a reply being written." />
-            <Vignette state="guiding" title="Guiding" body="First launch and model setup, pointing at the next step instead of a manual." />
-            <Vignette state="notification" title="A small wave" body="A pack finished updating, or a new installer is ready. Nothing shouts." />
+            <Vignette state="searching" title="Searching" body="Eyes scan while a web lookup runs." />
+            <Vignette state="thinking" title="Thinking" body="A slow look up while a reply is forming." />
+            <Vignette state="happy" title="Done" body="A hop when the answer lands." />
           </div>
         </Block>
 
@@ -141,12 +141,12 @@ export function Landing() {
             </li>
             <li className="rounded-3xl bg-[var(--bg-side)] px-5 py-5">
               <div className="text-sm font-semibold text-[var(--accent-text)]">2</div>
-              <h3 className="mt-2 text-xl font-semibold">One-click model setup</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">The first launch reads your memory and downloads the matching model. You can pause and resume.</p>
+              <h3 className="mt-2 text-xl font-semibold">Get a model</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Download the model from this page, then the app. The app finds that file and moves it in.</p>
             </li>
             <li className="rounded-3xl bg-[var(--bg-side)] px-5 py-5">
               <div className="text-sm font-semibold text-[var(--accent-text)]">3</div>
-              <h3 className="mt-2 text-xl font-semibold">Meet Star Surf</h3>
+              <h3 className="mt-2 text-xl font-semibold">Meet Surf Bot</h3>
               <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">The companion settles next to the first chat. After that, the app does not need the network.</p>
             </li>
           </ol>
@@ -214,10 +214,10 @@ export function Landing() {
   )
 }
 
-function Vignette({ state, title, body }: { state: 'searching' | 'guiding' | 'notification'; title: string; body: string }) {
+function Vignette({ state, title, body }: { state: 'searching' | 'thinking' | 'happy'; title: string; body: string }) {
   return (
     <article className="card flex flex-col items-start px-5 py-6">
-      <StarSurf state={state} size={96} />
+      <BlobMascot state={state} size={96} />
       <h3 className="mt-4 text-xl font-semibold">{title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{body}</p>
     </article>

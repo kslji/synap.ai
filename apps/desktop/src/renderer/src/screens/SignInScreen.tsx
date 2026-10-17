@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StarSurf, ThemeSwitch, type ThemeChoice } from '@surf/ui'
+import { BlobMascot, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 
 export function SignInScreen({
   theme,
@@ -48,7 +48,7 @@ export function SignInScreen({
   return (
     <main className="flex h-full flex-col items-center justify-center px-6" data-screen="signin">
       <div className="flex w-full max-w-md flex-col items-center">
-        <StarSurf state={step === 'code' ? 'searching' : 'guiding'} size={200} />
+        <BlobMascot state={step === 'code' ? 'searching' : 'guiding'} size={200} />
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-2 text-center text-sm leading-relaxed text-[var(--muted)]">
           Chat and your documents stay on this computer without an account. Sign in to search the web and sync knowledge packs.

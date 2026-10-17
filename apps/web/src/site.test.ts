@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DownloadButtons } from './download-buttons.tsx'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, newestPublishableRelease, pickDownload, releaseAssets } from './site.ts'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, newestPublishableRelease, pickDownload, releaseAssets, SETUP_MODELS, setupOpenLink } from './site.ts'
 
 test('contact email falls back to the placeholder', () => {
   assert.equal(contactEmail(''), 'contact@example.com')
@@ -77,4 +78,32 @@ test('prereleases are downloadable and buttons point at an installer', () => {
     const href = /href="([^"]+)"/.exec(tag ?? '')?.[1] ?? ''
     assert.match(href, kind === 'mac' ? /\.dmg$/ : /\.exe$/)
   }
+})
+
+test('the setup link names a registry model and does not change the installer', () => {
+  assert.equal(setupOpenLink('qwen3.5-4b-q4_k_m'), 'synap://setup?model=qwen3.5-4b-q4_k_m')
+  assert.equal(setupOpenLink('nope'), 'synap://setup?model=qwen3.5-2b-q4_k_m')
+})
+
+test('each model card downloads the registry file', () => {
+  const registry = JSON.parse(readFileSync(new URL('../../desktop/resources/models.registry.json', import.meta.url), 'utf8')) as {
+    models: { id: string; url: string; sha256: string; file: string; size_bytes: number }[]
+  }
+  for (const model of SETUP_MODELS) {
+    const row = registry.models.find((item) => item.id === model.id)
+    assert.ok(row, model.id)
+    assert.equal(model.url, row?.url)
+    assert.equal(model.sha256, row?.sha256)
+    assert.equal(model.file, row?.file)
+    assert.equal(model.sizeBytes, row?.size_bytes)
+  }
+  const page = readFileSync(new URL('./pages.tsx', import.meta.url), 'utf8')
+  assert.match(page, /data-model-picker="yes"/)
+  assert.match(page, /href=\{model\.url\}/)
+  assert.match(page, /download=\{model\.file\}/)
+  assert.match(page, /data-model-size=\{model\.id\}/)
+  assert.match(page, /data-model-ram=\{model\.id\}/)
+  assert.doesNotMatch(page, /Open Synap and start/)
+  assert.doesNotMatch(page, /synap:\/\/setup/)
+  assert.doesNotMatch(page, /Q4_K_M|GGUF|>3\.5</)
 })

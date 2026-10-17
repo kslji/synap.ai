@@ -18,7 +18,6 @@ const api: SurfApi = {
   },
   models: {
     status: () => ipcRenderer.invoke(IPC.modelsStatus),
-    download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
   },
@@ -72,8 +71,8 @@ const api: SurfApi = {
   },
   library: {
     pathForFile: (file) => webUtils.getPathForFile(file),
-    add: (paths, conversationId, createConversation = false) => ipcRenderer.invoke(IPC.libraryAdd, { paths, conversationId, createConversation }),
-    pick: (conversationId, createConversation = false) => ipcRenderer.invoke(IPC.libraryPick, { conversationId, createConversation }),
+    add: (paths, conversationId, createConversation = false, agentId = 'general') => ipcRenderer.invoke(IPC.libraryAdd, { paths, conversationId, createConversation, agentId }),
+    pick: (conversationId, createConversation = false, agentId = 'general') => ipcRenderer.invoke(IPC.libraryPick, { conversationId, createConversation, agentId }),
     list: () => ipcRenderer.invoke(IPC.libraryList),
     retry: (jobId) => ipcRenderer.invoke(IPC.libraryRetry, jobId),
     cancel: (jobId) => ipcRenderer.invoke(IPC.libraryCancel, jobId),

@@ -112,12 +112,14 @@ export function createLicenceApi(opts: {
   userData: string
   packaged: boolean
   devFlag: string | undefined
+  /** Dev mode, including packaged installers until the release flag is set. */
+  forceDev?: boolean
   apiBase: () => string
   offlineOnly: () => boolean
   online: () => boolean
 }) {
   const keys = () => trustedLicenceKeys()
-  const bypass = () => devBypassEnabled(opts.devFlag, opts.packaged)
+  const bypass = () => opts.forceDev === true || devBypassEnabled(opts.devFlag, opts.packaged)
   let deviceHash = ''
 
   async function hash(): Promise<string> {
@@ -204,6 +206,7 @@ export function createLicenceApi(opts: {
   return {
     status,
     async activate(key?: string): Promise<LicenceStatus> {
+      if (bypass()) throw new Error('Licence activation is off in dev mode.')
       const device = await hash()
       const settingsOffline = opts.offlineOnly()
       const token = await freshAccess({ base: opts.apiBase(), offlineOnly: settingsOffline })
@@ -219,6 +222,7 @@ export function createLicenceApi(opts: {
       return accept(body.licence, device)
     },
     async deactivate(activationId?: string): Promise<LicenceStatus> {
+      if (bypass()) throw new Error('Licence activation is off in dev mode.')
       const device = await hash()
       const loaded = await loadLicenceDir(opts.userData)
       const token = await freshAccess({ base: opts.apiBase(), offlineOnly: opts.offlineOnly() })
@@ -232,6 +236,7 @@ export function createLicenceApi(opts: {
       return status()
     },
     async devices(): Promise<LicenceDevice[]> {
+      if (bypass()) return []
       const device = await hash()
       const token = await freshAccess({ base: opts.apiBase(), offlineOnly: opts.offlineOnly() }).catch(() => null)
       if (!token) {

@@ -1,11 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ThemeSwitch } from '@surf/ui'
+import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Text, Wifi } from 'lucide-react'
 import { product } from '@surf/shared'
+import { BLOB_SWATCHES, BlobMascot } from '@surf/ui'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
+import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } from '../../../shared/hardware-label'
+import { friendlyModelName } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
+import { useMascotActivity } from '../mascot-activity'
 import { DevWebPanel } from './DevWebPanel'
-import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
-import { LiveFeelSettings, StoragePanel, UsagePanel } from './UsageStorage'
+import { chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
+import { LiveFeelSettings, StoragePanel } from './UsageStorage'
 
 export function SettingsScreen({
   status,
@@ -23,11 +27,9 @@ export function SettingsScreen({
   onSignOut,
   onRevoke,
   onDeactivate,
-  progress,
-  busyId,
-  error,
-  onDownload,
-  onSelectModel,
+  onBack,
+  onSave,
+  onRestore,
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
@@ -44,37 +46,69 @@ export function SettingsScreen({
   onSignOut: () => void
   onRevoke: (deviceId: string) => void
   onDeactivate: () => void
-  progress: Record<string, number>
-  busyId: string | null
-  error: string | null
-  onDownload: (id: string) => void
-  onSelectModel: (id: string) => void
+  onBack: () => void
+  onSave: () => void
+  onRestore: () => void
 }) {
+  const [category, setCategory] = useState<SettingsCategory>('general')
+  const [savedNote, setSavedNote] = useState('')
   const [updateNote, setUpdateNote] = useState('')
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const [codeOpen, setCodeOpen] = useState(false)
   const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
   const [region, setRegion] = useState(settings.myRegion)
   const chats = chatModels(status)
-  const code = codeModels(status)
-  const current = activeChatModel(status)
-  const codeCurrent = activeCodeModel(status)
+  const code = listedCodeModels(status)
   useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
   useEffect(() => { setRegion(settings.myRegion) }, [settings.myRegion])
   const apiOk = /^https?:\/\/\S+$/.test(apiBase)
 
+  function save() {
+    onSave()
+    setSavedNote('Saved on this computer.')
+  }
+
   return (
-    <section className="flex-1 overflow-auto px-8 py-8">
-      <div className="mx-auto flex max-w-xl flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <Group title="Account">
+    <section className="settings-shell flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-8 py-6">
+        <div>
+          <h1 className="page-title">Settings</h1>
+          <p className="page-sub">Preferences stay on this computer.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {licenceState === 'dev' && <span className="pill" data-dev-mode="yes">Dev mode</span>}
+          {status.appVersion ? <span className="text-sm text-[var(--muted)]" data-app-version="yes">Version {status.appVersion}</span> : null}
+          <button className="btn btn-ghost" type="button" data-back-chat="yes" onClick={onBack}>Back to Chat</button>
+          <button className="btn btn-primary" type="button" data-save-settings="yes" onClick={save}>Save Changes</button>
+        </div>
+      </header>
+      <div className="flex min-h-0 flex-1">
+        <nav className="settings-nav flex w-[240px] shrink-0 flex-col gap-1 overflow-auto px-3 py-4" aria-label="Settings categories">
+          {SETTINGS_NAV.map((item) => {
+            const Icon = item.icon
+            return (
+            <button
+              key={item.id}
+              type="button"
+              data-settings-nav={item.id}
+              aria-current={category === item.id ? 'page' : undefined}
+              className="settings-nav-btn"
+              onClick={() => setCategory(item.id)}
+            >
+              <Icon size={16} />
+              {item.label}
+            </button>
+            )
+          })}
+        </nav>
+        <div className="min-w-0 flex-1 overflow-auto px-8 py-6">
+          <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        {category === 'storage' && <Group title="Account">
         <div className="card px-4 py-4" data-account="yes">
           <div className="text-sm font-semibold">Account</div>
           <p className="mt-1 text-sm" data-licence-plan="yes">
-            {licenceState === 'dev' ? <span data-dev-mode="yes">Dev mode</span> : 'Subscription term comes from the licence on this computer.'}
+            {licenceState === 'dev' ? 'Dev mode' : 'Subscription term comes from the licence on this computer.'}
             {termMonths ? ` · ${termMonths} ${termMonths === 1 ? 'month' : 'months'}` : ''}
           </p>
-          {status.appVersion ? <p className="mt-1 text-sm" data-app-version="yes">Version {status.appVersion}</p> : null}
+          {status.appVersion ? <p className="mt-1 text-sm">Version {status.appVersion}</p> : null}
           {subscriptionEndsAt && <p className="mt-1 text-sm" data-licence-ends="yes">Ends: {subscriptionEndsAt.slice(0, 10)}</p>}
           <p className="mt-1 text-sm" data-knowledge-pack="yes">
             {knowledgePack?.version
@@ -82,7 +116,9 @@ export function SettingsScreen({
               : 'Knowledge pack: not installed'}
           </p>
           {licenceNote && <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{licenceNote}</p>}
-          {account ? (
+          {licenceState === 'dev' ? (
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Chat works on this computer. Sign-in and sync are off.</p>
+          ) : account ? (
             <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
           ) : (
             <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
@@ -91,78 +127,50 @@ export function SettingsScreen({
                 : 'Sign in to see every computer on this licence and to search the web. A licence key activates this computer on its own. Local chat and documents work without an account.'}
             </p>
           )}
-          <ul className="mt-3 flex flex-col gap-2">
-            {devices.filter((device) => device.status === 'active').map((device) => (
-              <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
-                <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
-                <button className="btn btn-ghost" type="button" onClick={() => (device.current ? onDeactivate() : onRevoke(device.id))}>Remove</button>
-              </li>
-            ))}
-          </ul>
-          <button className="btn btn-ghost mt-3" type="button" data-deactivate-device="yes" onClick={onDeactivate}>Deactivate this device</button>
-          {account ? (
-            <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
-          ) : (
-            <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
+          {licenceState !== 'dev' && (
+            <>
+              <ul className="mt-3 flex flex-col gap-2">
+                {devices.filter((device) => device.status === 'active').map((device) => (
+                  <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
+                    <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
+                    <button className="btn btn-ghost" type="button" onClick={() => (device.current ? onDeactivate() : onRevoke(device.id))}>Remove</button>
+                  </li>
+                ))}
+              </ul>
+              <button className="btn btn-ghost mt-3" type="button" data-deactivate-device="yes" onClick={onDeactivate}>Deactivate this device</button>
+              {account ? (
+                <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
+              ) : (
+                <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
+              )}
+            </>
           )}
         </div>
-        </Group>
-        <Group title="Appearance">
+        </Group>}
+        {category === 'general' && <Group title="Appearance">
           <AppearanceCard settings={settings} onPatch={onPatch} />
-        </Group>
-        <Group title="This computer">
+        </Group>}
+        {category === 'general' && <Group title="This computer">
           <MachineCard status={status} />
-        </Group>
-        <Group title="Models">
+        </Group>}
+        {category === 'models' && <Group title="Models">
           <div className="card px-4 py-4">
-            <ModelPanel
-              status={status}
-              chats={chats}
-              current={current}
-              progress={progress}
-              busyId={busyId}
-              error={error}
-              detailsOpen={detailsOpen}
-              onToggleDetails={() => setDetailsOpen((open) => !open)}
-              onDownload={onDownload}
-              onSelect={onSelectModel}
-            />
-            {code.length > 0 && (
-              <div className="mt-6">
-                <ModelPanel
-                  status={status}
-                  heading="Code"
-                  intro="Qwen3.5 2B is the default. Gemma 4 is optional. If you do not pick, Qwen3.5 2B downloads."
-                  chats={code}
-                  current={codeCurrent}
-                  progress={progress}
-                  busyId={busyId}
-                  error={null}
-                  detailsOpen={codeOpen}
-                  onToggleDetails={() => setCodeOpen((open) => !open)}
-                  onDownload={onDownload}
-                  onSelect={onSelectModel}
-                />
-              </div>
-            )}
+            <ModelPanel status={status} chats={chats} />
+            <div className="mt-6">
+              <ModelPanel status={status} heading="Code" chats={code} />
+            </div>
           </div>
-        </Group>
-        <Group title="Code agent">
+        </Group>}
+        {category === 'models' && <Group title="Code agent">
           <CodeAgentSettings settings={settings} onPatch={onPatch} />
-          <LiveFeelSettings status={status} settings={settings} onPatch={onPatch} onDownload={onDownload} />
-        </Group>
-        <Group title="Usage">
-          <UsagePanel />
-        </Group>
-        <Group title="Storage">
+          <LiveFeelSettings status={status} settings={settings} onPatch={onPatch} />
+        </Group>}
+        {category === 'storage' && <Group title="Storage">
           <StoragePanel />
-        </Group>
-        <Group title="Privacy and permissions">
+        </Group>}
+        {category === 'network' && <Group title="Network">
         <div className="card px-4 py-4" data-network-settings="yes">
           <div className="text-sm font-semibold">Network</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Offline answers from this computer only. It does not search the web, sync packs, or fetch quotes. Online allows those. Auto follows the connection. This is the only place that changes it.
-          </p>
           <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Network mode">
             {(['offline', 'online', 'auto'] as const).map((mode) => (
               <button
@@ -183,21 +191,18 @@ export function SettingsScreen({
         </div>
         <Row
           title="Allow web search"
-          body="Search runs on this computer. No API key. When you are online and local sources are thin, this laptop asks official public sources. Documents stay here."
+          body="Look up pages when you are online. Your files stay here."
           on={settings.webSearchAllowed}
           onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
         />
         <div className="card px-4 py-4">
           <div className="text-sm font-semibold">My region</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            For a VPN. A place named in the question still wins. Leave this blank to use the country of the public IP, then worldwide sources when that lookup has no file.
-          </p>
           <input
             className="field mt-3"
             value={region}
             spellCheck={false}
             aria-label="My region"
-            placeholder="Country or ISO code"
+            placeholder="Country"
             maxLength={80}
             onChange={(e) => setRegion(e.target.value)}
             onBlur={() => { if (region.trim() !== settings.myRegion) onPatch({ myRegion: region.trim() }) }}
@@ -207,11 +212,16 @@ export function SettingsScreen({
         <CodeIndexCard />
         <Row
           title="Telemetry"
-          body="Off unless you turn it on. Prompts stay on this computer."
+          body="Off until you turn it on. Chats stay on this computer."
           on={settings.telemetryOptIn}
           onToggle={() => onPatch({ telemetryOptIn: !settings.telemetryOptIn })}
         />
-        {status.devWeb ? (
+        {licenceState === 'dev' ? (
+          <div className="card px-4 py-4">
+            <div className="text-sm font-semibold">Account and pack server</div>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Dev mode, sync off.</p>
+          </div>
+        ) : status.devWeb ? (
           <DevWebPanel apiUrl={status.devApiUrl || 'http://127.0.0.1:8000'} />
         ) : (
           <div className="card px-4 py-4">
@@ -230,20 +240,31 @@ export function SettingsScreen({
             {!apiOk && <p className="mt-2 text-sm text-[var(--muted)]">Use an http or https address.</p>}
           </div>
         )}
-        </Group>
-        <Group title="Connectors">
-          <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
-            <p>Assistant can draft email and look at a calendar, Slack, or Drive after those accounts are connected. Connecting accounts is not in this beta. Send and delete still wait for your approval.</p>
-            <p className="mt-2">Code chats about the code you are writing. You can attach a screenshot. It is not for trading or high-frequency trading. A live code preview is not in this beta.</p>
+        </Group>}
+        {category === 'apps' && <Group title="Connected Apps">
+          <div className="card px-4 py-4" data-connected-apps="yes">
+            <div className="hw-grid">
+              <div className="hw-tile">
+                <div className="hw-label">Mail and calendar</div>
+                <div className="hw-value">Not in this beta</div>
+              </div>
+              <div className="hw-tile">
+                <div className="hw-label">Code</div>
+                <div className="hw-value">On this computer</div>
+              </div>
+            </div>
           </div>
-        </Group>
-        <Group title="Updates">
+        </Group>}
+        {category === 'network' && <Group title="Updates">
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
-          <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
-          <p className="mt-1">Account server: {status.devApiUrl || settings.apiBaseUrl}.</p>
+          <p className="mt-2">Chats stay on this computer.</p>
+          {licenceState !== 'dev' && <p className="mt-1">Account server: {status.devApiUrl || settings.apiBaseUrl}.</p>}
           <p className="mt-3">
-            <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span> While a subscription is active and this computer is online, Synap.surf checks for a newer signed pack on startup and every 24 hours. The new pack is swapped in between messages.
+            <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span>{' '}
+            {licenceState === 'dev'
+              ? 'Dev mode, sync off.'
+              : 'When you are online, Synap checks for newer packs.'}
           </p>
           <button
             className="btn btn-ghost mt-3"
@@ -268,32 +289,48 @@ export function SettingsScreen({
                 </button>
               ))}
             </div>
-            <p className="mt-2">Beta includes tags that contain -beta. Stable does not.</p>
+            <p className="mt-2">Beta gets early builds. Stable waits.</p>
           </div>
         </div>
-        </Group>
-        <Group title="About">
+        </Group>}
+        {category === 'general' && <Group title="About">
         <div className="card px-4 py-4 text-sm leading-relaxed" data-about="yes">
-          <div className="font-semibold text-[var(--ink)]">Appearance</div>
-          <p className="mt-1 text-[var(--muted)]">Light or dark. Saved on this device.</p>
-          <div className="mt-3">
-            <ThemeSwitch value={settings.theme} onChange={(theme) => onPatch({ theme })} />
-          </div>
-          <div className="mt-4 font-semibold text-[var(--ink)]">About</div>
-          <p className="mt-2 text-[var(--muted)]">Synap.surf runs on this computer. The notes below are drafts, not legal advice.</p>
+          <div className="font-semibold text-[var(--ink)]">About</div>
+          <p className="mt-2 text-[var(--muted)]">Synap.surf runs on this computer.</p>
           <div className="mt-3 flex flex-wrap gap-3">
-            <AboutLink href={`${product.site}/privacy`}>Privacy</AboutLink>
-            <AboutLink href={`${product.site}/security`}>Security</AboutLink>
-            <AboutLink href={`${product.site}/contribute`}>Contribute</AboutLink>
-            <AboutLink href={`${product.site}/terms`}>Terms</AboutLink>
+            {licenceState !== 'dev' && (
+              <>
+                <AboutLink href={`${product.site}/privacy`}>Privacy</AboutLink>
+                <AboutLink href={`${product.site}/security`}>Security</AboutLink>
+                <AboutLink href={`${product.site}/contribute`}>Contribute</AboutLink>
+                <AboutLink href={`${product.site}/terms`}>Terms</AboutLink>
+              </>
+            )}
             <AboutLink href={product.repo}>GitHub</AboutLink>
           </div>
         </div>
-        </Group>
+        </Group>}
+          </div>
+        </div>
       </div>
+      <footer className="flex items-center justify-end gap-2 border-t border-[var(--line)] px-6 py-3">
+        {savedNote && <span className="mr-auto text-sm text-[var(--muted)]" data-saved-note="yes">{savedNote}</span>}
+        <button className="btn btn-ghost" type="button" data-restore-defaults="yes" onClick={() => { setSavedNote(''); onRestore() }}>Restore Defaults</button>
+        <button className="btn btn-primary" type="button" onClick={save}>Save Changes</button>
+      </footer>
     </section>
   )
 }
+
+const SETTINGS_NAV: { id: SettingsCategory; label: string; icon: typeof Palette }[] = [
+  { id: 'general', label: 'General & Appearance', icon: Palette },
+  { id: 'models', label: 'Offline Models & Compute', icon: Cpu },
+  { id: 'network', label: 'Network', icon: Wifi },
+  { id: 'apps', label: 'Connected Apps', icon: Plug },
+  { id: 'storage', label: 'Storage', icon: HardDrive },
+]
+
+type SettingsCategory = 'general' | 'models' | 'network' | 'apps' | 'storage'
 
 function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsPatch>; onPatch: (p: SettingsPatch) => void }) {
   const [list, setList] = useState(settings.codeAgentAllowlist.join('\n'))
@@ -318,7 +355,7 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
     <div className="card px-4 py-4" data-code-agent-settings="yes">
       <div className="text-sm font-semibold">Default mode</div>
       <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        New projects start here. A project keeps its own choice after you change it in the Code agent. Ask is the default.
+        New code projects start in Ask. A project can keep its own choice.
       </p>
       <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Default code agent mode">
         <button type="button" className={mode === 'ask' ? 'btn btn-primary' : 'btn btn-ghost'} data-code-default-mode="ask" aria-checked={mode === 'ask'} role="radio" onClick={() => choose('ask')}>Ask</button>
@@ -335,7 +372,7 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
       )}
       <div className="mt-4 text-sm font-semibold">Command allowlist</div>
       <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        Auto runs these commands, plus test, lint, typecheck, and build commands detected in the open project. One exact command per line. Install and network commands are never added.
+        Auto may run these commands. One command per line.
       </p>
       <textarea
         className="field mt-3 min-h-24"
@@ -353,13 +390,13 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
         <div>
           <div className="text-sm font-semibold">Tab suggestions</div>
           <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Ghost text in the code editor. Tab accepts it. Nothing is written until you save. On by default when the Code model fits this computer.
+            Grey text in the editor. Tab accepts it. Nothing is saved until you save.
           </p>
         </div>
         <button type="button" className="toggle mt-1" data-tab-suggestions="yes" data-on={settings.tabSuggestions ? 'yes' : 'no'} aria-pressed={settings.tabSuggestions} onClick={() => onPatch({ tabSuggestions: !settings.tabSuggestions })}><span /></button>
       </div>
       <div className="mt-3 text-sm font-semibold">Languages off</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Comma-separated language ids, such as markdown or plaintext.</p>
+      <p className="mt-1 text-sm text-[var(--muted)]">Comma-separated, such as markdown.</p>
       <input
         className="field mt-2"
         aria-label="Languages with Tab suggestions off"
@@ -392,20 +429,24 @@ function SavedWebCard() {
   }, [])
   return (
     <div className="card px-4 py-4" data-saved-web-card="yes">
-      <div className="text-sm font-semibold">Saved web sources</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        When an answer cites a web page, Surf keeps that passage on this computer so a later question can use it offline. Passages are not uploaded. The store holds {webSize(status?.capBytes ?? 8 * 1024 * 1024)} and drops the least recently used passages after that.
-      </p>
-      <p className="mt-2 text-sm" data-saved-web-size="yes">
-        {status ? `${status.count} passage${status.count === 1 ? '' : 's'} · ${webSize(status.bytes)}` : 'Checking size…'}
-      </p>
+      <div className="text-sm font-semibold">Saved pages</div>
+      <div className="hw-grid mt-3" data-saved-web-size="yes">
+        <div className="hw-tile">
+          <div className="hw-label">Pages</div>
+          <div className="hw-value">{status ? String(status.count) : '…'}</div>
+        </div>
+        <div className="hw-tile">
+          <div className="hw-label">Space</div>
+          <div className="hw-value">{status ? webSize(status.bytes) : '…'}</div>
+        </div>
+      </div>
       <button
         className="btn btn-ghost mt-3"
         type="button"
         data-clear-web="yes"
         onClick={() => { void window.surf.webCache.clear().then(setStatus).catch(() => undefined) }}
       >
-        Clear saved web sources
+        Clear saved pages
       </button>
     </div>
   )
@@ -418,13 +459,17 @@ function CodeIndexCard() {
   }, [])
   return (
     <div className="card px-4 py-4" data-code-index-card="yes">
-      <div className="text-sm font-semibold">Code project indexes</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        Opening a project folder indexes it on this computer. The index stays in the app private data folder. Source files are not uploaded.
-      </p>
-      <p className="mt-2 text-sm" data-code-index-size="yes">
-        {usage ? `${usage.projects.length} project${usage.projects.length === 1 ? '' : 's'} · ${formatIndexBytes(usage.totalBytes)}` : 'Checking size…'}
-      </p>
+      <div className="text-sm font-semibold">Code projects</div>
+      <div className="hw-grid mt-3" data-code-index-size="yes">
+        <div className="hw-tile">
+          <div className="hw-label">Projects</div>
+          <div className="hw-value">{usage ? String(usage.projects.length) : '…'}</div>
+        </div>
+        <div className="hw-tile">
+          <div className="hw-label">Space</div>
+          <div className="hw-value">{usage ? formatIndexBytes(usage.totalBytes) : '…'}</div>
+        </div>
+      </div>
       {usage && usage.projects.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1 text-sm text-[var(--muted)]">
           {usage.projects.map((project) => (
@@ -462,30 +507,89 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
   const [name, setName] = useState(settings.mascotName)
   useEffect(() => { setName(settings.mascotName) }, [settings.mascotName])
   return (
-    <div className="card px-4 py-4" data-appearance="yes">
-      <label className="block text-sm">
-        <span className="font-semibold">Mascot name</span>
+    <div className="card px-5 py-5" data-appearance="yes">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="icon-tile" aria-hidden="true"><Palette size={16} /></span>
+        <div>
+          <div className="text-sm font-semibold">Interface</div>
+          <p className="mt-1 text-sm text-[var(--muted)]">Light or dark.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Color theme">
+        {(['light', 'dark'] as const).map((theme) => (
+          <button
+            key={theme}
+            type="button"
+            role="radio"
+            aria-checked={settings.theme === theme}
+            data-theme-choice={theme}
+            className={`theme-card ${settings.theme === theme ? 'is-on' : ''}`}
+            onClick={() => onPatch({ theme })}
+          >
+            <span className={`theme-preview is-${theme}`} aria-hidden="true">
+              <span className="theme-preview-side" />
+              <span className="theme-preview-main">
+                <span className="theme-preview-bubble" />
+                <span className="theme-preview-line" />
+              </span>
+            </span>
+            <span className="mt-2 flex items-center gap-2 text-sm font-semibold">
+              <Monitor size={14} />
+              {theme === 'light' ? 'Light' : 'Dark'}
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="mt-4 text-sm font-semibold">Mascot colour</div>
+      <div className="mt-2 flex flex-wrap items-center gap-2" data-mascot-colors="yes">
+        {BLOB_SWATCHES.map((swatch) => (
+          <button
+            key={swatch.id}
+            type="button"
+            className={`mascot-swatch ${settings.mascotColor.toLowerCase() === swatch.hex ? 'is-on' : ''}`}
+            style={{ background: swatch.hex }}
+            data-mascot-color={swatch.hex}
+            aria-label={swatch.label}
+            aria-pressed={settings.mascotColor.toLowerCase() === swatch.hex}
+            onClick={() => onPatch({ mascotColor: swatch.hex })}
+          />
+        ))}
         <input
-          className="field mt-2"
-          data-mascot-rename="yes"
-          aria-label="Mascot name"
-          value={name}
-          maxLength={40}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => {
-            const next = name.trim()
-            if (next && next !== settings.mascotName) onPatch({ mascotName: next })
-          }}
+          className="mascot-color-custom"
+          type="color"
+          aria-label="Custom mascot colour"
+          data-mascot-color-custom="yes"
+          value={/^#[0-9a-fA-F]{6}$/.test(settings.mascotColor) ? settings.mascotColor : '#f2740f'}
+          onChange={(event) => onPatch({ mascotColor: event.target.value })}
         />
-      </label>
-      <div className="mt-3 flex flex-wrap gap-2" data-accent-choices="yes">
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <BlobMascot state="idle" size={64} animate={settings.animateMascot} label={name || settings.mascotName} />
+        <label className="block min-w-0 flex-1 text-sm">
+          <span className="font-semibold">Mascot name</span>
+          <input
+            className="field mt-2"
+            data-mascot-rename="yes"
+            aria-label="Mascot name"
+            value={name}
+            maxLength={40}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => {
+              const next = name.trim()
+              if (next && next !== settings.mascotName) onPatch({ mascotName: next })
+            }}
+          />
+        </label>
+      </div>
+      <div className="mt-3 text-sm font-semibold">Accent colour</div>
+      <div className="mt-2 flex flex-wrap gap-2" data-accent-choices="yes">
         {ACCENT_CHOICES.map((accent) => (
-          <button key={accent} type="button" className="btn btn-ghost" data-accent-choice={accent} aria-pressed={settings.accent === accent} onClick={() => onPatch({ accent })}>{accent}</button>
+          <button key={accent} type="button" className={`accent-swatch is-${accent} ${settings.accent === accent ? 'is-on' : ''}`} data-accent-choice={accent} aria-label={accent} aria-pressed={settings.accent === accent} onClick={() => onPatch({ accent })} />
         ))}
       </div>
       <div className="mt-3 flex flex-wrap gap-2" data-density-choices="yes">
         {DENSITY_CHOICES.map((density) => (
-          <button key={density} type="button" className="btn btn-ghost" data-density-choice={density} aria-pressed={settings.density === density} onClick={() => onPatch({ density })}>{density}</button>
+          <button key={density} type="button" className="chip-tab" data-density-choice={density} aria-pressed={settings.density === density} onClick={() => onPatch({ density })}>{density}</button>
         ))}
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
@@ -499,28 +603,49 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
 function MachineCard({ status }: { status: ModelStatus }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState('')
+  const { setBenchmark } = useMascotActivity()
+  useEffect(() => {
+    setBenchmark(busy !== '')
+    return () => setBenchmark(false)
+  }, [setBenchmark, busy])
   const chats = status.models.filter((model) => model.role === 'chat' && model.installed)
-  const gpus = (status.gpus ?? []).filter((gpu) => gpu.model.trim())
+  const total = status.ramGb
+  const free = typeof status.freeRamGb === 'number' ? Math.max(0, Math.min(total, status.freeRamGb)) : null
+  const usedPct = free == null || total <= 0 ? 0 : ((total - free) / total) * 100
   return (
-    <div className="card px-4 py-4 text-sm" data-machine="yes">
-      <p>{status.cpuModel} · {status.cores} cores · {status.ramGb} GB RAM{typeof status.freeRamGb === 'number' ? ` · ${status.freeRamGb} GB free` : ''}</p>
-      {gpus.map((gpu) => (
-        <p key={`${gpu.vendor}-${gpu.model}`} className="mt-1" data-gpu="yes">
-          {gpu.vendor ? `${gpu.vendor} ` : ''}{gpu.model}{typeof gpu.vramMb === 'number' ? ` · ${gpu.vramMb} MB` : ''}
-        </p>
-      ))}
-      {typeof status.contextTokens === 'number' && <p className="mt-1" data-context-tokens="yes">Context length {status.contextTokens} tokens</p>}
-      {typeof status.promptCacheMiB === 'number' && (
-        <p className="mt-1" data-prompt-cache="yes">
-          {status.promptCacheMiB === 0 ? 'Prompt cache is off on this computer.' : `Prompt cache ${status.promptCacheMiB} MiB of RAM. This is not a file on disk.`}
-        </p>
-      )}
+    <div className="card px-5 py-5 text-sm" data-machine="yes">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="icon-tile is-blue" aria-hidden="true"><Cpu size={16} /></span>
+        <div className="text-sm font-semibold">Hardware</div>
+      </div>
+      <div className="hw-grid">
+        <HardwareTile icon={<Cpu size={15} />} tile="blue" label="Processor" value={cleanCpuName(status.cpuModel)} />
+        <HardwareTile icon={<Hash size={15} />} tile="violet" label="Cores" value={String(status.cores)} />
+        <HardwareTile
+          icon={<MemoryStick size={15} />}
+          tile="teal"
+          label="Memory"
+          value={formatRamGb(total)}
+          bar={free == null ? null : (
+            <div className="hw-split" aria-hidden="true">
+              <b className="is-used" style={{ width: `${usedPct}%` }} />
+              <b className="is-free" style={{ width: `${100 - usedPct}%` }} />
+            </div>
+          )}
+        />
+        {typeof status.contextTokens === 'number' && (
+          <HardwareTile icon={<Text size={15} />} tile="" label="Memory it can read" value={formatContextTokens(status.contextTokens)} marker="context-tokens" />
+        )}
+        {typeof status.promptCacheMiB === 'number' && (
+          <HardwareTile icon={<Database size={15} />} tile="violet" label="Chat memory" value={formatPromptCache(status.promptCacheMiB)} marker="prompt-cache" />
+        )}
+      </div>
       {chats.map((model) => {
         const bench = status.benchmarks?.find((row) => row.modelId === model.id && row.sizeBytes === model.sizeBytes)
         return (
           <div key={model.id} className="mt-3" data-benchmark={model.id}>
-            <p>{model.label} · {model.quant || 'quant unknown'} · {formatIndexBytes(model.sizeBytes)}</p>
-            <p data-benchmark-speed="yes">{bench ? `${bench.tokensPerSec} tok/s, measured ${new Date(bench.measuredAt).toISOString()}` : 'not measured yet'}</p>
+            <p>{friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })} · {formatIndexBytes(model.sizeBytes)}</p>
+            <p data-benchmark-speed="yes">{bench ? `${bench.tokensPerSec} tok/s` : 'not measured yet'}</p>
             <button
               type="button"
               className="btn btn-ghost mt-2"
@@ -530,7 +655,7 @@ function MachineCard({ status }: { status: ModelStatus }) {
                 setBusy(model.id)
                 setNote('')
                 void window.surf.models.benchmark(model.id).then((result) => {
-                  setNote(result.measured && result.tokensPerSec != null ? `${model.label}: ${result.tokensPerSec} tok/s` : `${model.label}: ${result.reason || 'not measured yet'}`)
+                  setNote(result.measured && result.tokensPerSec != null ? `${friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })}: ${result.tokensPerSec} tok/s` : `${friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })}: ${result.reason || 'not measured yet'}`)
                 }).catch((error: unknown) => setNote((error as Error).message)).finally(() => setBusy(''))
               }}
             >Run benchmark</button>
@@ -538,6 +663,33 @@ function MachineCard({ status }: { status: ModelStatus }) {
         )
       })}
       {note && <p className="mt-2" data-benchmark-note="yes">{note}</p>}
+    </div>
+  )
+}
+
+function HardwareTile({
+  icon,
+  tile,
+  label,
+  value,
+  bar,
+  marker,
+}: {
+  icon: ReactNode
+  tile: '' | 'blue' | 'violet' | 'teal'
+  label: string
+  value: string
+  bar?: ReactNode
+  marker?: 'context-tokens' | 'prompt-cache'
+}) {
+  return (
+    <div className="hw-tile" data-context-tokens={marker === 'context-tokens' ? 'yes' : undefined} data-prompt-cache={marker === 'prompt-cache' ? 'yes' : undefined}>
+      <div className="flex items-center gap-2">
+        <span className={`icon-tile hw-icon ${tile ? `is-${tile}` : ''}`} aria-hidden="true">{icon}</span>
+        <span className="hw-label">{label}</span>
+      </div>
+      <div className="hw-value">{value}</div>
+      {bar}
     </div>
   )
 }

@@ -88,4 +88,19 @@ test('Offline mode warns when the licence refresh is due, and Auto does not', ()
   assert.match(chip.tooltip, /passed/)
   assert.match(chip.refreshWarning ?? '', /passed/)
   assert.equal(chip.detail.includes('Last sync: not yet'), true)
+  assert.equal(chip.showMode, true)
+})
+
+test('dev mode tells the chip that sync is off', () => {
+  const chip = syncChip({
+    mode: 'online', osOnline: true, syncing: true, failed: true,
+    packVersion: '2026.10.01', syncingVersion: '2026.10.09', lastSyncAt: NOW, refreshBy: new Date(NOW).toISOString(), now: NOW,
+    devMode: true,
+  })
+  assert.equal(chip.label, 'Dev mode, sync off')
+  assert.equal(chip.state, 'offline')
+  assert.equal(chip.mode, 'online')
+  assert.equal(chip.showMode, false)
+  assert.equal(chip.refreshWarning, null)
+  assert.equal(chip.detail.includes('Last sync: not yet'), true)
 })

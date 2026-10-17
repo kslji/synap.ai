@@ -3,12 +3,14 @@ import type { PackRow } from '../../../shared/ipc-contract'
 export function PacksScreen({
   packs,
   busy,
+  syncOff = false,
   error,
   onSync,
   onRemove,
 }: {
   packs: PackRow[]
   busy: boolean
+  syncOff?: boolean
   error: string | null
   onSync: () => void
   onRemove: (id: string) => void
@@ -19,9 +21,9 @@ export function PacksScreen({
         <div className="flex items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Knowledge packs</h1>
-            <p className="mt-1 text-sm text-[var(--muted)]">Signed packs stay on this computer after they install. Sync runs when you are online and signed in.</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">{syncOff ? 'Dev mode, sync off.' : 'Signed packs stay on this computer after they install. Sync runs when you are online and signed in.'}</p>
           </div>
-          <button className="btn btn-primary shrink-0" type="button" disabled={busy} data-packs-sync="yes" onClick={onSync}>
+          <button className="btn btn-primary shrink-0" type="button" disabled={busy || syncOff} data-packs-sync="yes" onClick={onSync}>
             {busy ? 'Syncing' : 'Check for updates'}
           </button>
         </div>
@@ -53,7 +55,7 @@ export function PacksScreen({
             {pack.error && <p className="mt-2 text-sm text-[var(--muted)]">{pack.error}</p>}
             <div className="mt-3 flex gap-2">
               {(!pack.installed || pack.updateAvailable) && (
-                <button className="btn btn-primary" type="button" disabled={busy} onClick={onSync}>
+                <button className="btn btn-primary" type="button" disabled={busy || syncOff} onClick={onSync}>
                   {pack.installed ? 'Install update' : 'Install'}
                 </button>
               )}

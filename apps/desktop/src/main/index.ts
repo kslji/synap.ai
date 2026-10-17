@@ -226,7 +226,7 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, networkMode: 'offline' as const, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false, mascotName: 'Surf Bot', accent: 'orange' as const, density: 'comfortable' as const, animateMascot: false }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, networkMode: 'offline' as const, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false, mascotName: 'Surf Bot', mascotColor: '#f2740f', accent: 'orange' as const, density: 'comfortable' as const, animateMascot: false }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)
@@ -293,12 +293,8 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await go('chat')
     await shot(`chat-${theme}`)
     await go('models')
-    await win.webContents.executeJavaScript(`document.querySelector('[data-model-details="closed"]')?.click()`)
-    await sleep(200)
     await shot(`models-${theme}`)
     await go('settings')
-    await win.webContents.executeJavaScript(`document.querySelector('[data-settings-group="Models"] [data-model-details="closed"]')?.click()`)
-    await sleep(200)
     await shot(`settings-${theme}`)
     await shot(`settings-models-${theme}`)
     const demo = async (scene: string, name: string) => {
@@ -490,6 +486,32 @@ if (surfEnv('SMOKE') || surfEnv('E2E_DIR')) app.disableHardwareAcceleration()
 // and the smoke launch does not.
 if (!surfEnv('SMOKE')) app.enableSandbox()
 if (!app.requestSingleInstanceLock()) app.quit()
+
+let queuedSetup = process.argv.find((arg) => arg.startsWith('synap:')) ?? null
+let setupSink: { applySetupLink: (url: string) => string | null } | null = null
+let mainWindow: BrowserWindow | null = null
+
+function takeSetup(url: string | undefined): void {
+  if (!url?.startsWith('synap:')) return
+  if (setupSink) setupSink.applySetupLink(url)
+  else queuedSetup = url
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  takeSetup(url)
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
+app.on('second-instance', (_event, argv) => {
+  takeSetup(argv.find((arg) => arg.startsWith('synap:')))
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !surfEnv('SELFTEST') && !surfEnv('EVAL') && !surfEnv('SMOKE')) app.quit() })
 void app.whenReady().then(async () => {
   if (surfEnv('SMOKE')) return smoke()
@@ -507,8 +529,17 @@ void app.whenReady().then(async () => {
   }
   const boot = Date.now()
   const services = await createServices()
+  setupSink = services
+  if (!surfEnv('SMOKE') && !surfEnv('SELFTEST') && !surfEnv('EVAL')) {
+    if (process.defaultApp && process.argv.length >= 2) app.setAsDefaultProtocolClient('synap', process.execPath, [process.argv[1]])
+    else app.setAsDefaultProtocolClient('synap')
+  }
+  if (queuedSetup) services.applySetupLink(queuedSetup)
+  await services.adoptLocal()
   const paths = preloadAndHtml()
   const win: BrowserWindow = createMainWindow(paths.preload, paths.html)
+  mainWindow = win
+  win.on('focus', () => { void services.adoptLocal() })
   registerIpc(win, services)
   const stopStreams = () => services.lifecycle.releaseWindow()
   win.on('closed', stopStreams)

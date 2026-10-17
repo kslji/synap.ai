@@ -13,9 +13,10 @@
   background: var(--bg-elev);
   color: var(--ink);
   cursor: pointer;
-  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 .btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 .btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .btn-primary { background: var(--accent); color: var(--accent-ink); }
@@ -63,7 +64,7 @@
   padding: 12px 14px;
   font: inherit;
   font-size: 15px;
-  line-height: 1.45;
+  line-height: 1.55;
 }
 .field:focus { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 
@@ -103,6 +104,12 @@
   background: var(--accent);
   border-radius: inherit;
   transition: width 180ms ease;
+}
+.progress.is-busy b {
+  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 40%, transparent), transparent);
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  animation: bar-sheen 1.1s linear infinite;
 }
 
 .theme-switch {
@@ -153,4 +160,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .btn, .toggle span, .progress b, .theme-switch button { transition: none; }
+  .progress.is-busy b { animation: none; }
 }

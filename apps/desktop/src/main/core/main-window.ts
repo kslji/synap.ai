@@ -72,6 +72,10 @@ function assertTrusted(e: IpcMainInvokeEvent): void {
 }
 
 export interface Services {
+  /** Move a verified local model file into the models folder. */
+  adoptLocal(): Promise<void>
+  /** Read synap://setup?model=&file= and adopt that file when the path checks out. */
+  applySetupLink(raw: string): string | null
   chat: {
     send(req: ParsedChat, win: BrowserWindow): Promise<{ conversationId: string; messageId: string }>
     cancel(id: string): void
@@ -79,6 +83,8 @@ export interface Services {
   models: {
     status(): Promise<ModelStatus>
     download(modelId: string, win: BrowserWindow): Promise<void>
+    cancel(win: BrowserWindow): void
+    importLocal(path: string | null, win: BrowserWindow): Promise<{ id: string } | null>
     benchmark(modelId: string): Promise<BenchmarkResult>
   }
   conversations: {
@@ -131,8 +137,8 @@ export interface Services {
     installOffline(win: BrowserWindow): Promise<boolean>
   }
   library: {
-    add(paths: string[], conversationId: string | null, createConversation: boolean, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
-    pick(conversationId: string | null, createConversation: boolean, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    add(paths: string[], conversationId: string | null, createConversation: boolean, agentId: string, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    pick(conversationId: string | null, createConversation: boolean, agentId: string, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
     list(): Promise<LibraryFile[]>
     retry(jobId: string): Promise<void>
     cancel(jobId: string): Promise<void>
@@ -200,6 +206,12 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.settingsSet, (e, raw) => { assertTrusted(e); return s.settings.set(SettingsPatchSchema.parse(raw)) })
   handle(IPC.modelsStatus, (e) => { assertTrusted(e); return s.models.status() })
   handle(IPC.modelsDownload, (e, raw) => { assertTrusted(e); return s.models.download(ModelId.parse(raw), win) })
+  handle(IPC.modelsCancel, (e) => { assertTrusted(e); s.models.cancel(win) })
+  handle(IPC.modelsImportLocal, (e, raw) => {
+    assertTrusted(e)
+    const path = raw == null || raw === '' ? null : z.string().min(1).max(4096).parse(raw)
+    return s.models.importLocal(path, win)
+  })
   handle(IPC.modelsBenchmark, (e, raw) => { assertTrusted(e); return s.models.benchmark(ModelId.parse(raw)) })
   handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
   handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })
@@ -236,12 +248,12 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.libraryAdd, (e, raw) => {
     assertTrusted(e)
     const body = LibraryAdd.parse(raw)
-    return s.library.add(body.paths, body.conversationId, body.createConversation, win)
+    return s.library.add(body.paths, body.conversationId, body.createConversation, body.agentId, win)
   })
   handle(IPC.libraryPick, (e, raw) => {
     assertTrusted(e)
     const body = LibraryPick.parse(raw ?? { conversationId: null })
-    return s.library.pick(body.conversationId, body.createConversation, win)
+    return s.library.pick(body.conversationId, body.createConversation, body.agentId, win)
   })
   handle(IPC.libraryList, (e) => { assertTrusted(e); return s.library.list() })
   handle(IPC.libraryRetry, (e, raw) => { assertTrusted(e); return s.library.retry(JobId.parse(raw)) })

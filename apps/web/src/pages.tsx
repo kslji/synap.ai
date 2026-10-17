@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { StarSurf, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
+import { Cpu } from 'lucide-react'
+import { BlobMascot, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { DownloadButtons } from './download-buttons'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, type ReleaseListItem } from './site'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, type ReleaseListItem } from './site'
 
 export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -18,7 +19,7 @@ export function SiteHeader({ theme, onTheme }: { theme: ThemeChoice; onTheme: (n
   return (
     <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-5">
       <a href="/" className="flex items-center gap-2 text-[var(--ink)] no-underline">
-        <StarSurf state="idle" size={40} />
+        <BlobMascot state="idle" size={40} />
         <span className="text-[15px] font-semibold">{product.name}</span>
       </a>
       <nav className="hidden items-center gap-4 text-sm md:flex">
@@ -166,7 +167,7 @@ function webglRenderer(): string {
 }
 
 const MAC_STEPS = [
-  'Open the disk image when it finishes.',
+  'Open the download when it finishes.',
   'Drag Synap.surf into Applications.',
   'If macOS blocks the app, choose Open Anyway in Privacy & Security. You only do this once.',
 ]
@@ -221,6 +222,36 @@ export function DownloadCard() {
 
   return (
     <div className="mt-5 flex flex-col gap-2 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
+      <div className="card px-4 py-4" data-model-picker="yes">
+        <div className="flex items-start gap-3">
+          <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
+          <div>
+            <p className="text-sm font-semibold">Pick a size</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Download the model, then the app. Every size uses the same installer.</p>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-col gap-2">
+          {SETUP_MODELS.map((model) => (
+            <a
+              key={model.id}
+              href={model.url}
+              download={model.file}
+              data-setup-model={model.id}
+              className="model-choice"
+            >
+              <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
+              <span>
+                <span className="font-semibold">{model.name}</span>
+                <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                  <span data-model-size={model.id}>{model.size}</span>
+                  {' · '}
+                  <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+                </span>
+              </span>
+            </a>
+          ))}
+        </div>
+      </div>
       <DownloadButtons
         mac={macHref}
         win={links.win}
@@ -236,7 +267,7 @@ export function DownloadCard() {
       <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
       {started && (
         <div className="card mt-2 px-4 py-4" data-download-started={started}>
-          <StarSurf state="guiding" size={72} />
+          <BlobMascot state="guiding" size={72} />
           <p className="mt-2 text-sm font-semibold">Your download has started</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-[var(--muted)]">
             {(started === 'mac' ? MAC_STEPS : WINDOWS_STEPS).map((step) => <li key={step}>{step}</li>)}

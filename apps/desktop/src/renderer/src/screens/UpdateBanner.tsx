@@ -1,4 +1,4 @@
-import { StarSurf } from '@surf/ui'
+import { BlobMascot } from '@surf/ui'
 import type { UpdateOffer } from '../../../shared/ipc-contract'
 
 export function UpdateBanner({ offer, onApply }: { offer: UpdateOffer; onApply: () => void }) {
@@ -6,12 +6,12 @@ export function UpdateBanner({ offer, onApply }: { offer: UpdateOffer; onApply: 
     <aside className="border-b border-[var(--line)] bg-[var(--accent-soft)] px-4 py-3" data-update-banner="yes">
       <div className="mx-auto flex max-w-3xl flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <StarSurf state="notification" size={48} />
+          <BlobMascot state="notification" size={48} />
           <div>
           <p className="text-sm font-semibold">Update available · {offer.version}</p>
           <p className="mt-1 max-w-xl text-sm leading-relaxed text-[var(--muted)]">
             {offer.kind === 'manual'
-              ? 'This Mac build is unsigned, so Synap.surf cannot replace itself. Download the new disk image and move it to Applications.'
+              ? 'This Mac copy cannot replace itself. Download the new copy and move it to Applications.'
               : 'Synap.surf can download the Windows installer and replace this copy.'}
           </p>
           {offer.kind === 'manual' && (
@@ -22,7 +22,7 @@ export function UpdateBanner({ offer, onApply }: { offer: UpdateOffer; onApply: 
           </div>
         </div>
         <button className="btn btn-primary" type="button" data-update-apply="yes" onClick={onApply}>
-          {offer.kind === 'manual' ? 'Download .dmg' : 'Download and install'}
+          {offer.kind === 'manual' ? 'Download' : 'Download and install'}
         </button>
       </div>
     </aside>

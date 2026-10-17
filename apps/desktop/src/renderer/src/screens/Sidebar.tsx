@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'react'
-import { StarSurf, ThemeSwitch, type ThemeChoice } from '@surf/ui'
-import { product } from '@surf/shared'
+import { BarChart3, Bot, Folder, Home, LogOut, Moon, Package, Plus, Search, Settings, Trash2 } from 'lucide-react'
+import { BlobMascot, type ThemeChoice } from '@surf/ui'
+import { useMascotActivity } from '../mascot-activity'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
+import { agentFilterIds, labelFromAgentId } from '../../../shared/chat-title'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
-const NAV: { id: View; label: string }[] = [
-  { id: 'home', label: 'Home' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'chats', label: 'Chats' },
-  { id: 'usage', label: 'Usage' },
-  { id: 'library', label: 'Files' },
-  { id: 'packs', label: 'Packs' },
-  { id: 'settings', label: 'Settings' },
+const MENU: { id: View; label: string; icon: typeof Home }[] = [
+  { id: 'usage', label: 'Usage', icon: BarChart3 },
+  { id: 'home', label: 'Home', icon: Home },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'library', label: 'Files', icon: Folder },
+  { id: 'packs', label: 'Packs', icon: Package },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar({
@@ -28,6 +29,9 @@ export function Sidebar({
   animateMascot,
   onMascotName,
   onSignIn,
+  onSignOut,
+  signedIn = false,
+  devMode = false,
   onView,
   onNew,
   onOpen,
@@ -46,6 +50,9 @@ export function Sidebar({
   animateMascot: boolean
   onMascotName: (name: string) => void
   onSignIn: () => void
+  onSignOut?: () => void
+  signedIn?: boolean
+  devMode?: boolean
   onView: (v: View) => void
   onNew: () => void
   onOpen: (id: string) => void
@@ -53,26 +60,47 @@ export function Sidebar({
   onAgent: (id: string) => void
   sync?: SyncChip
 }) {
+  const activity = useMascotActivity()
   const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [agentFilter, setAgentFilter] = useState('all')
   const [name, setName] = useState(mascotName)
   useEffect(() => { setName(mascotName) }, [mascotName])
   const needle = query.trim().toLowerCase()
-  const mine = conversations.filter((chat) => chat.agentId === agentId && (!needle || chat.title.toLowerCase().includes(needle)))
-  const current = agents.find((agent) => agent.id === agentId)
+  const nameOf = (id: string) => agents.find((agent) => agent.id === id)?.name ?? labelFromAgentId(id)
+  const filters = agentFilterIds(agents.map((agent) => ({ id: agent.id, canChat: agentCanChat(agent) })), conversations)
+  const mine = conversations.filter((chat) => {
+    if (agentFilter !== 'all' && chat.agentId !== agentFilter) return false
+    if (!needle) return true
+    const label = nameOf(chat.agentId).toLowerCase()
+    return chat.title.toLowerCase().includes(needle) || (chat.preview ?? '').toLowerCase().includes(needle) || label.includes(needle)
+  })
+  const grouped = agentFilter === 'all' && new Set(mine.map((chat) => chat.agentId)).size > 1
+  const sections = grouped
+    ? filters.filter((id) => mine.some((chat) => chat.agentId === id)).map((id) => ({ id, chats: mine.filter((chat) => chat.agentId === id) }))
+    : [{ id: '', chats: mine }]
   return (
-    <aside className="flex h-full min-h-0 w-[248px] shrink-0 flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
-      <div className="flex items-center gap-2 px-2">
-        <StarSurf state="idle" size={36} animate={animateMascot} clickable label={mascotName} />
-        <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-tight" data-mascot-name="yes">{mascotName}</div>
-          <div className="text-[11px] text-[var(--muted)]">{product.name}</div>
-        </div>
+    <aside className="shell-side flex h-full min-h-0 w-[280px] shrink-0 flex-col">
+      <div className="flex items-center justify-between px-4 pt-4">
+        <button type="button" className="icon-btn" aria-label="Search chats" data-tip="Search" aria-expanded={searchOpen} onClick={() => setSearchOpen((open) => !open)}>
+          <Search size={18} />
+        </button>
+        <button type="button" className="icon-btn" data-new-chat="yes" aria-label="New chat" data-tip="New" onClick={onNew}>
+          <Plus size={18} />
+        </button>
       </div>
-      <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-auto">
-      <label className="block px-2">
-        <span className="sr-only">Rename {mascotName}</span>
+      {searchOpen && (
+        <label className="mt-3 block px-4">
+          <span className="sr-only">Search chats</span>
+          <input className="field" data-chat-search="yes" aria-label="Search chats" placeholder="Search chats" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </label>
+      )}
+      <div className="mt-4 flex flex-col items-center px-4">
+        <BlobMascot state={activity.state} size={72} animate={animateMascot} clickable label={mascotName} caret={activity.caret} />
         <input
-          className="field"
+          className="mascot-name"
+          data-mascot-name="yes"
           data-mascot-rename="yes"
           aria-label="Mascot name"
           value={name}
@@ -84,59 +112,45 @@ export function Sidebar({
             if (next !== mascotName) onMascotName(next)
           }}
         />
-      </label>
-      <button className="btn btn-primary mt-3" type="button" data-new-chat="yes" onClick={onNew}>New chat</button>
-      <label className="mt-3 block px-2">
-        <span className="sr-only">Search chats</span>
-        <input className="field" data-chat-search="yes" aria-label="Search chats" placeholder="Search chats" value={query} onChange={(event) => setQuery(event.target.value)} />
-      </label>
-      <nav className="mt-4 flex flex-col gap-0.5" aria-label="Main">
-        {NAV.map((item) => (
-          <NavButton key={item.id} current={view} id={item.id} onView={onView} tour={tourId === 'agents' && item.id === 'agents'}>{item.label}</NavButton>
+      </div>
+      <div className="agent-filter" data-agent-filters="yes" role="group" aria-label="Show chats">
+        <button type="button" data-agent-filter="all" aria-pressed={agentFilter === 'all'} onClick={() => setAgentFilter('all')}>All</button>
+        {filters.map((id) => (
+          <button key={id} type="button" data-agent-filter={id} aria-pressed={agentFilter === id} onClick={() => setAgentFilter(id)}>{nameOf(id)}</button>
         ))}
-      </nav>
-      <p className="mt-5 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Switch agent</p>
-      <div className="mt-1 flex flex-col gap-0.5" data-tour="agents" data-tour-target={tourId === 'agents' ? 'yes' : 'no'}>
-        {agents.map((agent) => {
-          const open = agentCanChat(agent)
-          const on = agent.id === agentId
-          return (
-            <button
-              key={agent.id}
-              type="button"
-              disabled={!open}
-              data-agent-card={agent.id}
-              className={`flex items-center justify-between rounded-xl px-2 py-2 text-left text-sm ${on ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'} disabled:cursor-default disabled:opacity-70`}
-              onClick={() => { if (open) onAgent(agent.id) }}
-            >
-              <span className="truncate">{agent.name}</span>
-              {!open && <span className="pill pill-muted">Soon</span>}
-            </button>
-          )
-        })}
       </div>
-      <div className="mt-4 flex items-center justify-between px-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{current?.name ?? 'Chats'}</p>
-        <button className="text-xs font-semibold text-[var(--accent-text)]" type="button" onClick={onNew}>New</button>
-      </div>
-      <div className="mt-1 flex flex-col gap-0.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto px-3">
         {mine.length === 0 && <p className="px-2 py-2 text-sm text-[var(--muted)]">No chats yet.</p>}
-        {mine.map((c) => (
-          <div key={c.id} className={`flex items-center rounded-xl ${c.id === activeId ? 'bg-[var(--bg-elev)]' : 'hover:bg-[var(--bg-elev)]'}`}>
-            <button type="button" onClick={() => onOpen(c.id)} className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm">
-              {c.title}
-            </button>
-            <button type="button" className="shrink-0 px-2 py-2 text-xs text-[var(--muted)]" aria-label={`Delete ${c.title}`} data-delete-chat={c.id} onClick={() => onDelete(c.id)}>
-              Delete
-            </button>
+        {sections.map((section) => (
+          <div key={section.id || 'chats'}>
+            {section.id && <p className="agent-group">{nameOf(section.id)}</p>}
+            {section.chats.map((chat) => {
+              const label = nameOf(chat.agentId)
+              return (
+                <div key={chat.id} className={`chat-row ${chat.id === activeId ? 'is-on' : ''}`} data-chat-row={chat.id} data-chat-agent={chat.agentId}>
+                  <button type="button" onClick={() => onOpen(chat.id)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left">
+                    <span className="chat-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-semibold">{chat.title}</span>
+                        <span className="agent-tag" data-agent-tag="yes">{label}</span>
+                      </span>
+                      <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
+                    </span>
+                  </button>
+                  <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-tip="Delete" data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         ))}
       </div>
-      </div>
-      <div className="mt-2 flex shrink-0 flex-col gap-2 border-t border-[var(--line)] pt-3">
+      <div className="relative shrink-0 px-3 pb-4">
         {sync && (
           <p
-            className="px-1 text-[11px] leading-snug text-[var(--muted)]"
+            className="mb-2 px-1 text-[11px] leading-snug text-[var(--muted)]"
             data-sync-chip="yes"
             data-sync-state={sync.state}
             data-network-mode={sync.mode}
@@ -146,26 +160,79 @@ export function Sidebar({
             data-tour-target={tourId === 'online' ? 'yes' : 'no'}
           >
             <span>{sync.label}</span>
-            {sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
+            {sync.showMode !== false && sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
           </p>
         )}
-        <ThemeSwitch value={theme} onChange={onTheme} compact />
-        <button className="btn btn-ghost" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
+        <button type="button" className="account-launch" data-account-menu="yes" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
+          <span className="chat-avatar">{(mascotName || 'S').slice(0, 1).toUpperCase()}</span>
+          <span className="truncate text-sm font-semibold">{mascotName}</span>
+        </button>
+        {menuOpen && (
+          <div className="account-menu" data-account-panel="yes">
+            {MENU.map((item) => {
+              const Icon = item.icon
+              return (
+              <button
+                key={item.id}
+                type="button"
+                data-nav={item.id}
+                data-tour-target={tourId === 'agents' && item.id === 'agents' ? 'yes' : 'no'}
+                className={view === item.id ? 'is-on' : ''}
+                onClick={() => { setMenuOpen(false); onView(item.id) }}
+              >
+                <Icon size={16} />
+                {item.label}
+              </button>
+              )
+            })}
+            <div className="account-row">
+              <span><Moon size={16} /> Dark mode</span>
+              <button
+                type="button"
+                className="toggle"
+                data-theme-choice={theme === 'dark' ? 'dark' : 'light'}
+                aria-pressed={theme === 'dark'}
+                aria-label={theme === 'dark' ? 'Dark' : 'Light'}
+                data-on={theme === 'dark' ? 'yes' : 'no'}
+                onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
+              >
+                <span />
+              </button>
+            </div>
+            <p className="account-label">Switch agent</p>
+            <div data-tour="agents">
+              {agents.map((agent) => {
+                const open = agentCanChat(agent)
+                const on = agent.id === agentId
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    disabled={!open}
+                    data-agent-card={agent.id}
+                    className={on ? 'is-on' : ''}
+                    onClick={() => { if (open) { setMenuOpen(false); onAgent(agent.id) } }}
+                  >
+                    <span className="truncate">{agent.name}</span>
+                    {!open && <span className="pill pill-muted">Soon</span>}
+                  </button>
+                )
+              })}
+            </div>
+            {!devMode && signedIn && onSignOut && (
+              <button type="button" data-sign-out="yes" onClick={() => { setMenuOpen(false); onSignOut() }}><LogOut size={16} /> Log out</button>
+            )}
+            {!devMode && !signedIn && (
+              <button type="button" data-sign-in="yes" onClick={() => { setMenuOpen(false); onSignIn() }}><LogOut size={16} /> Sign in</button>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   )
 }
 
-function NavButton({ current, id, onView, tour, children }: { current: View; id: View; onView: (v: View) => void; tour?: boolean; children: string }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onView(id)}
-      data-nav={id}
-      data-tour-target={tour ? 'yes' : 'no'}
-      className={`rounded-xl px-2 py-2 text-left text-sm ${current === id ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'}`}
-    >
-      {children}
-    </button>
-  )
+function when(ms: number): string {
+  if (!ms) return ''
+  try { return new Date(ms).toLocaleString() } catch { return '' }
 }

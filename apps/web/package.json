@@ -10,8 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/inter": "5.2.6",
     "@surf/shared": "0.1.0",
     "@surf/ui": "0.1.0",
+    "lucide-react": "0.545.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

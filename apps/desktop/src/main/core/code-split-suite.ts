@@ -221,7 +221,7 @@ async function splitSuggest(): Promise<Measurement> {
         downloaded: downloads > 0,
         unchanged: readFileSync(join(root, 'src/a.ts'), 'utf8') === 'export const n = 1\n',
         stopped: result.stopped,
-        mentionsDownload: result.answer.includes('Nothing is downloaded automatically'),
+        mentionsDownload: result.answer.includes('Nothing downloads on its own'),
       },
     }
   } finally {

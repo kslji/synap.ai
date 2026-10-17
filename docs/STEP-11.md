@@ -8,12 +8,14 @@ Desktop version **0.2.0**.
 - Reply actions under an answer: Copy, thumbs up, thumbs down, Read aloud (the operating system voice), Regenerate, and More. Thumbs stay in the open window. They are not stored or uploaded. There is no Share action.
 - Regenerate stores the new answer as another version of the same assistant reply. The switcher is ‹ 1/2 ›. It does not add a user turn. Reopening the chat loads those versions.
 - Network mode is Offline, Online, or Auto. Auto is the default. It is changed only in Settings. Offline makes no network calls, and the answer says it stayed on this computer. Online allows web search and pack sync. Auto follows the connection. A sidebar chip shows Up to date, Syncing pack v…, Sync failed, will retry, or Offline, plus the current mode. The tooltip has the pack version and the last sync time. Pack sync stays in the background and swaps a pack only between messages. There is no popup during a chat. Offline mode warns in Settings and in that tooltip when the licence refresh date is near or past.
-- Surf Bot is the mascot name. A person can rename it on this computer. The star drawing has an original face (eyes, blink, mouth) and squash-and-stretch motion in SVG. It is silent. There is no mute control. Reduced motion holds a still frame.
+- Surf Bot is the mascot name. A person can rename it on this computer, and pick a body colour under General & Appearance. The character is the orange blob: a spline body and two pill eyes, drawn in SVG. Idle, thinking, working, done, and error match that motion. Searching, reading, writing, permission, typing, offline, rest, benchmark, a wink, and a poke use the same body. It is silent. There is no mute control. Reduced motion keeps the motion at a lower amplitude and skips sparkles. Turning off Animate Surf Bot holds one frame. The installed icon stays the default orange.
 - Usage counts come from the local log: requests, tokens, model, agent, and day. Export is a CSV of those rows. There is no cost column.
 - Cache shows on-disk sizes for models, packs, indexes, chats, saved web, search cache, quote cache, and logs. A bar is drawn only when a category has bytes. Screenshots appear only when files exist in the app data `screenshots` folder. Prompt cache is RAM from the llama.cpp setting, not a file.
 - Run benchmark writes tokens per second for the installed file. Until that run, the screen says not measured yet. A saved speed is hidden when the file size no longer matches the registry.
 - Dev mode is shown when the unpackaged dev licence flag is on. Term length is shown only when the signed licence has it. Plan names and prices are not shown.
 - The app version is `app.getVersion()`.
+- The desktop app does not download models. The website downloads Qwen 2B, 4B, and 9B from the registry URLs. On launch the app checks the Downloads folder, and a `synap://setup` link that includes a file path, against the registry SHA-256, then moves a match into the models folder. If none is found, chat shows "Get your model from synap.surf to start chatting" and a button that opens the website. Settings lists an installed model by its plain name.
+- Each chat keeps the agent it was started with. The header shows that name beside the title, each sidebar row has a tag, and the input says Message Code…. A new chat is titled New Code chat until the first message. The account menu opens that agent's latest chat, or starts one. It does not retitle the chat that was already open. Coming soon agents appear in the filter once they have a chat.
 
 ## Not shown, because there is no real source
 
@@ -24,7 +26,7 @@ Desktop version **0.2.0**.
 
 ## Animations
 
-No clips were in `animation/mp4` in this checkout, so none were watermark-inspected and none are packaged. The face and the bounce are original SVG, not frames from a clip. Timings in `animation/manifest.json` are idle 3.6s, searching 0.7s, thinking 2.2s, success 0.9s, error 0.55s, and taps 0.8s / 0.9s / 1.0s. No audio files were added.
+Idle is the live blob in `packages/ui/src/BlobMascot.tsx`, not a clip. Nothing from `animation/mp4` is packaged. No reference clips were in `animation/mp4`, so none were watermark-inspected. Timings in `animation/manifest.json` are idle 3.6s, searching 0.7s, thinking 2.2s, success 0.9s, error 0.55s, and taps 0.8s / 0.9s / 1.0s. No audio files were added. The window pauses the animation while it is hidden.
 
 ## Eval
 

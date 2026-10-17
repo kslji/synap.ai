@@ -8,9 +8,9 @@ export const product = {
 } as const
 
 export const modelTiers = [
-  { ram: 'Under 8 GB', chat: 'Qwen3.5 2B', quant: 'Q4_K_M', note: 'Fallback when memory is tight' },
-  { ram: '8 GB', chat: 'Qwen3.5 4B', quant: 'Q4_K_M', note: 'The usual laptop' },
-  { ram: '16 GB and above', chat: 'Qwen3.5 9B', quant: 'Q4_K_M', note: 'Best quality on this build' },
+  { ram: 'Under 8 GB', chat: 'Qwen 2B', quant: 'Q4_K_M', note: 'Fallback when memory is tight' },
+  { ram: '8 GB', chat: 'Qwen 4B', quant: 'Q4_K_M', note: 'The usual laptop' },
+  { ram: '16 GB and above', chat: 'Qwen 9B', quant: 'Q4_K_M', note: 'Best quality on this build' },
 ] as const
 
 export const embeddingModel = {

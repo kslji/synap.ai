@@ -1,6 +1,7 @@
 /**
- * What the first launch downloads. The chat model follows the RAM tier.
- * EmbeddingGemma 2 is the same file on every tier. If both are already on disk, skip the download.
+ * Which chat and embedding files a tier would use.
+ * The desktop app does not download them. The website does.
+ * EmbeddingGemma 2 is the same file on every tier.
  */
 import { pick, type ModelEntry, type ModelRegistry } from './model-registry.js'
 

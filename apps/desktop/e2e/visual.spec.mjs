@@ -12,7 +12,7 @@ async function freezeMeasured(page) {
 }
 
 test('activation screen snapshot', async () => {
-  const { app, page, dir } = await launch({})
+  const { app, page, dir } = await launch({ SYNAP_DEV_MODE: '0' })
   try {
     await expect(page.locator('[data-ready="yes"][data-screen="activate"]')).toBeVisible()
     await expect(page).toHaveScreenshot('activate.png')
@@ -23,7 +23,7 @@ test('activation screen snapshot', async () => {
 })
 
 test('chat, settings, and usage snapshots', async () => {
-  const { app, page, dir } = await launch({ SYNAP_LICENCE_DEV: '1' })
+  const { app, page, dir } = await launch({})
   try {
     await go(page, 'chat')
     await expect(page.locator('[data-screen="chat"]')).toBeVisible()
@@ -36,9 +36,7 @@ test('chat, settings, and usage snapshots', async () => {
     await expect(page.locator('[data-screen="usage"]')).toBeVisible()
     await expect(page.locator('[data-usage-view="yes"]')).toBeVisible()
     await freezeMeasured(page)
-    await expect(page).toHaveScreenshot('usage.png', {
-      mask: [page.locator('[data-storage-page="yes"]'), page.locator('[data-cache-plot]')],
-    })
+    await expect(page).toHaveScreenshot('usage.png')
   } finally {
     await app.close()
     rmSync(dir, { recursive: true, force: true })

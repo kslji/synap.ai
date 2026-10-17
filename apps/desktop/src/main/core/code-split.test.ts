@@ -403,7 +403,9 @@ test('a failed step is replanned with its dependents, and a dead end names a lar
     })
     assert.equal(stuck.stopped, 'failed')
     assert.equal(stuck.suggestion?.id, 'qwen3.5-4b-q6_k')
-    assert.match(stuck.answer, /Nothing is downloaded automatically/)
+    assert.match(stuck.answer, /Qwen 4B/)
+    assert.match(stuck.answer, /Nothing downloads on its own/)
+    assert.doesNotMatch(stuck.answer, /qwen3\.5|Q4_K_M|Q6_K/)
     assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const n = 1\n')
   } finally {
     rmSync(root, { recursive: true, force: true })

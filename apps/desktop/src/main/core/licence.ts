@@ -84,7 +84,10 @@ export function signatureOk(payload: LicencePayload, signatureB64: string, publi
   }
 }
 
-/** Development builds may set SYNAP_LICENCE_DEV=1. Packaged builds never skip. */
+/**
+ * Unpackaged builds may set SYNAP_LICENCE_DEV=1. Packaged builds ignore that flag.
+ * The default switch is dev mode (`dev-mode.ts`): on until `release` is set, including installers.
+ */
 export function devBypassEnabled(flag: string | undefined, packaged: boolean): boolean {
   return flag === '1' && packaged === false
 }
@@ -123,7 +126,7 @@ export function inspectLicence(input: {
   if (input.devBypass) {
     return {
       state: 'dev',
-      message: 'Development build: the licence check is skipped. A packaged install does not skip it.',
+      message: 'Dev mode: the licence screen is off. Set SYNAP_DEV_MODE=0, or set "release": true in release-mode.json, to require a licence again.',
       payload: null,
       nextMaxSeenMs: null,
     }

@@ -38,6 +38,14 @@ export function devModeEnabled(input: { envDev: string | undefined; release: boo
   return input.release === false
 }
 
+/**
+ * Dev mode blocks account calls that would reach synap.surf.
+ * A loopback fixture, such as the eval harness, stays allowed.
+ */
+export function accountsBlocked(input: { devMode: boolean; apiBase: string }): boolean {
+  return input.devMode && isSynapUrl(input.apiBase)
+}
+
 /** synap.surf and api.synap.surf. Other hosts, including GitHub, stay allowed. */
 export function isSynapUrl(url: string): boolean {
   try {

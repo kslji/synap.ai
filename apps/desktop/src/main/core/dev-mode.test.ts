@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { devModeEnabled, isSynapUrl, readReleaseFlag, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
+import { accountsBlocked, devModeEnabled, isSynapUrl, readReleaseFlag, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 
 test('dev mode stays on until the release flag, and SYNAP_DEV_MODE is the switch', () => {
   assert.equal(devModeEnabled({ envDev: undefined, release: false }), true)
@@ -19,6 +19,12 @@ test('the release flag is the json field or SYNAP_RELEASE=1', () => {
   assert.equal(releaseBuild({ fileFlag: false, envRelease: undefined }), false)
   assert.equal(releaseBuild({ fileFlag: true, envRelease: undefined }), true)
   assert.equal(releaseBuild({ fileFlag: false, envRelease: '1' }), true)
+})
+
+test('dev mode blocks accounts only for synap.surf', () => {
+  assert.equal(accountsBlocked({ devMode: true, apiBase: 'https://api.synap.surf' }), true)
+  assert.equal(accountsBlocked({ devMode: true, apiBase: 'http://127.0.0.1:8765' }), false)
+  assert.equal(accountsBlocked({ devMode: false, apiBase: 'https://api.synap.surf' }), false)
 })
 
 test('only synap.surf hosts count as site links', () => {

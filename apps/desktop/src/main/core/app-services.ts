@@ -22,7 +22,7 @@ import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smal
 import { codePackDir, loadCodePack } from './code-pack.js'
 import { derivePackKey, devBypassEnabled, gatePackDecrypt, licenceAllowsUse } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
-import { devModeEnabled, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
+import { accountsBlocked, devModeEnabled, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
 import { LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
 import { llamaCompleter } from './code-agent/llama.js'
@@ -2536,7 +2536,7 @@ export async function createServices(): Promise<Services> {
   }
 
   function assertAccountsAllowed(): void {
-    if (devMode) throw new Error('Accounts are off in dev mode.')
+    if (accountsBlocked({ devMode, apiBase: apiBase(readSettings()) })) throw new Error('Accounts are off in dev mode.')
   }
 
   async function authStatus(): Promise<AuthStatus> {

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { ArrowUp, Check, Copy, Mic, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import { BlobMascot, blobStateFor, Markdown } from '@surf/ui'
 import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
-import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import type { ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
 import { messagePlaceholder } from '../../../shared/chat-title'
 import { friendlyNameFromId } from '../../../shared/model-label'
@@ -34,10 +34,7 @@ export function ChatScreen({
   streaming,
   status,
   files,
-  scope,
   preview,
-  webSearchAllowed,
-  chatWeb,
   agentName,
   agentNote,
   botName = 'Surf',
@@ -50,10 +47,8 @@ export function ChatScreen({
   onRemoveShot,
   onSaveShot,
   onCaptureShot,
-  onToggleChatWeb,
   onAttach,
   onPick,
-  onScope,
   onOpenCitation,
   onClosePreview,
   onSwitchSmaller,
@@ -77,10 +72,7 @@ export function ChatScreen({
   streaming: boolean
   status: ModelStatus
   files: LibraryFile[]
-  scope: DocScope
   preview: ChunkPreview | null
-  webSearchAllowed: boolean
-  chatWeb: boolean
   agentName: string
   agentNote?: string
   botName?: string
@@ -93,10 +85,8 @@ export function ChatScreen({
   onRemoveShot?: (id: string) => void
   onSaveShot?: (id: string) => void
   onCaptureShot?: () => void
-  onToggleChatWeb: () => void
   onAttach: (paths: string[]) => void
   onPick: () => void
-  onScope: (scope: DocScope) => void
   onOpenCitation: (chunkId: number) => void
   onClosePreview: () => void
   onSwitchSmaller: (id: string) => void
@@ -285,30 +275,14 @@ export function ChatScreen({
             className={`shell-compose mx-auto max-w-2xl px-3 py-3 ${over ? 'is-over' : ''}`}
             data-upload={over ? 'yes' : 'no'}
           >
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <div role="radiogroup" aria-label="Where to search" className="flex gap-1">
-                <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
-                <ScopeButton current={scope} id="all" onScope={onScope}>All chats</ScopeButton>
-              </div>
-              <button
-                type="button"
-                className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb && !status.offlineOnly ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
-                data-chat-web={webSearchAllowed && chatWeb && !status.offlineOnly ? 'yes' : 'no'}
-                aria-pressed={webSearchAllowed && chatWeb && !status.offlineOnly}
-                title={status.offlineOnly ? 'The network is off' : webSearchAllowed ? 'Search the web for this chat' : 'Turn on web search in Settings'}
-                onClick={onToggleChatWeb}
-              >
-                Web search
-              </button>
-            </div>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              {reading && (
+            {reading && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
                   <BlobMascot state="reading" size={36} variant="avatar" animate={animateMascot} />
                   Reading files
                 </span>
-              )}
-            </div>
+              </div>
+            )}
             {files.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {files.map((file) => (
@@ -320,11 +294,9 @@ export function ChatScreen({
                 ))}
               </div>
             )}
-            {onCaptureShot && onAddShots && onRemoveShot && onSaveShot && (
-              <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} onAttach={onAddShots} onCapture={onCaptureShot} />
-            )}
-            <div className="shell-composer flex items-end gap-2">
-              <button type="button" className="composer-icon" aria-label="Attach" data-tip="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick}><Plus size={18} strokeWidth={2} /></button>
+            {onRemoveShot && onSaveShot && <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} />}
+            <div className="shell-composer flex items-end gap-2" data-composer="yes">
+              <AttachMenu tourAttach={tourAttach} onPick={onPick} onAddShots={onAddShots} onCaptureShot={onCaptureShot} />
               <textarea
                 className="field min-h-[44px]"
                 rows={1}
@@ -342,6 +314,7 @@ export function ChatScreen({
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
                 }}
               />
+              <button type="button" className="composer-icon" aria-label="Microphone" data-mic="yes" data-tip="Microphone"><Mic size={18} strokeWidth={2} /></button>
               {streaming && onStop ? (
                 <button className="btn btn-ghost h-9 px-3" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (
@@ -363,19 +336,74 @@ function chipLabel(source: UiMsg['sources'][number]): string {
   return `${source.fileName || source.title || 'Source'}${place}`
 }
 
-function ScopeButton({ current, id, onScope, children }: { current: DocScope; id: DocScope; onScope: (scope: DocScope) => void; children: string }) {
-  const on = current === id
+function pickImages(onAdd: (files: File[]) => void) {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/png,image/jpeg,image/webp'
+  input.multiple = true
+  input.onchange = () => {
+    const files = [...(input.files ?? [])]
+    if (files.length) onAdd(files)
+  }
+  input.click()
+}
+
+function AttachMenu({
+  tourAttach,
+  onPick,
+  onAddShots,
+  onCaptureShot,
+}: {
+  tourAttach: boolean
+  onPick: () => void
+  onAddShots?: (files: File[]) => void
+  onCaptureShot?: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={on}
-      data-doc-scope={id}
-      className={`rounded-full px-3 py-1 text-xs ${on ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
-      onClick={() => onScope(id)}
-    >
-      {children}
-    </button>
+    <div className="attach-menu" ref={root}>
+      <button
+        type="button"
+        className="composer-icon"
+        aria-label="Attach"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-tip="Attach"
+        data-attach-menu="yes"
+        data-tour="attach"
+        data-tour-target={tourAttach ? 'yes' : 'no'}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Plus size={18} strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="attach-panel" data-attach-panel="yes" role="menu">
+          <button type="button" role="menuitem" data-attach-file="yes" onClick={() => { setOpen(false); onPick() }}>Attach file</button>
+          {onAddShots && (
+            <button type="button" role="menuitem" data-shot-attach="yes" onClick={() => { setOpen(false); pickImages(onAddShots) }}>Attach image</button>
+          )}
+          {onCaptureShot && (
+            <button type="button" role="menuitem" data-capture-screenshot="yes" onClick={() => { setOpen(false); onCaptureShot() }}>Capture screenshot</button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -689,6 +717,8 @@ async function toggleSpeak(text: string, setSpeaking: (on: boolean) => void): Pr
   try {
     const spoken = clipWords(text, SPEAK_LIMIT)
     if (!spoken) return ''
+    const result = await window.surf.speech.speak(spoken)
+    if (stopped || result.ok) return ''
     const synth = window.speechSynthesis
     const voices = synth ? await voicesOf(synth) : []
     if (stopped) return ''
@@ -703,8 +733,6 @@ async function toggleSpeak(text: string, setSpeaking: (on: boolean) => void): Pr
       })
       return ''
     }
-    const result = await window.surf.speech.speak(spoken)
-    if (stopped || result.ok) return ''
     return result.note || NO_VOICE
   } catch {
     return NO_VOICE

@@ -200,6 +200,54 @@ test('chat header is the bot name and agent badge, and device control is refused
   }
 })
 
+test('the message box is an attach menu, a field, a mic, and send', async () => {
+  test.setTimeout(120_000)
+  for (const theme of ['light', 'dark']) {
+    const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' })
+    try {
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      const row = page.locator('[data-composer="yes"]')
+      await expect(page.getByText('This chat', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('All chats', { exact: true })).toHaveCount(0)
+      await expect(page.locator('[data-chat-web]')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Attach screenshot' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Capture screenshot' })).toHaveCount(0)
+      const order = await row.evaluate((el) => {
+        const box = (selector) => el.querySelector(selector)?.getBoundingClientRect()
+        const plus = box('[data-attach-menu="yes"]')
+        const field = box('textarea')
+        const mic = box('[data-mic="yes"]')
+        const send = box('[aria-label="Send"]')
+        if (!plus || !field || !mic || !send) return null
+        const mid = (item) => item.top + item.height / 2
+        return {
+          plusBeforeField: plus.right <= field.left + 2,
+          fieldBeforeMic: field.right <= mic.left + 2,
+          micBeforeSend: mic.right <= send.left + 2,
+          micAligned: Math.abs(mid(mic) - mid(field)) < 10,
+          sendAligned: Math.abs(mid(send) - mid(mic)) < 6,
+        }
+      })
+      expect(order).toEqual({
+        plusBeforeField: true,
+        fieldBeforeMic: true,
+        micBeforeSend: true,
+        micAligned: true,
+        sendAligned: true,
+      })
+      await expect(page.locator('.shell-compose')).toHaveScreenshot(`composer-${theme}.png`)
+      await page.locator('[data-attach-menu="yes"]').click()
+      await expect(page.locator('[data-attach-file="yes"]')).toHaveText('Attach file')
+      await expect(page.locator('[data-shot-attach="yes"]')).toHaveText('Attach image')
+      await expect(page.locator('[data-capture-screenshot="yes"]')).toHaveText('Capture screenshot')
+      await expect(page.locator('[data-attach-panel="yes"]')).toHaveScreenshot(`composer-menu-${theme}.png`)
+    } finally {
+      await app.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+})
+
 test('the header bot name renames, persists, and falls back to Surf', async () => {
   test.setTimeout(120_000)
   for (const theme of ['light', 'dark']) {

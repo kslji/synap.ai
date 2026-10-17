@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, BlobMascot, useMascotColorSetter, type ThemeChoice } from '@surf/ui'
 import { useMascotActivity } from './mascot-activity'
-import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
 import { syncChip } from '../../main/core/network-mode'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
@@ -102,8 +102,6 @@ export default function App() {
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
-  const [scope, setScope] = useState<DocScope>('chat')
-  const [chatWeb, setChatWeb] = useState(false)
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
   const [account, setAccount] = useState<{ email: string; deviceId: string | null; plan?: string | null } | null>(null)
   const [licence, setLicence] = useState<LicenceStatus | null>(null)
@@ -115,6 +113,9 @@ export default function App() {
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
+  function webAllowed(): boolean {
+    return Boolean(settings?.webSearchAllowed && !settings.offlineOnly)
+  }
   const setMascotColor = useMascotColorSetter()
   const { setOffline } = useMascotActivity()
   useEffect(() => {
@@ -288,7 +289,7 @@ export default function App() {
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: webAllowed(), docScope: 'chat' })
       if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
@@ -309,8 +310,8 @@ export default function App() {
         conversationId,
         text: 'Continue.',
         agentId: boundAgent,
-        allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly),
-        docScope: scope,
+        allowWeb: webAllowed(),
+        docScope: 'chat',
         continueMessageId: messageId,
       })
       setConversationId(res.conversationId)
@@ -334,7 +335,7 @@ export default function App() {
     setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId, error: false } : msg)))
     setStreaming(true)
     try {
-      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope, replaceMessageId: messageId })
+      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: webAllowed(), docScope: 'chat', replaceMessageId: messageId })
       setConversationId(res.conversationId)
       setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, id: res.messageId, versions } : msg)))
     } catch (e) {
@@ -350,7 +351,6 @@ export default function App() {
     setConversationId(id)
     setShots([])
     setMessages(opened.messages.map((m) => fromStored(m)))
-    setChatWeb(true)
     setView('chat')
   }
 
@@ -362,7 +362,6 @@ export default function App() {
     setMessages([])
     setShots([])
     setPreview(null)
-    setChatWeb(true)
     setView('chat')
   }
 
@@ -994,10 +993,7 @@ export default function App() {
           streaming={streaming}
           status={status}
           files={conversationId ? files.filter((file) => file.conversationIds.includes(conversationId)) : []}
-          scope={scope}
           preview={preview}
-          webSearchAllowed={settings.webSearchAllowed}
-          chatWeb={chatWeb}
           agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'Code'}
           agentNote={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.notes}
           botName={settings.mascotName || 'Surf'}
@@ -1010,10 +1006,8 @@ export default function App() {
           onRemoveShot={agentId === 'code' ? (id) => setShots((current) => current.filter((shot) => shot.id !== id)) : undefined}
           onSaveShot={agentId === 'code' ? (id) => { void saveShot(id) } : undefined}
           onCaptureShot={agentId === 'code' ? () => { void captureShot() } : undefined}
-          onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}
           onPick={() => { const id = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId; void api.library.pick(conversationId, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
-          onScope={setScope}
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}

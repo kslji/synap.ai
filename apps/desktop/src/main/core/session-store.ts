@@ -49,13 +49,21 @@ export class SessionStore {
   list(): ConversationSummary[] {
     if (!this.db) {
       return [...this.mem.values()]
-        .map((c) => ({ id: c.id, title: c.title, agentId: c.agentId, updatedAt: c.updatedAt }))
+        .map((c) => ({
+          id: c.id,
+          title: c.title,
+          agentId: c.agentId,
+          updatedAt: c.updatedAt,
+          preview: clipPreview(c.messages[c.messages.length - 1]?.text ?? ''),
+        }))
         .sort((a, b) => b.updatedAt - a.updatedAt)
     }
     const rows = this.db.prepare(
-      'SELECT id, title, agent_id AS agentId, updated_at AS updatedAt FROM conversations ORDER BY updated_at DESC LIMIT 200',
+      `SELECT c.id, c.title, c.agent_id AS agentId, c.updated_at AS updatedAt,
+        (SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS preview
+       FROM conversations c ORDER BY c.updated_at DESC LIMIT 200`,
     ).all() as ConversationSummary[]
-    return rows
+    return rows.map((row) => ({ ...row, preview: clipPreview(row.preview ?? '') }))
   }
 
   open(id: string): { id: string; messages: StoredMessage[] } {
@@ -218,6 +226,12 @@ function parseSources(json: string): StoredMessage['sources'] {
   } catch {
     return []
   }
+}
+
+function clipPreview(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat.length <= 80) return flat
+  return `${flat.slice(0, 79)}…`
 }
 
 function parseVersions(json: string | null | undefined): string[] {

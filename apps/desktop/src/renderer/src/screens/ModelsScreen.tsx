@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { CatalogModel, ModelStatus } from '../../../shared/ipc-contract'
 import { codeFileCapBytes, laptopRamClass } from '../../../shared/code-ram'
-import { codeModelLine, fitMarkLabel, formatModelSize, modelChoiceLabel, servesAgent } from '../../../shared/model-label'
+import { codeModelLine, formatModelSize, modelChoiceLabel, servesAgent } from '../../../shared/model-label'
 import { formatBytes } from '../format'
 import { ModelGuideButton } from './ModelGuide'
 
@@ -11,7 +11,12 @@ export function chatModels(status: ModelStatus, agentId = 'general'): CatalogMod
 
 export function codeModels(status: ModelStatus): CatalogModel[] {
   const laptop = laptopRamClass(status.ramGb)
-  return chatModels(status, 'code').filter((model) => model.minRamGb <= laptop).slice().sort((a, b) => {
+  return listedCodeModels(status).filter((model) => model.minRamGb <= laptop)
+}
+
+/** Every Code row in the registry. The picker does not hide a size. */
+export function listedCodeModels(status: ModelStatus): CatalogModel[] {
+  return chatModels(status, 'code').slice().sort((a, b) => {
     const familyRank = (family: string) => family === 'qwen3.5' ? 0 : 1
     return familyRank(a.family) - familyRank(b.family) || (a.paramsB ?? 0) - (b.paramsB ?? 0)
   })
@@ -47,7 +52,7 @@ export function ModelsScreen({
   onSelect: (id: string) => void
 }) {
   const chats = chatModels(status)
-  const code = codeModels(status)
+  const code = listedCodeModels(status)
   const current = activeChatModel(status)
   const codeCurrent = activeCodeModel(status)
   const [open, setOpen] = useState(false)
@@ -127,7 +132,6 @@ export function ModelPanel({
       {heading === 'Code' && (
         <p className="mt-1 text-sm text-[var(--muted)]">
           This computer reports {status.ramGb} GB of RAM ({laptopRamClass(status.ramGb)} GB tier, model file up to {formatModelSize(codeFileCapBytes(status.ramGb))}).
-          {laptopRamClass(status.ramGb) === 4 ? ' A 4 GB laptop lists Qwen3.5 2B only.' : ''}
         </p>
       )}
       {heading === 'Code' && (
@@ -163,9 +167,7 @@ export function ModelPanel({
                 <div>
                   <div className="text-sm font-semibold">{model.label}</div>
                   <div className="text-xs text-[var(--muted)]">{heading === 'Code' ? codeModelLine(model) : modelChoiceLabel(model)}</div>
-                  {heading === 'Code' && (
-                    <div className="text-xs text-[var(--muted)]">{model.fitMark ? fitMarkLabel(model.fitMark) : model.recommended ? 'Fits this computer' : model.fitsRam ? 'Also fits' : 'Needs more memory'}</div>
-                  )}
+                  <div className="text-xs text-[var(--muted)]" data-model-speed={model.id}>{speedLine(status, model)}</div>
                   {heading === 'Code' && model.note && <div className="mt-1 text-xs text-[var(--muted)]">{model.note}</div>}
                 </div>
                 {model.installed ? <span className="pill pill-ok"><i />Installed</span> : busy ? (
@@ -218,4 +220,10 @@ export function ModelPanel({
       )}
     </div>
   )
+}
+
+function speedLine(status: ModelStatus, model: CatalogModel): string {
+  if (!model.installed) return 'Not installed'
+  const bench = status.benchmarks?.find((row) => row.modelId === model.id && row.sizeBytes === model.sizeBytes)
+  return bench ? `${bench.tokensPerSec} tok/s` : 'not measured yet'
 }

@@ -377,6 +377,8 @@ export interface ModelStatus {
   cpuModel: string
   cores: number
   chatModelId: string
+  /** First-run model from synap://setup, or the Qwen 2B default when no link arrived. */
+  setupModelId?: string
   /** Code agent selection. The smallest Code model when the user has not picked. */
   codeModelId: string
   arch: string
@@ -446,6 +448,8 @@ export interface ConversationSummary {
   title: string
   agentId: string
   updatedAt: number
+  /** Last message on this computer, trimmed. Empty when the chat has no messages. */
+  preview?: string
 }
 
 export interface Citation {

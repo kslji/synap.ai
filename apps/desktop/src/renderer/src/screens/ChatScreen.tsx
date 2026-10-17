@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { StarSurf, starStateFor } from '@surf/ui'
 import type { CatalogModel, ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { formatModelSize } from '../../../shared/model-label'
-import { FIRST_RUN_CHAT_MODEL_IDS } from '../../../shared/starter-model'
+import { STARTER_CHAT_MODEL_ID } from '../../../shared/starter-model'
 import { quoteChipLabel } from '../../../shared/quote'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
@@ -34,9 +34,8 @@ export function ChatScreen({
   chatWeb,
   agentName,
   agentNote,
+  title,
   modelLabel,
-  chatChoices,
-  chatModelId,
   modelGuide = false,
   tourAttach,
   onSend,
@@ -51,7 +50,6 @@ export function ChatScreen({
   onScope,
   onOpenCitation,
   onClosePreview,
-  onSelectModel,
   onSwitchSmaller,
   project,
   onOpenProject,
@@ -72,7 +70,6 @@ export function ChatScreen({
   setupError = null,
   onDownloadModel,
   onCancelDownload,
-  onImportLocal,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -84,9 +81,8 @@ export function ChatScreen({
   chatWeb: boolean
   agentName: string
   agentNote?: string
+  title?: string
   modelLabel: string
-  chatChoices: { id: string; label: string }[]
-  chatModelId: string
   modelGuide?: boolean
   tourAttach: boolean
   onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[]) => void
@@ -101,7 +97,6 @@ export function ChatScreen({
   onScope: (scope: DocScope) => void
   onOpenCitation: (chunkId: number) => void
   onClosePreview: () => void
-  onSelectModel: (id: string) => void
   onSwitchSmaller: (id: string) => void
   /** Set for the Code agent. Null means no folder has been opened yet. */
   project?: CodeProjectStatus | null
@@ -123,17 +118,16 @@ export function ChatScreen({
   setupError?: string | null
   onDownloadModel?: (id: string) => void
   onCancelDownload?: () => void
-  onImportLocal?: () => void
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
+  const autoStarted = useRef<string | null>(null)
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
-  const starters = FIRST_RUN_CHAT_MODEL_IDS.flatMap((id) => {
-    const model = status.models.find((item) => item.id === id)
-    return model ? [model] : []
-  })
+  const setupId = status.setupModelId || STARTER_CHAT_MODEL_ID
+  const setupModel = status.models.find((item) => item.id === setupId) ?? null
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
   const searching = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'reading'))
@@ -153,6 +147,15 @@ export function ChatScreen({
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
   }, [messages])
 
+  useEffect(() => {
+    if (!setupModel || chatReady || !onDownloadModel) return
+    if (status.offlineOnly || !status.online) return
+    if (downloadBusyId) return
+    if (autoStarted.current === setupModel.id) return
+    autoStarted.current = setupModel.id
+    onDownloadModel(setupModel.id)
+  }, [setupModel, chatReady, status.offlineOnly, status.online, downloadBusyId, onDownloadModel])
+
   function submit(value = text) {
     const t = value.trim()
     const images = shots.map((shot) => ({ mime: shot.mime, base64: shot.base64 }))
@@ -164,25 +167,11 @@ export function ChatScreen({
   return (
     <section className="flex min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-3">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold" data-chat-agent={agentName}>{agentName}</div>
-            <div className="truncate text-xs text-[var(--muted)]">{modelLabel} · {status.onlineReason || 'Answers stay on this computer'}</div>
+        <header className="flex items-center justify-center px-6 py-4">
+          <div className="shell-title" data-chat-agent={agentName} title={status.onlineReason} data-online-reason={status.onlineReason}>
+            {title || agentName}
           </div>
-          <div className="flex items-center gap-3">
-            {chatChoices.length > 0 && (
-              <div className="flex flex-col items-end gap-1">
-                <select className="field w-auto py-1" aria-label="Chat model" value={chatModelId} onChange={(event) => onSelectModel(event.target.value)}>
-                  {chatChoices.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                </select>
-                {modelGuide && <ModelGuideButton />}
-              </div>
-            )}
-            <span className={`pill ${status.offlineOnly || !status.online ? 'pill-warn' : 'pill-ok'}`} title={status.onlineReason} data-online-reason={status.onlineReason}>
-              <i />
-              {status.offlineOnly ? 'Offline' : status.online ? 'Online' : 'Offline'}
-            </span>
-          </div>
+          {modelGuide && <ModelGuideButton />}
         </header>
         {project !== undefined && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-2" data-code-project="yes">
@@ -229,15 +218,18 @@ export function ChatScreen({
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
           {messages.length === 0 ? (
             <div className="mx-auto flex max-w-lg flex-col items-center pt-16 text-center">
-              {!chatReady && starters.length > 0 && onDownloadModel && onCancelDownload && onImportLocal ? (
-                <StarterModelCard
-                  models={starters}
-                  busyId={downloadBusyId}
-                  progress={downloadProgress}
+              {!chatReady && setupModel && onDownloadModel && onCancelDownload ? (
+                <SetupDownload
+                  model={setupModel}
+                  busy={downloadBusyId === setupModel.id}
+                  progress={downloadProgress[setupModel.id] ?? 0}
+                  offline={status.offlineOnly || !status.online}
                   error={setupError}
-                  onDownload={onDownloadModel}
+                  onDownload={() => {
+                    autoStarted.current = setupModel.id
+                    onDownloadModel(setupModel.id)
+                  }}
                   onCancel={onCancelDownload}
-                  onImport={onImportLocal}
                 />
               ) : (
                 <>
@@ -277,24 +269,28 @@ export function ChatScreen({
           }}
         >
           <div
-            className={`mx-auto max-w-2xl rounded-2xl border px-3 py-3 ${over ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--line)]'}`}
+            className={`shell-compose mx-auto max-w-2xl px-3 py-3 ${over ? 'is-over' : ''}`}
             data-upload={over ? 'yes' : 'no'}
           >
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <div role="radiogroup" aria-label="Where to search" className="flex gap-1">
-                <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
-                <ScopeButton current={scope} id="all" onScope={onScope}>All chats</ScopeButton>
+            {searchOpen && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <div role="radiogroup" aria-label="Where to search" className="flex gap-1">
+                  <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
+                  <ScopeButton current={scope} id="all" onScope={onScope}>All chats</ScopeButton>
+                </div>
+                <button
+                  type="button"
+                  className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb && !status.offlineOnly ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
+                  data-chat-web={webSearchAllowed && chatWeb && !status.offlineOnly ? 'yes' : 'no'}
+                  aria-pressed={webSearchAllowed && chatWeb && !status.offlineOnly}
+                  title={webSearchAllowed ? 'Search the web for this chat' : 'Turn on web search in Settings'}
+                  onClick={onToggleChatWeb}
+                >
+                  Web search
+                </button>
               </div>
-              <button
-                type="button"
-                className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb && !status.offlineOnly ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
-                data-chat-web={webSearchAllowed && chatWeb && !status.offlineOnly ? 'yes' : 'no'}
-                aria-pressed={webSearchAllowed && chatWeb && !status.offlineOnly}
-                title={webSearchAllowed ? 'Search the web for this chat' : 'Turn on web search in Settings'}
-                onClick={onToggleChatWeb}
-              >
-                Web search
-              </button>
+            )}
+            <div className="mb-2 flex flex-wrap items-center gap-2">
               {reading && (
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
                   <StarSurf state="searching" size={36} />
@@ -316,10 +312,11 @@ export function ChatScreen({
             {onCaptureShot && onAddShots && onRemoveShot && onSaveShot && (
               <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} onAttach={onAddShots} onCapture={onCaptureShot} />
             )}
-            <div className="flex items-end gap-2">
-              <button type="button" className="btn btn-ghost h-[52px]" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}>Attach</button>
+            <div className="shell-composer flex items-end gap-2">
+              <button type="button" className="composer-icon" aria-label="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}>+</button>
+              <button type="button" className="composer-icon" aria-label="Search" aria-expanded={searchOpen} data-search-tools={searchOpen ? 'open' : 'closed'} onClick={() => setSearchOpen((open) => !open)}>⌕</button>
               <textarea
-                className="field min-h-[52px]"
+                className="field min-h-[44px] border-0 bg-transparent shadow-none"
                 rows={1}
                 placeholder={chatReady ? `Message ${agentName}` : 'The model is still downloading'}
                 value={text}
@@ -337,9 +334,9 @@ export function ChatScreen({
                 }}
               />
               {streaming && onStop ? (
-                <button className="btn btn-ghost h-[52px] px-5" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
+                <button className="btn btn-ghost h-11 px-4" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (
-                <button className="btn btn-primary h-[52px] px-5" type="submit" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}>Send</button>
+                <button className="btn btn-primary h-11 px-4" type="submit" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}>Send</button>
               )}
             </div>
           </div>
@@ -351,7 +348,7 @@ export function ChatScreen({
   )
 }
 
-function starterName(model: CatalogModel): string {
+function setupName(model: CatalogModel): string {
   if (model.id === 'qwen3.5-2b-q4_k_m') return 'Qwen 2B'
   if (model.id === 'qwen3.5-4b-q4_k_m') return 'Qwen 4B'
   if (model.id === 'qwen3.5-9b-q4_k_m') return 'Qwen 9B'
@@ -363,61 +360,46 @@ function ramNote(gb: number): string {
   return `needs ${ram} GB RAM`
 }
 
-function StarterModelCard({
-  models,
-  busyId,
+function SetupDownload({
+  model,
+  busy,
   progress,
+  offline,
   error,
   onDownload,
   onCancel,
-  onImport,
 }: {
-  models: CatalogModel[]
-  busyId: string | null
-  progress: Record<string, number>
+  model: CatalogModel
+  busy: boolean
+  progress: number
+  offline: boolean
   error: string | null
-  onDownload: (id: string) => void
+  onDownload: () => void
   onCancel: () => void
-  onImport: () => void
 }) {
-  const active = busyId ? models.find((model) => model.id === busyId) : undefined
-  const percent = active ? Math.max(0, Math.min(100, Math.round((progress[active.id] ?? 0) * 100))) : 0
+  const percent = Math.max(0, Math.min(100, Math.round(progress * 100)))
   return (
-    <div className="card w-full px-5 py-5 text-left" data-model-setup="yes">
-      <h1 className="text-2xl font-semibold tracking-tight">Download a model to start</h1>
+    <div className="card w-full px-5 py-5 text-left" data-model-setup="yes" data-model-option={model.id}>
+      <h1 className="text-2xl font-semibold tracking-tight">Setting up {setupName(model)}</h1>
       <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
-        Pick a size. The file stays on this computer, and chat works after it is ready.
+        The file stays on this computer. Chat opens when the check finishes.
       </p>
-      <ul className="mt-4 flex flex-col gap-3">
-        {models.map((model) => {
-          const busy = busyId === model.id
-          return (
-            <li key={model.id} className="flex items-center justify-between gap-3" data-model-option={model.id}>
-              <div>
-                <div className="text-sm font-semibold">Download {starterName(model)}</div>
-                <div className="text-xs text-[var(--muted)]">
-                  <span data-model-size={model.id}>{formatModelSize(model.sizeBytes)}</span>
-                  {' · '}
-                  <span data-model-ram={model.id}>{ramNote(model.minRamGb)}</span>
-                </div>
-              </div>
-              {busy ? (
-                <button className="btn btn-ghost" type="button" data-cancel-download={model.id} onClick={onCancel}>
-                  Cancel {percent}%
-                </button>
-              ) : (
-                <button className="btn btn-primary" type="button" data-download-model={model.id} onClick={() => onDownload(model.id)}>
-                  Download
-                </button>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-      {active && <div className="progress mt-3"><b style={{ width: `${percent}%` }} /></div>}
-      <button className="btn btn-ghost mt-4" type="button" data-import-gguf="yes" onClick={onImport}>
-        Use a GGUF file on this computer
-      </button>
+      <p className="mt-3 text-sm text-[var(--muted)]">
+        <span data-model-size={model.id}>{formatModelSize(model.sizeBytes)}</span>
+        {' · '}
+        <span data-model-ram={model.id}>{ramNote(model.minRamGb)}</span>
+      </p>
+      {offline && <p className="mt-3 text-sm" data-setup-offline="yes">Offline. The download starts when this computer is allowed online.</p>}
+      {busy ? (
+        <button className="btn btn-ghost mt-4" type="button" data-cancel-download={model.id} onClick={onCancel}>
+          Cancel {percent}%
+        </button>
+      ) : (
+        <button className="btn btn-primary mt-4" type="button" data-download-model={model.id} onClick={onDownload}>
+          Download {setupName(model)}
+        </button>
+      )}
+      {busy && <div className="progress mt-3"><b style={{ width: `${percent}%` }} /></div>}
       {error && <p className="mt-3 text-sm" data-model-setup-error="yes">{error}</p>}
     </div>
   )
@@ -454,15 +436,15 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end" data-user-message="yes">
-        <div className="max-w-[80%] rounded-[var(--radius)] bg-[var(--bubble-user)] px-4 py-3 text-[15px] leading-relaxed text-[var(--bubble-user-ink)]">{msg.text}</div>
+        <div className="user-bubble max-w-[80%] px-4 py-3 text-[15px] leading-relaxed">{msg.text}</div>
       </div>
     )
   }
   const creature = msg.pending ? mood : msg.error ? 'error' : msg.gate === 'answer' || msg.gate === 'web' ? 'success' : 'idle'
   return (
     <div className="flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
-      <div className="pt-1"><StarSurf state={starStateFor(creature)} size={52} animate={animateMascot} /></div>
-      <div className="min-w-0 flex-1">
+      <div className="pt-1"><StarSurf state={starStateFor(creature)} size={44} animate={animateMascot} /></div>
+      <div className="assistant-card min-w-0 flex-1">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
         <div className="whitespace-pre-wrap text-[15px] leading-relaxed" data-model-error={msg.error ? 'yes' : 'no'}>

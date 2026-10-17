@@ -73,39 +73,187 @@ export function LiveFeelSettings({
   )
 }
 
-export function UsagePanel() {
+const RANGES = ['1d', '7d', '30d', 'mtd', 'last'] as const
+type UsageRange = (typeof RANGES)[number]
+const RANGE_LABEL: Record<UsageRange, string> = { '1d': '1d', '7d': '7d', '30d': '30d', mtd: 'MTD', last: 'Last month' }
+
+export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: number } }) {
   const [report, setReport] = useState<UsageReport | null>(null)
+  const [range, setRange] = useState<UsageRange>('30d')
+  const [filter, setFilter] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
     void window.surf.usage.get().then(setReport).catch((err: unknown) => setError((err as Error).message))
   }, [])
+  const rows = report ? rowsInRange(report, range, filter, new Date()) : []
+  const tokens = rows.reduce((sum, row) => sum + row.tokensIn + row.tokensOut, 0)
+  const requests = rows.reduce((sum, row) => sum + row.tasks, 0)
+  const modelIds = [...new Set(rows.map((row) => row.modelId).filter(Boolean))]
   return (
-    <div className="card px-4 py-4" data-usage-page="yes">
-      <div className="text-sm font-semibold">On this computer</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        Tasks, steps, and token timings stay in the app data folder. Nothing here is sent off this device.
-      </p>
-      {error && <p className="mt-2 text-sm">{error}</p>}
-      {report ? <UsageFigures report={report} /> : <p className="mt-2 text-sm text-[var(--muted)]">Checking usage…</p>}
-      {confirming ? (
-        <div className="mt-3 flex gap-2" data-usage-reset-confirm="yes">
-          <button type="button" className="btn btn-primary" data-usage-reset-yes="yes" onClick={() => {
-            setConfirming(false)
-            void window.surf.usage.reset().then(setReport).catch((err: unknown) => setError((err as Error).message))
-          }}>Reset usage</button>
-          <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
+    <section className="usage-page flex-1 overflow-auto px-8 py-8" data-usage-view="yes" data-usage-page="yes">
+      <div className="mx-auto flex max-w-5xl flex-col gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Usage</h1>
+            <p className="mt-1 max-w-xl text-sm leading-relaxed text-[var(--muted)]">
+              Requests, tokens, model, agent, and day from the log on this computer.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {machine && machine.cpuModel.trim() && machine.cpuModel.trim().toLowerCase() !== 'unknown' && (
+              <span className="pill" data-usage-hardware="yes">{machine.cpuModel.trim()} · {machine.ramGb} GB RAM</span>
+            )}
+            <button type="button" className="btn btn-primary" data-usage-csv="yes" onClick={() => {
+              void window.surf.usage.csv().then((csv) => downloadCsv(csv)).catch((err: unknown) => setError((err as Error).message))
+            }}>Export CSV</button>
+          </div>
         </div>
-      ) : (
-        <div className="mt-3 flex gap-2">
-          <button type="button" className="btn btn-ghost" data-usage-reset="yes" onClick={() => setConfirming(true)}>Reset</button>
-          <button type="button" className="btn btn-ghost" data-usage-csv="yes" onClick={() => {
-            void window.surf.usage.csv().then((csv) => downloadCsv(csv)).catch((err: unknown) => setError((err as Error).message))
-          }}>Export CSV</button>
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Usage range">
+          {RANGES.map((id) => (
+            <button key={id} type="button" role="tab" aria-selected={range === id} data-usage-range={id} className={range === id ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setRange(id)}>
+              {RANGE_LABEL[id]}
+            </button>
+          ))}
         </div>
-      )}
+        {error && <p className="text-sm">{error}</p>}
+        {!report && <p className="text-sm text-[var(--muted)]">Checking usage…</p>}
+        {report && (
+          <>
+            <div className="grid gap-3 md:grid-cols-3" data-usage-figures="yes">
+              <Stat label="Requests" value={String(requests)} />
+              <Stat label="Tokens" value={formatCount(tokens)} />
+              <Stat label="Models" value={String(modelIds.length)} />
+            </div>
+            {rows.length === 0 ? (
+              <div className="card px-4 py-8 text-center text-sm text-[var(--muted)]" data-usage-empty="yes">No requests in this range.</div>
+            ) : (
+              <>
+                <UsageChart rows={rows} />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-lg font-semibold tracking-tight">Local inference history</h2>
+                  <input className="field w-auto" data-usage-filter="yes" aria-label="Filter by agent or model" placeholder="Filter by agent or model" value={filter} onChange={(event) => setFilter(event.target.value)} />
+                </div>
+                <div className="card overflow-hidden">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="text-[var(--muted)]">
+                        <th className="px-4 py-3 font-medium">Date</th>
+                        <th className="px-4 py-3 font-medium">Agent</th>
+                        <th className="px-4 py-3 font-medium">Model</th>
+                        <th className="px-4 py-3 font-medium">Tokens</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => (
+                        <tr key={`${row.day}-${row.agentId}-${row.modelId}`} data-usage-days="yes">
+                          <td className="px-4 py-3">{row.day}</td>
+                          <td className="px-4 py-3" data-usage-agents="yes">{row.agentId || 'unspecified'}</td>
+                          <td className="px-4 py-3" data-usage-models="yes">{row.modelId}</td>
+                          <td className="px-4 py-3">{formatCount(row.tokensIn + row.tokensOut)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {confirming ? (
+              <div className="flex gap-2" data-usage-reset-confirm="yes">
+                <button type="button" className="btn btn-primary" data-usage-reset-yes="yes" onClick={() => {
+                  setConfirming(false)
+                  void window.surf.usage.reset().then(setReport).catch((err: unknown) => setError((err as Error).message))
+                }}>Reset usage</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
+              </div>
+            ) : (
+              <button type="button" className="btn btn-ghost self-start" data-usage-reset="yes" onClick={() => setConfirming(true)}>Reset</button>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="card px-4 py-4">
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</div>
+      <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
     </div>
   )
+}
+
+function UsageChart({ rows }: { rows: UsageReport['entries'] }) {
+  const days = [...new Set(rows.map((row) => row.day))].sort()
+  const models = [...new Set(rows.map((row) => row.modelId).filter(Boolean))]
+  const max = Math.max(1, ...days.map((day) => rows.filter((row) => row.day === day).reduce((sum, row) => sum + row.tokensIn + row.tokensOut, 0)))
+  return (
+    <div className="card px-4 py-4" data-usage-chart="yes">
+      <div className="text-sm font-semibold">Tokens by model</div>
+      <div className="mt-4 flex h-40 items-end gap-3">
+        {days.map((day) => {
+          const slice = rows.filter((row) => row.day === day)
+          const total = slice.reduce((sum, row) => sum + row.tokensIn + row.tokensOut, 0)
+          return (
+            <div key={day} className="flex h-full min-w-8 flex-1 flex-col justify-end" title={`${day}: ${formatCount(total)} tokens`}>
+              <div className="flex flex-col justify-end overflow-hidden rounded-md" style={{ height: `${Math.max(4, (total / max) * 100)}%` }}>
+                {models.map((model, index) => {
+                  const part = slice.find((row) => row.modelId === model)
+                  const tokens = part ? part.tokensIn + part.tokensOut : 0
+                  if (!tokens || !total) return null
+                  return <div key={model} style={{ height: `${(tokens / total) * 100}%`, background: CHART[index % CHART.length] }} />
+                })}
+              </div>
+              <div className="mt-1 truncate text-center text-[10px] text-[var(--muted)]">{day.slice(5)}</div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
+        {models.map((model, index) => (
+          <span key={model}><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: CHART[index % CHART.length] }} />{model}</span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const CHART = ['#f97316', '#7c3aed', '#2563eb', '#0f766e', '#b45309']
+
+function rowsInRange(report: UsageReport, range: UsageRange, filter: string, now: Date): UsageReport['entries'] {
+  const { start, end } = rangeBounds(range, now)
+  const needle = filter.trim().toLowerCase()
+  return report.entries.filter((row) => {
+    if (row.day < start || row.day > end) return false
+    if (!needle) return true
+    return row.agentId.toLowerCase().includes(needle) || row.modelId.toLowerCase().includes(needle)
+  })
+}
+
+function rangeBounds(range: UsageRange, now: Date): { start: string; end: string } {
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const end = isoDay(today)
+  if (range === '1d') return { start: end, end }
+  if (range === '7d') return { start: isoDay(addUtcDays(today, -6)), end }
+  if (range === '30d') return { start: isoDay(addUtcDays(today, -29)), end }
+  if (range === 'mtd') return { start: isoDay(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))), end }
+  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1))
+  const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0))
+  return { start: isoDay(start), end: isoDay(last) }
+}
+
+function addUtcDays(day: Date, count: number): Date {
+  return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + count))
+}
+
+function isoDay(day: Date): string {
+  return day.toISOString().slice(0, 10)
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(value)
 }
 
 export function StoragePanel() {
@@ -170,40 +318,6 @@ export function StoragePanel() {
   )
 }
 
-function UsageFigures({ report }: { report: UsageReport }) {
-  const speed = report.tokensPerSec == null ? '—' : `${report.tokensPerSec} tok/s`
-  return (
-    <div className="mt-3 text-sm" data-usage-figures="yes">
-      <p>{report.tasks} tasks · {report.steps} steps · {report.tokensIn} tokens in · {report.tokensOut} tokens out</p>
-      <p className="mt-1">{speed} · first token p50 {ms(report.ttftP50Ms)} · p95 {ms(report.ttftP95Ms)}</p>
-      <p className="mt-1">Model RAM {report.ramMb == null ? '—' : `${report.ramMb} MB`} · CPU {report.cpuPercent == null ? '—' : `${report.cpuPercent}%`}</p>
-      {report.models.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1" data-usage-models="yes">
-          {report.models.map((model) => (
-            <li key={model.modelId}>
-              {model.modelId}: {model.tasks} tasks, {model.steps} steps, {model.tokensIn}/{model.tokensOut} tokens, {model.tokensPerSec ?? '—'} tok/s
-            </li>
-          ))}
-        </ul>
-      )}
-      {report.agents.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1" data-usage-agents="yes">
-          {report.agents.map((agent) => (
-            <li key={agent.agentId || 'unspecified'}>{agent.agentId || 'unspecified'}: {agent.tasks} requests, {agent.tokensIn} in, {agent.tokensOut} out</li>
-          ))}
-        </ul>
-      )}
-      {report.days.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1" data-usage-days="yes">
-          {report.days.map((day) => (
-            <li key={day.day}>{day.day}: {day.tasks} tasks, {day.tokensOut} tokens out</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
-
 function CachePlot({ report }: { report: StorageReport }) {
   const total = report.categories.reduce((sum, category) => sum + category.bytes, 0)
   if (total <= 0) return <p className="mt-3 text-sm text-[var(--muted)]" data-cache-plot="empty">Nothing stored in these folders yet.</p>
@@ -224,8 +338,4 @@ function downloadCsv(csv: string): void {
   link.download = 'synap-usage.csv'
   link.click()
   URL.revokeObjectURL(url)
-}
-
-function ms(value: number | null): string {
-  return value == null ? '—' : `${Math.round(value)} ms`
 }

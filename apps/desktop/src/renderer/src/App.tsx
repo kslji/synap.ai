@@ -8,12 +8,11 @@ import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
 import { readShotFile, type CodeShot } from './screens/CodeShots'
 import { AgentsScreen, ChatsScreen, HomeScreen } from './screens/HomeScreen'
-import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelsScreen } from './screens/ModelsScreen'
-import { codeModelLine, modelChoiceLabel } from '../../shared/model-label'
+import { activeChatModel, activeCodeModel, ModelsScreen } from './screens/ModelsScreen'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
-import { StoragePanel, UsagePanel } from './screens/UsageStorage'
+import { UsagePanel } from './screens/UsageStorage'
 import { createFrameBatcher } from '../../shared/stream-batch'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
@@ -476,9 +475,9 @@ export default function App() {
       if (scene === 'home') {
         setView('home')
         setConversations([
-          { id: 'c-general', title: 'Harbor ferry', agentId: 'general', updatedAt: 3 },
-          { id: 'c-code', title: 'Button spacing', agentId: 'code', updatedAt: 2 },
-          { id: 'c-assistant', title: 'Invoice draft', agentId: 'assistant', updatedAt: 1 },
+          { id: 'c-general', title: 'Harbor ferry', agentId: 'general', updatedAt: 3, preview: 'On this computer.' },
+          { id: 'c-code', title: 'Button spacing', agentId: 'code', updatedAt: 2, preview: 'Ask mode is on.' },
+          { id: 'c-assistant', title: 'Invoice draft', agentId: 'assistant', updatedAt: 1, preview: 'The draft stays here.' },
         ])
         return
       }
@@ -791,7 +790,7 @@ export default function App() {
   }
 
   return (
-    <div className="relative flex h-full flex-col" data-ready="yes" data-screen={screen}>
+    <div className="app-shell relative flex h-full flex-col" data-ready="yes" data-screen={screen}>
       {licence.subscriptionWarning && licence.subscriptionEndsAt && (
         <div className="border-b border-[var(--line)] px-4 py-2 text-center text-sm" data-licence-ending="yes">
           This subscription ends on {licence.subscriptionEndsAt.slice(0, 10)}. Renew to keep using Synap.surf.
@@ -815,6 +814,12 @@ export default function App() {
         animateMascot={settings.animateMascot !== false}
         onMascotName={(mascotName) => { void patch({ mascotName }) }}
         onSignIn={() => setView('signin')}
+        signedIn={Boolean(shownAccount)}
+        onSignOut={() => {
+          setDemoAccount(null)
+          setDemoDevices(null)
+          void api.auth.signOut().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
+        }}
         tourId={tourStep != null ? TOUR[tourStep]?.id ?? null : null}
         onNew={() => newChat()}
         onOpen={(id) => { void openConversation(id) }}
@@ -851,9 +856,8 @@ export default function App() {
           chatWeb={chatWeb}
           agentName={agents.find((agent) => agent.id === agentId)?.name ?? 'General'}
           agentNote={agents.find((agent) => agent.id === agentId)?.notes}
+          title={conversations.find((chat) => chat.id === conversationId)?.title}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen3.5'}
-          chatChoices={(agentId === 'code' ? codeModels(status) : chatModels(status)).map((model) => ({ id: model.id, label: agentId === 'code' ? codeModelLine(model) : modelChoiceLabel(model) }))}
-          chatModelId={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.id ?? ''}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           onSend={(t, images) => { void send(t, images) }}
           shots={agentId === 'code' ? shots : []}
@@ -868,7 +872,6 @@ export default function App() {
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}
           modelGuide={agentId === 'code'}
-          onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
@@ -898,7 +901,6 @@ export default function App() {
             }).catch(() => undefined)
           }}
           onCancelDownload={cancelDownload}
-          onImportLocal={() => { void api.models.importLocal().catch((e: unknown) => setError((e as Error).message)) }}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)
@@ -947,14 +949,7 @@ export default function App() {
         />
       )}
       {screen === 'usage' && (
-        <section className="flex-1 overflow-auto px-8 py-8" data-usage-view="yes">
-          <div className="mx-auto flex max-w-xl flex-col gap-4">
-            <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
-            <UsagePanel />
-            <h2 className="text-lg font-semibold tracking-tight">Cache</h2>
-            <StoragePanel />
-          </div>
-        </section>
+        <UsagePanel machine={{ cpuModel: status.cpuModel, ramGb: status.ramGb }} />
       )}
       {screen === 'settings' && (
         <SettingsScreen
@@ -998,6 +993,21 @@ export default function App() {
           onDownload={(id) => { void download(id).catch(() => undefined) }}
           onCancelDownload={cancelDownload}
           onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
+          onBack={() => setView('chat')}
+          onSave={() => { void patch({}) }}
+          onRestore={() => {
+            void patch({
+              theme: 'light',
+              accent: 'orange',
+              density: 'comfortable',
+              mascotName: 'Surf Bot',
+              animateMascot: true,
+              networkMode: 'auto',
+              webSearchAllowed: false,
+              telemetryOptIn: false,
+            })
+          }}
+          onImportLocal={() => { void api.models.importLocal().catch((e: unknown) => setError((e as Error).message)) }}
           onCheckUpdates={async () => {
             const offer = await api.updates.check()
             setUpdateOffer(offer)

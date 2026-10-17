@@ -48,6 +48,12 @@ Turn the licence gate back on with one of these:
 
 `SYNAP_DEV_MODE=1` forces dev mode even after the release flag is set. `SYNAP_LICENCE_DEV=1` still skips the licence check on an unpackaged build only.
 
+## Model choice before install
+
+The website offers Qwen 2B, 4B, and 9B before the Mac and Windows buttons. Every choice downloads the same installer. The GGUF is not inside the disk image or the `.exe`.
+
+After the installer starts, the page links to `synap://setup?model=<registry id>`. The app registers that scheme on launch (`setAsDefaultProtocolClient`) and electron-builder writes it into the installer. Unsigned macOS often ignores the scheme until the app has been opened once, so the page says to open Synap first, then use the link. If no link arrives, the first-run screen downloads Qwen 2B. A link that arrives while another download is still running switches to the chosen file. A local GGUF can still be picked under Settings → Offline Models & Compute.
+
 ## How to turn on signing later
 
 Leave these unset until a certificate exists. With them empty, builds stay unsigned and macOS uses the ad-hoc signature.

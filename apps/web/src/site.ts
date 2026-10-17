@@ -43,6 +43,18 @@ export const BUNDLED_ASSETS: ReleaseAsset[] = [
 /** The only link that opens the releases index. Download buttons never use it. */
 export const ALL_DOWNLOADS_URL = 'https://github.com/kslji/synap.ai/releases'
 
+/** Q4_K_M chat rows from models.registry.json. Sizes are decimal GB of size_bytes. */
+export const SETUP_MODELS = [
+  { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', size: '1.28 GB', ramGb: 4 },
+  { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', size: '2.74 GB', ramGb: 8 },
+  { id: 'qwen3.5-9b-q4_k_m', name: 'Qwen 9B', size: '5.68 GB', ramGb: 16 },
+] as const
+
+export function setupOpenLink(id: string): string {
+  const model = SETUP_MODELS.find((row) => row.id === id) ?? SETUP_MODELS[0]
+  return `synap://setup?model=${model.id}`
+}
+
 /** First non-draft release, including prereleases. GitHub's /releases/latest skips those. */
 export function newestPublishableRelease(releases: ReleaseListItem[]): ReleaseListItem | null {
   for (const release of releases) {

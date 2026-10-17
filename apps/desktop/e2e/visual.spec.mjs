@@ -36,9 +36,7 @@ test('chat, settings, and usage snapshots', async () => {
     await expect(page.locator('[data-screen="usage"]')).toBeVisible()
     await expect(page.locator('[data-usage-view="yes"]')).toBeVisible()
     await freezeMeasured(page)
-    await expect(page).toHaveScreenshot('usage.png', {
-      mask: [page.locator('[data-storage-page="yes"]'), page.locator('[data-cache-plot]')],
-    })
+    await expect(page).toHaveScreenshot('usage.png')
   } finally {
     await app.close()
     rmSync(dir, { recursive: true, force: true })

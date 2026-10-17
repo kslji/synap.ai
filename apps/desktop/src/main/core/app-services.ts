@@ -25,6 +25,7 @@ import { createLicenceApi } from './licence-service.js'
 import { accountsBlocked, devModeEnabled, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
 import { LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
+import { parseSetupModel, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
 import { cpuPercent, metricLine, parseProcCpu, type UsageSample } from './live/metrics.js'
@@ -453,6 +454,7 @@ export async function createServices(): Promise<Services> {
       cpuModel: hw.cpuModel,
       cores: hw.physicalCores,
       chatModelId: chosen?.id ?? recommended.id,
+      setupModelId: resolveSetupModel(settings.chatModelId),
       codeModelId: settings.codeModelId || codeDefault?.id || '',
       arch: hw.arch,
       platform: hw.platform,
@@ -1800,6 +1802,14 @@ export async function createServices(): Promise<Services> {
       cancel(id) { inflight.get(id)?.abort() },
     },
     models: { status, download, cancel: cancelDownload, benchmark, importLocal },
+    applySetupLink(raw: string): string | null {
+      const id = parseSetupModel(raw)
+      if (!id) return null
+      if (downloading && downloading.id !== id && downloadAbort) downloadAbort.abort()
+      const current = readSettings()
+      if (current.chatModelId !== id) writeSettings({ ...current, chatModelId: id })
+      return id
+    },
     conversations: {
       list: async () => store.list(),
       open: async (id) => store.open(id),

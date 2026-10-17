@@ -490,6 +490,32 @@ if (surfEnv('SMOKE') || surfEnv('E2E_DIR')) app.disableHardwareAcceleration()
 // and the smoke launch does not.
 if (!surfEnv('SMOKE')) app.enableSandbox()
 if (!app.requestSingleInstanceLock()) app.quit()
+
+let queuedSetup = process.argv.find((arg) => arg.startsWith('synap:')) ?? null
+let setupSink: { applySetupLink: (url: string) => string | null } | null = null
+let mainWindow: BrowserWindow | null = null
+
+function takeSetup(url: string | undefined): void {
+  if (!url?.startsWith('synap:')) return
+  if (setupSink) setupSink.applySetupLink(url)
+  else queuedSetup = url
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  takeSetup(url)
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
+app.on('second-instance', (_event, argv) => {
+  takeSetup(argv.find((arg) => arg.startsWith('synap:')))
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !surfEnv('SELFTEST') && !surfEnv('EVAL') && !surfEnv('SMOKE')) app.quit() })
 void app.whenReady().then(async () => {
   if (surfEnv('SMOKE')) return smoke()
@@ -507,8 +533,15 @@ void app.whenReady().then(async () => {
   }
   const boot = Date.now()
   const services = await createServices()
+  setupSink = services
+  if (!surfEnv('SMOKE') && !surfEnv('SELFTEST') && !surfEnv('EVAL')) {
+    if (process.defaultApp && process.argv.length >= 2) app.setAsDefaultProtocolClient('synap', process.execPath, [process.argv[1]])
+    else app.setAsDefaultProtocolClient('synap')
+  }
+  if (queuedSetup) services.applySetupLink(queuedSetup)
   const paths = preloadAndHtml()
   const win: BrowserWindow = createMainWindow(paths.preload, paths.html)
+  mainWindow = win
   registerIpc(win, services)
   const stopStreams = () => services.lifecycle.releaseWindow()
   win.on('closed', stopStreams)

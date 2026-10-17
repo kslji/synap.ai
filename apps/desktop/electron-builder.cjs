@@ -73,6 +73,7 @@ const config = {
     allowToChangeInstallationDirectory: true,
   },
   linux: { target: ['AppImage'], category: 'Utility' },
+  protocols: [{ name: 'Synap setup', schemes: ['synap'] }],
   publish: {
     provider: 'github',
     owner: 'kslji',

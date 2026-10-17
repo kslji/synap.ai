@@ -1,11 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ThemeSwitch } from '@surf/ui'
 import { product } from '@surf/shared'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
 import { DevWebPanel } from './DevWebPanel'
-import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
-import { LiveFeelSettings, StoragePanel, UsagePanel } from './UsageStorage'
+import { activeChatModel, activeCodeModel, chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
+import { LiveFeelSettings, StoragePanel } from './UsageStorage'
 
 export function SettingsScreen({
   status,
@@ -29,6 +28,10 @@ export function SettingsScreen({
   onDownload,
   onCancelDownload,
   onSelectModel,
+  onBack,
+  onSave,
+  onRestore,
+  onImportLocal,
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
@@ -51,32 +54,70 @@ export function SettingsScreen({
   onDownload: (id: string) => void
   onCancelDownload: () => void
   onSelectModel: (id: string) => void
+  onBack: () => void
+  onSave: () => void
+  onRestore: () => void
+  onImportLocal: () => void
 }) {
+  const [category, setCategory] = useState<SettingsCategory>('general')
+  const [savedNote, setSavedNote] = useState('')
   const [updateNote, setUpdateNote] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
   const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
   const [region, setRegion] = useState(settings.myRegion)
   const chats = chatModels(status)
-  const code = codeModels(status)
+  const code = listedCodeModels(status)
   const current = activeChatModel(status)
   const codeCurrent = activeCodeModel(status)
   useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
   useEffect(() => { setRegion(settings.myRegion) }, [settings.myRegion])
   const apiOk = /^https?:\/\/\S+$/.test(apiBase)
 
+  function save() {
+    onSave()
+    setSavedNote('Saved on this computer.')
+  }
+
   return (
-    <section className="flex-1 overflow-auto px-8 py-8">
-      <div className="mx-auto flex max-w-xl flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <Group title="Account">
+    <section className="settings-shell flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+          <p className="text-sm text-[var(--muted)]">Preferences stay on this computer.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {licenceState === 'dev' && <span className="pill" data-dev-mode="yes">Dev mode</span>}
+          {status.appVersion ? <span className="text-sm text-[var(--muted)]" data-app-version="yes">Version {status.appVersion}</span> : null}
+          <button className="btn btn-ghost" type="button" data-back-chat="yes" onClick={onBack}>Back to Chat</button>
+          <button className="btn btn-primary" type="button" data-save-settings="yes" onClick={save}>Save Changes</button>
+        </div>
+      </header>
+      <div className="flex min-h-0 flex-1">
+        <nav className="settings-nav flex w-[240px] shrink-0 flex-col gap-1 overflow-auto px-3 py-4" aria-label="Settings categories">
+          {SETTINGS_NAV.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              data-settings-nav={item.id}
+              aria-current={category === item.id ? 'page' : undefined}
+              className={`rounded-xl px-3 py-2 text-left text-sm ${category === item.id ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'}`}
+              onClick={() => setCategory(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="min-w-0 flex-1 overflow-auto px-8 py-6">
+          <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        {category === 'storage' && <Group title="Account">
         <div className="card px-4 py-4" data-account="yes">
           <div className="text-sm font-semibold">Account</div>
           <p className="mt-1 text-sm" data-licence-plan="yes">
-            {licenceState === 'dev' ? <span data-dev-mode="yes">Dev mode</span> : 'Subscription term comes from the licence on this computer.'}
+            {licenceState === 'dev' ? 'Dev mode' : 'Subscription term comes from the licence on this computer.'}
             {termMonths ? ` · ${termMonths} ${termMonths === 1 ? 'month' : 'months'}` : ''}
           </p>
-          {status.appVersion ? <p className="mt-1 text-sm" data-app-version="yes">Version {status.appVersion}</p> : null}
+          {status.appVersion ? <p className="mt-1 text-sm">Version {status.appVersion}</p> : null}
           {subscriptionEndsAt && <p className="mt-1 text-sm" data-licence-ends="yes">Ends: {subscriptionEndsAt.slice(0, 10)}</p>}
           <p className="mt-1 text-sm" data-knowledge-pack="yes">
             {knowledgePack?.version
@@ -114,14 +155,14 @@ export function SettingsScreen({
             </>
           )}
         </div>
-        </Group>
-        <Group title="Appearance">
+        </Group>}
+        {category === 'general' && <Group title="Appearance">
           <AppearanceCard settings={settings} onPatch={onPatch} />
-        </Group>
-        <Group title="This computer">
+        </Group>}
+        {category === 'general' && <Group title="This computer">
           <MachineCard status={status} />
-        </Group>
-        <Group title="Models">
+        </Group>}
+        {category === 'models' && <Group title="Models">
           <div className="card px-4 py-4">
             <ModelPanel
               status={status}
@@ -155,19 +196,19 @@ export function SettingsScreen({
                 />
               </div>
             )}
+            <button className="mt-4 text-sm text-[var(--accent-text)] underline" type="button" data-import-gguf="yes" onClick={onImportLocal}>
+              Use a GGUF file on this computer
+            </button>
           </div>
-        </Group>
-        <Group title="Code agent">
+        </Group>}
+        {category === 'models' && <Group title="Code agent">
           <CodeAgentSettings settings={settings} onPatch={onPatch} />
           <LiveFeelSettings status={status} settings={settings} onPatch={onPatch} onDownload={onDownload} />
-        </Group>
-        <Group title="Usage">
-          <UsagePanel />
-        </Group>
-        <Group title="Storage">
+        </Group>}
+        {category === 'storage' && <Group title="Storage">
           <StoragePanel />
-        </Group>
-        <Group title="Privacy and permissions">
+        </Group>}
+        {category === 'network' && <Group title="Network">
         <div className="card px-4 py-4" data-network-settings="yes">
           <div className="text-sm font-semibold">Network</div>
           <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
@@ -245,14 +286,14 @@ export function SettingsScreen({
             {!apiOk && <p className="mt-2 text-sm text-[var(--muted)]">Use an http or https address.</p>}
           </div>
         )}
-        </Group>
-        <Group title="Connectors">
-          <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
+        </Group>}
+        {category === 'apps' && <Group title="Connected Apps">
+          <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]" data-connected-apps="yes">
             <p>Assistant can draft email and look at a calendar, Slack, or Drive after those accounts are connected. Connecting accounts is not in this beta. Send and delete still wait for your approval.</p>
             <p className="mt-2">Code chats about the code you are writing. You can attach a screenshot. It is not for trading or high-frequency trading. A live code preview is not in this beta.</p>
           </div>
-        </Group>
-        <Group title="Updates">
+        </Group>}
+        {category === 'network' && <Group title="Updates">
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
@@ -289,15 +330,10 @@ export function SettingsScreen({
             <p className="mt-2">Beta includes tags that contain -beta. Stable does not.</p>
           </div>
         </div>
-        </Group>
-        <Group title="About">
+        </Group>}
+        {category === 'general' && <Group title="About">
         <div className="card px-4 py-4 text-sm leading-relaxed" data-about="yes">
-          <div className="font-semibold text-[var(--ink)]">Appearance</div>
-          <p className="mt-1 text-[var(--muted)]">Light or dark. Saved on this device.</p>
-          <div className="mt-3">
-            <ThemeSwitch value={settings.theme} onChange={(theme) => onPatch({ theme })} />
-          </div>
-          <div className="mt-4 font-semibold text-[var(--ink)]">About</div>
+          <div className="font-semibold text-[var(--ink)]">About</div>
           <p className="mt-2 text-[var(--muted)]">Synap.surf runs on this computer. The notes below are drafts, not legal advice.</p>
           <div className="mt-3 flex flex-wrap gap-3">
             {licenceState !== 'dev' && (
@@ -311,11 +347,28 @@ export function SettingsScreen({
             <AboutLink href={product.repo}>GitHub</AboutLink>
           </div>
         </div>
-        </Group>
+        </Group>}
+          </div>
+        </div>
       </div>
+      <footer className="flex items-center justify-end gap-2 border-t border-[var(--line)] px-6 py-3">
+        {savedNote && <span className="mr-auto text-sm text-[var(--muted)]" data-saved-note="yes">{savedNote}</span>}
+        <button className="btn btn-ghost" type="button" data-restore-defaults="yes" onClick={() => { setSavedNote(''); onRestore() }}>Restore Defaults</button>
+        <button className="btn btn-primary" type="button" onClick={save}>Save Changes</button>
+      </footer>
     </section>
   )
 }
+
+const SETTINGS_NAV: { id: SettingsCategory; label: string }[] = [
+  { id: 'general', label: 'General & Appearance' },
+  { id: 'models', label: 'Offline Models & Compute' },
+  { id: 'network', label: 'Network' },
+  { id: 'apps', label: 'Connected Apps' },
+  { id: 'storage', label: 'Storage' },
+]
+
+type SettingsCategory = 'general' | 'models' | 'network' | 'apps' | 'storage'
 
 function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsPatch>; onPatch: (p: SettingsPatch) => void }) {
   const [list, setList] = useState(settings.codeAgentAllowlist.join('\n'))
@@ -485,7 +538,23 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
   useEffect(() => { setName(settings.mascotName) }, [settings.mascotName])
   return (
     <div className="card px-4 py-4" data-appearance="yes">
-      <label className="block text-sm">
+      <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Color theme">
+        {(['light', 'dark'] as const).map((theme) => (
+          <button
+            key={theme}
+            type="button"
+            role="radio"
+            aria-checked={settings.theme === theme}
+            data-theme-choice={theme}
+            className={`theme-card ${settings.theme === theme ? 'is-on' : ''}`}
+            onClick={() => onPatch({ theme })}
+          >
+            <span className={`theme-preview is-${theme}`} />
+            <span className="mt-2 block text-sm font-semibold">{theme === 'light' ? 'Light' : 'Dark'}</span>
+          </button>
+        ))}
+      </div>
+      <label className="mt-4 block text-sm">
         <span className="font-semibold">Mascot name</span>
         <input
           className="field mt-2"
@@ -500,9 +569,10 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
           }}
         />
       </label>
-      <div className="mt-3 flex flex-wrap gap-2" data-accent-choices="yes">
+      <div className="mt-3 text-sm font-semibold">Accent colour</div>
+      <div className="mt-2 flex flex-wrap gap-2" data-accent-choices="yes">
         {ACCENT_CHOICES.map((accent) => (
-          <button key={accent} type="button" className="btn btn-ghost" data-accent-choice={accent} aria-pressed={settings.accent === accent} onClick={() => onPatch({ accent })}>{accent}</button>
+          <button key={accent} type="button" className={`accent-swatch is-${accent} ${settings.accent === accent ? 'is-on' : ''}`} data-accent-choice={accent} aria-label={accent} aria-pressed={settings.accent === accent} onClick={() => onPatch({ accent })} />
         ))}
       </div>
       <div className="mt-3 flex flex-wrap gap-2" data-density-choices="yes">

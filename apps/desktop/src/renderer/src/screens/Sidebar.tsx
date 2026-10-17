@@ -1,16 +1,14 @@
 import { useEffect, useState } from 'react'
-import { StarSurf, ThemeSwitch, type ThemeChoice } from '@surf/ui'
-import { product } from '@surf/shared'
+import { StarSurf, type ThemeChoice } from '@surf/ui'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
-const NAV: { id: View; label: string }[] = [
+const MENU: { id: View; label: string }[] = [
+  { id: 'usage', label: 'Usage' },
   { id: 'home', label: 'Home' },
   { id: 'agents', label: 'Agents' },
-  { id: 'chats', label: 'Chats' },
-  { id: 'usage', label: 'Usage' },
   { id: 'library', label: 'Files' },
   { id: 'packs', label: 'Packs' },
   { id: 'settings', label: 'Settings' },
@@ -28,6 +26,8 @@ export function Sidebar({
   animateMascot,
   onMascotName,
   onSignIn,
+  onSignOut,
+  signedIn = false,
   devMode = false,
   onView,
   onNew,
@@ -47,6 +47,8 @@ export function Sidebar({
   animateMascot: boolean
   onMascotName: (name: string) => void
   onSignIn: () => void
+  onSignOut?: () => void
+  signedIn?: boolean
   devMode?: boolean
   onView: (v: View) => void
   onNew: () => void
@@ -56,25 +58,33 @@ export function Sidebar({
   sync?: SyncChip
 }) {
   const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [name, setName] = useState(mascotName)
   useEffect(() => { setName(mascotName) }, [mascotName])
   const needle = query.trim().toLowerCase()
-  const mine = conversations.filter((chat) => chat.agentId === agentId && (!needle || chat.title.toLowerCase().includes(needle)))
-  const current = agents.find((agent) => agent.id === agentId)
+  const mine = conversations.filter((chat) => chat.agentId === agentId && (!needle || chat.title.toLowerCase().includes(needle) || (chat.preview ?? '').toLowerCase().includes(needle)))
   return (
-    <aside className="flex h-full min-h-0 w-[248px] shrink-0 flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--bg-side)] px-3 py-4">
-      <div className="flex items-center gap-2 px-2">
-        <StarSurf state="idle" size={36} animate={animateMascot} clickable label={mascotName} />
-        <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-tight" data-mascot-name="yes">{mascotName}</div>
-          <div className="text-[11px] text-[var(--muted)]">{product.name}</div>
-        </div>
+    <aside className="shell-side flex h-full min-h-0 w-[280px] shrink-0 flex-col">
+      <div className="flex items-center justify-between px-4 pt-4">
+        <button type="button" className="icon-btn" aria-label="Search chats" aria-expanded={searchOpen} onClick={() => setSearchOpen((open) => !open)}>
+          <SearchIcon />
+        </button>
+        <button type="button" className="icon-btn" data-new-chat="yes" aria-label="New chat" onClick={onNew}>
+          <PlusIcon />
+        </button>
       </div>
-      <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-auto">
-      <label className="block px-2">
-        <span className="sr-only">Rename {mascotName}</span>
+      {searchOpen && (
+        <label className="mt-3 block px-4">
+          <span className="sr-only">Search chats</span>
+          <input className="field" data-chat-search="yes" aria-label="Search chats" placeholder="Search chats" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </label>
+      )}
+      <div className="mt-4 flex flex-col items-center px-4">
+        <StarSurf state="idle" size={72} animate={animateMascot} clickable label={mascotName} />
         <input
-          className="field"
+          className="mascot-name"
+          data-mascot-name="yes"
           data-mascot-rename="yes"
           aria-label="Mascot name"
           value={name}
@@ -86,59 +96,28 @@ export function Sidebar({
             if (next !== mascotName) onMascotName(next)
           }}
         />
-      </label>
-      <button className="btn btn-primary mt-3" type="button" data-new-chat="yes" onClick={onNew}>New chat</button>
-      <label className="mt-3 block px-2">
-        <span className="sr-only">Search chats</span>
-        <input className="field" data-chat-search="yes" aria-label="Search chats" placeholder="Search chats" value={query} onChange={(event) => setQuery(event.target.value)} />
-      </label>
-      <nav className="mt-4 flex flex-col gap-0.5" aria-label="Main">
-        {NAV.map((item) => (
-          <NavButton key={item.id} current={view} id={item.id} onView={onView} tour={tourId === 'agents' && item.id === 'agents'}>{item.label}</NavButton>
-        ))}
-      </nav>
-      <p className="mt-5 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Switch agent</p>
-      <div className="mt-1 flex flex-col gap-0.5" data-tour="agents" data-tour-target={tourId === 'agents' ? 'yes' : 'no'}>
-        {agents.map((agent) => {
-          const open = agentCanChat(agent)
-          const on = agent.id === agentId
-          return (
-            <button
-              key={agent.id}
-              type="button"
-              disabled={!open}
-              data-agent-card={agent.id}
-              className={`flex items-center justify-between rounded-xl px-2 py-2 text-left text-sm ${on ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'} disabled:cursor-default disabled:opacity-70`}
-              onClick={() => { if (open) onAgent(agent.id) }}
-            >
-              <span className="truncate">{agent.name}</span>
-              {!open && <span className="pill pill-muted">Soon</span>}
-            </button>
-          )
-        })}
       </div>
-      <div className="mt-4 flex items-center justify-between px-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{current?.name ?? 'Chats'}</p>
-        <button className="text-xs font-semibold text-[var(--accent-text)]" type="button" onClick={onNew}>New</button>
-      </div>
-      <div className="mt-1 flex flex-col gap-0.5">
+      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-auto px-3">
         {mine.length === 0 && <p className="px-2 py-2 text-sm text-[var(--muted)]">No chats yet.</p>}
-        {mine.map((c) => (
-          <div key={c.id} className={`flex items-center rounded-xl ${c.id === activeId ? 'bg-[var(--bg-elev)]' : 'hover:bg-[var(--bg-elev)]'}`}>
-            <button type="button" onClick={() => onOpen(c.id)} className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm">
-              {c.title}
+        {mine.map((chat) => (
+          <div key={chat.id} className={`chat-row ${chat.id === activeId ? 'is-on' : ''}`}>
+            <button type="button" onClick={() => onOpen(chat.id)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left">
+              <span className="chat-avatar" aria-hidden="true">{(chat.title || 'C').slice(0, 1).toUpperCase()}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold">{chat.title}</span>
+                <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
+              </span>
             </button>
-            <button type="button" className="shrink-0 px-2 py-2 text-xs text-[var(--muted)]" aria-label={`Delete ${c.title}`} data-delete-chat={c.id} onClick={() => onDelete(c.id)}>
+            <button type="button" className="shrink-0 px-2 py-2 text-xs text-[var(--muted)]" aria-label={`Delete ${chat.title}`} data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
               Delete
             </button>
           </div>
         ))}
       </div>
-      </div>
-      <div className="mt-2 flex shrink-0 flex-col gap-2 border-t border-[var(--line)] pt-3">
+      <div className="relative shrink-0 px-3 pb-4">
         {sync && (
           <p
-            className="px-1 text-[11px] leading-snug text-[var(--muted)]"
+            className="mb-2 px-1 text-[11px] leading-snug text-[var(--muted)]"
             data-sync-chip="yes"
             data-sync-state={sync.state}
             data-network-mode={sync.mode}
@@ -151,23 +130,89 @@ export function Sidebar({
             {sync.showMode !== false && sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
           </p>
         )}
-        <ThemeSwitch value={theme} onChange={onTheme} compact />
-        {!devMode && <button className="btn btn-ghost" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>}
+        <button type="button" className="account-launch" data-account-menu="yes" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
+          <span className="chat-avatar">{(mascotName || 'S').slice(0, 1).toUpperCase()}</span>
+          <span className="truncate text-sm font-semibold">{mascotName}</span>
+        </button>
+        {menuOpen && (
+          <div className="account-menu" data-account-panel="yes">
+            {MENU.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                data-nav={item.id}
+                data-tour-target={tourId === 'agents' && item.id === 'agents' ? 'yes' : 'no'}
+                className={view === item.id ? 'is-on' : ''}
+                onClick={() => { setMenuOpen(false); onView(item.id) }}
+              >
+                {item.label}
+              </button>
+            ))}
+            <div className="account-row">
+              <span>Dark mode</span>
+              <button
+                type="button"
+                className="toggle"
+                data-theme-choice={theme === 'dark' ? 'dark' : 'light'}
+                aria-pressed={theme === 'dark'}
+                aria-label={theme === 'dark' ? 'Dark' : 'Light'}
+                data-on={theme === 'dark' ? 'yes' : 'no'}
+                onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
+              >
+                <span />
+              </button>
+            </div>
+            <p className="account-label">Switch agent</p>
+            <div data-tour="agents">
+              {agents.map((agent) => {
+                const open = agentCanChat(agent)
+                const on = agent.id === agentId
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    disabled={!open}
+                    data-agent-card={agent.id}
+                    className={on ? 'is-on' : ''}
+                    onClick={() => { if (open) { setMenuOpen(false); onAgent(agent.id) } }}
+                  >
+                    <span className="truncate">{agent.name}</span>
+                    {!open && <span className="pill pill-muted">Soon</span>}
+                  </button>
+                )
+              })}
+            </div>
+            {!devMode && signedIn && onSignOut && (
+              <button type="button" data-sign-out="yes" onClick={() => { setMenuOpen(false); onSignOut() }}>Log out</button>
+            )}
+            {!devMode && !signedIn && (
+              <button type="button" data-sign-in="yes" onClick={() => { setMenuOpen(false); onSignIn() }}>Sign in</button>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   )
 }
 
-function NavButton({ current, id, onView, tour, children }: { current: View; id: View; onView: (v: View) => void; tour?: boolean; children: string }) {
+function when(ms: number): string {
+  if (!ms) return ''
+  try { return new Date(ms).toLocaleString() } catch { return '' }
+}
+
+function SearchIcon() {
   return (
-    <button
-      type="button"
-      onClick={() => onView(id)}
-      data-nav={id}
-      data-tour-target={tour ? 'yes' : 'no'}
-      className={`rounded-xl px-2 py-2 text-left text-sm ${current === id ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'}`}
-    >
-      {children}
-    </button>
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M16 16 L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <path d="M12 5 V19 M5 12 H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   )
 }

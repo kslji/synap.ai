@@ -11,10 +11,8 @@ test('launch opens chat, then the cached Qwen 2B streams a reply', async () => {
   try {
     await expect(page.locator('[data-ready="yes"][data-screen="chat"]')).toBeVisible()
     await expect(page.locator('[data-screen="activate"]')).toHaveCount(0)
-    await expect(page.locator('[data-model-option="qwen3.5-2b-q4_k_m"]')).toContainText('Download Qwen 2B')
+    await expect(page.locator('[data-model-setup="yes"]')).toContainText('Setting up Qwen 2B')
     await expect(page.locator('[data-model-size="qwen3.5-2b-q4_k_m"]')).toHaveText('1.28 GB')
-    await expect(page.locator('[data-download-model="qwen3.5-4b-q4_k_m"]')).toBeEnabled()
-    await expect(page.locator('[data-download-model="qwen3.5-9b-q4_k_m"]')).toBeEnabled()
     await expect(page.locator('textarea')).toBeDisabled()
     const imported = await page.evaluate(async (path) => window.surf.models.importLocal(path), gguf)
     expect(imported && imported.id).toBe('qwen3.5-2b-q4_k_m')

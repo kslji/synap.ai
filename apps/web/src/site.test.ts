@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DownloadButtons } from './download-buttons.tsx'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, newestPublishableRelease, pickDownload, releaseAssets } from './site.ts'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, newestPublishableRelease, pickDownload, releaseAssets, setupOpenLink } from './site.ts'
 
 test('contact email falls back to the placeholder', () => {
   assert.equal(contactEmail(''), 'contact@example.com')
@@ -77,4 +77,9 @@ test('prereleases are downloadable and buttons point at an installer', () => {
     const href = /href="([^"]+)"/.exec(tag ?? '')?.[1] ?? ''
     assert.match(href, kind === 'mac' ? /\.dmg$/ : /\.exe$/)
   }
+})
+
+test('the setup link names a registry model and does not change the installer', () => {
+  assert.equal(setupOpenLink('qwen3.5-4b-q4_k_m'), 'synap://setup?model=qwen3.5-4b-q4_k_m')
+  assert.equal(setupOpenLink('nope'), 'synap://setup?model=qwen3.5-2b-q4_k_m')
 })

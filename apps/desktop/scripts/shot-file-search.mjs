@@ -52,7 +52,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
 const port = server.address().port
 const { chromium } = await import('@playwright/test')
 const browser = await chromium.launch({ headless: true })
-const scenes = ['card', 'permissions', 'progress', 'answer']
+const scenes = ['card', 'permissions', 'progress', 'answer', 'home']
 try {
   for (const theme of ['light', 'dark']) {
     for (const scene of scenes) {
@@ -61,7 +61,7 @@ try {
       await page.waitForSelector('[data-file-permission], [data-file-permissions], [data-file-progress], [data-file-answer]')
       await page.waitForTimeout(400)
       const file = join(outDir, `${scene}-${theme}.png`)
-      await page.screenshot({ path: file })
+      await page.screenshot({ path: file, fullPage: true })
       await page.close()
       console.log(file)
     }

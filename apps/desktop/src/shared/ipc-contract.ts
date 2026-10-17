@@ -85,6 +85,10 @@ export const IPC = {
   filesOpen: 'files:open',
   filesSettings: 'files:settings',
   filesEvent: 'files:event',
+  filesLimits: 'files:limits',
+  filesSetLimits: 'files:set-limits',
+  filesPause: 'files:pause',
+  filesResume: 'files:resume',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -847,12 +851,16 @@ export interface SurfApi {
   files: {
     list(): Promise<FileFolderGrant[]>
     suggestions(): Promise<FileSuggestFolder[]>
-    pick(defaultPath: string): Promise<string | null>
+    pick(defaultPath: string): Promise<string[]>
     grant(req: FileGrantReq): Promise<FileFolderGrant>
     decide(req: FileDecideReq): Promise<void>
     revoke(id: string): Promise<void>
     open(path: string): Promise<void>
     openSettings(kind: FileOsDenialKind): Promise<void>
+    limits(): Promise<FileIndexLimits>
+    setLimits(req: FileIndexLimitsReq): Promise<FileIndexLimits>
+    pause(id: string): Promise<void>
+    resume(id: string): Promise<void>
     onEvent(cb: (event: FileIndexEvent) => void): () => void
   }
 }
@@ -870,17 +878,27 @@ export interface FileFolderGrant {
   fileCount: number
   indexedCount: number
   byteSize: number
-  status: 'idle' | 'indexing' | 'ready' | 'error'
+  status: 'idle' | 'indexing' | 'ready' | 'error' | 'paused'
   error: string | null
   embedder: 'gemma' | 'hash'
   settingsUrl: string | null
   settingsLabel: string | null
 }
 
+export type FilePlaceKind = 'home' | 'drive' | 'common' | 'folder' | 'protected'
+
+/** Shown before a whole home folder or another drive is indexed. */
+export const FILE_INDEX_TIME_NOTE = 'Indexing a whole home folder or another drive can take a while and use disk space for the search index. Synap.surf skips system folders, hidden folders, and secrets. Your files are not changed.'
+
 export interface FileSuggestFolder {
-  id: 'documents' | 'desktop' | 'downloads'
+  id: string
+  kind: FilePlaceKind
   label: string
   path: string
+  fileCount: number | null
+  byteSize: number | null
+  needsPermission: boolean
+  note: string | null
   granted: boolean
 }
 
@@ -890,6 +908,20 @@ export interface FilePermissionPrompt {
   label: string
   path: string
   question: string
+  /** The question named this folder or file. The card also offers another folder. */
+  specific?: boolean
+  note?: string | null
+}
+
+export interface FileIndexLimits {
+  maxFiles: number
+  extensions: string[]
+  filesPerSec: number | null
+}
+
+export interface FileIndexLimitsReq {
+  maxFiles: number
+  extensions: string
 }
 
 export interface FileGrantReq {
@@ -909,9 +941,10 @@ export interface FileIndexProgress {
   done: number
   total: number
   byteSize: number
-  status: 'indexing' | 'ready' | 'error'
+  status: 'indexing' | 'ready' | 'error' | 'paused'
   error: string | null
   phase?: 'index' | 'embed'
+  filesPerSec?: number | null
 }
 
 export type FileIndexEvent = { type: 'progress'; progress: FileIndexProgress }

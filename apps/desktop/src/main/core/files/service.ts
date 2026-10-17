@@ -9,22 +9,23 @@ import { createHash } from 'node:crypto'
 import { statSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
+import type { FileSuggestFolder } from '../../../shared/ipc-contract.js'
 import { hashEmbedder, type CodeEmbedder } from '../code/embed.js'
 import { composeFileAnswer, composeNameAnswer, type FileAnswer } from './answer.js'
 import type { ExtractOpts } from './extract.js'
 import { createWatcher, INDEX_GAP_MS, indexGrant, type WatchFn } from './indexer.js'
+import { readIndexLimits, rememberThroughput, writeIndexLimits, type IndexLimits } from './limits.js'
 import { classifyAccessError, settingsLink, type OsDenial, type OsDenialKind } from './os-access.js'
-import { displayPath, normalizePath, pathStyleOf, type PathStyle } from './paths.js'
+import { displayPath, isInsideRoot, normalizePath, pathStyleOf, type PathStyle } from './paths.js'
 import {
   canReadPath,
   classifyFileAsk,
   grantAllowed,
   planAccess,
-  suggestedFolders,
   type FileAsk,
   type GrantScope,
-  type SuggestedFolder,
 } from './permissions.js'
+import { livePlacesFs, suggestPlaces, type PlacesFs } from './suggestions.js'
 import { searchFileNames, type CommandRunner, type NameEngine } from './search-adapters.js'
 import {
   chunkCount,
@@ -47,7 +48,7 @@ import {
 
 export interface FileTurnAsk {
   kind: 'ask'
-  prompt: { id: string; messageId: string; label: string; path: string; question: string }
+  prompt: { id: string; messageId: string; label: string; path: string; question: string; specific: boolean; note: string | null }
 }
 
 export interface FileTurnAnswer {
@@ -74,17 +75,22 @@ export interface FileSearchDeps {
   watch?: WatchFn
   debounceMs?: number
   sleep?: (ms: number) => Promise<void>
-  onProgress?: (progress: { grantId: string; path: string; done: number; total: number; byteSize: number; status: string; error: string | null; phase: 'index' | 'embed' }) => void
+  placesFs?: PlacesFs
+  onProgress?: (progress: { grantId: string; path: string; done: number; total: number; byteSize: number; status: string; error: string | null; phase: 'index' | 'embed'; filesPerSec?: number | null }) => void
   openPath?: (filePath: string) => Promise<void>
   now?: () => number
 }
 
 export interface FileSearchService {
   list(): GrantRow[]
-  suggestions(): SuggestedFolder[]
+  suggestions(): FileSuggestFolder[]
   chunks(grantId?: string): number
   grant(folder: string, scope: GrantScope): Promise<GrantRow>
   revoke(id: string): void
+  pause(id: string): void
+  resume(id: string): Promise<GrantRow | null>
+  limits(): IndexLimits
+  setLimits(patch: { maxFiles: number; extensions: string }): IndexLimits
   answerQuestion(question: string, messageId: string): Promise<FileTurn>
   upgradeEmbeddings(): Promise<void>
   open(filePath: string): Promise<void>
@@ -98,6 +104,7 @@ export function createFileSearch(deps: FileSearchDeps): FileSearchService {
   const style = pathStyleOf(deps.platform)
   let db: FileDb | null = openOwned()
   const watches = new Map<string, { close: () => void }>()
+  const pausedIds = new Set<string>()
   let chain: Promise<void> = Promise.resolve()
   let closed = false
 
@@ -128,14 +135,18 @@ export function createFileSearch(deps: FileSearchDeps): FileSearchService {
   function watchGrant(row: { id: string; path: string }): void {
     if (watches.has(row.id)) return
     const handle = createWatcher(row.path, () => {
-      void enqueue(() => reindex(row.id)).catch(() => undefined)
+      void enqueue(() => reindex(row.id, 'watch')).catch(() => undefined)
     }, deps.watch, deps.debounceMs ?? 1500)
     watches.set(row.id, handle)
   }
 
-  async function reindex(id: string): Promise<GrantRow | null> {
+  async function reindex(id: string, reason: 'grant' | 'watch' | 'resume'): Promise<GrantRow | null> {
     const row = getGrant(database(), id)
     if (!row) return null
+    if (pausedIds.has(id) || (row.status === 'paused' && reason !== 'grant' && reason !== 'resume')) {
+      if (row.status !== 'paused') updateGrantProgress(database(), id, { status: 'paused', error: null })
+      return getGrant(database(), id)
+    }
     const probe = probeFolder(row.path, deps.platform)
     if (!probe.ok) {
       updateGrantProgress(database(), id, { status: 'error', error: probe.denial?.message ?? probe.message })
@@ -146,17 +157,33 @@ export function createFileSearch(deps: FileSearchDeps): FileSearchService {
       updateGrantProgress(database(), id, { status: 'ready', error: null })
       return getGrant(database(), id)
     }
-    await indexGrant(database(), id, row.path, {
+    const limits = readIndexLimits(database())
+    const result = await indexGrant(database(), id, row.path, {
       style,
       roots: [row.path],
       embedder: vectors.embedder,
       embedderKind: vectors.kind,
       extract: extractOpts([row.path]),
       sleep: deps.sleep,
+      maxFiles: limits.maxFiles,
+      extensions: limits.extensions,
+      paused: () => pausedIds.has(id),
       onProgress: (progress) => deps.onProgress?.({ ...progress, phase: 'index' }),
     })
-    console.info(`[surf] file index files=${getGrant(database(), id)?.indexedCount ?? 0}`)
+    if (!result.paused) {
+      rememberThroughput(database(), result.filesPerSec)
+      console.info(`[surf] file index files=${result.files} perSec=${result.filesPerSec}`)
+    }
     return getGrant(database(), id)
+  }
+
+  function suggestionRows(measure: boolean): FileSuggestFolder[] {
+    const grants = listGrants(database()).map((row) => row.path)
+    const fs = deps.placesFs ?? livePlacesFs(deps.home, style, deps.platform)
+    return suggestPlaces({ home: deps.home, style, platform: deps.platform, fs, measure }).map((item) => ({
+      ...item,
+      granted: grants.some((grant) => isInsideRoot(grant, item.path, style)),
+    }))
   }
 
   function extractOpts(roots: string[]): ExtractOpts {
@@ -172,39 +199,53 @@ export function createFileSearch(deps: FileSearchDeps): FileSearchService {
 
   return {
     list: () => listGrants(database()),
-    suggestions: () => suggestedFolders(deps.home, style),
+    suggestions: () => suggestionRows(true),
     chunks: (grantId?: string) => chunkCount(database(), grantId),
     grant(folder, scope) {
       return enqueue(async () => {
         const allowed = grantAllowed(folder, style)
         if (!allowed.ok) throw new Error(allowed.reason)
         const id = grantIdFor(folder, style)
+        pausedIds.delete(id)
         const label = displayPath(folder, deps.home, style)
         upsertGrant(database(), { id, path: folder, label, scope, grantedAt: deps.now?.() ?? Date.now() })
         watchGrant({ id, path: folder })
-        const row = await reindex(id)
+        const row = await reindex(id, 'grant')
         if (!row) throw new Error('That folder was not saved.')
         return row
       })
     },
     revoke(id) {
+      pausedIds.delete(id)
       watches.get(id)?.close()
       watches.delete(id)
       revokeGrant(database(), id)
     },
+    pause(id) {
+      pausedIds.add(id)
+      const row = getGrant(database(), id)
+      if (!row || row.status === 'paused') return
+      updateGrantProgress(database(), id, { status: 'paused', error: null })
+    },
+    resume(id) {
+      pausedIds.delete(id)
+      return enqueue(() => reindex(id, 'resume'))
+    },
+    limits: () => readIndexLimits(database()),
+    setLimits: (patch) => writeIndexLimits(database(), patch),
     async answerQuestion(question, messageId) {
       try {
         const ask = classifyFileAsk(question)
         if (!ask) return { kind: 'skip' }
         const grants = listGrants(database())
-        const plan = planAccess(ask, grants, suggestedFolders(deps.home, style), deps.home, style)
+        const plan = planAccess(ask, grants, suggestionRows(false), deps.home, style)
         if (plan.action === 'refuse') {
           return { kind: 'answer', engine: 'index', answer: { text: plan.text, citations: [], gate: 'insufficient' } }
         }
         if (plan.action === 'ask') {
           return {
             kind: 'ask',
-            prompt: { id: messageId, messageId, label: plan.label, path: plan.path, question: plan.text },
+            prompt: { id: messageId, messageId, label: plan.label, path: plan.path, question: plan.text, specific: plan.specific, note: plan.note },
           }
         }
         return { kind: 'answer', engine: 'index', answer: await searchGranted(ask, plan.roots) }
@@ -284,7 +325,7 @@ export function createFileSearch(deps: FileSearchDeps): FileSearchService {
 
   async function upgradeHashGrants(): Promise<void> {
     if (closed) return
-    const pending = listGrants(database()).filter((row) => row.embedder !== 'gemma' && row.status !== 'idle')
+    const pending = listGrants(database()).filter((row) => row.embedder !== 'gemma' && row.status !== 'idle' && row.status !== 'paused' && !pausedIds.has(row.id))
     if (!pending.length) return
     const gemma = deps.tryGemma ? await deps.tryGemma().catch(() => null) : null
     if (!gemma) return

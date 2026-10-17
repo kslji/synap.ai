@@ -1,6 +1,6 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, CodeVisionCaptureReq as CodeVisionCaptureReqT, CodeVisionSaveReq as CodeVisionSaveReqT, DevWebRunReq as DevWebRunReqT, FileDecideReq as FileDecideReqT, FileGrantReq as FileGrantReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, CodeVisionCaptureReq as CodeVisionCaptureReqT, CodeVisionSaveReq as CodeVisionSaveReqT, DevWebRunReq as DevWebRunReqT, FileDecideReq as FileDecideReqT, FileGrantReq as FileGrantReqT, FileIndexLimitsReq as FileIndexLimitsReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
@@ -171,6 +171,10 @@ export const FileDecideReq = z.object({
   path: z.string().min(1).max(4096).nullable(),
 }).strict()
 export const FileOsKind = z.enum(['macos-files-and-folders', 'macos-full-disk', 'windows-acl', 'windows-controlled-folder'])
+export const FileLimitsReq = z.object({
+  maxFiles: z.number().int().min(1).max(100_000),
+  extensions: z.string().max(2000),
+}).strict()
 
 export type ParsedChat = z.output<typeof ChatSendReq>
 
@@ -186,3 +190,4 @@ export const _codeVisionCaptureCheck = (x: z.output<typeof CodeVisionCapture>): 
 export const _codeVisionSaveCheck = (x: z.output<typeof CodeVisionSave>): CodeVisionSaveReqT => x
 export const _fileGrantCheck = (x: z.output<typeof FileGrantReq>): FileGrantReqT => x
 export const _fileDecideCheck = (x: z.output<typeof FileDecideReq>): FileDecideReqT => x
+export const _fileLimitsCheck = (x: z.output<typeof FileLimitsReq>): FileIndexLimitsReqT => x

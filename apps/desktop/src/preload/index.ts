@@ -128,6 +128,10 @@ const api: SurfApi = {
     revoke: (id) => ipcRenderer.invoke(IPC.filesRevoke, id),
     open: (path) => ipcRenderer.invoke(IPC.filesOpen, path),
     openSettings: (kind) => ipcRenderer.invoke(IPC.filesSettings, kind),
+    limits: () => ipcRenderer.invoke(IPC.filesLimits),
+    setLimits: (req) => ipcRenderer.invoke(IPC.filesSetLimits, req),
+    pause: (id) => ipcRenderer.invoke(IPC.filesPause, id),
+    resume: (id) => ipcRenderer.invoke(IPC.filesResume, id),
     onEvent: (cb) => subscribe<FileIndexEvent>(IPC.filesEvent, cb),
   },
 }

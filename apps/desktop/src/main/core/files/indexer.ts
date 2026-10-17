@@ -25,11 +25,34 @@ export const INDEX_GAP_MS = 200
 export const WATCH_DEBOUNCE_MS = 1500
 export const INDEX_MAX_FILES = 20000
 export const INDEX_MAX_BYTES = 40 * 1024 * 1024
+export const INDEX_LIMIT_MIN = 1
+export const INDEX_LIMIT_MAX = 100_000
 
 const INDEX_EXT = new Set([
   'pdf', 'docx', 'pptx', 'xlsx', 'csv', 'txt', 'md', 'html', 'htm', 'png', 'jpg', 'jpeg',
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'java', 'c', 'h', 'cc', 'cpp', 'hpp',
 ])
+
+export const DEFAULT_INDEX_EXTENSIONS = [...INDEX_EXT]
+
+export function parseExtensions(text: string | null | undefined): string[] {
+  const parts = (text ?? '')
+    .split(/[^a-z0-9_+-]+/i)
+    .map((part) => part.trim().toLowerCase().replace(/^\./, ''))
+    .filter((part) => /^[a-z0-9_+-]{1,16}$/.test(part))
+  const unique = [...new Set(parts)]
+  return unique.length ? unique : [...DEFAULT_INDEX_EXTENSIONS]
+}
+
+export function clampMaxFiles(value: number): number {
+  if (!Number.isFinite(value)) return INDEX_MAX_FILES
+  return Math.min(INDEX_LIMIT_MAX, Math.max(INDEX_LIMIT_MIN, Math.round(value)))
+}
+
+export function filesPerSecond(count: number, startedMs: number, now = Date.now()): number {
+  const seconds = Math.max((now - startedMs) / 1000, 0.001)
+  return Math.round((count / seconds) * 10) / 10
+}
 
 export interface DiskFile {
   path: string
@@ -44,8 +67,9 @@ export interface IndexProgress {
   done: number
   total: number
   byteSize: number
-  status: 'indexing' | 'ready' | 'error'
+  status: 'indexing' | 'ready' | 'error' | 'paused'
   error: string | null
+  filesPerSec?: number | null
 }
 
 export interface IndexDeps {
@@ -61,9 +85,11 @@ export interface IndexDeps {
   batchSize?: number
   gapMs?: number
   maxFiles?: number
+  extensions?: readonly string[]
+  paused?: () => boolean
 }
 
-export function listIndexable(root: string, style: PathStyle, roots: readonly string[], fns?: Pick<IndexDeps, 'readdir' | 'stat'>, maxFiles = INDEX_MAX_FILES): DiskFile[] {
+export function listIndexable(root: string, style: PathStyle, roots: readonly string[], fns?: Pick<IndexDeps, 'readdir' | 'stat'>, maxFiles = INDEX_MAX_FILES, extensions: ReadonlySet<string> = INDEX_EXT): DiskFile[] {
   const readdir = fns?.readdir ?? readdirSync
   const stat = fns?.stat ?? statSync
   const out: DiskFile[] = []
@@ -83,7 +109,7 @@ export function listIndexable(root: string, style: PathStyle, roots: readonly st
       }
       if (!info.isFile()) continue
       if (info.size <= 0 || info.size > INDEX_MAX_BYTES) continue
-      if (!INDEX_EXT.has(extension(name))) continue
+      if (!extensions.has(extension(name))) continue
       out.push({ path: full, name, size: info.size, mtimeMs: info.mtimeMs })
     }
   }
@@ -91,20 +117,34 @@ export function listIndexable(root: string, style: PathStyle, roots: readonly st
   return out
 }
 
-export async function indexGrant(db: FileDb, grantId: string, root: string, deps: IndexDeps): Promise<{ files: number; bytes: number }> {
+export async function indexGrant(db: FileDb, grantId: string, root: string, deps: IndexDeps): Promise<{ files: number; bytes: number; filesPerSec: number; paused: boolean }> {
   const sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)))
   const batchSize = deps.batchSize ?? INDEX_BATCH
   const gapMs = deps.gapMs ?? INDEX_GAP_MS
-  const files = listIndexable(root, deps.style, deps.roots, deps, deps.maxFiles ?? INDEX_MAX_FILES)
+  const extensions = new Set((deps.extensions ?? DEFAULT_INDEX_EXTENSIONS).map((ext) => ext.toLowerCase()))
+  const files = listIndexable(root, deps.style, deps.roots, deps, deps.maxFiles ?? INDEX_MAX_FILES, extensions)
   const seen = new Set(files.map((file) => file.path))
   for (const row of listFilePaths(db, grantId)) {
     if (!seen.has(row.path)) forgetFile(db, row.id)
   }
   let done = 0
   let bytes = 0
+  const started = Date.now()
+  const rate = () => filesPerSecond(done, started)
+  if (deps.paused?.()) {
+    updateGrantProgress(db, grantId, { fileCount: files.length, indexedCount: 0, byteSize: 0, status: 'paused', error: null })
+    deps.onProgress?.({ grantId, path: root, done: 0, total: files.length, byteSize: 0, status: 'paused', error: null, filesPerSec: 0 })
+    return { files: 0, bytes: 0, filesPerSec: 0, paused: true }
+  }
   updateGrantProgress(db, grantId, { fileCount: files.length, indexedCount: 0, byteSize: 0, status: 'indexing', error: null })
-  deps.onProgress?.({ grantId, path: root, done: 0, total: files.length, byteSize: 0, status: 'indexing', error: null })
+  deps.onProgress?.({ grantId, path: root, done: 0, total: files.length, byteSize: 0, status: 'indexing', error: null, filesPerSec: 0 })
   for (const file of files) {
+    if (deps.paused?.()) {
+      const filesPerSec = rate()
+      updateGrantProgress(db, grantId, { indexedCount: done, byteSize: bytes, status: 'paused', error: null })
+      deps.onProgress?.({ grantId, path: root, done, total: files.length, byteSize: bytes, status: 'paused', error: null, filesPerSec })
+      return { files: done, bytes, filesPerSec, paused: true }
+    }
     const previous = fileRow(db, grantId, file.path)
     if (previous && previous.mtimeMs === file.mtimeMs && previous.size === file.size) {
       done += 1
@@ -125,13 +165,14 @@ export async function indexGrant(db: FileDb, grantId: string, root: string, deps
     done += 1
     bytes += file.size
     updateGrantProgress(db, grantId, { indexedCount: done, byteSize: bytes, status: 'indexing' })
-    deps.onProgress?.({ grantId, path: root, done, total: files.length, byteSize: bytes, status: 'indexing', error: null })
+    deps.onProgress?.({ grantId, path: root, done, total: files.length, byteSize: bytes, status: 'indexing', error: null, filesPerSec: rate() })
     if (done % batchSize === 0 && done < files.length) await sleep(gapMs)
   }
   const finished = Date.now()
+  const filesPerSec = filesPerSecond(done, started, finished)
   updateGrantProgress(db, grantId, { fileCount: files.length, indexedCount: done, byteSize: bytes, status: 'ready', error: null, lastIndexedAt: finished, embedder: deps.embedderKind })
-  deps.onProgress?.({ grantId, path: root, done, total: files.length, byteSize: bytes, status: 'ready', error: null })
-  return { files: done, bytes }
+  deps.onProgress?.({ grantId, path: root, done, total: files.length, byteSize: bytes, status: 'ready', error: null, filesPerSec })
+  return { files: done, bytes, filesPerSec, paused: false }
 }
 
 async function embedChunks(blocks: { text: string; heading?: string | null; page?: number | null; slide?: number | null; sheet?: string | null }[], name: string, embedder: CodeEmbedder): Promise<StoredChunk[]> {

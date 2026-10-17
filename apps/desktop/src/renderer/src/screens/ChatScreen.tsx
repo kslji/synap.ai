@@ -412,9 +412,10 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
         {msg.fileAsk && (
           <FilePermissionCard
             prompt={msg.fileAsk}
-            onOnce={() => { void allowFolder(msg.fileAsk!, 'once') }}
-            onAlways={() => { void allowFolder(msg.fileAsk!, 'always') }}
+            onOnce={() => { void allowFolder(msg.fileAsk!, 'once', false) }}
+            onAlways={() => { void allowFolder(msg.fileAsk!, 'always', false) }}
             onDeny={() => { void window.surf.files.decide({ promptId: msg.fileAsk!.id, choice: 'deny', path: null }) }}
+            onAdd={() => { void allowFolder(msg.fileAsk!, 'always', true) }}
           />
         )}
         {msg.sources.some((source) => source.filePath) && shown ? (
@@ -577,10 +578,14 @@ function ReplyBar({
   )
 }
 
-async function allowFolder(prompt: { id: string; path: string }, choice: 'once' | 'always'): Promise<void> {
-  const picked = await window.surf.files.pick(prompt.path)
-  if (!picked) return
-  await window.surf.files.decide({ promptId: prompt.id, choice, path: picked })
+async function allowFolder(prompt: { id: string; path: string }, choice: 'once' | 'always', fresh: boolean): Promise<void> {
+  const picked = await window.surf.files.pick(fresh ? '' : prompt.path)
+  if (!picked.length) return
+  const [first, ...rest] = picked
+  await window.surf.files.decide({ promptId: prompt.id, choice, path: first ?? null })
+  for (const path of rest) {
+    try { await window.surf.files.grant({ path, scope: choice }) } catch { /* the first folder still answers the question */ }
+  }
 }
 
 async function readAloud(text: string): Promise<string> {

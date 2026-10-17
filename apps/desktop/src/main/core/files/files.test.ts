@@ -10,7 +10,8 @@ import { extractBytes, OCR_ENGINE, readGrantedFile } from './extract.js'
 import { isExcluded } from './exclusions.js'
 import { INDEX_BATCH } from './indexer.js'
 import { classifyAccessError, settingsLink } from './os-access.js'
-import { classifyFileAsk, grantAllowed, permissionQuestion, planAccess, suggestedFolders } from './permissions.js'
+import { classifyFileAsk, grantAllowed, namedTarget, permissionQuestion, planAccess, suggestedFolders } from './permissions.js'
+import { INDEX_TIME_NOTE, isPromptFolder, suggestPlaces, type PlacesFs } from './suggestions.js'
 import { hashEmbedder, type CodeEmbedder } from '../code/embed.js'
 import { composeFileAnswer, composeNameAnswer } from './answer.js'
 import { citedFileSources } from '../../../shared/cited-sources.js'
@@ -47,7 +48,9 @@ test('planning a question does not grant a folder', () => {
   assert.ok(ask)
   const plan = planAccess(ask, [], suggestions, home, 'posix')
   assert.equal(plan.action, 'ask')
-  assert.equal(plan.text, permissionQuestion('~/Documents'))
+  assert.equal(plan.text, permissionQuestion('a folder you choose'))
+  assert.equal(plan.specific, false)
+  assert.equal(plan.path, '')
   assert.equal(plan.roots.length, 0)
 })
 
@@ -349,9 +352,23 @@ test('file question eval over a fixture folder', async () => {
     { q: 'what does the harbor note say', file: 'notes.md' },
     { q: 'what is the password in the .env file', refuse: true },
   ]
+  const logs: string[] = []
+  const info = console.info
+  console.info = (...args: unknown[]) => {
+    logs.push(args.map((part) => String(part)).join(' '))
+    info.apply(console, args)
+  }
   try {
     await search.grant(docs, 'always')
     await search.grant(downloads, 'always')
+    const rates = logs.flatMap((line) => {
+      const match = /\[surf\] file index files=\d+ perSec=([0-9.]+)/.exec(line)
+      return match?.[1] ? [Number(match[1])] : []
+    })
+    assert.ok(rates.length >= 1)
+    assert.ok(rates.every((rate) => rate > 0))
+    assert.ok((search.limits().filesPerSec ?? 0) > 0)
+    console.info(`file-search fixture throughput ${search.limits().filesPerSec} files/sec`)
     const asked = await search.answerQuestion('find my resume in a folder I have not opened', 'no-grant')
     assert.notEqual(asked.kind, 'skip')
     let passed = 0
@@ -375,6 +392,7 @@ test('file question eval over a fixture folder', async () => {
     assert.equal(blob.includes('node_modules secret'), false)
     assert.equal(blob.includes('private key material'), false)
   } finally {
+    console.info = info
     search.close()
     rmSync(dir, { recursive: true, force: true })
   }
@@ -501,6 +519,226 @@ test('EmbeddingGemma re-embeds a fallback folder and a failed pass leaves the ol
     const found = await search.answerQuestion('find my resume', 'after-gemma')
     assert.equal(found.kind, 'answer')
     if (found.kind === 'answer') assert.match(found.answer.citations[0]?.filePath ?? '', /resume\.txt/)
+  } finally {
+    search.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('suggestions rank home folders from metadata and skip protected prompts', () => {
+  const calls: string[] = []
+  const dirs: Record<string, string[]> = {
+    '/Users/me': ['Desktop', 'Documents', 'Downloads', 'Projects', 'OneDrive', 'Library', '.hidden', 'notes.txt', 'iCloud Drive'],
+    '/Users/me/Projects': ['a.txt', 'b.txt', 'src'],
+    '/Users/me/Projects/src': ['c.txt'],
+    '/Users/me/OneDrive': ['d.txt'],
+    '/Users/me/iCloud Drive': ['secret.txt'],
+    '/Volumes': ['Macintosh HD', 'Backup'],
+    '/Volumes/Backup': ['disk.txt'],
+  }
+  const files: Record<string, number> = {
+    '/Users/me/notes.txt': 4,
+    '/Users/me/Projects/a.txt': 10,
+    '/Users/me/Projects/b.txt': 30,
+    '/Users/me/Projects/src/c.txt': 5,
+    '/Users/me/OneDrive/d.txt': 8,
+    '/Users/me/iCloud Drive/secret.txt': 9,
+    '/Volumes/Backup/disk.txt': 100,
+  }
+  const fs: PlacesFs = {
+    list(dir) {
+      calls.push(`list ${dir}`)
+      return dirs[dir] ?? 'denied'
+    },
+    stat(file) {
+      calls.push(`stat ${file}`)
+      if (dirs[file]) return { isDirectory: true, size: 0 }
+      if (file in files) return { isDirectory: false, size: files[file] ?? 0 }
+      return 'missing'
+    },
+  }
+  const places = suggestPlaces({ home: '/Users/me', style: 'posix', platform: 'darwin', fs })
+  const touched = calls.join('\n')
+  assert.equal(touched.includes('/Users/me/Desktop'), false)
+  assert.equal(touched.includes('/Users/me/Documents'), false)
+  assert.equal(touched.includes('/Users/me/Downloads'), false)
+  assert.equal(touched.includes('/Users/me/Library'), false)
+  assert.equal(touched.includes('iCloud Drive'), false)
+  assert.equal(touched.includes('/Volumes/Backup'), false)
+  assert.equal(isPromptFolder('/Users/me/Desktop', '/Users/me', 'posix', 'darwin'), true)
+  assert.equal(isPromptFolder('/Users/me/Projects', '/Users/me', 'posix', 'linux'), false)
+  const projects = places.find((place) => place.label === '~/Projects')
+  const drive = places.find((place) => place.label === '~/OneDrive')
+  assert.equal(projects?.kind, 'common')
+  assert.equal(projects?.fileCount, 3)
+  assert.equal(projects?.byteSize, 45)
+  assert.equal(drive?.kind, 'common')
+  assert.ok((projects?.fileCount ?? 0) > (drive?.fileCount ?? 0))
+  assert.ok(places.findIndex((place) => place.id === 'folder-projects' || place.label === '~/Projects') < places.findIndex((place) => place.label === '~/OneDrive'))
+  assert.equal(places.find((place) => place.label === '~/Desktop')?.needsPermission, true)
+  assert.equal(places.find((place) => place.label === '~/Desktop')?.fileCount, null)
+  assert.equal(places.find((place) => place.label === 'Backup')?.needsPermission, true)
+  assert.equal(places.find((place) => place.label === 'Backup')?.note, INDEX_TIME_NOTE)
+  const home = places[places.length - 1]
+  assert.equal(home?.kind, 'home')
+  assert.equal(home?.note, INDEX_TIME_NOTE)
+  assert.equal(places.some((place) => place.label === '~/Library'), false)
+})
+
+test('windows suggestions include other drives and keep the home folder note', () => {
+  const key = (file: string) => file.replace(/\\/g, '/')
+  const dirs: Record<string, string[]> = {
+    'C:/Users/me': ['Projects', 'Documents'],
+    'C:/Users/me/Projects': ['a.txt'],
+    'C:/Users/me/Documents': ['b.txt'],
+    'D:/': ['Work'],
+    'D:/Work': ['c.txt'],
+    'E:/': [],
+  }
+  const files: Record<string, number> = {
+    'C:/Users/me/Projects/a.txt': 3,
+    'C:/Users/me/Documents/b.txt': 4,
+    'D:/Work/c.txt': 9,
+  }
+  const fs: PlacesFs = {
+    list: (dir) => dirs[key(dir)] ?? 'denied',
+    stat: (file) => {
+      const path = key(file)
+      if (dirs[path]) return { isDirectory: true, size: 0 }
+      if (path in files) return { isDirectory: false, size: files[path] ?? 0 }
+      return 'missing'
+    },
+  }
+  const places = suggestPlaces({ home: 'C:\\Users\\me', style: 'win32', platform: 'win32', fs })
+  const labels = places.map((place) => place.label)
+  assert.ok(labels.includes('D:'))
+  assert.ok(labels.includes('E:'))
+  assert.equal(labels.includes('C:'), false)
+  assert.equal(places.find((place) => place.label === 'D:')?.note, INDEX_TIME_NOTE)
+  assert.equal(places.find((place) => place.kind === 'home')?.note, INDEX_TIME_NOTE)
+  assert.equal(places.find((place) => place.label === '~/Projects')?.kind, 'common')
+})
+
+test('a named folder is offered on its own and a file path becomes that folder', () => {
+  const home = '/Users/me'
+  const projects = classifyFileAsk('find the resume in Projects')
+  assert.ok(projects)
+  const plan = planAccess(projects, [], [], home, 'posix')
+  assert.equal(plan.action, 'ask')
+  assert.equal(plan.specific, true)
+  assert.equal(plan.path, '/Users/me/Projects')
+  assert.equal(plan.text, permissionQuestion('~/Projects'))
+  assert.equal(plan.note, null)
+  const file = namedTarget('open ~/Projects/resume.txt', home, 'posix')
+  assert.equal(file?.path, '/Users/me/Projects')
+  const homePlan = planAccess(classifyFileAsk('find my resume in my home folder')!, [], [], home, 'posix')
+  assert.equal(homePlan.specific, true)
+  assert.equal(homePlan.path, home)
+  assert.equal(homePlan.note, INDEX_TIME_NOTE)
+  const drive = namedTarget('search D:\\ for the invoice pdf', 'C:\\Users\\me', 'win32')
+  assert.equal(drive?.broad, true)
+  assert.equal(drive?.label, 'D:')
+})
+
+test('indexing can pause and resume, and limits cap files and types', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'surf-pause-'))
+  const folder = join(dir, 'Projects')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'a.txt'), 'alpha ferry note')
+  writeFileSync(join(folder, 'b.txt'), 'beta ferry note')
+  writeFileSync(join(folder, 'c.md'), 'markdown should stay out')
+  writeFileSync(join(folder, 'd.txt'), 'delta ferry note')
+  let hold = true
+  const search = createFileSearch({
+    dbPath: join(dir, 'index.sqlite'),
+    keyHex: null,
+    home: dir,
+    platform: 'linux',
+    debounceMs: 0,
+    watch: () => ({ close() {} }),
+    sleep: async () => undefined,
+    onProgress: (progress) => {
+      if (hold && progress.status === 'indexing' && progress.done >= 1) {
+        hold = false
+        search.pause(progress.grantId)
+      }
+    },
+  })
+  try {
+    search.setLimits({ maxFiles: 2, extensions: 'txt' })
+    assert.deepEqual(search.limits().extensions, ['txt'])
+    assert.equal(search.limits().maxFiles, 2)
+    const grant = await search.grant(folder, 'always')
+    assert.equal(grant.status, 'paused')
+    assert.ok(grant.indexedCount < grant.fileCount)
+    assert.ok(grant.indexedCount >= 1)
+    assert.equal(grant.fileCount, 2)
+    const resumed = await search.resume(grant.id)
+    assert.equal(resumed?.status, 'ready')
+    assert.equal(resumed?.indexedCount, 2)
+    const missed = await search.answerQuestion('where is the markdown note', 'md')
+    assert.equal(missed.kind, 'answer')
+    if (missed.kind === 'answer') assert.equal(missed.answer.citations.some((item) => item.filePath?.endsWith('c.md')), false)
+    assert.ok((search.limits().filesPerSec ?? 0) > 0)
+  } finally {
+    search.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a question that names an ungranted folder asks for that folder', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'surf-named-'))
+  const docs = join(dir, 'Documents')
+  mkdirSync(docs)
+  mkdirSync(join(dir, 'Projects'))
+  writeFileSync(join(docs, 'resume.txt'), 'Kabir Sharma resume')
+  const search = createFileSearch({
+    dbPath: join(dir, 'index.sqlite'),
+    keyHex: null,
+    home: dir,
+    platform: 'linux',
+    watch: () => ({ close() {} }),
+    sleep: async () => undefined,
+  })
+  try {
+    await search.grant(docs, 'always')
+    const turn = await search.answerQuestion('find the resume in Projects', 'named')
+    assert.equal(turn.kind, 'ask')
+    if (turn.kind === 'ask') {
+      assert.equal(turn.prompt.specific, true)
+      assert.equal(turn.prompt.path, join(dir, 'Projects'))
+      assert.match(turn.prompt.question, /Projects/)
+    }
+  } finally {
+    search.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('granting a home folder still skips Library and secrets', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'surf-home-'))
+  const home = join(dir, 'Users', 'me')
+  mkdirSync(join(home, 'Library', 'Keychains'), { recursive: true })
+  mkdirSync(join(home, 'Projects'))
+  writeFileSync(join(home, 'Library', 'Keychains', 'login.keychain-db'), 'key material')
+  writeFileSync(join(home, '.env'), 'SUPER_SECRET_TOKEN=nope')
+  writeFileSync(join(home, 'Projects', 'note.txt'), 'The harbor ferry leaves Pier 4.')
+  const search = createFileSearch({
+    dbPath: join(dir, 'index.sqlite'),
+    keyHex: null,
+    home,
+    platform: 'linux',
+    watch: () => ({ close() {} }),
+    sleep: async () => undefined,
+  })
+  try {
+    await search.grant(home, 'always')
+    const db = openFileDb(join(dir, 'index.sqlite'), null)
+    const blob = (db.prepare('SELECT text FROM chunks').all() as { text: string }[]).map((row) => row.text).join('\n')
+    db.close()
+    assert.match(blob, /Pier 4/)
+    assert.equal(blob.includes('key material'), false)
+    assert.equal(blob.includes('SUPER_SECRET_TOKEN'), false)
   } finally {
     search.close()
     rmSync(dir, { recursive: true, force: true })

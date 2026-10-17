@@ -58,3 +58,20 @@ export function joinPath(root: string, name: string, style: PathStyle): string {
   const sep = style === 'win32' ? '\\' : '/'
   return `${root.replace(/[\\/]+$/, '')}${sep}${name}`
 }
+
+/** Directory that contains this path. A drive root stays a drive root. */
+export function parentPath(filePath: string, style: PathStyle): string {
+  const norm = normalizePath(filePath, style)
+  const parts = norm.split('/').filter(Boolean)
+  if (parts.length <= 1) {
+    if (style === 'win32' && parts[0]) return `${parts[0].slice(0, 2).toUpperCase()}/`
+    return '/'
+  }
+  parts.pop()
+  if (style === 'win32') {
+    const [drive, ...rest] = parts
+    const letter = (drive ?? '').slice(0, 2).toUpperCase()
+    return rest.length ? `${letter}/${rest.join('/')}` : `${letter}/`
+  }
+  return `/${parts.join('/')}`
+}

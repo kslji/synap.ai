@@ -4,14 +4,26 @@
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { FileAnswerCard, FilePermissionCard, FilePermissionsPage, IndexingProgress } from './screens/FilePermissions'
-import type { FileFolderGrant, FileIndexProgress, FileSuggestFolder } from '../../shared/ipc-contract'
+import { FILE_INDEX_TIME_NOTE, type FileFolderGrant, type FileIndexLimits, type FileIndexProgress, type FileSuggestFolder } from '../../shared/ipc-contract'
 
 const prompt = {
   id: 'm1',
   messageId: 'm1',
-  label: '~/Documents',
-  path: '/Users/me/Documents',
-  question: 'Allow Synap.surf to search ~/Documents?',
+  label: '~/Projects',
+  path: '/Users/me/Projects',
+  question: 'Allow Synap.surf to search ~/Projects?',
+  specific: true,
+  note: null,
+}
+
+const homePrompt = {
+  id: 'm2',
+  messageId: 'm2',
+  label: 'Whole home folder',
+  path: '/Users/me',
+  question: 'Allow Synap.surf to search the whole home folder?',
+  specific: true,
+  note: FILE_INDEX_TIME_NOTE,
 }
 
 const progress: FileIndexProgress = {
@@ -25,10 +37,22 @@ const progress: FileIndexProgress = {
 }
 
 const suggestions: FileSuggestFolder[] = [
-  { id: 'documents', label: '~/Documents', path: '/Users/me/Documents', granted: true },
-  { id: 'desktop', label: '~/Desktop', path: '/Users/me/Desktop', granted: false },
-  { id: 'downloads', label: '~/Downloads', path: '/Users/me/Downloads', granted: true },
+  { id: 'projects', kind: 'common', label: '~/Projects', path: '/Users/me/Projects', fileCount: 1840, byteSize: 920_000_000, needsPermission: false, note: null, granted: false },
+  { id: 'onedrive', kind: 'common', label: '~/OneDrive', path: '/Users/me/OneDrive', fileCount: 640, byteSize: 210_000_000, needsPermission: false, note: null, granted: false },
+  { id: 'pictures', kind: 'common', label: '~/Pictures', path: '/Users/me/Pictures', fileCount: 420, byteSize: 3_200_000_000, needsPermission: false, note: null, granted: false },
+  { id: 'work', kind: 'common', label: '~/Work', path: '/Users/me/Work', fileCount: 86, byteSize: 44_000_000, needsPermission: false, note: null, granted: true },
+  { id: 'documents', kind: 'protected', label: '~/Documents', path: '/Users/me/Documents', fileCount: null, byteSize: null, needsPermission: true, note: null, granted: false },
+  { id: 'desktop', kind: 'protected', label: '~/Desktop', path: '/Users/me/Desktop', fileCount: null, byteSize: null, needsPermission: true, note: null, granted: false },
+  { id: 'downloads', kind: 'protected', label: '~/Downloads', path: '/Users/me/Downloads', fileCount: null, byteSize: null, needsPermission: true, note: null, granted: false },
+  { id: 'drive-d', kind: 'drive', label: 'D:', path: 'D:/', fileCount: 1200, byteSize: 80_000_000_000, needsPermission: false, note: FILE_INDEX_TIME_NOTE, granted: false },
+  { id: 'home', kind: 'home', label: 'Whole home folder', path: '/Users/me', fileCount: null, byteSize: null, needsPermission: false, note: FILE_INDEX_TIME_NOTE, granted: false },
 ]
+
+const limits: FileIndexLimits = {
+  maxFiles: 20000,
+  extensions: ['pdf', 'docx', 'txt', 'md', 'png'],
+  filesPerSec: 42,
+}
 
 const grants: FileFolderGrant[] = [
   {
@@ -81,7 +105,7 @@ function Gallery() {
         <div className="file-answer">
           <FileAnswerCard text="" citations={[]} searching onOpen={() => undefined} />
         </div>
-        <FilePermissionCard prompt={prompt} onOnce={() => undefined} onAlways={() => undefined} onDeny={() => undefined} />
+        <FilePermissionCard prompt={prompt} onOnce={() => undefined} onAlways={() => undefined} onDeny={() => undefined} onAdd={() => undefined} />
       </Frame>
     )
   }
@@ -106,11 +130,26 @@ function Gallery() {
             grants={grants}
             suggestions={suggestions}
             progress={progress}
+            limits={limits}
             onChoose={() => undefined}
+            onAdd={() => undefined}
             onRevoke={() => undefined}
             onOpenSettings={() => undefined}
+            onPause={() => undefined}
+            onResume={() => undefined}
+            onSaveLimits={() => undefined}
           />
         </div>
+      </Frame>
+    )
+  }
+  if (which === 'home') {
+    return (
+      <Frame>
+        <div className="file-answer">
+          <FileAnswerCard text="" citations={[]} searching onOpen={() => undefined} />
+        </div>
+        <FilePermissionCard prompt={homePrompt} onOnce={() => undefined} onAlways={() => undefined} onDeny={() => undefined} onAdd={() => undefined} />
       </Frame>
     )
   }

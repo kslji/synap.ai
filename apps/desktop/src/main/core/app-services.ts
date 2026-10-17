@@ -1755,7 +1755,8 @@ export async function createServices(): Promise<Services> {
     tryGemma: () => codeEmbedder(),
     watch: fsWatch,
     onProgress: (progress) => {
-      const event = { type: 'progress' as const, progress: { ...progress, status: progress.status === 'error' ? 'error' as const : progress.status === 'ready' ? 'ready' as const : 'indexing' as const } }
+      const status = progress.status === 'error' || progress.status === 'ready' || progress.status === 'paused' ? progress.status : 'indexing' as const
+      const event = { type: 'progress' as const, progress: { ...progress, status } }
       for (const win of BrowserWindow.getAllWindows()) safeSend(win, IPC.filesEvent, event)
     },
     openPath: async (file) => {
@@ -2215,6 +2216,16 @@ export async function createServices(): Promise<Services> {
         if (!fileSearch) return
         await shell.openExternal(fileSearch.settingsUrl(kind))
       },
+      limits: async () => {
+        if (!fileSearch) throw new Error('File search is not ready.')
+        return fileSearch.limits()
+      },
+      setLimits: async (body) => {
+        if (!fileSearch) throw new Error('File search is not ready.')
+        return fileSearch.setLimits(body)
+      },
+      pause: async (id) => { fileSearch?.pause(id) },
+      resume: async (id) => { await fileSearch?.resume(id) },
     },
   }
   async function syncChipNow(mode: NetworkMode) {
@@ -2289,26 +2300,22 @@ export async function createServices(): Promise<Services> {
 
   function fileGrantView(row: { id: string; path: string; label: string; scope: 'once' | 'always'; grantedAt: number; lastIndexedAt: number | null; fileCount: number; indexedCount: number; byteSize: number; status: string; error: string | null; embedder: 'gemma' | 'hash' }): FileFolderGrant {
     const denial = row.error ? denialFromMessage(row.error) : null
-    const status = row.status === 'indexing' || row.status === 'ready' || row.status === 'error' ? row.status : 'idle'
+    const status = row.status === 'indexing' || row.status === 'ready' || row.status === 'error' || row.status === 'paused' ? row.status : 'idle'
     return { ...row, scope: row.scope, status, settingsUrl: denial?.settingsUrl ?? null, settingsLabel: denial?.settingsLabel ?? null }
   }
 
   function fileSuggestions(): FileSuggestFolder[] {
-    const grants = fileSearch?.list() ?? []
-    return (fileSearch?.suggestions() ?? []).map((item) => ({
-      ...item,
-      granted: grants.some((grant) => grant.path === item.path),
-    }))
+    return fileSearch?.suggestions() ?? []
   }
 
-  async function pickSearchFolder(win: BrowserWindow, defaultPath: string | null): Promise<string | null> {
+  async function pickSearchFolder(win: BrowserWindow, defaultPath: string | null): Promise<string[]> {
     const picked = await dialog.showOpenDialog(win, {
       title: 'Allow Synap.surf to search this folder',
       defaultPath: defaultPath || undefined,
-      properties: ['openDirectory'],
+      properties: ['openDirectory', 'multiSelections'],
     })
-    if (picked.canceled || !picked.filePaths[0]) return null
-    return picked.filePaths[0]
+    if (picked.canceled || picked.filePaths.length === 0) return []
+    return picked.filePaths
   }
 
   async function decideFilePrompt(body: FileDecideReq): Promise<void> {

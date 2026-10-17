@@ -1269,14 +1269,6 @@ export async function createServices(): Promise<Services> {
   }
 
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
-    if (fileSearch && classifyFileAsk(req.text)) {
-      const handled = await answerFromFiles(req.text, conversationId, messageId, userMessageId, win)
-      if (handled) return
-    }
-    if (req.continueMessageId) {
-      await continueAnswer(req, conversationId, messageId, win, signal)
-      return
-    }
     const text = req.text
     const settingsNow = readSettings()
     const connectedNow = reachNow(settingsNow.offlineOnly)
@@ -1287,6 +1279,16 @@ export async function createServices(): Promise<Services> {
       offlineOnly: settingsNow.offlineOnly,
       hasFolder: Boolean(codeApi.root()),
     })
+    // A device-control refusal outranks folder search, so an "open files" phrase
+    // inside a take-control request is never answered with a permission card.
+    if (fileSearch && turn.kind !== 'device' && classifyFileAsk(req.text)) {
+      const handled = await answerFromFiles(req.text, conversationId, messageId, userMessageId, win)
+      if (handled) return
+    }
+    if (req.continueMessageId) {
+      await continueAnswer(req, conversationId, messageId, win, signal)
+      return
+    }
     let searchNote = turn.note ?? ''
     if (turn.kind === 'device') {
       await emitText(win, messageId, DEVICE_REPLY)

@@ -54,7 +54,7 @@ export function HomeScreen({
         {recent.length === 0 ? (
           <div className="mt-3 flex items-center gap-3 rounded-2xl border border-dashed border-[var(--line)] px-4 py-6">
             <BlobMascot state="idle" size={56} />
-            <p className="text-sm text-[var(--muted)]">No chats yet. Start with General.</p>
+            <p className="text-sm text-[var(--muted)]">No chats yet. Start with Code.</p>
           </div>
         ) : (
           <ul className="mt-3 flex flex-col gap-2">

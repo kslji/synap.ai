@@ -295,6 +295,7 @@ function InlineBits({ nodes, onCite }: { nodes: Inline[]; onCite: (n: number) =>
     if (node.type === 'strong') return <strong key={index}><InlineBits nodes={node.children} onCite={onCite} /></strong>
     if (node.type === 'em') return <em key={index}><InlineBits nodes={node.children} onCite={onCite} /></em>
     if (node.type === 'code') return <code key={index}>{node.text}</code>
+    if (node.type === 'math') return <span key={index} className="math-inline" data-latex="yes">{node.text}</span>
     return <InlineBits key={index} nodes={node.children} onCite={onCite} />
   })
 }

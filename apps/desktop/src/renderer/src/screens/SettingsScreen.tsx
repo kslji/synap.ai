@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Shield, Text, Wifi } from 'lucide-react'
 import { product } from '@surf/shared'
 import { BLOB_SWATCHES, BlobMascot } from '@surf/ui'
+import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
 import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } from '../../../shared/hardware-label'
 import { friendlyModelName } from '../../../shared/model-label'
@@ -571,17 +572,19 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
       <div className="mt-4 flex items-center gap-3">
         <BlobMascot state="idle" size={64} animate={settings.animateMascot} label={name || settings.mascotName} />
         <label className="block min-w-0 flex-1 text-sm">
-          <span className="font-semibold">Mascot name</span>
+          <span className="font-semibold">Bot name</span>
           <input
             className="field mt-2"
             data-mascot-rename="yes"
-            aria-label="Mascot name"
+            data-bot-name-field="yes"
+            aria-label="Bot name"
             value={name}
-            maxLength={40}
+            maxLength={BOT_NAME_LIMIT}
             onChange={(event) => setName(event.target.value)}
-            onBlur={() => {
-              const next = name.trim()
-              if (next && next !== settings.mascotName) onPatch({ mascotName: next })
+            onBlur={(event) => {
+              const next = cleanMascotName(event.currentTarget.value)
+              setName(next)
+              if (next !== settings.mascotName) onPatch({ mascotName: next })
             }}
           />
         </label>

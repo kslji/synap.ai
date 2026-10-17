@@ -128,6 +128,54 @@ export function recordsFromContext(input: {
   return records
 }
 
+function withoutInventedSources(text: string): string {
+  const cut = text.split(/\n+#{1,3}[ \t]*Sources\b/i)[0] ?? text
+  return cut.replace(/[ \t]*\[S\d+\]/g, '').replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function asksWhen(question: string): boolean {
+  return /\b(when|what time|which time)\b|कब|कितने बजे/u.test(question)
+}
+
+function insertExactTime(answer: string, time: string): string {
+  const cite = /\s*\[S\d+\]/.exec(answer)
+  if (cite?.index != null) {
+    const head = answer.slice(0, cite.index).replace(/[.\s]+$/g, '')
+    return `${head} ${time}${answer.slice(cite.index)}`
+  }
+  return `${answer.replace(/[.\s]+$/g, '')} ${time}.`
+}
+
+/**
+ * A cited clock time is copied as written. "4 AM" is not a rewrite of 06:40.
+ * A when-question with one source time still receives that exact token.
+ */
+export function copyCitedTimes(answer: string, question: string, sources: string[]): string {
+  const sourceText = sources.filter(Boolean).join('\n')
+  const sourceTimes = [...new Set(sourceText.match(/\d{1,2}:\d{2}/g) ?? [])]
+  if (!answer.trim() || sourceTimes.length === 0) return answer
+  const present = new Set(sourceTimes.filter((time) => answer.includes(time)))
+  const takeMissing = (): string => {
+    const missing = sourceTimes.find((time) => !present.has(time))
+    if (!missing) return ''
+    present.add(missing)
+    return missing
+  }
+  const swap = (phrase: string): string => {
+    if (sourceTimes.includes(phrase)) {
+      present.add(phrase)
+      return phrase
+    }
+    return takeMissing() || phrase
+  }
+  let next = answer.replace(/\b\d{1,2}(?::\d{2})?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)\b/gi, (phrase) => swap(phrase.trim()))
+  next = next.replace(/\d{1,2}:\d{2}/g, (phrase) => swap(phrase))
+  if (asksWhen(question) && sourceTimes.length === 1 && !next.includes(sourceTimes[0])) {
+    next = insertExactTime(next, sourceTimes[0])
+  }
+  return next.replace(/[ \t]{2,}/g, ' ').trim()
+}
+
 const URL_RE = /https?:\/\/[^\s)>\]]+/gi
 const SECTION_RE = /\bsection\s+(\d+[a-z]?)\b/gi
 const QUOTE_RE = /["“]([^"”]{16,})["”]/g
@@ -274,10 +322,12 @@ export function verifyGroundedAnswer(input: {
 }): { text: string; blocked: string[] } {
   const now = input.now ?? Date.now()
   const topic = claimTopic(input.question)
+  const cited = input.records.filter((record) => record.kind !== 'question' && record.kind !== 'math').map((record) => record.text)
+  const answer = copyCitedTimes(input.answer, input.question, cited)
   const allowedRecords = authorizing(input.records, topic, now)
   const allowed = fold(allowedRecords.map((record) => `${record.text}\n${record.url}\n${record.asOf ?? ''}`).join('\n'))
   const sources = allowedRecords.map((record) => record.text)
-  const body = hideCacheLabel(input.answer)
+  const body = hideCacheLabel(answer)
   const spans: Span[] = []
   const blocked: string[] = []
   const push = (start: number, end: number, token: string) => {
@@ -320,9 +370,15 @@ export function verifyGroundedAnswer(input: {
     push(start, end, match[0])
   }
   const freshCache = input.records.find((record) => marketKind(record.kind) && record.cachedAt != null && !record.stale && now - record.cachedAt <= ageLimit(record.kind, topic))
+  const replacement = () => unableMessage(topic ?? (blocked.some((item) => /section/i.test(item)) ? 'legal' : 'fact'))
+  if (allowedRecords.length === 0 && topic == null) {
+    if (!spans.length) return { text: withoutInventedSources(withoutCacheLabel(answer)), blocked: [] }
+    const kept = removeSpans(body, spans).trim()
+    if (kept.length >= 24) return { text: withoutInventedSources(kept), blocked: [] }
+    return { text: replacement(), blocked }
+  }
   const saysLive = /\blive\b|as of today|current price|right now/i.test(body)
   if (freshCache?.cachedAt != null && saysLive) blocked.push('cached-as-live')
-  const replacement = () => unableMessage(topic ?? (blocked.some((item) => /section/i.test(item)) ? 'legal' : 'fact'))
   if (blocked.includes('cached-as-live') || (spans.length > 0 && !hasGroundedClaim(removeSpans(body, spans), allowed, sources))) {
     return { text: replacement(), blocked }
   }
@@ -331,7 +387,7 @@ export function verifyGroundedAnswer(input: {
     if (freshCache?.cachedAt != null) return { text: `${kept}\n${cacheLabel(freshCache.cachedAt)}`, blocked: [] }
     return { text: kept, blocked: [] }
   }
-  const stripped = withoutCacheLabel(input.answer)
+  const stripped = withoutCacheLabel(answer)
   if (freshCache?.cachedAt != null) {
     return { text: `${stripped}\n${cacheLabel(freshCache.cachedAt)}`, blocked: [] }
   }

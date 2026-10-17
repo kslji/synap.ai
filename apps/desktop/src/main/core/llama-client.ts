@@ -4,6 +4,7 @@
  * chat_template_kwargs.enable_thinking=false and use Qwen's recommended non-thinking sampling.
  */
 import { parseModelJson } from '../../shared/model-output.js';
+import { createStreamJoiner } from '../../shared/reply-text.js';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
@@ -17,6 +18,19 @@ export interface ChatMessage {
 export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
 
 const QWEN_SAMPLING = { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 };
+
+/**
+ * Every eval request, including CI, uses this one greedy sample.
+ * Product chat keeps the registry sampling. Seed 20261010 is the dataset seed.
+ */
+export const EVAL_SAMPLING = {
+  temperature: 0,
+  top_p: 1,
+  top_k: 1,
+  presence_penalty: 0,
+  repeat_penalty: 1,
+  seed: 20261010,
+} as const;
 
 /** Sampling and template flags sent with every chat request. Registry values win over the Qwen fallback. */
 export function chatRequestFields(o: { sampling?: Record<string, number>; chatTemplateKwargs?: Record<string, unknown> }): Record<string, unknown> {
@@ -105,7 +119,22 @@ export class LlamaClient {
     if (!r.ok || !r.body) throw new Error(`llama-server /v1/chat/completions: HTTP ${r.status} ${await r.text()}`);
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
+    const joiner = createStreamJoiner();
     let buf = '';
+    const take = (line: string): 'done' | string | null => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return null;
+      const data = trimmed.slice(5).trim();
+      if (!data) return null;
+      if (data === '[DONE]') return 'done';
+      try {
+        const json = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+        const piece = json.choices?.[0]?.delta?.content;
+        return piece ? joiner.pushText(piece) : null;
+      } catch {
+        return null;
+      }
+    };
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -113,17 +142,22 @@ export class LlamaClient {
       const lines = buf.split('\n');
       buf = lines.pop() ?? '';
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const data = trimmed.slice(5).trim();
-        if (data === '[DONE]') return;
-        try {
-          const json = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
-          const piece = json.choices?.[0]?.delta?.content;
-          if (piece) yield piece;
-        } catch { /* comment or partial keepalive */ }
+        const piece = take(line);
+        if (piece === 'done') {
+          const tail = joiner.flush();
+          if (tail) yield tail;
+          return;
+        }
+        if (piece) yield piece;
       }
     }
+    buf += decoder.decode();
+    if (buf.trim()) {
+      const piece = take(buf);
+      if (piece && piece !== 'done') yield piece;
+    }
+    const tail = joiner.flush();
+    if (tail) yield tail;
   }
 
   /**
@@ -147,6 +181,7 @@ export class LlamaClient {
     if (!r.ok || !r.body) throw new Error(`llama-server /v1/chat/completions: HTTP ${r.status} ${await r.text()}`);
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
+    const joiner = createStreamJoiner();
     let buf = '';
     let content = '';
     let finish = 'stop';
@@ -167,8 +202,11 @@ export class LlamaClient {
         if (choice?.finish_reason) finish = choice.finish_reason;
         const delta = choice?.delta;
         if (delta?.content) {
-          content += delta.content;
-          onDelta(delta.content);
+          const piece = joiner.pushText(delta.content);
+          if (piece) {
+            content += piece;
+            onDelta(piece);
+          }
         }
         for (const call of delta?.tool_calls ?? []) {
           const index = call.index ?? 0;
@@ -188,7 +226,13 @@ export class LlamaClient {
       buf = lines.pop() ?? '';
       for (const line of lines) take(line);
     }
+    buf += decoder.decode();
     if (buf.trim()) take(buf);
+    const tail = joiner.flush();
+    if (tail) {
+      content += tail;
+      onDelta(tail);
+    }
     const toolCalls = [...calls.entries()].sort((a, b) => a[0] - b[0]).map(([, call]) => ({
       id: call.id || `call-${calls.size}`,
       type: 'function' as const,
@@ -204,12 +248,13 @@ export class LlamaClient {
 
   /** Let the model call tools until it produces a final answer (bounded to avoid loops). Content tokens stream as they arrive. */
   async runWithTools(messages: ChatMessage[], tools: readonly unknown[], handlers: Record<string, ToolHandler>,
-    maxSteps = 4, signal?: AbortSignal, hooks?: { onDelta?: (text: string) => void; maxTokens?: number; cachePrompt?: boolean }): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[]; usage?: { prompt_tokens: number; completion_tokens: number } }> {
+    maxSteps = 4, signal?: AbortSignal, hooks?: { onDelta?: (text: string) => void; maxTokens?: number; cachePrompt?: boolean }): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[]; finishReason: string; usage?: { prompt_tokens: number; completion_tokens: number } }> {
     const msgs = [...messages];
     const used: ToolCall[] = [];
     let promptTokens = 0;
     let completionTokens = 0;
     let sawUsage = false;
+    let finishReason = 'stop';
     for (let step = 0; step < maxSteps; step++) {
       const res = await this.chatCollect(msgs, tools, signal, hooks?.maxTokens ?? 1024, hooks?.cachePrompt ? { cachePrompt: true } : undefined, (piece) => hooks?.onDelta?.(piece));
       if (res.usage) {
@@ -218,12 +263,14 @@ export class LlamaClient {
         completionTokens += res.usage.completion_tokens ?? 0;
       }
       const message = res.choices[0]?.message ?? { role: 'assistant' as const, content: '' };
+      finishReason = res.choices[0]?.finish_reason || finishReason;
       msgs.push(message);
       if (!message.tool_calls?.length) {
         return {
           answer: String(message.content ?? ''),
           messages: msgs,
           toolCalls: used,
+          finishReason,
           ...(sawUsage ? { usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens } } : {}),
         };
       }
@@ -245,6 +292,7 @@ export class LlamaClient {
       answer: 'Sorry, I could not finish that request.',
       messages: msgs,
       toolCalls: used,
+      finishReason,
       ...(sawUsage ? { usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens } } : {}),
     };
   }

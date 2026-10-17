@@ -91,16 +91,26 @@ test('Offline mode warns when the licence refresh is due, and Auto does not', ()
   assert.equal(chip.showMode, true)
 })
 
-test('dev mode tells the chip that sync is off', () => {
+test('dev mode follows the real sync state and does not invent a label', () => {
   const chip = syncChip({
     mode: 'online', osOnline: true, syncing: true, failed: true,
     packVersion: '2026.10.01', syncingVersion: '2026.10.09', lastSyncAt: NOW, refreshBy: new Date(NOW).toISOString(), now: NOW,
     devMode: true,
   })
-  assert.equal(chip.label, 'Dev mode, sync off')
-  assert.equal(chip.state, 'offline')
+  assert.equal(chip.label, 'Syncing pack v2026.10.09')
+  assert.equal(chip.state, 'syncing')
   assert.equal(chip.mode, 'online')
-  assert.equal(chip.showMode, false)
+  assert.equal(chip.showMode, true)
   assert.equal(chip.refreshWarning, null)
-  assert.equal(chip.detail.includes('Last sync: not yet'), true)
+  assert.doesNotMatch(`${chip.label} ${chip.detail} ${chip.tooltip}`, /Dev mode/)
+  const offline = syncChip({
+    mode: 'offline', osOnline: true, syncing: false, failed: true,
+    packVersion: null, syncingVersion: null, lastSyncAt: null, refreshBy: new Date(NOW - 1000).toISOString(), now: NOW,
+    devMode: true,
+  })
+  assert.equal(offline.label, 'Offline')
+  assert.equal(offline.state, 'offline')
+  assert.equal(offline.refreshWarning, null)
+  assert.equal(offline.detail.includes('Last sync: not yet'), true)
+  assert.doesNotMatch(`${offline.label} ${offline.detail}`, /Dev mode/)
 })

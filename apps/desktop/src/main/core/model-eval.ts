@@ -118,9 +118,10 @@ export interface MeasuredModel {
 }
 
 export function selectModelEvalQuestions(mode: 'subset' | 'full', questions: EvalQuestion[] = evalQuestions()): EvalQuestion[] {
-  if (mode === 'full') return questions
+  const modelQuestions = questions.filter((item) => item.domain !== 'everyday')
+  if (mode === 'full') return modelQuestions
   const picked: EvalQuestion[] = []
-  for (const row of SUBSET_TAKE) picked.push(...questions.filter((item) => item.domain === row.domain).slice(0, row.count))
+  for (const row of SUBSET_TAKE) picked.push(...modelQuestions.filter((item) => item.domain === row.domain).slice(0, row.count))
   return picked
 }
 

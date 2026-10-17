@@ -71,8 +71,8 @@ const api: SurfApi = {
   },
   library: {
     pathForFile: (file) => webUtils.getPathForFile(file),
-    add: (paths, conversationId, createConversation = false, agentId = 'general') => ipcRenderer.invoke(IPC.libraryAdd, { paths, conversationId, createConversation, agentId }),
-    pick: (conversationId, createConversation = false, agentId = 'general') => ipcRenderer.invoke(IPC.libraryPick, { conversationId, createConversation, agentId }),
+    add: (paths, conversationId, createConversation = false, agentId = 'code') => ipcRenderer.invoke(IPC.libraryAdd, { paths, conversationId, createConversation, agentId }),
+    pick: (conversationId, createConversation = false, agentId = 'code') => ipcRenderer.invoke(IPC.libraryPick, { conversationId, createConversation, agentId }),
     list: () => ipcRenderer.invoke(IPC.libraryList),
     retry: (jobId) => ipcRenderer.invoke(IPC.libraryRetry, jobId),
     cancel: (jobId) => ipcRenderer.invoke(IPC.libraryCancel, jobId),
@@ -133,6 +133,10 @@ const api: SurfApi = {
     pause: (id) => ipcRenderer.invoke(IPC.filesPause, id),
     resume: (id) => ipcRenderer.invoke(IPC.filesResume, id),
     onEvent: (cb) => subscribe<FileIndexEvent>(IPC.filesEvent, cb),
+  },
+  speech: {
+    speak: (text) => ipcRenderer.invoke(IPC.speechSpeak, text),
+    stop: () => ipcRenderer.invoke(IPC.speechStop),
   },
 }
 

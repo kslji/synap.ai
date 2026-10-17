@@ -1,4 +1,4 @@
-import React, { createElement, type ReactNode } from 'react'
+import React, { createElement, useState, type ReactNode } from 'react'
 
 export type Inline =
   | { type: 'text'; text: string }
@@ -6,12 +6,15 @@ export type Inline =
   | { type: 'em'; children: Inline[] }
   | { type: 'code'; text: string }
   | { type: 'link'; href: string; children: Inline[] }
+  | { type: 'math'; text: string }
 
 export type Block =
   | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; children: Inline[] }
   | { type: 'paragraph'; children: Inline[] }
   | { type: 'list'; ordered: boolean; items: Inline[][] }
   | { type: 'table'; header: Inline[][]; rows: Inline[][][] }
+  | { type: 'code'; lang: string; text: string }
+  | { type: 'math'; text: string }
   | { type: 'rule' }
 
 export interface ArticleFrontmatter {
@@ -57,6 +60,25 @@ function parseInline(input: string): Inline[] {
   const out: Inline[] = []
   let i = 0
   while (i < input.length) {
+    if (input.startsWith('$$', i)) {
+      const end = input.indexOf('$$', i + 2)
+      if (end !== -1) {
+        out.push({ type: 'math', text: input.slice(i + 2, end).trim() })
+        i = end + 2
+        continue
+      }
+    }
+    if (input[i] === '$' && input[i + 1] !== '$') {
+      const end = input.indexOf('$', i + 1)
+      if (end !== -1) {
+        const body = input.slice(i + 1, end)
+        if (body && /[\\^_]/.test(body) && !body.includes('\n')) {
+          out.push({ type: 'math', text: body.trim() })
+          i = end + 1
+          continue
+        }
+      }
+    }
     if (input.startsWith('**', i)) {
       const end = findCloser(input, i + 2, '**')
       if (end !== -1) {
@@ -166,6 +188,35 @@ export function parseMarkdown(source: string): Block[] {
       i += 1
       continue
     }
+    if (line.trim().startsWith('```')) {
+      const lang = line.trim().slice(3).trim()
+      const body: string[] = []
+      i += 1
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        body.push(lines[i])
+        i += 1
+      }
+      if (i < lines.length) i += 1
+      blocks.push({ type: 'code', lang, text: body.join('\n') })
+      continue
+    }
+    if (line.trim().startsWith('$$')) {
+      const single = /^\$\$(.*)\$\$$/.exec(line.trim())
+      if (single && single[1]) {
+        blocks.push({ type: 'math', text: single[1].trim() })
+        i += 1
+        continue
+      }
+      const body: string[] = []
+      i += 1
+      while (i < lines.length && !lines[i].trim().startsWith('$$')) {
+        body.push(lines[i])
+        i += 1
+      }
+      if (i < lines.length) i += 1
+      blocks.push({ type: 'math', text: body.join('\n').trim() })
+      continue
+    }
     if (isRule(line)) {
       blocks.push({ type: 'rule' })
       i += 1
@@ -205,6 +256,8 @@ export function parseMarkdown(source: string): Block[] {
       && !isHeading(lines[i])
       && !isRule(lines[i])
       && !lines[i].trim().startsWith('|')
+      && !lines[i].trim().startsWith('```')
+      && !lines[i].trim().startsWith('$$')
       && !isList(lines[i], true)
       && !isList(lines[i], false)
     ) {
@@ -240,15 +293,67 @@ export function sourceUrls(source: string): string[] {
   return [...source.matchAll(/https?:\/\/[^\s)]+/g)].map((match) => match[0].replace(/[.,;:]+$/, ''))
 }
 
-function InlineView({ nodes }: { nodes: Inline[] }): ReactNode {
+const SUPER: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', n: 'ⁿ', '+': '⁺', '-': '⁻' }
+
+function prettyMath(text: string): string {
+  return text
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)')
+    .replace(/\^\{([^{}]+)\}/g, (_, exp: string) => [...exp].map((ch) => SUPER[ch] ?? ch).join(''))
+    .replace(/\^([0-9n+-])/g, (_, exp: string) => SUPER[exp] ?? exp)
+}
+
+function Highlighted({ text, lang }: { text: string; lang: string }) {
+  if (!/js|ts|py|python|sh|json|bash/i.test(lang)) return <>{text}</>
+  const pattern = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\/\/.*$|#.*$)|(\b(?:const|let|var|function|return|if|else|for|while|import|from|export|class|new|true|false|null|undefined|def)\b)/gm
+  const parts: ReactNode[] = []
+  let last = 0
+  let index = 0
+  for (const match of text.matchAll(pattern)) {
+    const at = match.index ?? 0
+    if (at > last) parts.push(text.slice(last, at))
+    const kind = match[1] ? 'string' : match[2] ? 'comment' : 'keyword'
+    parts.push(<span key={index} data-token={kind}>{match[0]}</span>)
+    index += 1
+    last = at + match[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return <>{parts}</>
+}
+
+function CodeBlock({ lang, text }: { lang: string; text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="code-block" data-code-block="yes" data-lang={lang || 'text'}>
+      <div className="code-block-bar">
+        <span>{lang || 'code'}</span>
+        <button
+          type="button"
+          data-copy-code="yes"
+          onClick={() => {
+            void navigator.clipboard?.writeText(text).then(() => {
+              setCopied(true)
+              window.setTimeout(() => setCopied(false), 1200)
+            }).catch(() => undefined)
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre><code><Highlighted text={text} lang={lang} /></code></pre>
+    </div>
+  )
+}
+
+function InlineView({ nodes, renderText }: { nodes: Inline[]; renderText?: (text: string) => ReactNode }): ReactNode {
   return nodes.map((node, index) => {
-    if (node.type === 'text') return <span key={index}>{node.text}</span>
-    if (node.type === 'strong') return <strong key={index}><InlineView nodes={node.children} /></strong>
-    if (node.type === 'em') return <em key={index}><InlineView nodes={node.children} /></em>
+    if (node.type === 'text') return <span key={index}>{renderText ? renderText(node.text) : node.text}</span>
+    if (node.type === 'strong') return <strong key={index}><InlineView nodes={node.children} renderText={renderText} /></strong>
+    if (node.type === 'em') return <em key={index}><InlineView nodes={node.children} renderText={renderText} /></em>
     if (node.type === 'code') return <code key={index}>{node.text}</code>
+    if (node.type === 'math') return <span key={index} className="math-inline" data-latex="yes">{prettyMath(node.text)}</span>
     return (
       <a key={index} href={node.href} target="_blank" rel="noreferrer">
-        <InlineView nodes={node.children} />
+        <InlineView nodes={node.children} renderText={renderText} />
       </a>
     )
   })
@@ -263,24 +368,36 @@ const headingClass: Record<number, string> = {
   6: 'mt-4 text-sm font-semibold',
 }
 
-export function Markdown({ source }: { source: string }) {
+const compactHeading: Record<number, string> = {
+  1: 'text-lg font-semibold leading-snug',
+  2: 'text-base font-semibold leading-snug',
+  3: 'text-base font-semibold leading-snug',
+  4: 'text-sm font-semibold leading-snug',
+  5: 'text-sm font-semibold leading-snug',
+  6: 'text-sm font-semibold leading-snug',
+}
+
+export function Markdown({ source, compact = false, renderText }: { source: string; compact?: boolean; renderText?: (text: string) => ReactNode }) {
   const blocks = parseMarkdown(source)
+  const headings = compact ? compactHeading : headingClass
   return (
-    <div data-markdown="yes" className="flex flex-col gap-3">
+    <div data-markdown="yes" className={compact ? 'reply-markdown' : 'flex flex-col gap-3'}>
       {blocks.map((block, index) => {
         if (block.type === 'heading') {
           const tag = `h${block.level}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
-          return createElement(tag, { key: index, className: headingClass[block.level] }, <InlineView nodes={block.children} />)
+          return createElement(tag, { key: index, className: headings[block.level] }, <InlineView nodes={block.children} renderText={renderText} />)
         }
         if (block.type === 'paragraph') {
-          return <p key={index}><InlineView nodes={block.children} /></p>
+          return <p key={index}><InlineView nodes={block.children} renderText={renderText} /></p>
         }
+        if (block.type === 'code') return <CodeBlock key={index} lang={block.lang} text={block.text} />
+        if (block.type === 'math') return <div key={index} className="math-block" data-latex="yes" data-latex-display="yes">{prettyMath(block.text)}</div>
         if (block.type === 'rule') return <hr key={index} className="border-[var(--line)]" />
         if (block.type === 'list') {
           const Tag = block.ordered ? 'ol' : 'ul'
           return (
             <Tag key={index} className={block.ordered ? 'list-decimal space-y-2 pl-5' : 'list-disc space-y-2 pl-5'}>
-              {block.items.map((item, itemIndex) => <li key={itemIndex}><InlineView nodes={item} /></li>)}
+              {block.items.map((item, itemIndex) => <li key={itemIndex}><InlineView nodes={item} renderText={renderText} /></li>)}
             </Tag>
           )
         }
@@ -290,7 +407,7 @@ export function Markdown({ source }: { source: string }) {
               <thead>
                 <tr>
                   {block.header.map((cell, cellIndex) => (
-                    <th key={cellIndex} className="border-b border-[var(--line)] px-2 py-2 align-top font-semibold">{<InlineView nodes={cell} />}</th>
+                    <th key={cellIndex} className="border-b border-[var(--line)] px-2 py-2 align-top font-semibold">{<InlineView nodes={cell} renderText={renderText} />}</th>
                   ))}
                 </tr>
               </thead>
@@ -298,7 +415,7 @@ export function Markdown({ source }: { source: string }) {
                 {block.rows.map((row, rowIndex) => (
                   <tr key={rowIndex}>
                     {row.map((cell, cellIndex) => (
-                      <td key={cellIndex} className="border-b border-[var(--line)] px-2 py-2 align-top">{<InlineView nodes={cell} />}</td>
+                      <td key={cellIndex} className="border-b border-[var(--line)] px-2 py-2 align-top">{<InlineView nodes={cell} renderText={renderText} />}</td>
                     ))}
                   </tr>
                 ))}

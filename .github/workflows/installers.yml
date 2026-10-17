@@ -38,6 +38,9 @@ jobs:
             rm -rf node_modules
           done
           exit 1
+      - name: System voice speaks a short line
+        working-directory: apps/desktop
+        run: npx tsx --test src/main/core/speech.test.ts
       - name: Fetch llama.cpp and OCR data
         working-directory: apps/desktop
         run: |
@@ -247,6 +250,9 @@ jobs:
             rm -rf node_modules
           done
           exit 1
+      - name: System voice speaks a short line
+        working-directory: apps/desktop
+        run: npx tsx --test src/main/core/speech.test.ts
       - name: Fetch llama.cpp and OCR data
         working-directory: apps/desktop
         shell: bash

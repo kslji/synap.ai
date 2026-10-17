@@ -9,44 +9,23 @@ export function CodeShots({
   shots,
   onRemove,
   onSave,
-  onAttach,
-  onCapture,
 }: {
   shots: CodeShot[]
   onRemove: (id: string) => void
   onSave: (id: string) => void
-  onAttach: (files: File[]) => void
-  onCapture: () => void
 }) {
+  if (!shots.length) return null
   return (
-    <div className="mb-2 flex flex-col gap-2" data-code-shots="yes">
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn btn-ghost" data-shot-attach="yes" onClick={() => {
-          const input = document.createElement('input')
-          input.type = 'file'
-          input.accept = 'image/png,image/jpeg,image/webp'
-          input.multiple = true
-          input.onchange = () => {
-            const files = [...(input.files ?? [])]
-            if (files.length) onAttach(files)
-          }
-          input.click()
-        }}>Attach screenshot</button>
-        <button type="button" className="btn btn-ghost" data-capture-screenshot="yes" onClick={onCapture}>Capture screenshot</button>
-      </div>
-      {shots.length > 0 && (
-        <ul className="flex flex-wrap gap-2">
-          {shots.map((shot) => (
-            <li key={shot.id} className="flex items-center gap-2 rounded-full bg-[var(--bg-elev)] px-3 py-1 text-xs" data-code-shot={shot.id}>
-              <img alt="" className="h-8 w-8 rounded object-cover" src={`data:${shot.mime};base64,${shot.base64}`} />
-              <span className="max-w-[10rem] truncate">{shot.name}</span>
-              <button type="button" className="btn btn-ghost" data-shot-save={shot.id} onClick={() => onSave(shot.id)}>Save</button>
-              <button type="button" className="btn btn-ghost" data-shot-remove={shot.id} onClick={() => onRemove(shot.id)}>Remove</button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <ul className="mb-2 flex flex-wrap gap-2" data-code-shots="yes">
+      {shots.map((shot) => (
+        <li key={shot.id} className="flex items-center gap-2 rounded-full bg-[var(--bg)] px-3 py-1 text-xs" data-code-shot={shot.id}>
+          <img alt="" className="h-8 w-8 rounded object-cover" src={`data:${shot.mime};base64,${shot.base64}`} />
+          <span className="max-w-[10rem] truncate">{shot.name}</span>
+          <button type="button" className="btn btn-ghost" data-shot-save={shot.id} onClick={() => onSave(shot.id)}>Save</button>
+          <button type="button" className="btn btn-ghost" data-shot-remove={shot.id} onClick={() => onRemove(shot.id)}>Remove</button>
+        </li>
+      ))}
+    </ul>
   )
 }
 

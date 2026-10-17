@@ -89,6 +89,8 @@ export const IPC = {
   filesSetLimits: 'files:set-limits',
   filesPause: 'files:pause',
   filesResume: 'files:resume',
+  speechSpeak: 'speech:speak',
+  speechStop: 'speech:stop',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -102,6 +104,8 @@ export interface ChatSendReq {
   docScope?: DocScope
   /** When set, the new answer is another version of this assistant reply. No new user turn is stored. */
   replaceMessageId?: string
+  /** When set, more text is appended to this assistant reply. No new user turn is stored. */
+  continueMessageId?: string
 }
 
 export type ThemeChoice = 'light' | 'dark'
@@ -227,7 +231,7 @@ export type ChatEvent =
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
   | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' }
   | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
-  | { type: 'done'; messageId: string; gate: GateName; text?: string; budget?: {
+  | { type: 'done'; messageId: string; gate: GateName; text?: string; canContinue?: boolean; budget?: {
     counter: string
     total: number
     droppedChunks: number
@@ -445,7 +449,7 @@ export interface SyncChip {
   tooltip: string
   detail: string
   refreshWarning: string | null
-  /** False in dev mode. The chip then shows only its label. */
+  /** Settings still reads label and detail. The sidebar chip uses colour. */
   showMode?: boolean
 }
 
@@ -862,6 +866,10 @@ export interface SurfApi {
     pause(id: string): Promise<void>
     resume(id: string): Promise<void>
     onEvent(cb: (event: FileIndexEvent) => void): () => void
+  }
+  speech: {
+    speak(text: string): Promise<{ ok: boolean; note: string }>
+    stop(): Promise<void>
   }
 }
 

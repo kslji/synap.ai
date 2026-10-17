@@ -305,12 +305,18 @@ export function StoragePanel() {
                   {item.version ? ` · v${item.version}` : ''}
                   <span className="text-[var(--muted)]"> · {formatIndexBytes(item.bytes)}</span>
                 </span>
-                <button type="button" className="btn btn-ghost" data-storage-clear={category.id} onClick={() => setPending({ category: category.id, itemId: item.id, label: item.label })}>Clear</button>
+                {category.id !== 'models' && category.id !== 'chats' && (
+                  <button type="button" className="btn btn-ghost" data-storage-clear={category.id} onClick={() => setPending({ category: category.id, itemId: item.id, label: item.label })}>Clear</button>
+                )}
               </li>
             ))}
           </ul>
           <div className="mt-2 flex gap-2">
-            <button type="button" className="btn btn-ghost" data-storage-clear-all={category.id} onClick={() => setPending({ category: category.id, label: category.label })}>Clear all</button>
+            {category.id !== 'models' && category.id !== 'chats' ? (
+              <button type="button" className="btn btn-ghost" data-storage-clear-all={category.id} onClick={() => setPending({ category: category.id, label: category.label })}>Clear all</button>
+            ) : (
+              <p className="text-sm text-[var(--muted)]" data-storage-kept={category.id}>Kept on this computer</p>
+            )}
             <button type="button" className="btn btn-ghost" data-storage-open={category.id} onClick={() => { void window.surf.storage.open(category.id).catch((err: unknown) => setError((err as Error).message)) }}>Open folder</button>
           </div>
         </div>

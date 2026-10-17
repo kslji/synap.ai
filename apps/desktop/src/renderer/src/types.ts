@@ -39,6 +39,8 @@ export interface UiMsg {
   versions?: string[]
   /** A token event arrived, so the reply was streamed. */
   streamed?: boolean
+  /** The reply stopped on the length limit and can be continued. */
+  canContinue?: boolean
 }
 
 export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
@@ -63,6 +65,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
   if (e.type === 'token') {
     m.text += e.text
     m.streamed = true
+    m.canContinue = false
   }
   if (e.type === 'status') m.phase = e.phase
   if (e.type === 'file-ask') {
@@ -93,7 +96,8 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.pending = false
     m.fileAsk = null
     m.gate = e.gate
-    if (e.text) m.text = e.text
+    if (typeof e.text === 'string') m.text = e.text
+    m.canContinue = e.canContinue === true
     if (m.startedAt) m.elapsedMs = Date.now() - m.startedAt
   }
   return next

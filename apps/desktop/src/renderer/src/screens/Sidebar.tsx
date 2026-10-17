@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BarChart3, Bot, Folder, Home, LogOut, Moon, Package, Plus, Search, Settings, Trash2 } from 'lucide-react'
 import { BlobMascot, type ThemeChoice } from '@surf/ui'
 import { useMascotActivity } from '../mascot-activity'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
-import { agentFilterIds, labelFromAgentId } from '../../../shared/chat-title'
+import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
+import { labelFromAgentId } from '../../../shared/chat-title'
+import { clipWords, SIDEBAR_PREVIEW_LIMIT, SIDEBAR_TITLE_LIMIT } from '../../../shared/reply-text'
+import { SURF_CHIP_IDLE, surfChipStep, surfChipText, surfChipTone, type SurfChipHold } from '../../../shared/surf-chip'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
@@ -37,6 +40,7 @@ export function Sidebar({
   onOpen,
   onDelete,
   onAgent,
+  onSync,
   sync,
 }: {
   view: View
@@ -58,28 +62,47 @@ export function Sidebar({
   onOpen: (id: string) => void
   onDelete: (id: string) => void
   onAgent: (id: string) => void
+  onSync: () => void
   sync?: SyncChip
 }) {
   const activity = useMascotActivity()
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [agentFilter, setAgentFilter] = useState('all')
   const [name, setName] = useState(mascotName)
+  const opened = surfChipStep(SURF_CHIP_IDLE, sync?.state ?? 'uptodate', Date.now())
+  const [hold, setHold] = useState<SurfChipHold>(opened)
+  const holdRef = useRef(opened)
+  const stateRef = useRef(sync?.state ?? 'uptodate')
+  stateRef.current = sync?.state ?? 'uptodate'
+  useEffect(() => {
+    const now = Date.now()
+    const next = surfChipStep(holdRef.current, stateRef.current, now)
+    holdRef.current = next
+    setHold(next)
+    if (next.phase !== 'synced') return
+    const wait = Math.max(0, next.holdUntil - now)
+    const timer = window.setTimeout(() => {
+      const settled = surfChipStep(holdRef.current, stateRef.current, Date.now())
+      holdRef.current = settled
+      setHold(settled)
+    }, wait)
+    return () => window.clearTimeout(timer)
+  }, [sync?.state])
+  const phase = hold.phase
+  const text = surfChipText(phase, mascotName)
+  const tone = surfChipTone(phase, theme === 'dark' ? 'dark' : 'light')
   useEffect(() => { setName(mascotName) }, [mascotName])
   const needle = query.trim().toLowerCase()
   const nameOf = (id: string) => agents.find((agent) => agent.id === id)?.name ?? labelFromAgentId(id)
-  const filters = agentFilterIds(agents.map((agent) => ({ id: agent.id, canChat: agentCanChat(agent) })), conversations)
   const mine = conversations.filter((chat) => {
-    if (agentFilter !== 'all' && chat.agentId !== agentFilter) return false
     if (!needle) return true
     const label = nameOf(chat.agentId).toLowerCase()
     return chat.title.toLowerCase().includes(needle) || (chat.preview ?? '').toLowerCase().includes(needle) || label.includes(needle)
   })
-  const grouped = agentFilter === 'all' && new Set(mine.map((chat) => chat.agentId)).size > 1
-  const sections = grouped
-    ? filters.filter((id) => mine.some((chat) => chat.agentId === id)).map((id) => ({ id, chats: mine.filter((chat) => chat.agentId === id) }))
-    : [{ id: '', chats: mine }]
+  const chatAgents = agents.filter((agent) => agentCanChat(agent))
+  const soonAgents = agents.filter((agent) => !agentCanChat(agent))
+  const openName = nameOf(agentId)
   return (
     <aside className="shell-side flex h-full min-h-0 w-[280px] shrink-0 flex-col">
       <div className="flex items-center justify-between px-4 pt-4">
@@ -102,71 +125,73 @@ export function Sidebar({
           className="mascot-name"
           data-mascot-name="yes"
           data-mascot-rename="yes"
-          aria-label="Mascot name"
+          aria-label="Bot name"
           value={name}
-          maxLength={40}
+          maxLength={BOT_NAME_LIMIT}
           onChange={(event) => setName(event.target.value)}
-          onBlur={() => {
-            const next = name.trim() || mascotName
+          onBlur={(event) => {
+            const next = cleanMascotName(event.currentTarget.value)
             setName(next)
             if (next !== mascotName) onMascotName(next)
           }}
         />
       </div>
-      <div className="agent-filter" data-agent-filters="yes" role="group" aria-label="Show chats">
-        <button type="button" data-agent-filter="all" aria-pressed={agentFilter === 'all'} onClick={() => setAgentFilter('all')}>All</button>
-        {filters.map((id) => (
-          <button key={id} type="button" data-agent-filter={id} aria-pressed={agentFilter === id} onClick={() => setAgentFilter(id)}>{nameOf(id)}</button>
-        ))}
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto px-3">
+      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-auto px-3">
         {mine.length === 0 && <p className="px-2 py-2 text-sm text-[var(--muted)]">No chats yet.</p>}
-        {sections.map((section) => (
-          <div key={section.id || 'chats'}>
-            {section.id && <p className="agent-group">{nameOf(section.id)}</p>}
-            {section.chats.map((chat) => {
-              const label = nameOf(chat.agentId)
-              return (
-                <div key={chat.id} className={`chat-row ${chat.id === activeId ? 'is-on' : ''}`} data-chat-row={chat.id} data-chat-agent={chat.agentId}>
-                  <button type="button" onClick={() => onOpen(chat.id)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left">
-                    <span className="chat-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-semibold">{chat.title}</span>
-                        <span className="agent-tag" data-agent-tag="yes">{label}</span>
-                      </span>
-                      <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
-                    </span>
-                  </button>
-                  <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-tip="Delete" data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        ))}
+        {mine.map((chat) => {
+          const label = nameOf(chat.agentId)
+          return (
+            <div key={chat.id} className={`chat-row ${chat.id === activeId ? 'is-on' : ''}`} data-chat-row={chat.id} data-chat-agent={chat.agentId}>
+              <button type="button" onClick={() => onOpen(chat.id)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left">
+                <span className="chat-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <span className="min-w-0 text-sm font-semibold leading-snug" data-chat-title="yes">{clipWords(chat.title, SIDEBAR_TITLE_LIMIT)}</span>
+                    <span className="agent-tag shrink-0" data-agent-tag="yes">{label}</span>
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-snug text-[var(--muted)]">{chat.preview ? clipWords(chat.preview, SIDEBAR_PREVIEW_LIMIT) : when(chat.updatedAt)}</span>
+                </span>
+              </button>
+              <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-tip="Delete" data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          )
+        })}
       </div>
       <div className="relative shrink-0 px-3 pb-4">
-        {sync && (
-          <p
-            className="mb-2 px-1 text-[11px] leading-snug text-[var(--muted)]"
-            data-sync-chip="yes"
-            data-sync-state={sync.state}
-            data-network-mode={sync.mode}
-            data-sync-label={sync.label}
-            title={sync.tooltip}
-            data-tour="online"
-            data-tour-target={tourId === 'online' ? 'yes' : 'no'}
+        <div
+          className={`account-launch surf-chip is-${phase}`}
+          style={tone ?? undefined}
+          data-sync-chip="yes"
+          data-sync-state={phase}
+          data-network-mode={sync?.mode ?? 'auto'}
+          data-sync-label={text}
+          title={sync?.tooltip}
+          data-tour="online"
+          data-tour-target={tourId === 'online' ? 'yes' : 'no'}
+        >
+          <button
+            type="button"
+            className="chat-avatar"
+            data-account-menu="yes"
+            aria-label="Account menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
           >
-            <span>{sync.label}</span>
-            {sync.showMode !== false && sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
-          </p>
-        )}
-        <button type="button" className="account-launch" data-account-menu="yes" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
-          <span className="chat-avatar">{(mascotName || 'S').slice(0, 1).toUpperCase()}</span>
-          <span className="truncate text-sm font-semibold">{mascotName}</span>
-        </button>
+            {(mascotName || 'S').slice(0, 1).toUpperCase()}
+          </button>
+          <button
+            type="button"
+            className="surf-chip-sync"
+            data-sync-start="yes"
+            aria-live="polite"
+            disabled={phase === 'syncing'}
+            onClick={onSync}
+          >
+            {text}
+          </button>
+        </div>
         {menuOpen && (
           <div className="account-menu" data-account-panel="yes">
             {MENU.map((item) => {
@@ -185,8 +210,8 @@ export function Sidebar({
               </button>
               )
             })}
-            <div className="account-row">
-              <span><Moon size={16} /> Dark mode</span>
+            <div className="account-row" data-theme-row="yes">
+              <span className="theme-label"><Moon size={16} /> Dark mode</span>
               <button
                 type="button"
                 className="toggle"
@@ -199,25 +224,29 @@ export function Sidebar({
                 <span />
               </button>
             </div>
-            <p className="account-label">Switch agent</p>
             <div data-tour="agents">
-              {agents.map((agent) => {
-                const open = agentCanChat(agent)
-                const on = agent.id === agentId
-                return (
+              <p className="account-label">Agent</p>
+              {chatAgents.length <= 1 ? (
+                <p className="account-agent" data-agent-label="yes">Agent: {openName}</p>
+              ) : (
+                chatAgents.map((agent) => (
                   <button
                     key={agent.id}
                     type="button"
-                    disabled={!open}
                     data-agent-card={agent.id}
-                    className={on ? 'is-on' : ''}
-                    onClick={() => { if (open) { setMenuOpen(false); onAgent(agent.id) } }}
+                    className={agent.id === agentId ? 'is-on' : ''}
+                    onClick={() => { setMenuOpen(false); onAgent(agent.id) }}
                   >
                     <span className="truncate">{agent.name}</span>
-                    {!open && <span className="pill pill-muted">Soon</span>}
                   </button>
-                )
-              })}
+                ))
+              )}
+              {soonAgents.map((agent) => (
+                <button key={agent.id} type="button" disabled data-agent-card={agent.id}>
+                  <span className="truncate">{agent.name}</span>
+                  <span className="pill pill-muted">Soon</span>
+                </button>
+              ))}
             </div>
             {!devMode && signedIn && onSignOut && (
               <button type="button" data-sign-out="yes" onClick={() => { setMenuOpen(false); onSignOut() }}><LogOut size={16} /> Log out</button>

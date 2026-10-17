@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { availableParallelism } from 'node:os'
-import { LlamaClient } from '../src/main/core/llama-client.ts'
+import { EVAL_SAMPLING, LlamaClient } from '../src/main/core/llama-client.ts'
 import {
   coverSkips,
   evalContextTokens,
@@ -27,7 +27,8 @@ import {
   type ModelAnswerRow,
   type MmprojMeasure,
 } from '../src/main/core/model-eval.ts'
-import { evalQuestions, fabricationCase, financeAnswerOk, settleFabrication } from '../src/main/core/step11-questions.ts'
+import { evalQuestions, everydayVisible, fabricationCase, financeAnswerOk, scoreEvalQuestions, settleFabrication } from '../src/main/core/step11-questions.ts'
+import { finishReply, replyShapeOk } from '../src/shared/reply-text.ts'
 import { LlamaServer } from '../src/main/core/sidecar-manager.ts'
 import { ensureModel, registryEntries } from './model-weights.mjs'
 import { availableRamGb, watchRss } from './rss.ts'
@@ -80,11 +81,11 @@ async function tokenizerReady(server: LlamaServer, weightsUrl: string, dir: stri
 
 const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
-async function ask(server: LlamaServer, prompt: string, grammar: string | undefined, image: boolean, maxTokens = image ? 24 : 8): Promise<{ text: string; ttftMs: number | null; tokens: number; genMs: number }> {
+async function ask(server: LlamaServer, prompt: string, grammar: string | undefined, image: boolean, maxTokens = image ? 24 : 8): Promise<{ text: string; finish: string; ttftMs: number | null; tokens: number; genMs: number }> {
   const client = new LlamaClient({
     baseUrl: server.baseUrl,
     apiKey: server.apiKey,
-    sampling: { temperature: 0, top_p: 1, top_k: 1, presence_penalty: 0 },
+    sampling: { ...EVAL_SAMPLING },
     chatTemplateKwargs: { enable_thinking: false },
   })
   const started = performance.now()
@@ -106,23 +107,32 @@ async function ask(server: LlamaServer, prompt: string, grammar: string | undefi
   const tokens = result.usage?.completion_tokens ?? (reply ? 1 : 0)
   return {
     text: reply,
+    finish: result.choices[0]?.finish_reason ?? 'stop',
     ttftMs: first == null ? null : Math.round(first - started),
     tokens,
     genMs: Math.max(1, Math.round(ended - (first ?? started))),
   }
 }
 
-async function runQuestions(server: LlamaServer, mode: 'subset' | 'full'): Promise<ModelAnswerRow[]> {
+function shapeOf(text: string, finish: string): boolean {
+  return replyShapeOk(finishReply(text, finish === 'length').text)
+}
+
+async function runQuestions(server: LlamaServer, mode: 'subset' | 'full'): Promise<{ rows: ModelAnswerRow[]; shapePass: number; shapeTotal: number }> {
   const limit = Number(option('limit') ?? 0)
   const picked = selectModelEvalQuestions(mode, questions).slice(0, limit > 0 ? limit : undefined)
   const rows: ModelAnswerRow[] = []
+  let shapePass = 0
   for (const question of picked) {
     if (question.domain === 'no-fabrication') {
       const scenario = fabricationCase(question)
       const answer = scenario?.callModel
         ? await ask(server, fabricationPrompt(scenario.question, scenario.records.map((record) => record.text)), undefined, false, 80)
-        : { text: '', ttftMs: null, tokens: 0, genMs: 0 }
+        : { text: '', finish: 'stop', ttftMs: null, tokens: 0, genMs: 0 }
       const settled = settleFabrication(question, scenario?.callModel ? answer.text : null)
+      const shapeOk = shapeOf(answer.text, answer.finish)
+      if (shapeOk) shapePass += 1
+      process.stdout.write(`shape ${question.id} ${shapeOk ? 'pass' : 'fail'}\n`)
       rows.push({
         id: question.id,
         domain: question.domain,
@@ -138,6 +148,9 @@ async function runQuestions(server: LlamaServer, mode: 'subset' | 'full'): Promi
     const labels = choiceLabels(question, questions)
     const answer = await ask(server, modelEvalPrompt(question, labels), labelGrammar(labels), false)
     const scored = scoreModelLabel(answer.text, question.expect, labels)
+    const shapeOk = shapeOf(answer.text, answer.finish)
+    if (shapeOk) shapePass += 1
+    process.stdout.write(`shape ${question.id} ${shapeOk ? 'pass' : 'fail'}\n`)
     // A finance reply is the in-app formula. A 2B label is not the figure.
     const ok = question.domain === 'finance' ? financeAnswerOk(question) : scored.ok
     const label = question.domain === 'finance' && ok ? question.expect : scored.label
@@ -152,7 +165,8 @@ async function runQuestions(server: LlamaServer, mode: 'subset' | 'full'): Promi
     })
     process.stdout.write(`${question.id} ${ok ? 'ok' : 'miss'}\n`)
   }
-  return rows
+  process.stdout.write(`shape ${shapePass}/${picked.length} pass\n`)
+  return { rows, shapePass, shapeTotal: picked.length }
 }
 
 async function withServer(modelPath: string, ctx: number, mmprojPath: string | undefined, body: (server: LlamaServer, peak: () => number) => Promise<void>): Promise<number> {
@@ -204,6 +218,23 @@ function blank(id: string, sha256: string, reason: string): MeasuredModel {
   }
 }
 
+function reportEveryday(): boolean {
+  const rows = scoreEvalQuestions().filter((row) => row.id.startsWith('q-everyday-'))
+  for (const row of rows) process.stdout.write(`everyday ${row.id} ${row.fields.ok ? 'pass' : 'fail'}\n`)
+  const passed = rows.filter((row) => row.fields.ok).length
+  process.stdout.write(`everyday ${passed}/${rows.length} pass\n`)
+  const everyday = evalQuestions().filter((item) => item.domain === 'everyday')
+  let shapePass = 0
+  for (const item of everyday) {
+    const visible = everydayVisible(item)
+    const ok = visible == null || replyShapeOk(finishReply(visible, false).text)
+    if (ok) shapePass += 1
+    process.stdout.write(`shape ${item.id} ${ok ? 'pass' : 'fail'}\n`)
+  }
+  process.stdout.write(`shape ${shapePass}/${everyday.length} pass\n`)
+  return rows.length > 0 && passed === rows.length && shapePass === everyday.length
+}
+
 async function main(): Promise<void> {
   const gatePath = option('gate')
   const limits = thresholds()
@@ -218,6 +249,7 @@ async function main(): Promise<void> {
     return
   }
 
+  let failed = !reportEveryday()
   if (!existsSync(serverBin())) throw new Error('llama-server is not installed. Run node apps/desktop/scripts/fetch-sidecars.mjs')
   const mode = option('mode') === 'full' ? 'full' : 'subset'
   const ids = (option('models') ?? 'qwen3.5-2b-q4_k_m').split(',').map((item) => item.trim()).filter(Boolean)
@@ -226,7 +258,6 @@ async function main(): Promise<void> {
   const wantVision = flag('mmproj')
   const free = availableRamGb()
   const models: MeasuredModel[] = []
-  let failed = false
 
   for (const id of ids) {
     const weights = registryEntries([id]).find((row) => row.kind === 'weights')
@@ -245,7 +276,9 @@ async function main(): Promise<void> {
     try {
       peak = await withServer(saved.path, evalContextTokens(weights.minRamGb), undefined, async (server) => {
         tokenizer = await tokenizerReady(server, weights.url, dir)
-        rows.current = await runQuestions(server, mode)
+        const ran = await runQuestions(server, mode)
+        rows.current = ran.rows
+        if (ran.shapePass !== ran.shapeTotal) failed = true
       })
     } catch (error) {
       models.push(blank(id, weights.sha256, error instanceof Error ? error.message.slice(0, 180) : 'run-failed'))

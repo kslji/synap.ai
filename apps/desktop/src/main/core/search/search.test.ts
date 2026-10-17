@@ -11,7 +11,7 @@ import { blockedHost } from './blocked.js'
 import { SEARCH_CACHE_MIGRATION, SEARCH_TTL_MS, PAGE_TTL_MS, clearSearchCache, readCache, searchCacheStats, writeCache } from './cache.js'
 import { citationProblems, ensureCitationMarkers, packVersionLine } from './citations.js'
 import { CONNECTORS, connectorsFor, searchGitHub, searchStackExchange, searchNpm, searchPypi, searchCrates, searchWikipedia, searchArxiv, searchHuggingFace, searchSemanticScholar, searchHn } from './connectors.js'
-import { parseDdgLite, searchDdg } from './ddg.js'
+import { parseDdgInstant, parseDdgLite, searchDdg } from './ddg.js'
 import {
   FINANCE_DISCLAIMER,
   cagr,
@@ -125,6 +125,15 @@ test('a connector HTTP failure degrades and DuckDuckGo failure does not throw', 
   assert.equal(blockedHost('https://x.com/someone'), true)
   const ddg = await searchDdg('ferry', { offlineOnly: false, fetchImpl: async () => { throw new Error('down') } })
   assert.deepEqual(ddg, [])
+  const instant = parseDdgInstant({
+    Heading: 'Electron',
+    Abstract: 'Electron is a software framework.',
+    AbstractURL: 'https://en.wikipedia.org/wiki/Electron_(software)',
+    AbstractSource: 'Wikipedia',
+    RelatedTopics: [{ Text: 'Category', FirstURL: 'https://duckduckgo.com/c/Software' }],
+  })
+  assert.equal(instant.length, 1)
+  assert.match(instant[0]?.url || '', /wikipedia\.org/)
   const ok = parseDdgLite('<a class="result-link" href="https://example.com/a">Example</a><td class="result-snippet">A snippet</td>')
   assert.equal(ok[0]?.title, 'Example')
 })
@@ -295,6 +304,54 @@ test('a news question with no fetched row does not call the model', async () => 
   assert.ok(kept)
   assert.match(kept.text, /channel is open/)
   assert.equal(kept.text.includes(UNABLE_NEWS), false)
+})
+
+function hostEndsWith(url: string, host: string): boolean {
+  try {
+    const name = new URL(url).hostname.toLowerCase()
+    return name === host || name.endsWith(`.${host}`)
+  } catch {
+    return false
+  }
+}
+
+function isSynapServer(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname === 'synap.surf' || parsed.hostname.endsWith('.synap.surf') || parsed.pathname === '/v1/search' || parsed.pathname === '/v1/fetch'
+  } catch {
+    return true
+  }
+}
+
+test('general search reads a public page on this computer and never calls synap.surf', async () => {
+  resetRateLimits()
+  const urls: string[] = []
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input)
+    urls.push(url)
+    if (isSynapServer(url)) throw new Error('server')
+    const path = (() => { try { return new URL(url).pathname } catch { return '' } })()
+    if (hostEndsWith(url, 'wikipedia.org') && path.startsWith('/w/api.php')) {
+      return jsonResponse({ query: { search: [{ title: 'Electron (software)', snippet: 'Electron is a software framework.', timestamp: '2026-10-13T00:00:00Z' }] } })
+    }
+    if (hostEndsWith(url, 'hn.algolia.com')) return jsonResponse({ hits: [] })
+    if (hostEndsWith(url, 'wikipedia.org') && path.startsWith('/wiki/')) {
+      return new Response('<html><head><title>Electron (software)</title></head><body><article><p>Electron is a software framework for building desktop applications with web technology. It packages a browser and a Node runtime so the same page can run as a desktop app.</p></article></body></html>', { status: 200, headers: { 'content-type': 'text/html' } })
+    }
+    return new Response('no', { status: 404 })
+  }
+  const gathered = await gatherOnline({
+    question: 'What is the Electron software framework?',
+    region: { code: 'GLOBAL', label: 'worldwide sources', source: 'global' },
+    offlineOnly: false,
+    db: null,
+    fetchImpl,
+  })
+  assert.ok(urls.length > 0)
+  assert.ok(urls.every((url) => !isSynapServer(url)))
+  assert.ok(urls.some((url) => hostEndsWith(url, 'wikipedia.org')))
+  assert.ok(gathered.pages.some((page) => /Electron/.test(page.title) && /framework/.test(page.text)))
 })
 
 test('production search does not enable the eval fixture', () => {

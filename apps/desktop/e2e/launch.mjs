@@ -15,7 +15,7 @@ export async function launch(env, settings = {}) {
     theme: 'light',
     offlineOnly: true,
     animateMascot: false,
-    mascotName: 'Surf Bot',
+    mascotName: 'Surf',
     accent: 'orange',
     density: 'comfortable',
     ...settings,

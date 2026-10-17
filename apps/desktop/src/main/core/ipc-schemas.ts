@@ -5,11 +5,12 @@ import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecide
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
   text: z.string().min(1).max(20_000),
-  agentId: z.string().max(64).default('general'),
+  agentId: z.string().max(64).default('code'),
   images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg', 'image/webp']), base64: z.string().max(14_000_000) })).max(4).default([]),
   allowWeb: z.boolean().default(false),
   docScope: z.enum(['chat', 'all']).default('chat'),
   replaceMessageId: z.string().uuid().optional(),
+  continueMessageId: z.string().uuid().optional(),
 })
 
 export const SettingsPatch = z.object({
@@ -32,7 +33,7 @@ export const SettingsPatch = z.object({
   keepWarm: z.boolean().optional(),
   idleUnloadMinutes: z.number().int().min(1).max(240).optional(),
   speculativeDecoding: z.boolean().optional(),
-  mascotName: z.string().trim().min(1).max(40).optional(),
+  mascotName: z.string().trim().min(1).max(32).optional(),
   mascotColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   accent: z.enum(['orange', 'blue', 'indigo', 'navy']).optional(),
   density: z.enum(['compact', 'comfortable', 'relaxed']).optional(),
@@ -68,13 +69,13 @@ export const AttachmentId = z.string().uuid()
 export const LibraryPick = z.object({
   conversationId: z.string().uuid().nullable(),
   createConversation: z.boolean().default(false),
-  agentId: z.string().max(64).default('general'),
+  agentId: z.string().max(64).default('code'),
 })
 export const LibraryAdd = z.object({
   paths: z.array(z.string().min(1).max(4096)).min(1).max(20),
   conversationId: z.string().uuid().nullable(),
   createConversation: z.boolean().default(false),
-  agentId: z.string().max(64).default('general'),
+  agentId: z.string().max(64).default('code'),
 })
 export const ExportFormatName = z.enum(['txt', 'md', 'html', 'docx', 'png', 'jpeg', 'csv', 'xlsx', 'pdf'])
 export const DocumentConvert = z.object({

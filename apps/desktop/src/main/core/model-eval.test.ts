@@ -28,14 +28,18 @@ const thresholds = { minAccuracy: 0.5, minNoFabrication: 0.4 }
 
 test('subset stays inside 30 to 50 and keeps the required domains', () => {
   const all = evalQuestions()
-  assert.equal(all.length, 101)
+  const everyday = all.filter((row) => row.domain === 'everyday')
+  assert.ok(everyday.length >= 8)
+  assert.equal(all.length, 101 + everyday.length)
   const subset = selectModelEvalQuestions('subset', all)
   assert.ok(subset.length >= 30 && subset.length <= 50)
   for (const domain of ['coding', 'splitting', 'run-fix', 'finance', 'no-fabrication']) {
     assert.ok(subset.some((row) => row.domain === domain))
   }
   assert.equal(subset.filter((row) => row.domain === 'no-fabrication').length, 10)
+  assert.equal(subset.filter((row) => row.domain === 'everyday').length, 0)
   assert.equal(selectModelEvalQuestions('full', all).length, 101)
+  assert.equal(selectModelEvalQuestions('full', all).some((row) => row.domain === 'everyday'), false)
 })
 
 test('a reply scores only when the first label matches', () => {

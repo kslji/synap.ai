@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import type { DB } from './db.js'
 import type { ConversationSummary, GateName, StoredMessage } from './ipc-contract.js'
 import { isPlaceholderTitle } from '../../shared/chat-title.js'
+import { clipWords, PREVIEW_LIMIT, TITLE_LIMIT } from '../../shared/reply-text.js'
 import { forgetConversation } from './web-cache.js'
 
 export const SESSION_MIGRATION = `
@@ -125,7 +126,7 @@ export class SessionStore {
     }
     const cid = id ?? randomUUID()
     const now = Date.now()
-    const title = firstText.replace(/\s+/g, ' ').trim().slice(0, 64) || 'New chat'
+    const title = clipWords(firstText, TITLE_LIMIT) || 'New chat'
     if (!this.db) {
       this.mem.set(cid, { id: cid, title, agentId, updatedAt: now, messages: [] })
       return cid
@@ -179,7 +180,7 @@ export class SessionStore {
 
   /** File drops create a "New Code chat" title before the first message. A real title stays. */
   renameIfPlaceholder(id: string, firstText: string): void {
-    const title = firstText.replace(/\s+/g, ' ').trim().slice(0, 64)
+    const title = clipWords(firstText, TITLE_LIMIT)
     if (!title || isPlaceholderTitle(title)) return
     if (!this.db) {
       const conv = this.mem.get(id)
@@ -250,9 +251,7 @@ function parseSources(json: string): StoredMessage['sources'] {
 }
 
 function clipPreview(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
-  if (flat.length <= 80) return flat
-  return `${flat.slice(0, 79)}…`
+  return clipWords(text, PREVIEW_LIMIT)
 }
 
 function parseVersions(json: string | null | undefined): string[] {

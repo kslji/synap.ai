@@ -7,6 +7,7 @@ import {
   UNABLE_PRICE,
   cacheLabel,
   claimTopic,
+  copyCitedTimes,
   parseSourceDate,
   sourceUsable,
   verifyGroundedAnswer,
@@ -233,4 +234,52 @@ test('a market row with an old or missing date does not authorize a figure', () 
   assert.equal(labeled.blocked.length, 0)
   assert.equal(labeled.text.includes('42.50'), true)
   assert.equal(labeled.text.includes('Not a live fetch'), true)
+})
+
+test('a general explanation is kept when no source was retrieved', () => {
+  const answer = 'The mirror shatters. The myth that it can "see" you or that it will "smile" is not true.'
+  const grounded = verifyGroundedAnswer({
+    answer,
+    question: 'What happens if you smash a mirror?',
+    records: [],
+    now: NOW,
+  })
+  assert.equal(grounded.text.includes('The mirror shatters'), true)
+  assert.equal(grounded.text.includes('Unable to find'), false)
+  const invented = verifyGroundedAnswer({
+    answer: 'The mirror shatters. The myth is not true.\n\n### Sources\n* [S1] - National Institute for Occupational Safety and Health',
+    question: 'What happens if you smash a mirror?',
+    records: [],
+    now: NOW,
+  })
+  assert.equal(invented.text.includes('The mirror shatters'), true)
+  assert.equal(invented.text.includes('[S1]'), false)
+  assert.equal(invented.text.includes('National Institute'), false)
+})
+
+test('a cited clock time is copied exactly, not rewritten as 4 AM', () => {
+  const source = 'बंदरगाह की नौका घाट 4 से सुबह 06:40 बजे निकलती है।'
+  const question = 'बंदरगाह की नौका कब निकलती है?'
+  const rewritten = 'The boat leaves the ferry dock at 4 AM. [S1]'
+  assert.equal(copyCitedTimes(rewritten, question, [source]).includes('06:40'), true)
+  assert.equal(copyCitedTimes(rewritten, question, [source]).includes('4 AM'), false)
+  assert.equal(copyCitedTimes('It leaves at 6:40. [S1]', question, [source]).includes('06:40'), true)
+  const grounded = verifyGroundedAnswer({
+    answer: rewritten,
+    question,
+    records: [record({ text: source })],
+    now: NOW,
+  })
+  assert.equal(grounded.text.includes('06:40'), true)
+  assert.equal(grounded.text.includes('[S1]'), true)
+  assert.equal(grounded.text.includes('4 AM'), false)
+  assert.equal(grounded.text, copyCitedTimes(rewritten, question, [source]))
+  const kept = verifyGroundedAnswer({
+    answer: 'The harbor ferry leaves Pier 4 at 06:40. [S1]',
+    question: 'When does the harbor ferry leave Pier 4?',
+    records: [record({ text: 'The harbor ferry leaves Pier 4 at 06:40. Tickets cost 120 rupees.' })],
+    now: NOW,
+  })
+  assert.equal(kept.text.includes('06:40'), true)
+  assert.equal(kept.blocked.length, 0)
 })

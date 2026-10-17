@@ -74,7 +74,8 @@ a { color: var(--accent-text); }
   cursor: pointer;
 }
 .icon-quiet:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
-.icon-quiet[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+.icon-quiet[aria-pressed="true"],
+.icon-quiet[data-speaking="yes"] { background: var(--accent-soft); color: var(--accent-text); }
 .icon-quiet:disabled { opacity: 0.4; cursor: not-allowed; }
 .icon-quiet:focus-visible, .icon-btn:focus-visible, .composer-icon:focus-visible, .send-btn:focus-visible {
   outline: 2px solid var(--accent-text);
@@ -129,10 +130,37 @@ a { color: var(--accent-text); }
   box-shadow: 0 1px 2px rgba(28, 24, 40, 0.04);
   cursor: pointer;
 }
+.surf-chip.is-offline { color: var(--muted); }
+.surf-chip.is-syncing { animation: surf-chip-pulse 1.8s ease-out infinite; }
+.surf-chip button {
+  border: 0;
+  cursor: pointer;
+}
+.surf-chip .surf-chip-sync {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 4px 2px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+}
+.surf-chip .surf-chip-sync:disabled {
+  color: inherit;
+  cursor: default;
+  opacity: 1;
+}
+.surf-chip .chat-avatar { padding: 0; cursor: pointer; }
+@keyframes surf-chip-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 116, 15, 0.45); }
+  70% { box-shadow: 0 0 0 8px rgba(242, 116, 15, 0); }
+}
 .account-menu {
   position: absolute;
   left: 12px;
-  bottom: 68px;
+  bottom: calc(100% + 8px);
   z-index: 30;
   display: flex;
   width: 248px;
@@ -145,7 +173,7 @@ a { color: var(--accent-text); }
   box-shadow: 0 18px 40px rgba(20, 20, 20, 0.28);
 }
 :root[data-theme="dark"] .account-menu { background: #2a2733; }
-.account-menu button {
+.account-menu button:not(.toggle) {
   display: flex;
   width: 100%;
   align-items: center;
@@ -159,18 +187,45 @@ a { color: var(--accent-text); }
   font-size: 14px;
   cursor: pointer;
 }
-.account-menu button svg { flex: none; opacity: 0.9; }
-.account-menu button:hover, .account-menu button.is-on { background: rgba(255, 255, 255, 0.08); }
-.account-menu button:disabled { opacity: 0.55; cursor: not-allowed; }
+.account-menu button:not(.toggle) svg { flex: none; opacity: 0.9; }
+.account-menu button:not(.toggle):hover, .account-menu button:not(.toggle).is-on { background: rgba(255, 255, 255, 0.08); }
+.account-menu button:not(.toggle):disabled { opacity: 0.55; cursor: not-allowed; }
 .account-row, .account-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   padding: 8px 10px;
   font-size: 14px;
 }
-.account-row span { display: inline-flex; align-items: center; gap: 10px; }
+.account-row {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.account-row > .theme-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+.account-row > .toggle {
+  width: 42px;
+  min-width: 42px;
+  max-width: 42px;
+  height: 26px;
+  flex: 0 0 42px;
+  margin-left: auto;
+  padding: 0;
+}
+.account-agent {
+  margin: 0;
+  padding: 4px 10px 8px;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
 .account-label { color: #a1a1aa; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
 .shell-title {
   display: inline-flex;
@@ -188,9 +243,44 @@ a { color: var(--accent-text); }
 }
 .shell-title-text {
   min-width: 0;
+  line-height: 1.35;
+  white-space: normal;
+}
+.bot-name {
+  min-width: 0;
+  max-width: 16rem;
   overflow: hidden;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: text;
+}
+.bot-name.is-edit {
+  width: 9rem;
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 2px 8px;
+  outline: 2px solid var(--accent-text);
+}
+.bot-name:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.assistant-name {
+  margin: 2px 0 6px 2px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 .shell-title-dot { color: var(--muted); font-weight: 500; }
 .agent-tag {
@@ -271,6 +361,40 @@ a { color: var(--accent-text); }
   padding: 10px 4px;
 }
 .shell-composer .field:focus { outline: none; }
+.shell-composer .composer-icon,
+.shell-composer .send-btn {
+  margin-bottom: 4px;
+}
+.attach-menu { position: relative; flex: none; }
+.attach-panel {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  display: flex;
+  min-width: 196px;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-elev);
+  padding: 6px;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.attach-panel button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.attach-panel button:hover,
+.attach-panel button:focus-visible { background: var(--accent-soft); }
 .send-btn {
   display: inline-flex;
   align-items: center;
@@ -377,6 +501,7 @@ a { color: var(--accent-text); }
 :root[data-theme="dark"] .icon-tile.is-blue { background: #172554; color: #93c5fd; }
 :root[data-theme="dark"] .icon-tile.is-teal { background: #132e2b; color: #5eead4; }
 .theme-card {
+  min-width: 0;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: var(--bg);
@@ -591,12 +716,12 @@ a { color: var(--accent-text); }
 .suggest-chip:hover, .model-choice:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .suggest-chip:active, .model-choice:active, .settings-nav-btn:active, .account-launch:active { transform: scale(0.98); }
 .btn:focus-visible, .chip-tab:focus-visible, .settings-nav-btn:focus-visible, .suggest-chip:focus-visible,
-.chat-row button:focus-visible, .account-menu button:focus-visible, .model-choice:focus-visible, .field:focus-visible {
+.chat-row button:focus-visible, .account-menu button:focus-visible, .surf-chip button:focus-visible, .model-choice:focus-visible, .field:focus-visible {
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .view-pane, .msg-in, .stream-caret::after, .skeleton, .progress.is-busy b { animation: none; }
+  .view-pane, .msg-in, .stream-caret::after, .skeleton, .progress.is-busy b, .surf-chip.is-syncing { animation: none; }
   .chat-row, .settings-nav-btn, .suggest-chip, .model-choice, .hw-tile, .stat-card, .account-launch, .btn { transition: none; }
 }
 .hw-grid {

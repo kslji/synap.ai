@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, BlobMascot, useMascotColorSetter, type ThemeChoice } from '@surf/ui'
 import { useMascotActivity } from './mascot-activity'
-import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
+import { syncChip } from '../../main/core/network-mode'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
@@ -23,6 +24,61 @@ import { ActivationScreen } from './screens/ActivationScreen'
 import { PacksScreen } from './screens/PacksScreen'
 import { UpdateBanner } from './screens/UpdateBanner'
 
+const DEMO_SYNC_AT = Date.parse('2026-10-17T12:00:00.000Z')
+
+function demoSync(input: { mode: 'offline' | 'online'; osOnline: boolean; syncing: boolean; failed: boolean }): SyncChip {
+  return syncChip({
+    mode: input.mode,
+    osOnline: input.osOnline,
+    syncing: input.syncing,
+    failed: input.failed,
+    packVersion: '2026.10.01',
+    syncingVersion: input.syncing ? '2026.10.09' : null,
+    lastSyncAt: input.syncing || input.failed ? null : DEMO_SYNC_AT,
+    refreshBy: null,
+    now: DEMO_SYNC_AT,
+  })
+}
+
+const SYNC_ERROR = /Pack sync is off in dev mode|Sign in to sync|Pack sync waits|metered connection|active subscription/
+
+const FORMATTED_REPLY = [
+  '## Sorting a list',
+  '',
+  'Use **stable** sort when the original order matters. Call `items.slice()` before you sort.',
+  '',
+  '- Keep the original list',
+  '- Return a new one',
+  '- Check the length first',
+  '',
+  '1. Copy the items',
+  '2. Sort the copy',
+  '3. Return it',
+  '',
+  '```js',
+  'function sorted(items) {',
+  '  const copy = items.slice()',
+  '  return copy.sort()',
+  '}',
+  '```',
+  '',
+  '| Step | What it does |',
+  '| --- | --- |',
+  '| Copy | Leaves the input alone |',
+  '| Sort | Orders the copy |',
+  '',
+  '$$E = mc^2$$',
+  '',
+  'Read the [notes](https://example.com/sort).',
+].join('\n')
+
+const CONTINUED_REPLY = [
+  'A long answer stops on a finished sentence when the length limit is reached.',
+  'The last word stays whole, and you can keep going from that sentence.',
+  '',
+  'The next part would cover how the copy is sorted, how ties keep their order, and how an empty list is returned unchanged.',
+].join('\n')
+
 function fromStored(message: StoredMessage): UiMsg {
   const all = message.versions ?? []
   if (message.role !== 'assistant' || all.length < 2) return { ...message, tools: [] }
@@ -36,7 +92,7 @@ export default function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [view, setView] = useState<View>('onboarding')
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [agentId, setAgentId] = useState('general')
+  const [agentId, setAgentId] = useState('code')
   const [codeProject, setCodeProject] = useState<CodeProjectStatus | null>(null)
   const [codeMode, setCodeMode] = useState<CodeAgentModeState | null>(null)
   const [tourStep, setTourStep] = useState<number | null>(null)
@@ -46,8 +102,6 @@ export default function App() {
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
-  const [scope, setScope] = useState<DocScope>('chat')
-  const [chatWeb, setChatWeb] = useState(true)
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
   const [account, setAccount] = useState<{ email: string; deviceId: string | null; plan?: string | null } | null>(null)
   const [licence, setLicence] = useState<LicenceStatus | null>(null)
@@ -59,6 +113,9 @@ export default function App() {
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
+  function webAllowed(): boolean {
+    return Boolean(settings?.webSearchAllowed && !settings.offlineOnly)
+  }
   const setMascotColor = useMascotColorSetter()
   const { setOffline } = useMascotActivity()
   useEffect(() => {
@@ -68,6 +125,8 @@ export default function App() {
     setOffline(Boolean(status && (status.offlineOnly || !status.online)))
   }, [setOffline, status])
 
+  const syncPreview = useRef<SyncChip | null>(null)
+  const syncDemoTimer = useRef<number | null>(null)
   const refresh = useCallback(async () => {
     const [st, se, conv, auth, listed, lic] = await Promise.all([
       api.models.status(),
@@ -77,7 +136,7 @@ export default function App() {
       api.packs.list(),
       api.licence.status(),
     ])
-    setStatus(st)
+    setStatus(syncPreview.current ? { ...st, sync: syncPreview.current } : st)
     setSettings(se)
     setConversations(conv)
     setAccount(auth.signedIn && auth.email ? { email: auth.email, deviceId: auth.deviceId, plan: lic.plan } : null)
@@ -157,6 +216,22 @@ export default function App() {
     void patch({ theme })
   }
 
+  async function syncFromChip() {
+    if (syncDemoTimer.current != null) window.clearTimeout(syncDemoTimer.current)
+    syncDemoTimer.current = null
+    syncPreview.current = null
+    const poll = window.setInterval(() => { void refresh().catch(() => undefined) }, 200)
+    try {
+      await api.packs.sync()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Sync failed'
+      if (!SYNC_ERROR.test(message)) setError(message)
+    } finally {
+      window.clearInterval(poll)
+      await refresh().catch(() => undefined)
+    }
+  }
+
   async function patch(p: SettingsPatch) {
     if (p.theme) persistThemeChoice(p.theme)
     setSettings((current) => (current ? { ...current, ...p } : current))
@@ -214,13 +289,36 @@ export default function App() {
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: webAllowed(), docScope: 'chat' })
       if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
     } catch (e) {
       setStreaming(false)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, pending: false, error: true, text: (e as Error).message } : msg)))
+    }
+  }
+
+  async function continueReply(messageId: string) {
+    const current = messages.find((msg) => msg.id === messageId)
+    if (!current || current.role !== 'assistant' || current.pending || streaming || !current.canContinue) return
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, pending: true, canContinue: false, error: false } : msg)))
+    setStreaming(true)
+    try {
+      const res = await api.chat.send({
+        conversationId,
+        text: 'Continue.',
+        agentId: boundAgent,
+        allowWeb: webAllowed(),
+        docScope: 'chat',
+        continueMessageId: messageId,
+      })
+      setConversationId(res.conversationId)
+    } catch (e) {
+      setStreaming(false)
+      setError((e as Error).message)
+      setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, pending: false, canContinue: true } : msg)))
     }
   }
 
@@ -237,7 +335,7 @@ export default function App() {
     setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId, error: false } : msg)))
     setStreaming(true)
     try {
-      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope, replaceMessageId: messageId })
+      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: webAllowed(), docScope: 'chat', replaceMessageId: messageId })
       setConversationId(res.conversationId)
       setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, id: res.messageId, versions } : msg)))
     } catch (e) {
@@ -253,7 +351,6 @@ export default function App() {
     setConversationId(id)
     setShots([])
     setMessages(opened.messages.map((m) => fromStored(m)))
-    setChatWeb(true)
     setView('chat')
   }
 
@@ -265,7 +362,6 @@ export default function App() {
     setMessages([])
     setShots([])
     setPreview(null)
-    setChatWeb(true)
     setView('chat')
   }
 
@@ -448,6 +544,25 @@ export default function App() {
       setConvertJob(null)
       setFillJob(null)
       setUpdateOffer(null)
+      if (syncDemoTimer.current != null) window.clearTimeout(syncDemoTimer.current)
+      syncDemoTimer.current = null
+      syncPreview.current = null
+      if (scene === 'sync-idle' || scene === 'sync-syncing' || scene === 'sync-synced' || scene === 'sync-failed' || scene === 'sync-offline') {
+        const show = (syncing: boolean, failed: boolean, mode: 'online' | 'offline') => {
+          const next = demoSync({ mode, osOnline: true, syncing, failed })
+          syncPreview.current = next
+          setStatus((current) => current && { ...current, sync: next })
+        }
+        if (scene === 'sync-idle') show(false, false, 'online')
+        else if (scene === 'sync-syncing') show(true, false, 'online')
+        else if (scene === 'sync-failed') show(false, true, 'online')
+        else if (scene === 'sync-offline') show(true, true, 'offline')
+        else {
+          show(true, false, 'online')
+          syncDemoTimer.current = window.setTimeout(() => show(false, false, 'online'), 80)
+        }
+        return
+      }
       if (scene === 'home') {
         setView('home')
         setConversations([
@@ -471,6 +586,35 @@ export default function App() {
         setMessages([
           { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
           { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 2B' },
+        ])
+        return
+      }
+      if (scene === 'formatted' || scene === 'continued') {
+        const formatted = scene === 'formatted'
+        const id = '44444444-4444-4444-8444-444444444444'
+        setAgentId('code')
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setConversationId(id)
+        setConversations([{
+          id,
+          title: formatted ? 'Sorting a list' : 'Stable sort',
+          agentId: 'code',
+          updatedAt: Date.now(),
+          preview: formatted ? 'Use stable sort when order matters.' : 'A long answer stops on a finished sentence.',
+        }])
+        setMessages([
+          { id: '55555555-5555-4555-8555-555555555555', role: 'user', text: formatted ? 'How do I sort a list without changing the original?' : 'Explain stable sort in detail.', sources: [], tools: [] },
+          {
+            id: '66666666-6666-4666-8666-666666666666',
+            role: 'assistant',
+            text: formatted ? FORMATTED_REPLY : CONTINUED_REPLY,
+            sources: [],
+            tools: [],
+            modelId: 'Qwen 2B',
+            canContinue: !formatted,
+          },
         ])
         return
       }
@@ -807,7 +951,7 @@ export default function App() {
         onView={setView}
         theme={settings.theme}
         onTheme={chooseTheme}
-        mascotName={settings.mascotName || 'Surf Bot'}
+        mascotName={settings.mascotName || 'Surf'}
         animateMascot={settings.animateMascot !== false}
         onMascotName={(mascotName) => { void patch({ mascotName }) }}
         onSignIn={() => setView('signin')}
@@ -822,6 +966,7 @@ export default function App() {
         onOpen={(id) => { void openConversation(id) }}
         onDelete={(id) => { void deleteConversation(id) }}
         onAgent={(id) => openAgent(id)}
+        onSync={() => { void syncFromChip() }}
         sync={status.sync}
       />
       <div key={screen} className="view-pane flex min-h-0 min-w-0 flex-1">
@@ -848,13 +993,11 @@ export default function App() {
           streaming={streaming}
           status={status}
           files={conversationId ? files.filter((file) => file.conversationIds.includes(conversationId)) : []}
-          scope={scope}
           preview={preview}
-          webSearchAllowed={settings.webSearchAllowed}
-          chatWeb={chatWeb}
-          agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'General'}
+          agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'Code'}
           agentNote={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.notes}
-          title={conversations.find((chat) => chat.id === conversationId)?.title}
+          botName={settings.mascotName || 'Surf'}
+          onBotName={(mascotName) => { void patch({ mascotName }) }}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           onSend={(t, images) => { void send(t, images) }}
@@ -863,13 +1006,10 @@ export default function App() {
           onRemoveShot={agentId === 'code' ? (id) => setShots((current) => current.filter((shot) => shot.id !== id)) : undefined}
           onSaveShot={agentId === 'code' ? (id) => { void saveShot(id) } : undefined}
           onCaptureShot={agentId === 'code' ? () => { void captureShot() } : undefined}
-          onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}
           onPick={() => { const id = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId; void api.library.pick(conversationId, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
-          onScope={setScope}
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}
-          modelGuide={agentId === 'code'}
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
@@ -889,6 +1029,7 @@ export default function App() {
           tabSuggestionsOff={settings.tabSuggestionsOff}
           animateMascot={settings.animateMascot !== false}
           onRegenerate={(id) => { void regenerate(id) }}
+          onContinue={(id) => { void continueReply(id) }}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)
@@ -974,7 +1115,7 @@ export default function App() {
               theme: 'light',
               accent: 'orange',
               density: 'comfortable',
-              mascotName: 'Surf Bot',
+              mascotName: 'Surf',
               mascotColor: '#f2740f',
               animateMascot: true,
               networkMode: 'auto',

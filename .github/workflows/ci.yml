@@ -17,7 +17,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Compiler tools for native prebuilds
-        run: sudo apt-get update && sudo apt-get install -y make g++
+        run: sudo apt-get update && sudo apt-get install -y make g++ espeak-ng
       - name: Install dependencies
         shell: bash
         run: |

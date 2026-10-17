@@ -14,7 +14,7 @@ import { IPC, type ChatEvent, type Citation } from './core/ipc-contract.js'
 import { commitInstall } from './core/pack-install.js'
 import { trustedPackKeys } from './core/pack-keys.js'
 import { verifyPack } from './core/pack-verify.js'
-import { LlamaClient } from './core/llama-client.js'
+import { EVAL_SAMPLING, LlamaClient } from './core/llama-client.js'
 import { LlamaServer, resolveSidecar } from './core/sidecar-manager.js'
 import { surfEnv } from './core/surf-env.js'
 import { repoRoot, startSearchFixture } from './core/web-selftest.js'
@@ -149,7 +149,7 @@ async function probeModel(bin: string, modelPath: string, embeddings: boolean, l
     const client = new LlamaClient({
       baseUrl: server.baseUrl,
       apiKey: server.apiKey,
-      sampling: { temperature: 0, top_k: 1 },
+      sampling: { ...EVAL_SAMPLING },
       chatTemplateKwargs: { enable_thinking: false },
     })
     if (embeddings) await client.embed(['task: search result | query: harbor ferry'])

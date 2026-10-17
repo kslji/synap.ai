@@ -162,3 +162,57 @@
   .btn, .toggle span, .progress b, .theme-switch button { transition: none; }
   .progress.is-busy b { animation: none; }
 }
+
+.reply-markdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.reply-markdown p { margin: 0; }
+.reply-markdown ul, .reply-markdown ol { margin: 0; }
+.code-block {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-side);
+}
+.code-block-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.code-block-bar button {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.code-block-bar button:hover { background: var(--bg-elev); }
+.code-block pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  line-height: 1.55;
+  font-size: 13px;
+}
+.code-block [data-token="keyword"] { color: var(--accent-text); font-weight: 650; }
+.code-block [data-token="string"] { color: var(--ink); }
+.code-block [data-token="comment"] { color: var(--muted); }
+.math-block, .math-inline { font-variant-numeric: tabular-nums; }
+.math-block {
+  padding: 8px 0;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.5;
+}

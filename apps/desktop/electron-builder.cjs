@@ -75,8 +75,6 @@ const config = {
     perMachine: false,
     allowElevation: false,
     allowToChangeInstallationDirectory: true,
-    // Reads the installer file name (-2b, -4b, -9b, -offline-2b) and writes setup-model.json.
-    include: 'build/installer.nsh',
   },
   linux: { target: ['AppImage'], category: 'Utility' },
   protocols: [{ name: 'Synap setup', schemes: ['synap'] }],
@@ -89,21 +87,5 @@ const config = {
 }
 
 if (!signing) config.afterPack = 'scripts/after-pack.cjs'
-
-// Offline 2B installer: the GGUF is an extra resource, outside the asar, so the
-// bundle stays a normal file. GitHub's per-asset limit is 2 GiB. The file itself
-// is 1,280,835,840 bytes. The release job rejects an installer that reaches 2 GiB.
-if (process.env.SURF_BUNDLE_MODEL === '1') {
-  const modelDir = process.env.SURF_BUNDLE_MODEL_DIR
-  const marker = process.env.SURF_SETUP_MARKER
-  if (!modelDir || !marker) throw new Error('SURF_BUNDLE_MODEL needs SURF_BUNDLE_MODEL_DIR and SURF_SETUP_MARKER')
-  config.extraResources.push(
-    { from: marker, to: 'setup-model.json' },
-    { from: modelDir, to: 'bundled-model' },
-  )
-  config.artifactName = 'Synap.surf-${version}-${arch}-offline-2b.${ext}'
-  // The zip is only for in-place updates. The offline build is a separate download.
-  config.mac.target = [{ target: 'dmg', arch: ['arm64', 'x64'] }]
-}
 
 module.exports = config

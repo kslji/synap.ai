@@ -42,7 +42,7 @@ import { adoptFromFolder, adoptRows, adoptVerified } from './adopt-model.js'
 import { accountsBlocked, devModeEnabled, isModelSiteUrl, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
 import { FIRST_RUN_CHAT_MODEL_IDS, LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
-import { setupCatalog } from '../../shared/setup-choice.js'
+import { setupCatalog, setupEmbedding } from '../../shared/setup-choice.js'
 import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
@@ -73,7 +73,7 @@ import { commandRisk } from './code-agent/permission.js'
 import { runSplitTask } from './code-agent/split.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
-import { downloadVerified, readFreeBytes } from './model-download.js'
+import { copyVerified, downloadVerified, fileMatches, readFreeBytes } from './model-download.js'
 import { createSetupController } from './setup-controller.js'
 import { NOTHING_HEARD, osMicStatus, SPEECH_FAILED, SPEECH_MODEL_MISSING, SPEECH_MODEL_OFFLINE, SPEECH_PROGRAM_MISSING } from './dictation.js'
 import { resolveWhisperCli, transcribeFile } from './dictation-run.js'
@@ -249,6 +249,7 @@ export async function createServices(): Promise<Services> {
   const inflight = new Map<string, AbortController>()
   const decisions = new Map<string, (value: { allow: boolean; remember?: boolean; all?: boolean }) => void>()
   let downloading: { id: string; done: number; total: number } | null = null
+  let triedEmbedding = false
   let downloadAbort: AbortController | null = null
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; draft: string; cache: number; server: LlamaServer } | null = null
   let lastModelUse = Date.now()
@@ -481,6 +482,7 @@ export async function createServices(): Promise<Services> {
     })))
     const chosen = await chooseChat(reg, settings.chatModelId, 'general')
     const codeDefault = defaultForAgent(reg, 'code')
+    ensureEmbedding()
     return {
       tier: hw.tier,
       ramGb: hw.totalRamGb,
@@ -663,6 +665,10 @@ export async function createServices(): Promise<Services> {
       if (!ac.signal.aborted) {
         send('done', file.size_bytes)
         if (!vision && model.role === 'embedding') void fileSearch?.upgradeEmbeddings()
+        if (model.role === 'chat') {
+          triedEmbedding = false
+          ensureEmbedding()
+        }
       }
     } catch (e) {
       if (ac.signal.aborted || (e as Error).name === 'AbortError') {
@@ -2029,7 +2035,7 @@ export async function createServices(): Promise<Services> {
 
   async function takeLocalModels(preferredId: string | null, explicit: string | null): Promise<void> {
     try {
-      const rows = adoptRows(registry().models)
+      const rows = adoptRows(registry().models).filter((row) => !(FIRST_RUN_CHAT_MODEL_IDS as readonly string[]).includes(row.id))
       const dest = modelsDir()
       const found = new Map<string, boolean>()
       if (explicit) {
@@ -2101,49 +2107,53 @@ export async function createServices(): Promise<Services> {
     try { return readFileSync(path, 'utf8') } catch { return null }
   }
 
-  function setupMarkerText(): string | null {
-    const packaged = join(process.resourcesPath, 'setup-model.json')
-    const dev = join(app.getAppPath(), 'resources', 'setup-model.json')
-    return readSetupText(packaged) ?? readSetupText(dev)
+  function ensureEmbedding(): void {
+    if (triedEmbedding || downloading) return
+    const settings = readSettings()
+    if (settings.offlineOnly) return
+    const emb = registry().models.find((model) => model.role === 'embedding')
+    if (!emb) return
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    if (!win) return
+    triedEmbedding = true
+    void (async () => {
+      const chatReady = await Promise.all(registry().models.filter((model) => model.role === 'chat').map((model) => installed(model.file, model.size_bytes)))
+      if (!chatReady.some(Boolean)) {
+        triedEmbedding = false
+        return
+      }
+      if (await installed(emb.file, emb.size_bytes)) return
+      try { await download(emb.id, win) } catch { /* the next launch tries again */ }
+    })()
   }
 
-  function bundledModelPath(file: string): string | null {
-    const candidates = [
-      join(process.resourcesPath, 'bundled-model', file),
-      join(app.getAppPath(), 'resources', 'bundled-model', file),
-    ]
-    return candidates.find((path) => existsSync(path)) ?? null
+  async function downloadsHas(file: string, size: number, sha256: string): Promise<boolean> {
+    const dir = downloadsDir()
+    if (!dir || !file) return false
+    return fileMatches(join(dir, file), size, sha256)
   }
-
-  const setupChoicePath = () => join(app.getPath('userData'), 'setup-choice.json')
 
   const setupApi = createSetupController({
     ramGb: () => hw.totalRamGb,
-    markerText: setupMarkerText,
-    overrideText: () => readSetupText(setupChoicePath()),
-    writeOverride: (modelId) => {
-      mkdirSync(app.getPath('userData'), { recursive: true })
-      writeFileSync(setupChoicePath(), JSON.stringify({ model: modelId }), { mode: 0o600 })
-    },
-    linkModelId: () => lastSetupModel,
     catalog: () => setupCatalog(registry().models),
-    isInstalled: async (model) => installed(model.file, model.sizeBytes),
-    adopt: async (preferredId) => {
-      await queueAdopt(preferredId, lastSetupFile)
-      const catalog = setupCatalog(registry().models)
-      const order = [preferredId, ...catalog.map((model) => model.id).filter((id) => id !== preferredId)]
-      for (const id of order) {
-        const model = catalog.find((item) => item.id === id)
-        if (model && await installed(model.file, model.sizeBytes)) return id
-      }
-      return null
+    embedding: () => {
+      const row = setupEmbedding(registry().models)
+      if (!row) throw new Error('no embedding model')
+      return row
     },
-    bundled: (model) => bundledModelPath(model.file) != null,
-    bundledSource: (model) => bundledModelPath(model.file),
-    spec: (model) => ({ url: model.url, dest: join(modelsDir(), model.file), size: model.sizeBytes, sha256: model.sha256 }),
+    isInstalled: (file, size) => installed(file, size),
+    inDownloads: (file, size, sha256) => downloadsHas(file, size, sha256),
+    takeDownloads: async (file, size, sha256, dest) => {
+      const dir = downloadsDir()
+      if (!dir) throw new Error('no internet')
+      mkdirSync(modelsDir(), { recursive: true })
+      await copyVerified(join(dir, file), { dest, size, sha256 })
+    },
+    spec: (step) => ({ url: step.url, dest: join(modelsDir(), step.file), size: step.sizeBytes, sha256: step.sha256 }),
     saveChoice: (modelId) => {
       const settings = readSettings()
       writeSettings({ ...settings, chatModelId: modelId, codeModelId: modelId, onboardingComplete: true })
+      triedEmbedding = true
     },
     offlineOnly: () => readSettings().offlineOnly,
     freeBytes: (dir) => readFreeBytes(dir),

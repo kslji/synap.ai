@@ -215,9 +215,6 @@ jobs:
             archs="$(lipo -archs "$bin" 2>/dev/null || echo unknown)"
             verify_other "$app" "$archs"
           done
-      - name: Stamp one disk image per model size
-        working-directory: apps/desktop
-        run: node scripts/stamp-setup-dmgs.mjs
       - name: Record installer sizes
         working-directory: apps/desktop
         run: |
@@ -326,10 +323,6 @@ jobs:
           kill "$pid" || true
           echo "smoke timed out"
           exit 1
-      - name: Copy one installer per model size
-        working-directory: apps/desktop
-        shell: bash
-        run: node scripts/stamp-setup-exes.mjs
       - name: Record installer sizes
         shell: bash
         working-directory: apps/desktop

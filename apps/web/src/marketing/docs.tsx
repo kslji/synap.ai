@@ -60,11 +60,11 @@ export function DocsPage() {
           </section>
 
           <section id="model" aria-labelledby="model-title">
-            <h2 id="model-title" className="text-2xl font-semibold">Pick a model on this website</h2>
+            <h2 id="model-title" className="text-2xl font-semibold">Pick a model in the app</h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">
-              Choose Qwen 2B, Qwen 4B, or Qwen 9B on the home page. Each button downloads the app. The model downloads on its own the first time you open it. If that same file is already in Downloads and the check matches, the app uses it.
+              After you install, the first open asks you to pick Qwen 2B, Qwen 4B, or Qwen 9B. EmbeddingGemma downloads with it. If that Qwen file is already in Downloads and the check matches, the app offers to use it.
             </p>
-            <p className="mt-3"><a href="/#download">Go to the model list</a></p>
+            <p className="mt-3"><a href="/#download">Go to the download</a></p>
           </section>
 
           <section id="agents" aria-labelledby="agents-title">

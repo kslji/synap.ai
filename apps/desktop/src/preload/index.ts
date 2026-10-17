@@ -18,6 +18,7 @@ const api: SurfApi = {
   },
   models: {
     status: () => ipcRenderer.invoke(IPC.modelsStatus),
+    download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
     download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
@@ -25,10 +26,11 @@ const api: SurfApi = {
   setup: {
     state: () => ipcRenderer.invoke(IPC.setupState),
     start: () => ipcRenderer.invoke(IPC.setupStart),
+    choose: (modelId) => ipcRenderer.invoke(IPC.setupChoose, modelId),
+    useFile: (modelId) => ipcRenderer.invoke(IPC.setupUseFile, modelId),
     pause: () => ipcRenderer.invoke(IPC.setupPause),
     resume: () => ipcRenderer.invoke(IPC.setupResume),
     retry: () => ipcRenderer.invoke(IPC.setupRetry),
-    useSmaller: (modelId) => ipcRenderer.invoke(IPC.setupUseSmaller, modelId),
     onEvent: (cb) => subscribe<SetupSnapshot>(IPC.setupEvent, cb),
   },
   packs: {

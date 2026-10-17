@@ -91,10 +91,11 @@ export interface Services {
   setup: {
     state(): Promise<import('../../shared/setup-choice.js').SetupSnapshot>
     start(): Promise<void>
+    choose(modelId: string): Promise<void>
+    useFile(modelId: string): Promise<void>
     pause(): void
     resume(): Promise<void>
     retry(): Promise<void>
-    useSmaller(modelId: string): Promise<void>
   }
   conversations: {
     list(): Promise<ConversationSummary[]>
@@ -242,10 +243,11 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.modelsBenchmark, (e, raw) => { assertTrusted(e); return s.models.benchmark(ModelId.parse(raw)) })
   handle(IPC.setupState, (e) => { assertTrusted(e); return s.setup.state() })
   handle(IPC.setupStart, (e) => { assertTrusted(e); return s.setup.start() })
+  handle(IPC.setupChoose, (e, raw) => { assertTrusted(e); return s.setup.choose(ModelId.parse(raw)) })
+  handle(IPC.setupUseFile, (e, raw) => { assertTrusted(e); return s.setup.useFile(ModelId.parse(raw)) })
   handle(IPC.setupPause, (e) => { assertTrusted(e); s.setup.pause() })
   handle(IPC.setupResume, (e) => { assertTrusted(e); return s.setup.resume() })
   handle(IPC.setupRetry, (e) => { assertTrusted(e); return s.setup.retry() })
-  handle(IPC.setupUseSmaller, (e, raw) => { assertTrusted(e); return s.setup.useSmaller(ModelId.parse(raw)) })
   handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
   handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })
   handle(IPC.conversationsDelete, (e, raw) => { assertTrusted(e); return s.conversations.remove(ConversationId.parse(raw)) })

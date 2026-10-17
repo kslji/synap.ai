@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DownloadButtons } from './download-buttons.tsx'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, isSizedInstaller, newestPublishableRelease, pickDownload, releaseAssets, SETUP_MODELS, setupOpenLink, sizedInstallerHref } from './site.ts'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, isSizedInstaller, newestPublishableRelease, pickDownload, releaseAssets, SETUP_MODELS } from './site.ts'
 
 test('contact email falls back to the placeholder', () => {
   assert.equal(contactEmail(''), 'contact@example.com')
@@ -80,12 +80,7 @@ test('prereleases are downloadable and buttons point at an installer', () => {
   }
 })
 
-test('the setup link names a registry model and does not change the installer', () => {
-  assert.equal(setupOpenLink('qwen3.5-4b-q4_k_m'), 'synap://setup?model=qwen3.5-4b-q4_k_m')
-  assert.equal(setupOpenLink('nope'), 'synap://setup?model=qwen3.5-2b-q4_k_m')
-})
-
-test('each size button downloads an installer, not the model file', () => {
+test('the download page is one installer, and the sizes are a reference list', () => {
   const registry = JSON.parse(readFileSync(new URL('../../desktop/resources/models.registry.json', import.meta.url), 'utf8')) as {
     models: { id: string; url: string; sha256: string; file: string; size_bytes: number }[]
   }
@@ -99,23 +94,22 @@ test('each size button downloads an installer, not the model file', () => {
   }
   const page = readFileSync(new URL('./pages.tsx', import.meta.url), 'utf8')
   const home = readFileSync(new URL('./marketing/home.tsx', import.meta.url), 'utf8')
-  assert.match(page, /data-model-picker="yes"/)
-  assert.match(page, /data-setup-installer=\{model\.token\}/)
+  assert.match(page, /data-model-list="yes"/)
   assert.match(page, /data-model-size=\{model\.id\}/)
   assert.match(page, /data-model-ram=\{model\.id\}/)
-  assert.match(page, /Offline installer \(2B, ~1\.3 GB\)/)
-  assert.match(page, /downloads on its own/)
+  assert.match(page, /Download for Mac/)
+  assert.match(page, /Download for Windows/)
+  assert.match(page, /Download for Intel Mac/)
+  assert.match(page, /inside the app/)
   assert.match(page, /Privacy & Security/)
   assert.match(page, /More info, then Run anyway/)
-  assert.match(home, /downloads on its own/)
+  assert.match(home, /inside the app/)
   assert.doesNotMatch(page, /href=\{model\.url\}/)
+  assert.doesNotMatch(page, /data-setup-installer/)
+  assert.doesNotMatch(page, /Offline installer/)
   assert.doesNotMatch(page, /Open Synap and start/)
   assert.doesNotMatch(page, /synap:\/\/setup/)
   assert.doesNotMatch(page, /Q4_K_M|GGUF|>3\.5</)
-  const href = sizedInstallerHref(BUNDLED_ASSETS, 'mac', 'arm64', '4b')
-  assert.match(href, /Synap\.surf-0\.1\.0-arm64-4b\.dmg$/)
-  const offline = sizedInstallerHref(BUNDLED_ASSETS, 'windows', 'x64', 'offline-2b')
-  assert.match(offline, /Synap\.surf-0\.1\.0-x64-offline-2b\.exe$/)
   const mixed = [
     ...BUNDLED_ASSETS,
     { name: 'Synap.surf-0.1.0-arm64-2b.dmg', url: 'https://example.invalid/2b.dmg' },

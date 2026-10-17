@@ -1,14 +1,7 @@
 /**
- * Which Qwen3.5 Q4_K_M file the first open should fetch.
- *
- * The website bakes the choice into the installer. A synap:// link is only a
- * fallback: an unsigned app is not the handler until after it has been opened.
- * A disk-image name does not survive dragging the app out on macOS.
- * When nothing names a size, the choice follows installed RAM:
- * under 8 GB → 2B, 8 GB → 4B, 16 GB and above → 9B.
- * Those are the same cuts as tierFor in hardware.ts (7.3 GB and 15 GB,
- * because the OS reports a little under the sticker size).
- * If RAM cannot be read, the choice is 2B.
+ * First open: the person picks Qwen 2B, 4B, or 9B. EmbeddingGemma is fetched
+ * with that file. RAM only marks a recommendation and a warning. A size that
+ * needs more memory stays selectable.
  */
 import { FIRST_RUN_CHAT_MODEL_IDS } from './starter-model'
 
@@ -23,8 +16,14 @@ export interface SetupModel {
   url: string
 }
 
-/** GitHub rejects a release asset at or above 2 GiB. */
-export const GITHUB_ASSET_LIMIT_BYTES = 2 * 1024 * 1024 * 1024
+export interface SetupEmbed {
+  id: string
+  name: string
+  file: string
+  sizeBytes: number
+  sha256: string
+  url: string
+}
 
 const TOKENS = ['2b', '4b', '9b'] as const
 
@@ -62,6 +61,26 @@ export function setupCatalog(models: readonly {
   return out
 }
 
+export function setupEmbedding(models: readonly {
+  id: string
+  role?: string
+  file: string
+  url: string
+  size_bytes: number
+  sha256: string
+}[]): SetupEmbed | null {
+  const row = models.find((model) => model.role === 'embedding' && model.size_bytes > 0 && /^[a-f0-9]{64}$/.test(model.sha256))
+  if (!row) return null
+  return {
+    id: row.id,
+    name: 'EmbeddingGemma',
+    file: row.file,
+    sizeBytes: row.size_bytes,
+    sha256: row.sha256,
+    url: row.url,
+  }
+}
+
 function tokenFor(id: string): SetupModel['token'] | null {
   if (id.includes('-2b-')) return '2b'
   if (id.includes('-4b-')) return '4b'
@@ -76,65 +95,14 @@ export function ramBand(ramGb: number): '4gb' | '8gb' | '16gb' {
   return '4gb'
 }
 
-export function recommendSetupModel(ramGb: number | null, catalog: readonly SetupModel[]): { id: string; source: 'ram' | 'default'; band: '4gb' | '8gb' | '16gb' | 'unknown' } {
+export function recommendSetupModel(ramGb: number | null, catalog: readonly SetupModel[]): { id: string; source: 'ram' | 'default' } {
   const fallback = catalog.find((model) => model.token === '2b') ?? catalog[0]
   if (!fallback) throw new Error('no setup model')
-  if (ramGb == null || !Number.isFinite(ramGb) || ramGb <= 0) return { id: fallback.id, source: 'default', band: 'unknown' }
+  if (ramGb == null || !Number.isFinite(ramGb) || ramGb <= 0) return { id: fallback.id, source: 'default' }
   const band = ramBand(ramGb)
   const token = band === '16gb' ? '9b' : band === '8gb' ? '4b' : '2b'
   const picked = catalog.find((model) => model.token === token) ?? fallback
-  return { id: picked.id, source: 'ram', band }
-}
-
-export function modelFromMarker(text: string | null | undefined): string | null {
-  if (!text?.trim()) return null
-  let parsed: unknown
-  try { parsed = JSON.parse(text) } catch { return null }
-  if (!parsed || typeof parsed !== 'object') return null
-  const row = parsed as { model?: unknown; size?: unknown }
-  if (typeof row.model === 'string' && isSetupModelId(row.model.trim())) return row.model.trim()
-  if (typeof row.size === 'string') return idForToken(row.size.trim().toLowerCase())
-  return null
-}
-
-export function idForToken(token: string): string | null {
-  if (token === '2b' || token === 'offline-2b') return 'qwen3.5-2b-q4_k_m'
-  if (token === '4b') return 'qwen3.5-4b-q4_k_m'
-  if (token === '9b') return 'qwen3.5-9b-q4_k_m'
-  return null
-}
-
-/** Installer file name used by the website and by the Windows NSIS script. */
-export function modelFromInstallerName(name: string | null | undefined): { id: string; bundled: boolean } | null {
-  if (!name) return null
-  const base = name.split(/[/\\]/).pop() ?? name
-  if (/-offline-2b\.(dmg|exe|zip)$/i.test(base)) return { id: 'qwen3.5-2b-q4_k_m', bundled: true }
-  const match = /-(2b|4b|9b)\.(dmg|exe|zip)$/i.exec(base)
-  if (!match) return null
-  const id = idForToken(match[1].toLowerCase())
-  return id ? { id, bundled: false } : null
-}
-
-export function isSizedInstallerName(name: string): boolean {
-  return modelFromInstallerName(name) != null
-}
-
-export function chooseSetupModel(input: {
-  overrideId: string | null
-  markerId: string | null
-  linkId: string | null
-  ramGb: number | null
-  catalog: readonly SetupModel[]
-}): { id: string; source: 'override' | 'installer' | 'link' | 'ram' | 'default' } {
-  for (const [id, source] of [
-    [input.overrideId, 'override'],
-    [input.markerId, 'installer'],
-    [input.linkId, 'link'],
-  ] as const) {
-    if (isSetupModelId(id) && input.catalog.some((model) => model.id === id)) return { id, source }
-  }
-  const recommended = recommendSetupModel(input.ramGb, input.catalog)
-  return { id: recommended.id, source: recommended.source }
+  return { id: picked.id, source: 'ram' }
 }
 
 /** An 8 GB machine often reports about 7.5 GB. 0.8 GB covers that without treating 4 GB as 8 GB. */
@@ -142,62 +110,108 @@ export function ramFits(minRamGb: number, ramGb: number): boolean {
   return minRamGb <= ramGb + 0.8
 }
 
-export function suggestSmaller(currentId: string, ramGb: number, catalog: readonly SetupModel[]): string | null {
-  const current = catalog.find((model) => model.id === currentId)
-  if (!current) return null
-  const smaller = catalog
-    .filter((model) => model.id !== current.id && model.minRamGb < current.minRamGb && ramFits(model.minRamGb, ramGb))
-    .sort((a, b) => b.minRamGb - a.minRamGb || b.sizeBytes - a.sizeBytes)
-  if (smaller[0]) return smaller[0].id
-  const smallest = catalog.find((model) => model.token === '2b')
-  return smallest && smallest.id !== current.id ? smallest.id : null
+export interface SetupChoiceView {
+  id: string
+  name: string
+  sizeBytes: number
+  minRamGb: number
+  recommended: boolean
+  warning: string | null
+  inDownloads: boolean
+}
+
+export function setupChoices(catalog: readonly SetupModel[], ramGb: number | null, downloadsIds: readonly string[]): SetupChoiceView[] {
+  const known = ramGb != null && Number.isFinite(ramGb) && ramGb > 0
+  const recommended = recommendSetupModel(known ? ramGb : null, catalog)
+  return catalog.map((model) => {
+    const tight = known && !ramFits(model.minRamGb, ramGb)
+    return {
+      id: model.id,
+      name: model.name,
+      sizeBytes: model.sizeBytes,
+      minRamGb: model.minRamGb,
+      recommended: recommended.source === 'ram' && model.id === recommended.id,
+      warning: tight ? `This model needs ${model.minRamGb} GB of memory. This computer has ${formatRamGb(ramGb)}.` : null,
+      inDownloads: downloadsIds.includes(model.id),
+    }
+  })
 }
 
 export function requiredFreeBytes(sizeBytes: number): number {
   return Math.ceil(sizeBytes * 1.05)
 }
 
-export interface SetupPlan {
-  action: 'done' | 'copy' | 'download' | 'ram' | 'disk'
+export interface SetupStep {
+  id: string
+  role: 'chat' | 'embedding'
+  name: string
+  file: string
+  url: string
+  sha256: string
+  sizeBytes: number
+  action: 'download' | 'copy' | 'ready'
+}
+
+export interface FirstRunPlan {
+  action: 'done' | 'disk' | 'run'
   modelId: string
-  via?: 'installed' | 'adopted'
-  ramGb?: number
-  needRamGb?: number
-  suggestId?: string | null
+  steps: SetupStep[]
   requiredBytes?: number
   freeBytes?: number
 }
 
-export function planSetup(input: {
+export function planFirstRun(input: {
   chosenId: string
-  ramGb: number | null
+  useDownloads: boolean
   freeBytes: number | null
-  installedIds: readonly string[]
-  adoptedId: string | null
-  bundledIds: readonly string[]
+  chatInstalled: boolean
+  embedInstalled: boolean
+  chatInDownloads: boolean
+  embedInDownloads: boolean
   catalog: readonly SetupModel[]
-}): SetupPlan {
+  embedding: SetupEmbed
+}): FirstRunPlan {
   const chosen = input.catalog.find((model) => model.id === input.chosenId) ?? input.catalog[0]
   if (!chosen) throw new Error('no setup model')
-  if (input.installedIds.includes(chosen.id)) return { action: 'done', modelId: chosen.id, via: 'installed' }
-  if (input.adoptedId && input.catalog.some((model) => model.id === input.adoptedId)) {
-    return { action: 'done', modelId: input.adoptedId, via: 'adopted' }
+  const chatAction: SetupStep['action'] = input.chatInstalled
+    ? 'ready'
+    : input.useDownloads && input.chatInDownloads
+      ? 'copy'
+      : 'download'
+  const embedAction: SetupStep['action'] = input.embedInstalled
+    ? 'ready'
+    : input.embedInDownloads
+      ? 'copy'
+      : 'download'
+  const steps: SetupStep[] = [
+    {
+      id: chosen.id,
+      role: 'chat',
+      name: chosen.name,
+      file: chosen.file,
+      url: chosen.url,
+      sha256: chosen.sha256,
+      sizeBytes: chosen.sizeBytes,
+      action: chatAction,
+    },
+    {
+      id: input.embedding.id,
+      role: 'embedding',
+      name: input.embedding.name,
+      file: input.embedding.file,
+      url: input.embedding.url,
+      sha256: input.embedding.sha256,
+      sizeBytes: input.embedding.sizeBytes,
+      action: embedAction,
+    },
+  ]
+  if (steps.every((step) => step.action === 'ready')) return { action: 'done', modelId: chosen.id, steps }
+  const pending = steps.filter((step) => step.action !== 'ready').reduce((sum, step) => sum + step.sizeBytes, 0)
+  const requiredBytes = requiredFreeBytes(pending)
+  if (input.freeBytes != null && Number.isFinite(input.freeBytes) && input.freeBytes < requiredBytes) {
+    return { action: 'disk', modelId: chosen.id, steps, requiredBytes, freeBytes: input.freeBytes }
   }
-  if (input.ramGb != null && Number.isFinite(input.ramGb) && input.ramGb > 0 && !ramFits(chosen.minRamGb, input.ramGb)) {
-    return {
-      action: 'ram',
-      modelId: chosen.id,
-      ramGb: input.ramGb,
-      needRamGb: chosen.minRamGb,
-      suggestId: suggestSmaller(chosen.id, input.ramGb, input.catalog),
-    }
-  }
-  const bundled = input.bundledIds.includes(chosen.id)
-  if (input.freeBytes != null && Number.isFinite(input.freeBytes) && input.freeBytes < requiredFreeBytes(chosen.sizeBytes)) {
-    return { action: 'disk', modelId: chosen.id, requiredBytes: requiredFreeBytes(chosen.sizeBytes), freeBytes: input.freeBytes }
-  }
-  if (bundled) return { action: 'copy', modelId: chosen.id }
-  return { action: 'download', modelId: chosen.id }
+  return { action: 'run', modelId: chosen.id, steps }
 }
 
 /** Bytes per second from the oldest and newest samples. Null until two real samples exist. */
@@ -236,28 +250,16 @@ export function formatRamGb(ramGb: number): string {
   return `${trimDecimal(ramGb, digits)} GB`
 }
 
-export function setupChoiceNote(source: 'override' | 'installer' | 'link' | 'ram' | 'default', modelName: string, ramGb: number | null): string {
-  if (source === 'ram' && ramGb != null && ramGb > 0) {
-    return `This computer has ${formatRamGb(ramGb)} of memory, so this is ${modelName}.`
-  }
-  if (source === 'default') return `${modelName} is the default when the installer did not name a size.`
-  if (source === 'override') return `${modelName} is the smaller model that fits this computer.`
-  return `${modelName} is the size chosen with the installer.`
-}
-
 export function setupErrorCopy(error: {
-  code: 'offline' | 'disk' | 'checksum' | 'ram' | 'http'
+  code: 'offline' | 'disk' | 'checksum' | 'http'
   requiredBytes?: number | null
   freeBytes?: number | null
-  ramGb?: number | null
-  needRamGb?: number | null
-  suggestName?: string | null
   httpStatus?: number | null
 }): { title: string; body: string } {
   if (error.code === 'offline') {
     return {
       title: 'No internet',
-      body: 'The download paused. Retry when you are back online. The part that already arrived is kept. An offline installer with Qwen 2B is on synap.surf if this computer cannot connect.',
+      body: 'The download paused. Retry when you are back online. The part that already arrived is kept.',
     }
   }
   if (error.code === 'disk') {
@@ -274,82 +276,101 @@ export function setupErrorCopy(error: {
       body: 'The file did not match its checksum, so it was deleted. Retry downloads it again.',
     }
   }
-  if (error.code === 'ram') {
-    const have = error.ramGb != null ? formatRamGb(error.ramGb) : ''
-    const need = error.needRamGb != null ? `${error.needRamGb} GB` : ''
-    const suggest = error.suggestName ? ` ${error.suggestName} is a smaller model that fits.` : ''
-    const body = have && need
-      ? `This computer has ${have} of memory. This model needs ${need}.${suggest}`
-      : `This computer does not have enough memory for this model.${suggest}`
-    return { title: 'Not enough memory', body }
-  }
   const status = error.httpStatus != null ? ` (HTTP ${error.httpStatus})` : ''
   return { title: 'Download stopped', body: `The download stopped${status}. Retry continues from the part already saved.` }
 }
 
 export const SETUP_TOKENS = TOKENS
 
-/** Screenshot harness only. Counts are the registry size and a measured sample, passed through the same formatters. */
-export function setupShot(kind: 'progress' | 'paused' | 'offline' | 'disk' | 'checksum' | 'ram'): SetupSnapshot {
-  const total = 1_280_835_840
+export interface SetupFileView {
+  id: string
+  name: string
+  role: 'chat' | 'embedding'
+  done: number
+  total: number
+  state: 'waiting' | 'active' | 'done'
+}
+
+export interface SetupErrorView {
+  code: 'offline' | 'disk' | 'checksum' | 'http'
+  requiredBytes?: number | null
+  freeBytes?: number | null
+  httpStatus?: number | null
+}
+
+export interface SetupSnapshot {
+  phase: 'pick' | 'checking' | 'downloading' | 'paused' | 'done' | 'error'
+  modelId: string
+  modelName: string
+  ramGb: number | null
+  choices: SetupChoiceView[]
+  files: SetupFileView[]
+  done: number
+  total: number
+  bytesPerSecond: number | null
+  error: SetupErrorView | null
+}
+
+const EMBED_BYTES = 309_855_520
+
+/** Screenshot harness only. Counts are the registry sizes, passed through the same formatters. */
+export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'disk' | 'checksum'): SetupSnapshot {
+  const chatTotal = 1_280_835_840
   const done = 412_000_000
   const rate = byteRate([{ at: 0, bytes: 0 }, { at: 2000, bytes: 16_400_000 }])
+  const files: SetupFileView[] = [
+    { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', role: 'chat', done, total: chatTotal, state: 'active' },
+    { id: 'embeddinggemma-2-text-q8_0', name: 'EmbeddingGemma', role: 'embedding', done: 0, total: EMBED_BYTES, state: 'waiting' },
+  ]
   const base: SetupSnapshot = {
     phase: 'downloading',
     modelId: 'qwen3.5-2b-q4_k_m',
     modelName: 'Qwen 2B',
-    source: 'installer',
-    ramGb: null,
+    ramGb: 8,
+    choices: [],
+    files,
     done,
-    total,
+    total: chatTotal,
     bytesPerSecond: rate,
     error: null,
+  }
+  if (kind === 'pick') {
+    return {
+      ...base,
+      phase: 'pick',
+      modelId: '',
+      modelName: '',
+      files: [],
+      done: 0,
+      total: 0,
+      bytesPerSecond: null,
+      choices: [
+        { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', sizeBytes: chatTotal, minRamGb: 4, recommended: false, warning: null, inDownloads: true },
+        { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', sizeBytes: 2_740_937_888, minRamGb: 8, recommended: true, warning: null, inDownloads: false },
+        { id: 'qwen3.5-9b-q4_k_m', name: 'Qwen 9B', sizeBytes: 5_680_522_464, minRamGb: 16, recommended: false, warning: 'This model needs 16 GB of memory. This computer has 8 GB.', inDownloads: false },
+      ],
+    }
   }
   if (kind === 'progress') return base
   if (kind === 'paused') return { ...base, phase: 'paused', bytesPerSecond: null }
   if (kind === 'offline') return { ...base, phase: 'error', bytesPerSecond: null, error: { code: 'offline' } }
   if (kind === 'disk') {
+    const required = requiredFreeBytes(chatTotal + EMBED_BYTES)
     return {
       ...base,
       phase: 'error',
+      files: files.map((file) => ({ ...file, done: 0, state: 'waiting' as const })),
       done: 0,
       bytesPerSecond: null,
-      error: { code: 'disk', requiredBytes: requiredFreeBytes(total), freeBytes: 200_000_000 },
+      error: { code: 'disk', requiredBytes: required, freeBytes: 200_000_000 },
     }
   }
-  if (kind === 'checksum') return { ...base, phase: 'error', done: total, bytesPerSecond: null, error: { code: 'checksum' } }
   return {
+    ...base,
     phase: 'error',
-    modelId: 'qwen3.5-9b-q4_k_m',
-    modelName: 'Qwen 9B',
-    source: 'installer',
-    ramGb: 4,
+    files: files.map((file) => ({ ...file, done: 0, state: 'waiting' as const })),
     done: 0,
-    total: 5_680_522_464,
     bytesPerSecond: null,
-    error: { code: 'ram', ramGb: 4, needRamGb: 16, suggestId: 'qwen3.5-2b-q4_k_m', suggestName: 'Qwen 2B' },
+    error: { code: 'checksum' },
   }
-}
-
-export interface SetupErrorView {
-  code: 'offline' | 'disk' | 'checksum' | 'ram' | 'http'
-  requiredBytes?: number | null
-  freeBytes?: number | null
-  ramGb?: number | null
-  needRamGb?: number | null
-  suggestId?: string | null
-  suggestName?: string | null
-  httpStatus?: number | null
-}
-
-export interface SetupSnapshot {
-  phase: 'idle' | 'checking' | 'downloading' | 'copying' | 'paused' | 'done' | 'error'
-  modelId: string
-  modelName: string
-  source: 'override' | 'installer' | 'link' | 'ram' | 'default'
-  ramGb: number | null
-  done: number
-  total: number
-  bytesPerSecond: number | null
-  error: SetupErrorView | null
 }

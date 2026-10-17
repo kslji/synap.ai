@@ -599,8 +599,8 @@ export default function App() {
         }
         return
       }
-      if (scene === 'setup-progress' || scene === 'setup-paused' || scene === 'setup-offline' || scene === 'setup-disk' || scene === 'setup-checksum' || scene === 'setup-ram') {
-        const kind = scene.slice('setup-'.length) as 'progress' | 'paused' | 'offline' | 'disk' | 'checksum' | 'ram'
+      if (scene === 'setup-pick' || scene === 'setup-progress' || scene === 'setup-paused' || scene === 'setup-offline' || scene === 'setup-disk' || scene === 'setup-checksum') {
+        const kind = scene.slice('setup-'.length) as 'pick' | 'progress' | 'paused' | 'offline' | 'disk' | 'checksum'
         setSetupPreview(setupShot(kind))
         setView('setup')
         return
@@ -965,8 +965,9 @@ export default function App() {
       phase: 'checking' as const,
       modelId: '',
       modelName: '',
-      source: 'default' as const,
       ramGb: status.ramGb > 0 ? status.ramGb : null,
+      choices: [],
+      files: [],
       done: 0,
       total: 0,
       bytesPerSecond: null,
@@ -981,7 +982,8 @@ export default function App() {
           onPause={() => { void api.setup.pause() }}
           onResume={() => { void api.setup.resume() }}
           onRetry={() => { void api.setup.retry() }}
-          onUseSmaller={(modelId) => { void api.setup.useSmaller(modelId) }}
+          onDownload={(modelId) => { void api.setup.choose(modelId) }}
+          onUseFile={(modelId) => { void api.setup.useFile(modelId) }}
         />
       </div>
     )

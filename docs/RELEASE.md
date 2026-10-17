@@ -36,7 +36,7 @@ CI sets `SURF_SMOKE=1` and launches the built binary. That opens an encrypted da
 
 ## Dev mode and the licence screen
 
-Dev mode is the default until a release flag is set. The app opens on the chat screen, the licence activation screen stays in the code but does not run, and the app does not call `api.synap.surf`. Pack sync and licence refresh stay off. Settings shows a Dev mode badge. The sidebar chip follows the real sync state and does not say Dev mode, and Settings and Packs show "Dev mode, sync off." The first open with no chat model still downloads the chosen Qwen file; after that, dev mode opens on the chat screen. The only `synap.surf` link in dev mode opens the public site in the system browser so a model file can be saved there. `/buy` and the API stay blocked.
+Dev mode is the default until a release flag is set. The app opens on the chat screen, the licence activation screen stays in the code but does not run, and the app does not call `api.synap.surf`. Pack sync and licence refresh stay off. Settings shows a Dev mode badge. The sidebar chip follows the real sync state and does not say Dev mode, and Settings and Packs show "Dev mode, sync off." The first open with no chat model shows the model picker; after a model is installed, dev mode opens on the chat screen. The only `synap.surf` link in dev mode opens the public site in the system browser so a model file can be saved there. `/buy` and the API stay blocked.
 
 Turn the licence gate back on with one of these:
 
@@ -50,11 +50,11 @@ Turn the licence gate back on with one of these:
 
 ## Model files
 
-The website offers one installer per Qwen size: 2B, 4B, and 9B, Q4_K_M, from the URLs, sizes, and SHA-256 values in `apps/desktop/resources/models.registry.json`. The small installers do not contain the model. A separate offline installer contains the 2B file (1,280,835,840 bytes). A tag builds that pair (`.dmg` and `.exe`) and publishes it beside the small installers. Each finished file must stay under GitHub's 2 GiB asset limit.
+There is one installer per operating system and architecture: `Synap.surf-<version>-<arch>.dmg` or `.exe`. No model is inside the installer. The website has one Download for Mac button, one Download for Windows button, and a Download for Intel Mac button. The page lists Qwen 2B, 4B, and 9B with their download size and RAM for reference. Those rows are not download buttons.
 
-The size is written inside the app as `setup-model.json`. On macOS the release job stamps that file into a copy of the app and makes one disk image per size, because dragging the app out of a disk image drops the disk-image name. On Windows the NSIS script reads the installer file name (`-2b`, `-4b`, `-9b`, `-offline-2b`) and writes the same file. A `synap://setup?model=` link is only a fallback, because an unsigned app is not the handler until it has been opened once.
+On first open the app asks the person to pick Qwen 2B, 4B, or 9B. EmbeddingGemma is downloaded with whichever they pick, because retrieval needs it. The files go into the app data folder, outside the bundle, so an update does not fetch them again. The screen shows bytes and speed for both files, can pause, and resumes after a dropped connection or a restart. It checks the SHA-256 before it keeps a file, then opens the Code chat. If a matching Qwen file is already in Downloads, the app offers to use that file instead of downloading it. A matching EmbeddingGemma file in Downloads is copied without a separate question. If EmbeddingGemma goes missing later, the app downloads it again.
 
-On first open the app downloads that model into the app data folder, outside the bundle, so an update does not fetch it again. It shows bytes and speed, can pause, and resumes after a dropped connection or a restart. It checks the SHA-256 before it keeps the file, then opens the Code chat. If a matching file is already in Downloads, that file is verified and used. Nothing named, and RAM unreadable, means 2B. Otherwise the choice follows RAM the same way as the model tier: under 8 GB is 2B, 8 GB is 4B, 16 GB and above is 9B. A chosen size that does not fit shows that, and offers the largest smaller size that does. The offline 2B installer copies its bundled file and does not need the network.
+The recommendation follows the same RAM tiers as the rest of the app: under 8 GB is 2B, the 8 GB class is 4B, and 16 GB and above is 9B. Unknown RAM suggests 2B and does not add the recommendation tag. A size that needs more memory than the computer has stays selectable and shows the warning. Settings, Models can download or switch to another size later. The URLs, sizes, and SHA-256 values are in `apps/desktop/resources/models.registry.json`.
 
 ## How to turn on signing later
 

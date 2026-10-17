@@ -82,7 +82,7 @@ export function HomePage() {
           </div>
         </Section>
 
-        <Section id="download" title="Pick a model, then the app" lede="Qwen 2B, Qwen 4B, and Qwen 9B. Each button downloads the app. The model downloads on its own the first time you open it. The size and the memory note come from the model list.">
+        <Section id="download" title="Download the app" lede="One installer for your computer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app. The sizes and memory notes below are for reference.">
           <div className="card mt-8 px-6 py-6">
             <DownloadCard />
             <BetaUnsignedNote />

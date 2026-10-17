@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Cpu } from 'lucide-react'
 import { BlobMascot, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
-import { beginDownload } from './download-buttons'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, sizedInstallerHref, type ReleaseListItem } from './site'
+import { beginDownload, DownloadButtons } from './download-buttons'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, type ReleaseListItem } from './site'
 
 export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -220,25 +220,23 @@ function webglRenderer(): string {
 export const MAC_STEPS = [
   'Open the disk image when it finishes.',
   'Drag Synap.surf into Applications.',
-  'Open Synap.surf. If macOS blocks it, go to System Settings, then Privacy & Security, and click Open Anyway. You only do this once.',
-  'The model downloads on its own. Leave that screen up until it finishes.',
+  'Open Synap.surf. If macOS blocks it, go to System Settings, then Privacy & Security, scroll to Security, and click Open Anyway. You only do this once.',
+  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and EmbeddingGemma finish.',
 ]
 
 export const WINDOWS_STEPS = [
   'Open the installer when it finishes.',
   'If SmartScreen says Windows protected your PC, click More info, then Run anyway.',
   'Finish the prompts. You only do this once.',
-  'The model downloads on its own the first time the app opens.',
+  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and EmbeddingGemma finish.',
 ]
 
 export function DownloadCard() {
   const initial = detectClient({ ua: typeof navigator === 'undefined' ? '' : navigator.userAgent })
-  const initialArch = initial.os === 'mac' ? initial.arch : 'arm64'
   const [os, setOs] = useState(initial.os)
-  const [arch, setArch] = useState(initialArch)
+  const [arch, setArch] = useState<'arm64' | 'x64'>(initial.os === 'mac' ? initial.arch : 'arm64')
   const [assetPool, setAssetPool] = useState(BUNDLED_ASSETS)
   const [started, setStarted] = useState<'mac' | 'windows' | null>(null)
-  const preferIntel = useRef(false)
 
   useEffect(() => {
     let gone = false
@@ -259,71 +257,60 @@ export function DownloadCard() {
         }
       } catch { /* the baked installer URLs stay in the buttons */ }
       if (gone) return
-      const nextArch = preferIntel.current ? 'x64' : client.os === 'mac' ? client.arch : 'arm64'
       setOs(client.os)
-      setArch(nextArch)
+      setArch(client.os === 'mac' ? client.arch : 'arm64')
       setAssetPool(assets)
     }
     void load()
     return () => { gone = true }
   }, [])
 
-  function beginSizeDownload(event: Parameters<typeof beginDownload>[0], which: 'mac' | 'windows') {
-    beginDownload(event, which, setStarted)
-  }
+  const hrefs = downloadHrefs(assetPool, 'mac', 'arm64')
+  const intel = os === 'mac' && arch === 'x64'
+  const macSuggested = os !== 'windows' && !intel
+  const winSuggested = os === 'windows'
 
   return (
-    <div className="mt-5 flex flex-col gap-2 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
-      <div className="card px-4 py-4" data-model-picker="yes">
-        <div className="flex items-start gap-3">
-          <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
-          <div>
-            <p className="text-sm font-semibold">Pick a size</p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Each button downloads the app. The model downloads on its own the first time you open it.</p>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-col gap-2">
-          {SETUP_MODELS.map((model) => {
-            const href = sizedInstallerHref(assetPool, os === 'other' ? 'mac' : os, arch, model.token)
-            const label = os === 'windows' ? 'Windows' : arch === 'x64' ? 'Intel Mac' : 'Mac'
-            return (
-              <a
-                key={model.id}
-                href={href}
-                data-setup-model={model.id}
-                data-setup-installer={model.token}
-                className="model-choice"
-                onClick={(event) => beginSizeDownload(event, os === 'windows' ? 'windows' : 'mac')}
-              >
-                <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
-                <span>
-                  <span className="font-semibold">{model.name}</span>
-                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                    <span data-model-size={model.id}>{model.size}</span>
-                    {' · '}
-                    <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
-                    {' · '}
-                    {label}
-                  </span>
-                </span>
-              </a>
-            )
-          })}
-        </div>
+    <div className="mt-5 flex flex-col gap-3 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
+      <p className="text-sm leading-relaxed text-[var(--muted)]">One installer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app.</p>
+      <div className="flex flex-wrap gap-2">
+        <DownloadButtons
+          mac={hrefs.mac}
+          win={hrefs.win}
+          macLabel="Download for Mac"
+          winLabel="Download for Windows"
+          macSuggested={macSuggested}
+          winSuggested={winSuggested}
+          onStart={setStarted}
+        />
+        <a
+          className={intel ? 'btn btn-primary no-underline' : 'btn btn-ghost no-underline'}
+          href={hrefs.intel}
+          data-download-intel="yes"
+          onClick={(event) => beginDownload(event, 'mac', setStarted)}
+        >
+          Download for Intel Mac
+        </a>
       </div>
-      <a
-        className="self-start text-sm text-[var(--accent-text)]"
-        href={sizedInstallerHref(assetPool, os === 'other' ? 'mac' : os, arch, 'offline-2b')}
-        data-offline-installer="yes"
-      >
-        Offline installer (2B, ~1.3 GB)
-      </a>
-      <button type="button" className="self-start text-xs text-[var(--muted)] underline" data-download-intel="yes" onClick={() => { preferIntel.current = true; setOs('mac'); setArch('x64') }}>
-        Intel Mac?
-      </button>
-      <button type="button" className="self-start text-xs text-[var(--muted)] underline" data-download-other-os="yes" onClick={() => setOs(os === 'windows' ? 'mac' : 'windows')}>
-        {os === 'windows' ? 'Mac installer' : 'Windows installer'}
-      </button>
+      <div data-model-list="yes">
+        <p className="text-sm font-semibold">Sizes in the app</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">These are not separate downloads. EmbeddingGemma is included with whichever you pick.</p>
+        <ul className="mt-3 flex flex-col gap-2">
+          {SETUP_MODELS.map((model) => (
+            <li key={model.id} className="model-choice" data-setup-model={model.id}>
+              <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
+              <span>
+                <span className="font-semibold">{model.name}</span>
+                <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                  <span data-model-size={model.id}>{model.size}</span>
+                  {' · '}
+                  <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
       <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
       {started && (
         <div className="card mt-2 px-4 py-4" data-download-started={started}>

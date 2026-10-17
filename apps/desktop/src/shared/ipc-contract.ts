@@ -16,10 +16,11 @@ export const IPC = {
   modelsEvent: 'models:event',
   setupState: 'setup:state',
   setupStart: 'setup:start',
+  setupChoose: 'setup:choose',
+  setupUseFile: 'setup:use-file',
   setupPause: 'setup:pause',
   setupResume: 'setup:resume',
   setupRetry: 'setup:retry',
-  setupUseSmaller: 'setup:use-smaller',
   setupEvent: 'setup:event',
   packsList: 'packs:list',
   packsSync: 'packs:sync',
@@ -766,6 +767,7 @@ export interface SurfApi {
   }
   models: {
     status(): Promise<ModelStatus>
+    download(modelId: string): Promise<void>
     benchmark(modelId: string): Promise<BenchmarkResult>
     download(modelId: string): Promise<void>
     onEvent(cb: (e: ModelEvent) => void): () => void
@@ -773,10 +775,11 @@ export interface SurfApi {
   setup: {
     state(): Promise<SetupSnapshot>
     start(): Promise<void>
+    choose(modelId: string): Promise<void>
+    useFile(modelId: string): Promise<void>
     pause(): Promise<void>
     resume(): Promise<void>
     retry(): Promise<void>
-    useSmaller(modelId: string): Promise<void>
     onEvent(cb: (snapshot: SetupSnapshot) => void): () => void
   }
   packs: {

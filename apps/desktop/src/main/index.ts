@@ -313,12 +313,12 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
       await sleep(350)
       await shot(`${name}-${theme}`)
     }
+    await demo('setup-pick', 'setup-pick')
     await demo('setup-progress', 'setup-progress')
     await demo('setup-paused', 'setup-paused')
     await demo('setup-offline', 'setup-offline')
     await demo('setup-disk', 'setup-disk')
     await demo('setup-checksum', 'setup-checksum')
-    await demo('setup-ram', 'setup-ram')
     await demo('home', 'home-agents')
     await demo('agent-general', 'chat-general')
     await demo('agent-code', 'chat-code')

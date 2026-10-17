@@ -15,7 +15,7 @@ export function FeaturesPage() {
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             <article className="card px-5 py-5">
               <h3 className="text-xl font-semibold">Qwen on the laptop</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Qwen 2B, Qwen 4B, and Qwen 9B. Each button downloads the app. The model downloads on its own the first time you open it.</p>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Qwen 2B, Qwen 4B, and Qwen 9B. You pick the size inside the app after you install.</p>
             </article>
             <article className="card px-5 py-5">
               <h3 className="text-xl font-semibold">Code</h3>

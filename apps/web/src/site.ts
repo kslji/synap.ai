@@ -48,7 +48,7 @@ export function formatModelSize(bytes: number): string {
   return `${(bytes / 1_000_000_000).toFixed(2)} GB`
 }
 
-/** Qwen chat rows from models.registry.json. The button downloads an installer, not the model. */
+/** Qwen chat rows from models.registry.json. Shown for reference. The installer does not contain a model. */
 export const SETUP_MODELS = [
   {
     id: 'qwen3.5-2b-q4_k_m',
@@ -84,11 +84,6 @@ export const SETUP_MODELS = [
     sizeBytes: 5680522464,
   },
 ] as const
-
-export function setupOpenLink(id: string): string {
-  const model = SETUP_MODELS.find((row) => row.id === id) ?? SETUP_MODELS[0]
-  return `synap://setup?model=${model.id}`
-}
 
 /** First non-draft release, including prereleases. GitHub's /releases/latest skips those. */
 export function newestPublishableRelease(releases: ReleaseListItem[]): ReleaseListItem | null {
@@ -126,43 +121,9 @@ export function downloadHrefs(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'o
   return { mac, win, intel }
 }
 
-/** A per-size or offline installer. The plain Mac and Windows files do not carry a size. */
+/** Older per-size or offline installer names. The plain Mac and Windows files do not carry a size. */
 export function isSizedInstaller(name: string): boolean {
   return /-(?:offline-2b|2b|4b|9b)\.(dmg|exe|zip)$/i.test(name)
-}
-
-export function releaseVersion(assets: ReleaseAsset[]): string | null {
-  for (const asset of assets) {
-    const match = /Synap\.surf-(\d+\.\d+\.\d+)-/.exec(asset.name)
-    if (match) return match[1]
-  }
-  return null
-}
-
-export function releaseDownloadBase(assets: ReleaseAsset[]): string | null {
-  const url = assets.find((asset) => asset.url.includes('/releases/download/'))?.url
-  if (!url) return null
-  const cut = url.lastIndexOf('/')
-  return cut > 0 ? url.slice(0, cut) : null
-}
-
-export function sizedInstallerHref(
-  assets: ReleaseAsset[],
-  os: 'mac' | 'windows' | 'other',
-  arch: 'arm64' | 'x64',
-  token: '2b' | '4b' | '9b' | 'offline-2b',
-): string {
-  const targetOs = os === 'windows' ? 'windows' : 'mac'
-  const targetArch = targetOs === 'windows' ? 'x64' : arch
-  const ext = targetOs === 'windows' ? 'exe' : 'dmg'
-  const pool = assets.length ? assets : BUNDLED_ASSETS
-  const version = releaseVersion(pool) ?? releaseVersion(BUNDLED_ASSETS)
-  if (!version) return ''
-  const name = `Synap.surf-${version}-${targetArch}-${token}.${ext}`
-  const found = pool.find((asset) => asset.name === name) ?? BUNDLED_ASSETS.find((asset) => asset.name === name)
-  if (found) return found.url
-  const base = releaseDownloadBase(pool) ?? releaseDownloadBase(BUNDLED_ASSETS)
-  return base ? `${base}/${name}` : ''
 }
 
 export function pickDownload(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'other', arch: 'arm64' | 'x64'): ReleaseAsset | null {

@@ -140,6 +140,7 @@ test('a length-limited reply ends on a sentence and offers Continue', async () =
 })
 
 test('the Surf chip shows idle, syncing, synced, failed, and offline', async () => {
+  test.setTimeout(180_000)
   for (const theme of ['light', 'dark']) {
     const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' })
     try {

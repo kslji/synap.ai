@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { copyFile, mkdir, realpath, rm, stat, statfs } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
-import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChatEvent, type Citation, type FileDecideReq, type FileFolderGrant, type FileSuggestFolder, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage } from './ipc-contract.js'
 import { createTextBatch } from '../../shared/stream-batch.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { createCompletionRuntime, type CompletionRuntime } from './code-agent/completion/runtime.js'
@@ -105,6 +105,10 @@ import { addBytes, countsFor, deleteAttachment, listFiles, markCancelled, previe
 import { searchUser, type UserHit } from './user-search.js'
 import { captionImage, mmprojReady } from './vision.js'
 import { recognizeImage } from './ocr.js'
+import { createFileSearch, type FileSearchService } from './files/service.js'
+import { classifyFileAsk } from './files/permissions.js'
+import { fsWatch } from './files/indexer.js'
+import { denialFromMessage } from './files/os-access.js'
 import { captureAfterConsent, memoryShot, saveAllowed, type OsScreenPermission } from './vision/capture.js'
 import { qwenVisionOffer, screenshotStorageLabel, visionOfferMessage } from './vision/offer.js'
 import { sniffImage } from './vision/preprocess.js'
@@ -239,6 +243,8 @@ export async function createServices(): Promise<Services> {
   const metrics = new MetricsLog(join(app.getPath('userData'), 'usage.json'), join(app.getPath('userData'), 'logs', 'live.log'))
   let modelTail: Promise<void> = Promise.resolve()
   let ui: BrowserWindow | null = null
+  let fileSearch: FileSearchService | null = null
+  const fileWaits = new Map<string, { conversationId: string; messageId: string; userMessageId: string; win: BrowserWindow; question: string }>()
   let osOnline = isOnline()
   let catalogCache: RemotePack[] = []
   let syncing = false
@@ -1131,7 +1137,33 @@ export async function createServices(): Promise<Services> {
     })
   }
 
+  async function answerFromFiles(question: string, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow): Promise<boolean> {
+    if (!fileSearch) return false
+    sendEvent(win, { type: 'status', messageId, phase: 'files' })
+    const turn = await fileSearch.answerQuestion(question, messageId)
+    if (turn.kind === 'skip') return false
+    if (turn.kind === 'ask') {
+      fileWaits.set(turn.prompt.id, { conversationId, messageId, userMessageId, win, question })
+      sendEvent(win, { type: 'file-ask', messageId, prompt: turn.prompt })
+      return true
+    }
+    if (turn.answer.citations.length) sendEvent(win, { type: 'sources', messageId, sources: turn.answer.citations })
+    await emitText(win, messageId, turn.answer.text)
+    finish(conversationId, messageId, userMessageId, win, turn.answer.text, turn.answer.citations, turn.answer.gate)
+    return true
+  }
+
+  async function finishFileWait(wait: { conversationId: string; messageId: string; userMessageId: string; win: BrowserWindow }, text: string, citations: Citation[], gate: GateName): Promise<void> {
+    if (citations.length) sendEvent(wait.win, { type: 'sources', messageId: wait.messageId, sources: citations })
+    await emitText(wait.win, wait.messageId, text)
+    finish(wait.conversationId, wait.messageId, wait.userMessageId, wait.win, text, citations, gate)
+  }
+
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+    if (fileSearch && classifyFileAsk(req.text)) {
+      const handled = await answerFromFiles(req.text, conversationId, messageId, userMessageId, win)
+      if (handled) return
+    }
     if ((req.agentId || 'general') === 'code') {
       await replyCode(req, conversationId, messageId, userMessageId, win, signal)
       return
@@ -1708,6 +1740,27 @@ export async function createServices(): Promise<Services> {
     return join(app.getAppPath(), 'resources', 'tree-sitter')
   }
 
+  fileSearch = createFileSearch({
+    dbPath: join(app.getPath('userData'), 'file-index', 'index.sqlite'),
+    keyHex: await codeDbKey(),
+    home: app.getPath('home'),
+    platform: process.platform,
+    grammarDir: codeGrammarDir(),
+    tessdataDir: tessdataPath(),
+    tessCacheDir: join(app.getPath('userData'), 'tess-cache'),
+    ocr: async (bytes) => (await recognizeImage(bytes, tessdataPath(), join(app.getPath('userData'), 'tess-cache'))).text,
+    tryGemma: () => codeEmbedder(),
+    watch: fsWatch,
+    onProgress: (progress) => {
+      const event = { type: 'progress' as const, progress: { ...progress, status: progress.status === 'error' ? 'error' as const : progress.status === 'ready' ? 'ready' as const : 'indexing' as const } }
+      for (const win of BrowserWindow.getAllWindows()) safeSend(win, IPC.filesEvent, event)
+    },
+    openPath: async (file) => {
+      const error = await shell.openPath(file)
+      if (error) throw new Error(error)
+    },
+  })
+
   const codeApi = createCodeService({
     dataDir: join(app.getPath('userData'), 'code-projects'),
     keyHex: await codeDbKey(),
@@ -1737,6 +1790,7 @@ export async function createServices(): Promise<Services> {
     for (const ac of inflight.values()) ac.abort()
     documentApi.cancel()
     codeApi.shutdown()
+    fileSearch?.close()
     void completionRuntime?.close().catch(() => undefined)
     unregisterIpc()
     if (idleTimer) clearInterval(idleTimer)
@@ -2143,6 +2197,22 @@ export async function createServices(): Promise<Services> {
       open: (category) => openStorage(category),
     },
     lifecycle: { releaseWindow },
+    files: {
+      list: async () => (fileSearch ? fileSearch.list().map(fileGrantView) : []),
+      suggestions: async () => fileSuggestions(),
+      pick: (win, defaultPath) => pickSearchFolder(win, defaultPath),
+      grant: async (body) => {
+        if (!fileSearch) throw new Error('File search is not ready.')
+        return fileGrantView(await fileSearch.grant(body.path, body.scope))
+      },
+      decide: (body) => decideFilePrompt(body),
+      revoke: async (id) => { fileSearch?.revoke(id) },
+      open: async (file) => { if (!fileSearch) return; await fileSearch.open(file) },
+      openSettings: async (kind) => {
+        if (!fileSearch) return
+        await shell.openExternal(fileSearch.settingsUrl(kind))
+      },
+    },
   }
   async function syncChipNow(mode: NetworkMode) {
     const rows = await readInstalled(packsRoot()).catch(() => [])
@@ -2213,6 +2283,56 @@ export async function createServices(): Promise<Services> {
   void probeDraftRuntime(resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())).catch(() => undefined)
   void warmSelected().catch((error: unknown) => console.warn('[surf] keep-warm:', (error as Error).message))
   return services
+
+  function fileGrantView(row: { id: string; path: string; label: string; scope: 'once' | 'always'; grantedAt: number; lastIndexedAt: number | null; fileCount: number; indexedCount: number; byteSize: number; status: string; error: string | null }): FileFolderGrant {
+    const denial = row.error ? denialFromMessage(row.error) : null
+    const status = row.status === 'indexing' || row.status === 'ready' || row.status === 'error' ? row.status : 'idle'
+    return { ...row, scope: row.scope, status, settingsUrl: denial?.settingsUrl ?? null, settingsLabel: denial?.settingsLabel ?? null }
+  }
+
+  function fileSuggestions(): FileSuggestFolder[] {
+    const grants = fileSearch?.list() ?? []
+    return (fileSearch?.suggestions() ?? []).map((item) => ({
+      ...item,
+      granted: grants.some((grant) => grant.path === item.path),
+    }))
+  }
+
+  async function pickSearchFolder(win: BrowserWindow, defaultPath: string | null): Promise<string | null> {
+    const picked = await dialog.showOpenDialog(win, {
+      title: 'Allow Synap.surf to search this folder',
+      defaultPath: defaultPath || undefined,
+      properties: ['openDirectory'],
+    })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    return picked.filePaths[0]
+  }
+
+  async function decideFilePrompt(body: FileDecideReq): Promise<void> {
+    const wait = fileWaits.get(body.promptId)
+    if (!wait || !fileSearch) return
+    fileWaits.delete(body.promptId)
+    if (body.choice === 'deny' || !body.path) {
+      await finishFileWait(wait, 'I will not search that folder.', [], 'insufficient')
+      return
+    }
+    try {
+      sendEvent(wait.win, { type: 'status', messageId: wait.messageId, phase: 'files' })
+      const granted = await fileSearch.grant(body.path, body.choice)
+      if (granted.status === 'error' && granted.error) {
+        await finishFileWait(wait, granted.error, [], 'insufficient')
+        return
+      }
+      const turn = await fileSearch.answerQuestion(wait.question, wait.messageId)
+      if (turn.kind !== 'answer') {
+        await finishFileWait(wait, 'Choose a folder to allow search.', [], 'insufficient')
+        return
+      }
+      await finishFileWait(wait, turn.answer.text, turn.answer.citations, turn.answer.gate)
+    } catch (error) {
+      await finishFileWait(wait, (error as Error).message, [], 'insufficient')
+    }
+  }
 
   function touchModel(): void {
     lastModelUse = Date.now()
@@ -2478,7 +2598,10 @@ export async function createServices(): Promise<Services> {
         id: 'indexes',
         label: 'Project indexes',
         bytes: 0,
-        items: indexUsage.projects.map((project) => ({ id: project.id, label: project.root, bytes: project.bytes })),
+        items: [
+          ...indexUsage.projects.map((project) => ({ id: project.id, label: project.root, bytes: project.bytes })),
+          { id: 'file-grants', label: 'Folder search index', bytes: fileSearch?.bytes() ?? 0 },
+        ],
       },
       { id: 'chats', label: 'Chat history', bytes: 0, items: [{ id: 'history', label: 'Chat history', bytes: store.historyBytes() }] },
       { id: 'web', label: 'Saved web', bytes: 0, items: [
@@ -2514,7 +2637,10 @@ export async function createServices(): Promise<Services> {
     const dir = categoryDir(category, root)
     assertInsideAppData(root, dir)
     if (!itemId) {
-      if (category === 'indexes') codeApi.shutdown()
+      if (category === 'indexes') {
+        codeApi.shutdown()
+        await fileSearch?.wipe()
+      }
       clearChildren(dir, root)
       return storageReport()
     }

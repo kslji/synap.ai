@@ -1,0 +1,77 @@
+.file-permit {
+  margin-top: 12px;
+  padding: 14px 16px;
+}
+.file-permit h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.file-permit p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.file-permit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.file-progress {
+  margin-top: 10px;
+}
+.file-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.file-progress-bar {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+.file-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.file-grant {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.file-grant:first-of-type { border-top: 0; padding-top: 0; }
+.file-grant h3 { margin: 0; font-size: 14px; }
+.file-grant p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.file-denial {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.file-suggest {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+.file-answer {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.file-answer .assistant-card { flex: 1; }
+.file-cite {
+  display: inline-flex;
+  margin: 8px 8px 0 0;
+}

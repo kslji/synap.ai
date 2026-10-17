@@ -76,6 +76,15 @@ export const IPC = {
   storageReport: 'storage:report',
   storageClear: 'storage:clear',
   storageOpen: 'storage:open',
+  filesList: 'files:list',
+  filesSuggest: 'files:suggest',
+  filesPick: 'files:pick',
+  filesGrant: 'files:grant',
+  filesDecide: 'files:decide',
+  filesRevoke: 'files:revoke',
+  filesOpen: 'files:open',
+  filesSettings: 'files:settings',
+  filesEvent: 'files:event',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -212,7 +221,8 @@ export type ChatEvent =
   | { type: 'token'; messageId: string; text: string }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
-  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' }
+  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' }
+  | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
   | { type: 'done'; messageId: string; gate: GateName; text?: string; budget?: {
     counter: string
     total: number
@@ -472,6 +482,8 @@ export interface Citation {
   staleNote?: string
   /** The passage was left out of the prompt because it contained instructions. */
   suspicious?: boolean
+  /** Absolute path. Set for a file the user allowed the app to search. Clicking opens it in the OS. */
+  filePath?: string
 }
 
 export interface WebCacheStatus {
@@ -832,4 +844,72 @@ export interface SurfApi {
   devWeb: {
     run(req: DevWebRunReq): Promise<DevWebRunResult>
   }
+  files: {
+    list(): Promise<FileFolderGrant[]>
+    suggestions(): Promise<FileSuggestFolder[]>
+    pick(defaultPath: string): Promise<string | null>
+    grant(req: FileGrantReq): Promise<FileFolderGrant>
+    decide(req: FileDecideReq): Promise<void>
+    revoke(id: string): Promise<void>
+    open(path: string): Promise<void>
+    openSettings(kind: FileOsDenialKind): Promise<void>
+    onEvent(cb: (event: FileIndexEvent) => void): () => void
+  }
 }
+
+export type FileGrantScope = 'once' | 'always'
+export type FileOsDenialKind = 'macos-files-and-folders' | 'macos-full-disk' | 'windows-acl' | 'windows-controlled-folder'
+
+export interface FileFolderGrant {
+  id: string
+  path: string
+  label: string
+  scope: FileGrantScope
+  grantedAt: number
+  lastIndexedAt: number | null
+  fileCount: number
+  indexedCount: number
+  byteSize: number
+  status: 'idle' | 'indexing' | 'ready' | 'error'
+  error: string | null
+  settingsUrl: string | null
+  settingsLabel: string | null
+}
+
+export interface FileSuggestFolder {
+  id: 'documents' | 'desktop' | 'downloads'
+  label: string
+  path: string
+  granted: boolean
+}
+
+export interface FilePermissionPrompt {
+  id: string
+  messageId: string
+  label: string
+  path: string
+  question: string
+}
+
+export interface FileGrantReq {
+  path: string
+  scope: FileGrantScope
+}
+
+export interface FileDecideReq {
+  promptId: string
+  choice: 'once' | 'always' | 'deny'
+  path: string | null
+}
+
+export interface FileIndexProgress {
+  grantId: string
+  path: string
+  done: number
+  total: number
+  byteSize: number
+  status: 'indexing' | 'ready' | 'error'
+  error: string | null
+}
+
+export type FileIndexEvent = { type: 'progress'; progress: FileIndexProgress }

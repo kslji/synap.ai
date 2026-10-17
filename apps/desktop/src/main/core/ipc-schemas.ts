@@ -1,6 +1,6 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, CodeVisionCaptureReq as CodeVisionCaptureReqT, CodeVisionSaveReq as CodeVisionSaveReqT, DevWebRunReq as DevWebRunReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, CodeVisionCaptureReq as CodeVisionCaptureReqT, CodeVisionSaveReq as CodeVisionSaveReqT, DevWebRunReq as DevWebRunReqT, FileDecideReq as FileDecideReqT, FileGrantReq as FileGrantReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
@@ -161,6 +161,17 @@ export const CodeFileSave = z.object({
   text: z.string().max(600_000),
 }).strict()
 
+export const FileGrantReq = z.object({
+  path: z.string().min(1).max(4096),
+  scope: z.enum(['once', 'always']),
+}).strict()
+export const FileDecideReq = z.object({
+  promptId: z.string().min(1).max(80),
+  choice: z.enum(['once', 'always', 'deny']),
+  path: z.string().min(1).max(4096).nullable(),
+}).strict()
+export const FileOsKind = z.enum(['macos-files-and-folders', 'macos-full-disk', 'windows-acl', 'windows-controlled-folder'])
+
 export type ParsedChat = z.output<typeof ChatSendReq>
 
 export const _chatCheck = (x: z.output<typeof ChatSendReq>): ChatSendReqT => x
@@ -173,3 +184,5 @@ export const _devWebCheck = (x: z.output<typeof DevWebRun>): DevWebRunReqT => x
 export const _codeCompleteCheck = (x: z.output<typeof CodeCompleteReq>): CodeCompleteReqT => x
 export const _codeVisionCaptureCheck = (x: z.output<typeof CodeVisionCapture>): CodeVisionCaptureReqT => x
 export const _codeVisionSaveCheck = (x: z.output<typeof CodeVisionSave>): CodeVisionSaveReqT => x
+export const _fileGrantCheck = (x: z.output<typeof FileGrantReq>): FileGrantReqT => x
+export const _fileDecideCheck = (x: z.output<typeof FileDecideReq>): FileDecideReqT => x

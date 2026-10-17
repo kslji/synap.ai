@@ -10,6 +10,7 @@ import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { CodeModeBar, CodeTrace } from './CodeTrace'
+import { FilePermissionCard } from './FilePermissions'
 import { CodeEditor } from './CodeEditor'
 import { CodeShots, type CodeShot } from './CodeShots'
 import { Preview } from './LibraryScreen'
@@ -125,7 +126,7 @@ export function ChatScreen({
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
-  const webSearch = messages.some((m) => m.pending && m.phase === 'searching')
+  const webSearch = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'files'))
   const webRead = messages.some((m) => m.pending && m.phase === 'reading')
   const writing = Boolean(streaming && pending?.text)
   const toolRun = Boolean(pending && (pending.tools.length > 0 || (pending.steps?.length ?? 0) > 0) && !pending.text)
@@ -406,7 +407,16 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
       <div className="min-w-0 flex-1">
       <div className="assistant-card">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
+        {msg.pending && msg.phase === 'files' && !msg.fileAsk && <div className="mb-1 text-sm text-[var(--muted)]" data-file-searching="yes">Searching your files…</div>}
         {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
+        {msg.fileAsk && (
+          <FilePermissionCard
+            prompt={msg.fileAsk}
+            onOnce={() => { void allowFolder(msg.fileAsk!, 'once') }}
+            onAlways={() => { void allowFolder(msg.fileAsk!, 'always') }}
+            onDeny={() => { void window.surf.files.decide({ promptId: msg.fileAsk!.id, choice: 'deny', path: null }) }}
+          />
+        )}
         <div className={`whitespace-pre-wrap text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
           <CitedText text={shown || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
         </div>
@@ -433,7 +443,10 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
                 data-citation="yes"
                 data-pack-citation={s.version ? 'yes' : 'no'}
                 title={s.excerpt || s.title}
-                onClick={() => { if (s.chunkId) onOpenCitation(s.chunkId) }}
+                onClick={() => {
+                  if (s.filePath) { void window.surf.files.open(s.filePath); return }
+                  if (s.chunkId) onOpenCitation(s.chunkId)
+                }}
               >
                 {chipLabel(s)}
                 {s.suspicious ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]" data-suspicious="yes">This source contained suspicious instructions and was ignored.</span> : null}
@@ -558,6 +571,12 @@ function ReplyBar({
   )
 }
 
+async function allowFolder(prompt: { id: string; path: string }, choice: 'once' | 'always'): Promise<void> {
+  const picked = await window.surf.files.pick(prompt.path)
+  if (!picked) return
+  await window.surf.files.decide({ promptId: prompt.id, choice, path: picked })
+}
+
 async function readAloud(text: string): Promise<string> {
   const synth = window.speechSynthesis
   if (!synth) return 'No system voice is available on this computer.'
@@ -583,6 +602,14 @@ function CitedText({ text, sources, onOpen }: { text: string; sources: UiMsg['so
         if (source?.kind === 'web' && source.url) {
           return (
             <button key={i} type="button" className="font-semibold text-[var(--accent-text)] underline" data-web-source="yes" onClick={() => { void window.surf.links.open(source.url) }}>
+              {part}
+            </button>
+          )
+        }
+        if (source?.filePath) {
+          const path = source.filePath
+          return (
+            <button key={i} type="button" className="font-semibold text-[var(--accent-text)] underline" data-file-citation="yes" onClick={() => { void window.surf.files.open(path) }}>
               {part}
             </button>
           )

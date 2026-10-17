@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Text, Wifi } from 'lucide-react'
+import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Shield, Text, Wifi } from 'lucide-react'
 import { product } from '@surf/shared'
 import { BLOB_SWATCHES, BlobMascot } from '@surf/ui'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
@@ -10,6 +10,7 @@ import { useMascotActivity } from '../mascot-activity'
 import { DevWebPanel } from './DevWebPanel'
 import { chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
 import { LiveFeelSettings, StoragePanel } from './UsageStorage'
+import { FilePermissionsPanel } from './FilePermissions'
 
 export function SettingsScreen({
   status,
@@ -164,6 +165,9 @@ export function SettingsScreen({
         {category === 'models' && <Group title="Code agent">
           <CodeAgentSettings settings={settings} onPatch={onPatch} />
           <LiveFeelSettings status={status} settings={settings} onPatch={onPatch} />
+        </Group>}
+        {category === 'permissions' && <Group title="Permissions">
+          <FilePermissionsPanel />
         </Group>}
         {category === 'storage' && <Group title="Storage">
           <StoragePanel />
@@ -327,10 +331,11 @@ const SETTINGS_NAV: { id: SettingsCategory; label: string; icon: typeof Palette 
   { id: 'models', label: 'Offline Models & Compute', icon: Cpu },
   { id: 'network', label: 'Network', icon: Wifi },
   { id: 'apps', label: 'Connected Apps', icon: Plug },
+  { id: 'permissions', label: 'Permissions', icon: Shield },
   { id: 'storage', label: 'Storage', icon: HardDrive },
 ]
 
-type SettingsCategory = 'general' | 'models' | 'network' | 'apps' | 'storage'
+type SettingsCategory = 'general' | 'models' | 'network' | 'apps' | 'permissions' | 'storage'
 
 function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsPatch>; onPatch: (p: SettingsPatch) => void }) {
   const [list, setList] = useState(settings.codeAgentAllowlist.join('\n'))

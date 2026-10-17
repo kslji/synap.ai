@@ -3,6 +3,7 @@ import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDo
 import { BlobMascot, blobStateFor } from '@surf/ui'
 import { useMascotActivity } from '../mascot-activity'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import { messagePlaceholder, newChatTitle } from '../../../shared/chat-title'
 import { friendlyNameFromId } from '../../../shared/model-label'
 import { quoteChipLabel } from '../../../shared/quote'
 import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
@@ -180,12 +181,15 @@ export function ChatScreen({
     onSend(t, images)
   }
 
+  const displayTitle = title?.trim() || newChatTitle(agentName)
   return (
     <section className="flex min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-center px-6 py-4">
           <div className="shell-title" data-chat-agent={agentName} title={status.onlineReason} data-online-reason={status.onlineReason}>
-            {title || agentName}
+            <span className="agent-tag" data-agent-pill="yes">{agentName}</span>
+            <span className="shell-title-dot" aria-hidden="true">·</span>
+            <span className="shell-title-text" data-chat-title="yes">{displayTitle}</span>
           </div>
           {modelGuide && <ModelGuideButton />}
         </header>
@@ -329,7 +333,7 @@ export function ChatScreen({
               <textarea
                 className="field min-h-[44px]"
                 rows={1}
-                placeholder={chatReady ? `Message ${agentName}` : ''}
+                placeholder={messagePlaceholder(agentName)}
                 value={text}
                 disabled={!chatReady}
                 onChange={(e) => setText(e.target.value)}

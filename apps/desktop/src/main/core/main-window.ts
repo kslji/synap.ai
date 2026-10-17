@@ -137,8 +137,8 @@ export interface Services {
     installOffline(win: BrowserWindow): Promise<boolean>
   }
   library: {
-    add(paths: string[], conversationId: string | null, createConversation: boolean, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
-    pick(conversationId: string | null, createConversation: boolean, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    add(paths: string[], conversationId: string | null, createConversation: boolean, agentId: string, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    pick(conversationId: string | null, createConversation: boolean, agentId: string, win: BrowserWindow): Promise<{ conversationId: string | null; files: LibraryFile[] }>
     list(): Promise<LibraryFile[]>
     retry(jobId: string): Promise<void>
     cancel(jobId: string): Promise<void>
@@ -248,12 +248,12 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.libraryAdd, (e, raw) => {
     assertTrusted(e)
     const body = LibraryAdd.parse(raw)
-    return s.library.add(body.paths, body.conversationId, body.createConversation, win)
+    return s.library.add(body.paths, body.conversationId, body.createConversation, body.agentId, win)
   })
   handle(IPC.libraryPick, (e, raw) => {
     assertTrusted(e)
     const body = LibraryPick.parse(raw ?? { conversationId: null })
-    return s.library.pick(body.conversationId, body.createConversation, win)
+    return s.library.pick(body.conversationId, body.createConversation, body.agentId, win)
   })
   handle(IPC.libraryList, (e) => { assertTrusted(e); return s.library.list() })
   handle(IPC.libraryRetry, (e, raw) => { assertTrusted(e); return s.library.retry(JobId.parse(raw)) })

@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DB } from './db.js'
 import type { ConversationSummary, GateName, StoredMessage } from './ipc-contract.js'
+import { isPlaceholderTitle } from '../../shared/chat-title.js'
 import { forgetConversation } from './web-cache.js'
 
 export const SESSION_MIGRATION = `
@@ -110,6 +111,13 @@ export class SessionStore {
     }
   }
 
+  /** The agent stored with the chat. A later send does not change it. */
+  agentOf(id: string): string | null {
+    if (!this.db) return this.mem.get(id)?.agentId ?? null
+    const row = this.db.prepare('SELECT agent_id AS agentId FROM conversations WHERE id = ?').get(id) as { agentId: string } | undefined
+    return row?.agentId ?? null
+  }
+
   ensure(id: string | null, firstText: string, agentId: string): string {
     if (id && this.has(id)) {
       this.renameIfPlaceholder(id, firstText)
@@ -169,16 +177,29 @@ export class SessionStore {
     this.db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
   }
 
-  /** File drops create a chat titled "New chat" before the first message. */
+  /** File drops create a "New Code chat" title before the first message. A real title stays. */
   renameIfPlaceholder(id: string, firstText: string): void {
     const title = firstText.replace(/\s+/g, ' ').trim().slice(0, 64)
-    if (!title) return
+    if (!title || isPlaceholderTitle(title)) return
     if (!this.db) {
       const conv = this.mem.get(id)
-      if (conv?.title === 'New chat') conv.title = title
+      if (!conv || !isPlaceholderTitle(conv.title) || conv.messages.some((message) => message.role === 'user')) return
+      conv.title = title
       return
     }
-    this.db.prepare(`UPDATE conversations SET title = ? WHERE id = ? AND title = 'New chat'`).run(title, id)
+    const current = this.titleOf(id)
+    if (!current || !isPlaceholderTitle(current) || this.hasUserMessage(id)) return
+    this.db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, id)
+  }
+
+  private titleOf(id: string): string | null {
+    const row = this.db?.prepare('SELECT title FROM conversations WHERE id = ?').get(id) as { title: string } | undefined
+    return row?.title ?? null
+  }
+
+  private hasUserMessage(id: string): boolean {
+    const row = this.db?.prepare(`SELECT 1 AS ok FROM messages WHERE conversation_id = ? AND role = 'user' LIMIT 1`).get(id) as { ok: number } | undefined
+    return Boolean(row)
   }
 
   remove(id: string): void {

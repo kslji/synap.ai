@@ -371,7 +371,7 @@ export async function runEval(): Promise<void> {
           if (turn.documents?.length) {
             const paths = turn.documents.map((name) => name.startsWith('/') ? name : join(fixtures, name))
             for (const filePath of paths) if (!existsSync(filePath)) throw new Error(`missing fixture ${filePath}`)
-            const added = await services.library.add(paths, conversationId, conversationId == null, win)
+            const added = await services.library.add(paths, conversationId, conversationId == null, 'general', win)
             conversationId = added.conversationId
             const ids = added.files.map((file) => file.id)
             const deadline = Date.now() + 180_000

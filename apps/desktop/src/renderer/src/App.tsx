@@ -5,6 +5,7 @@ import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, Co
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
+import { switchAgentChat } from '../../shared/chat-title'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
 import { readShotFile, type CodeShot } from './screens/CodeShots'
@@ -206,13 +207,14 @@ export default function App() {
     const body = `${text.trim() || (images.length ? 'Look at this screenshot.' : '')}${note}`.trim()
     if (!body) return
     const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
-    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || ''
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    const modelId = (boundAgent === 'code' ? status?.codeModelId : status?.chatModelId) || ''
     const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text: body, agentId, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
+      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope })
       if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
@@ -230,11 +232,12 @@ export default function App() {
     if (!user?.text.trim()) return
     const prior = current.versions ?? []
     const versions = prior[prior.length - 1] === current.text ? prior : [...prior, current.text]
-    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || current.modelId || ''
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    const modelId = (boundAgent === 'code' ? status?.codeModelId : status?.chatModelId) || current.modelId || ''
     setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId, error: false } : msg)))
     setStreaming(true)
     try {
-      const res = await api.chat.send({ conversationId, text: user.text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope, replaceMessageId: messageId })
+      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope, replaceMessageId: messageId })
       setConversationId(res.conversationId)
       setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, id: res.messageId, versions } : msg)))
     } catch (e) {
@@ -266,6 +269,23 @@ export default function App() {
     setView('chat')
   }
 
+  function openAgent(nextAgent: string) {
+    const agent = agents.find((item) => item.id === nextAgent)
+    if (!agent || !agentCanChat(agent)) return
+    const current = conversations.find((chat) => chat.id === conversationId)
+    const choice = switchAgentChat(conversationId, current?.agentId ?? null, agent.id, conversations)
+    if (choice.kind === 'stay') {
+      setAgentId(agent.id)
+      setView('chat')
+      return
+    }
+    if (choice.kind === 'open') {
+      void openConversation(choice.id)
+      return
+    }
+    newChat(agent.id)
+  }
+
   async function chooseChatModel(id: string) {
     const model = status?.models.find((item) => item.id === id && item.role === 'chat')
     if (!model?.installed) return
@@ -285,7 +305,8 @@ export default function App() {
   }
 
   async function attach(paths: string[], createConversation: boolean) {
-    const res = await api.library.add(paths, createConversation ? conversationId : null, createConversation)
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    const res = await api.library.add(paths, createConversation ? conversationId : null, createConversation, boundAgent)
     if (res.conversationId) setConversationId(res.conversationId)
     setFiles(await api.library.list())
     if (createConversation) setView('chat')
@@ -532,8 +553,14 @@ export default function App() {
       }
       if (scene === 'versions') {
         setView('chat')
+        setAgentId('general')
         setPreview(null)
         setFiles([])
+        setConversationId('c-general')
+        setConversations([
+          { id: 'c-general', title: 'Hello', agentId: 'general', updatedAt: 3, preview: 'Second answer' },
+          { id: 'c-code', title: 'Button spacing', agentId: 'code', updatedAt: 2, preview: 'Ask mode is on.' },
+        ])
         setMessages([
           { id: '11111111-1111-4111-8111-111111111111', role: 'user', text: 'Hello', sources: [], tools: [] },
           { id: '22222222-2222-4222-8222-222222222222', role: 'assistant', text: 'Second answer', sources: [], tools: [], versions: ['First answer'] },
@@ -794,7 +821,7 @@ export default function App() {
         onNew={() => newChat()}
         onOpen={(id) => { void openConversation(id) }}
         onDelete={(id) => { void deleteConversation(id) }}
-        onAgent={(id) => newChat(id)}
+        onAgent={(id) => openAgent(id)}
         sync={status.sync}
       />
       <div key={screen} className="view-pane flex min-h-0 min-w-0 flex-1">
@@ -805,7 +832,7 @@ export default function App() {
           onStart={(id) => newChat(id)}
           onOpen={(id) => { void openConversation(id) }}
           onAsk={() => newChat('general')}
-          onDocument={() => { newChat(agentId); void api.library.pick(null, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onDocument={() => { const id = agentId; newChat(id); void api.library.pick(null, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
           onFill={() => { void openFill({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
           onConvert={() => { void openConvert({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
           onSearch={() => setView('library')}
@@ -825,8 +852,8 @@ export default function App() {
           preview={preview}
           webSearchAllowed={settings.webSearchAllowed}
           chatWeb={chatWeb}
-          agentName={agents.find((agent) => agent.id === agentId)?.name ?? 'General'}
-          agentNote={agents.find((agent) => agent.id === agentId)?.notes}
+          agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'General'}
+          agentNote={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.notes}
           title={conversations.find((chat) => chat.id === conversationId)?.title}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
@@ -838,7 +865,7 @@ export default function App() {
           onCaptureShot={agentId === 'code' ? () => { void captureShot() } : undefined}
           onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}
-          onPick={() => { void api.library.pick(conversationId, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
+          onPick={() => { const id = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId; void api.library.pick(conversationId, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
           onScope={setScope}
           onOpenCitation={(id) => { void openCitation(id) }}
           onClosePreview={() => setPreview(null)}

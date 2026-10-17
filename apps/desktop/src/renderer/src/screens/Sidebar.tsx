@@ -4,6 +4,7 @@ import { BlobMascot, type ThemeChoice } from '@surf/ui'
 import { useMascotActivity } from '../mascot-activity'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
+import { agentFilterIds, labelFromAgentId } from '../../../shared/chat-title'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
@@ -63,10 +64,22 @@ export function Sidebar({
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [agentFilter, setAgentFilter] = useState('all')
   const [name, setName] = useState(mascotName)
   useEffect(() => { setName(mascotName) }, [mascotName])
   const needle = query.trim().toLowerCase()
-  const mine = conversations.filter((chat) => chat.agentId === agentId && (!needle || chat.title.toLowerCase().includes(needle) || (chat.preview ?? '').toLowerCase().includes(needle)))
+  const nameOf = (id: string) => agents.find((agent) => agent.id === id)?.name ?? labelFromAgentId(id)
+  const filters = agentFilterIds(agents.map((agent) => ({ id: agent.id, canChat: agentCanChat(agent) })), conversations)
+  const mine = conversations.filter((chat) => {
+    if (agentFilter !== 'all' && chat.agentId !== agentFilter) return false
+    if (!needle) return true
+    const label = nameOf(chat.agentId).toLowerCase()
+    return chat.title.toLowerCase().includes(needle) || (chat.preview ?? '').toLowerCase().includes(needle) || label.includes(needle)
+  })
+  const grouped = agentFilter === 'all' && new Set(mine.map((chat) => chat.agentId)).size > 1
+  const sections = grouped
+    ? filters.filter((id) => mine.some((chat) => chat.agentId === id)).map((id) => ({ id, chats: mine.filter((chat) => chat.agentId === id) }))
+    : [{ id: '', chats: mine }]
   return (
     <aside className="shell-side flex h-full min-h-0 w-[280px] shrink-0 flex-col">
       <div className="flex items-center justify-between px-4 pt-4">
@@ -100,20 +113,37 @@ export function Sidebar({
           }}
         />
       </div>
-      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-auto px-3">
+      <div className="agent-filter" data-agent-filters="yes" role="group" aria-label="Show chats">
+        <button type="button" data-agent-filter="all" aria-pressed={agentFilter === 'all'} onClick={() => setAgentFilter('all')}>All</button>
+        {filters.map((id) => (
+          <button key={id} type="button" data-agent-filter={id} aria-pressed={agentFilter === id} onClick={() => setAgentFilter(id)}>{nameOf(id)}</button>
+        ))}
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto px-3">
         {mine.length === 0 && <p className="px-2 py-2 text-sm text-[var(--muted)]">No chats yet.</p>}
-        {mine.map((chat) => (
-          <div key={chat.id} className={`chat-row ${chat.id === activeId ? 'is-on' : ''}`}>
-            <button type="button" onClick={() => onOpen(chat.id)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left">
-              <span className="chat-avatar" aria-hidden="true">{(chat.title || 'C').slice(0, 1).toUpperCase()}</span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold">{chat.title}</span>
-                <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
-              </span>
-            </button>
-            <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-tip="Delete" data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
-              <Trash2 size={15} />
-            </button>
+        {sections.map((section) => (
+          <div key={section.id || 'chats'}>
+            {section.id && <p className="agent-group">{nameOf(section.id)}</p>}
+            {section.chats.map((chat) => {
+              const label = nameOf(chat.agentId)
+              return (
+                <div key={chat.id} className={`chat-row ${chat.id === activeId ? 'is-on' : ''}`} data-chat-row={chat.id} data-chat-agent={chat.agentId}>
+                  <button type="button" onClick={() => onOpen(chat.id)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left">
+                    <span className="chat-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-semibold">{chat.title}</span>
+                        <span className="agent-tag" data-agent-tag="yes">{label}</span>
+                      </span>
+                      <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
+                    </span>
+                  </button>
+                  <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-tip="Delete" data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         ))}
       </div>

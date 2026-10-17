@@ -17,6 +17,8 @@ import { codeFitMark } from '../../shared/code-ram.js'
 import { createCompletionRuntime, type CompletionRuntime } from './code-agent/completion/runtime.js'
 import { normalizeLanguagesOff, tabSuggestionsDefault } from './code-agent/completion/policy.js'
 import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
+import { labelFromAgentId, newChatTitle } from '../../shared/chat-title.js'
+import { readAgentName } from './agent-names.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { codePackDir, loadCodePack } from './code-pack.js'
@@ -1818,7 +1820,8 @@ export async function createServices(): Promise<Services> {
           const ac = new AbortController()
           const messageId = req.replaceMessageId
           inflight.set(messageId, ac)
-          void reply(req, conversationId, messageId, userMessageId, win, ac.signal)
+          const bound = { ...req, agentId: store.agentOf(conversationId) || req.agentId || 'general' }
+          void reply(bound, conversationId, messageId, userMessageId, win, ac.signal)
             .catch((e: unknown) => {
               if (ac.signal.aborted) return
               const smallerModelId = e instanceof ModelLoadError ? e.smallerModelId ?? undefined : undefined
@@ -1829,12 +1832,13 @@ export async function createServices(): Promise<Services> {
         }
         const messageId = randomUUID()
         const userMessageId = randomUUID()
-        const conversationId = store.ensure(req.conversationId, req.text, req.agentId)
+        const agentId = (req.conversationId && store.agentOf(req.conversationId)) || req.agentId || 'general'
+        const conversationId = store.ensure(req.conversationId, req.text, agentId)
         store.append(conversationId, { id: userMessageId, role: 'user', text: req.text, sources: [] })
         ui = win
         const ac = new AbortController()
         inflight.set(messageId, ac)
-        void reply(req, conversationId, messageId, userMessageId, win, ac.signal)
+        void reply({ ...req, agentId }, conversationId, messageId, userMessageId, win, ac.signal)
           .catch((e: unknown) => {
             if (ac.signal.aborted) return
             const smallerModelId = e instanceof ModelLoadError ? e.smallerModelId ?? undefined : undefined
@@ -1974,14 +1978,14 @@ export async function createServices(): Promise<Services> {
     },
     library: {
       add: ingestPaths,
-      pick: async (conversationId, createConversation, win) => {
+      pick: async (conversationId, createConversation, agentId, win) => {
         const picked = await dialog.showOpenDialog(win, {
           title: 'Add documents',
           properties: ['openFile', 'multiSelections'],
           filters: [{ name: 'Documents', extensions: ['pdf', 'docx', 'pptx', 'xlsx', 'csv', 'txt', 'md', 'html', 'htm', 'png', 'jpg', 'jpeg'] }],
         })
         if (picked.canceled || picked.filePaths.length === 0) return { conversationId, files: [] }
-        return ingestPaths(picked.filePaths, conversationId, createConversation, win)
+        return ingestPaths(picked.filePaths, conversationId, createConversation, agentId, win)
       },
       list: async () => {
         if (!store.db) return []
@@ -2768,11 +2772,24 @@ export async function createServices(): Promise<Services> {
     }
   }
 
-  async function ingestPaths(paths: string[], conversationId: string | null, createConversation: boolean, win: BrowserWindow) {
+  function agentRoots(): string[] {
+    return [
+      join(app.getAppPath(), 'agents'),
+      join(app.getAppPath(), '..', '..', 'agents'),
+      join(process.cwd(), 'agents'),
+      join(process.cwd(), '..', '..', 'agents'),
+    ]
+  }
+
+  async function ingestPaths(paths: string[], conversationId: string | null, createConversation: boolean, agentId: string, win: BrowserWindow) {
     ui = win
     const { deps, queue } = requireLibrary()
     let cid = conversationId
-    if (!cid && createConversation) cid = store.ensure(null, 'New chat', 'general')
+    if (!cid && createConversation) {
+      const id = agentId || 'general'
+      const name = readAgentName(id, agentRoots()) ?? labelFromAgentId(id)
+      cid = store.ensure(null, newChatTitle(name), id)
+    }
     const files: LibraryFile[] = []
     for (const filePath of paths) {
       const { bytes, name } = await readAttachment(filePath)

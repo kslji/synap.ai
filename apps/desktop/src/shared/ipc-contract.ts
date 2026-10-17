@@ -784,8 +784,8 @@ export interface SurfApi {
   }
   library: {
     pathForFile(file: File): string
-    add(paths: string[], conversationId: string | null, createConversation?: boolean): Promise<{ conversationId: string | null; files: LibraryFile[] }>
-    pick(conversationId: string | null, createConversation?: boolean): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    add(paths: string[], conversationId: string | null, createConversation?: boolean, agentId?: string): Promise<{ conversationId: string | null; files: LibraryFile[] }>
+    pick(conversationId: string | null, createConversation?: boolean, agentId?: string): Promise<{ conversationId: string | null; files: LibraryFile[] }>
     list(): Promise<LibraryFile[]>
     retry(jobId: string): Promise<void>
     cancel(jobId: string): Promise<void>

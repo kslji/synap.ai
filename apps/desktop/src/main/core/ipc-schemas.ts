@@ -68,11 +68,13 @@ export const AttachmentId = z.string().uuid()
 export const LibraryPick = z.object({
   conversationId: z.string().uuid().nullable(),
   createConversation: z.boolean().default(false),
+  agentId: z.string().max(64).default('general'),
 })
 export const LibraryAdd = z.object({
   paths: z.array(z.string().min(1).max(4096)).min(1).max(20),
   conversationId: z.string().uuid().nullable(),
   createConversation: z.boolean().default(false),
+  agentId: z.string().max(64).default('general'),
 })
 export const ExportFormatName = z.enum(['txt', 'md', 'html', 'docx', 'png', 'jpeg', 'csv', 'xlsx', 'pdf'])
 export const DocumentConvert = z.object({

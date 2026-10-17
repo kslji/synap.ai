@@ -1,5 +1,7 @@
 {
-  "npm": [],
+  "npm": [
+    "@fontsource/inter@OFL-1.1"
+  ],
   "python": [
     "UNLICENSED",
     "LicenseRef-LICENSE",

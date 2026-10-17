@@ -12,6 +12,8 @@ import {
   withWebBanner,
 } from './chat-route.js'
 
+const BIKE_WEEK = 'Chase and Rider can ride their bikes thrice a day for 5 days; but on two other days, they ride twice the times they do on usual days. How many times do they ride their bikes a week?'
+
 function calc(expression: string): string {
   const ran = handle({ id: 1, kind: 'calc', expression })
   assert.equal(ran.ok, true)
@@ -49,6 +51,22 @@ test('a bare what used to be rejected and is now a calculator expression', () =>
   const job = mathJob('what 2+2')
   assert.ok(job)
   assert.equal(routeTurn({ text: 'what 2+2', webChip: false, online: true, offlineOnly: false, hasFolder: false }).kind, 'math')
+})
+
+test('a weekly ride word problem is one calculator expression', () => {
+  const plan = routeTurn({ text: BIKE_WEEK, webChip: false, online: false, offlineOnly: true, hasFolder: false })
+  assert.equal(plan.kind, 'math')
+  assert.equal(plan.math?.kind, 'calc')
+  const expression = plan.math?.kind === 'calc' ? plan.math.expression : ''
+  assert.equal(expression, '((3*5)+(3*2*2))*2')
+  assert.equal(calc(expression), '54')
+  const phrase = phraseMath(plan.math?.kind === 'calc' ? plan.math.label : '', '54', 'I counted 27.')
+  assert.match(phrase, /54/)
+  assert.doesNotMatch(phrase, /Unable to find|worldwide sources/)
+  const one = 'Ada rides thrice a day for 5 days; on two other days, she rides twice the times she does on usual days. How many times does she ride?'
+  const solo = mathJob(one)
+  assert.equal(solo?.kind, 'calc')
+  assert.equal(solo && solo.kind === 'calc' ? calc(solo.expression) : '', '27')
 })
 
 test('greetings and explanations stay with the model', () => {

@@ -19,6 +19,19 @@ export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
 
 const QWEN_SAMPLING = { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 };
 
+/**
+ * Every eval request, including CI, uses this one greedy sample.
+ * Product chat keeps the registry sampling. Seed 20261010 is the dataset seed.
+ */
+export const EVAL_SAMPLING = {
+  temperature: 0,
+  top_p: 1,
+  top_k: 1,
+  presence_penalty: 0,
+  repeat_penalty: 1,
+  seed: 20261010,
+} as const;
+
 /** Sampling and template flags sent with every chat request. Registry values win over the Qwen fallback. */
 export function chatRequestFields(o: { sampling?: Record<string, number>; chatTemplateKwargs?: Record<string, unknown> }): Record<string, unknown> {
   return {

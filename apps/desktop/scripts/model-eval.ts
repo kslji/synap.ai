@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { availableParallelism } from 'node:os'
-import { LlamaClient } from '../src/main/core/llama-client.ts'
+import { EVAL_SAMPLING, LlamaClient } from '../src/main/core/llama-client.ts'
 import {
   coverSkips,
   evalContextTokens,
@@ -85,7 +85,7 @@ async function ask(server: LlamaServer, prompt: string, grammar: string | undefi
   const client = new LlamaClient({
     baseUrl: server.baseUrl,
     apiKey: server.apiKey,
-    sampling: { temperature: 0, top_p: 1, top_k: 1, presence_penalty: 0 },
+    sampling: { ...EVAL_SAMPLING },
     chatTemplateKwargs: { enable_thinking: false },
   })
   const started = performance.now()

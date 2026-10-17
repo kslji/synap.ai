@@ -49,6 +49,39 @@ export interface TurnPlan {
   note?: string
 }
 
+const SMALL_WORD: Record<string, number> = {
+  one: 1, once: 1, two: 2, twice: 2, three: 3, thrice: 3,
+  four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+}
+
+function smallNumber(token: string): number | null {
+  const numeric = Number(token)
+  if (token.trim() !== '' && Number.isFinite(numeric)) return numeric
+  return SMALL_WORD[token.toLowerCase()] ?? null
+}
+
+/**
+ * A rate-per-day word problem becomes one calculator expression.
+ * "Thrice a day for 5 days, and twice that on 2 other days" is
+ * ((3*5)+(3*2*2)). Two named people ("Chase and Rider") who are
+ * asked about as "they" are counted once each.
+ */
+export function wordProblem(text: string): { expression: string; label: string } | null {
+  const rate = text.match(/\b(once|twice|thrice|one|two|three|\d+)\s+(?:times?\s+)?(?:a|per)\s+day\s+for\s+(once|twice|thrice|one|two|three|four|five|six|seven|\d+)\s+days\b/i)
+  const other = text.match(/\bon\s+(one|two|three|four|five|six|seven|\d+)\s+other\s+days\b[\s\S]{0,120}?\b(once|twice|thrice|one|two|three|\d+)\s+the\s+times\b/i)
+  if (!rate || !other) return null
+  const perDay = smallNumber(rate[1] ?? '')
+  const usualDays = smallNumber(rate[2] ?? '')
+  const otherDays = smallNumber(other[1] ?? '')
+  const multiplier = smallNumber(other[2] ?? '')
+  if (perDay == null || usualDays == null || otherDays == null || multiplier == null) return null
+  const pair = text.match(/\b([A-Z][a-z]+)\s+and\s+([A-Z][a-z]+)\b/)
+  const people = pair && /\bthey\b/i.test(text) ? 2 : 1
+  const expression = `((${perDay}*${usualDays})+(${perDay}*${multiplier}*${otherDays}))*${people}`
+  const label = `((${perDay} * ${usualDays}) + (${perDay} * ${multiplier} * ${otherDays})) * ${people}`
+  return { expression, label }
+}
+
 export function mathExpression(text: string): string | null {
   const bare = text.trim().replace(/[?.!]+$/g, '').trim()
   const stripped = bare.replace(LEAD, '').trim()
@@ -66,8 +99,10 @@ export function mathJob(text: string): MathJob | null {
     }
   }
   const expression = mathExpression(text)
-  if (!expression) return null
-  return { kind: 'calc', expression: expression.replace(/\s+/g, ''), label: expression.replace(/\s+/g, ' ') }
+  if (expression) return { kind: 'calc', expression: expression.replace(/\s+/g, ''), label: expression.replace(/\s+/g, ' ') }
+  const word = wordProblem(text)
+  if (!word) return null
+  return { kind: 'calc', expression: word.expression, label: word.label }
 }
 
 export function wantsDeviceControl(text: string): boolean {

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import { chatRequestFields } from './llama-client.js'
+import { EVAL_SAMPLING, chatRequestFields } from './llama-client.js'
 import { codeFitMark, ramTierForFile } from '../../shared/code-ram.js'
 import { chatModelLabel, codeModelLine, quantFromFile } from '../../shared/model-label.js'
 import { defaultForAgent, parseRegistry, pick, smallerChatModel } from './model-registry.js'
@@ -113,6 +113,15 @@ test('chat requests use the registry sampling and template flags', () => {
     temperature: 1,
     top_p: 0.95,
     top_k: 64,
+    chat_template_kwargs: { enable_thinking: false },
+  })
+  assert.deepEqual(chatRequestFields({ sampling: { ...EVAL_SAMPLING }, chatTemplateKwargs: { enable_thinking: false } }), {
+    temperature: 0,
+    top_p: 1,
+    top_k: 1,
+    presence_penalty: 0,
+    repeat_penalty: 1,
+    seed: 20261010,
     chat_template_kwargs: { enable_thinking: false },
   })
 })

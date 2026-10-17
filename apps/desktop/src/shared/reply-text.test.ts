@@ -101,6 +101,8 @@ test('streaming hides an open fence and the final reply closes markup', () => {
   assert.equal(replyShapeOk(''), true)
   assert.match(MARKDOWN_ASK, /Markdown/)
   assert.match(MARKDOWN_ASK, /do not stop in the middle of a word/)
+  assert.match(MARKDOWN_ASK, /\[S1\]/)
+  assert.match(MARKDOWN_ASK, /Source heading/)
 })
 
 test('the chat system prompt asks for closed markdown', () => {

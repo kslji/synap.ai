@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Cpu, HardDrive, Monitor, Palette, Plug, Wifi } from 'lucide-react'
+import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Text, Wifi } from 'lucide-react'
 import { product } from '@surf/shared'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
+import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } from '../../../shared/hardware-label'
 import { formatIndexBytes } from '../format'
 import { DevWebPanel } from './DevWebPanel'
 import { activeChatModel, activeCodeModel, chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
@@ -613,25 +614,37 @@ function MachineCard({ status }: { status: ModelStatus }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState('')
   const chats = status.models.filter((model) => model.role === 'chat' && model.installed)
-  const gpus = (status.gpus ?? []).filter((gpu) => gpu.model.trim())
+  const total = status.ramGb
+  const free = typeof status.freeRamGb === 'number' ? Math.max(0, Math.min(total, status.freeRamGb)) : null
+  const usedPct = free == null || total <= 0 ? 0 : ((total - free) / total) * 100
   return (
     <div className="card px-5 py-5 text-sm" data-machine="yes">
-      <div className="mb-3 flex items-center gap-3">
+      <div className="mb-4 flex items-center gap-3">
         <span className="icon-tile is-blue" aria-hidden="true"><Cpu size={16} /></span>
         <div className="text-sm font-semibold">Hardware</div>
       </div>
-      <p>{status.cpuModel} · {status.cores} cores · {status.ramGb} GB RAM{typeof status.freeRamGb === 'number' ? ` · ${status.freeRamGb} GB free` : ''}</p>
-      {gpus.map((gpu) => (
-        <p key={`${gpu.vendor}-${gpu.model}`} className="mt-1" data-gpu="yes">
-          {gpu.vendor ? `${gpu.vendor} ` : ''}{gpu.model}{typeof gpu.vramMb === 'number' ? ` · ${gpu.vramMb} MB` : ''}
-        </p>
-      ))}
-      {typeof status.contextTokens === 'number' && <p className="mt-1" data-context-tokens="yes">Context length {status.contextTokens} tokens</p>}
-      {typeof status.promptCacheMiB === 'number' && (
-        <p className="mt-1" data-prompt-cache="yes">
-          {status.promptCacheMiB === 0 ? 'Prompt cache is off on this computer.' : `Prompt cache ${status.promptCacheMiB} MiB of RAM. This is not a file on disk.`}
-        </p>
-      )}
+      <div className="hw-grid">
+        <HardwareTile icon={<Cpu size={15} />} tile="blue" label="Processor" value={cleanCpuName(status.cpuModel)} />
+        <HardwareTile icon={<Hash size={15} />} tile="violet" label="Cores" value={String(status.cores)} />
+        <HardwareTile
+          icon={<MemoryStick size={15} />}
+          tile="teal"
+          label="Memory"
+          value={formatRamGb(total)}
+          bar={free == null ? null : (
+            <div className="hw-split" aria-hidden="true">
+              <b className="is-used" style={{ width: `${usedPct}%` }} />
+              <b className="is-free" style={{ width: `${100 - usedPct}%` }} />
+            </div>
+          )}
+        />
+        {typeof status.contextTokens === 'number' && (
+          <HardwareTile icon={<Text size={15} />} tile="" label="Context length" value={formatContextTokens(status.contextTokens)} marker="context-tokens" />
+        )}
+        {typeof status.promptCacheMiB === 'number' && (
+          <HardwareTile icon={<Database size={15} />} tile="violet" label="Prompt cache" value={formatPromptCache(status.promptCacheMiB)} marker="prompt-cache" />
+        )}
+      </div>
       {chats.map((model) => {
         const bench = status.benchmarks?.find((row) => row.modelId === model.id && row.sizeBytes === model.sizeBytes)
         return (
@@ -655,6 +668,33 @@ function MachineCard({ status }: { status: ModelStatus }) {
         )
       })}
       {note && <p className="mt-2" data-benchmark-note="yes">{note}</p>}
+    </div>
+  )
+}
+
+function HardwareTile({
+  icon,
+  tile,
+  label,
+  value,
+  bar,
+  marker,
+}: {
+  icon: ReactNode
+  tile: '' | 'blue' | 'violet' | 'teal'
+  label: string
+  value: string
+  bar?: ReactNode
+  marker?: 'context-tokens' | 'prompt-cache'
+}) {
+  return (
+    <div className="hw-tile" data-context-tokens={marker === 'context-tokens' ? 'yes' : undefined} data-prompt-cache={marker === 'prompt-cache' ? 'yes' : undefined}>
+      <div className="flex items-center gap-2">
+        <span className={`icon-tile hw-icon ${tile ? `is-${tile}` : ''}`} aria-hidden="true">{icon}</span>
+        <span className="hw-label">{label}</span>
+      </div>
+      <div className="hw-value">{value}</div>
+      {bar}
     </div>
   )
 }

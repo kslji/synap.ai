@@ -461,3 +461,45 @@ a { color: var(--accent-text); }
   text-transform: uppercase;
   color: var(--muted);
 }
+.hw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+}
+.hw-tile {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  padding: 12px;
+}
+.hw-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+.hw-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.hw-value {
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.hw-split {
+  display: flex;
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--line);
+}
+.hw-split .is-used { background: color-mix(in srgb, var(--ink) 22%, var(--line)); }
+.hw-split .is-free { background: color-mix(in srgb, var(--accent) 72%, white); }
+:root[data-theme="dark"] .hw-split .is-free { background: var(--accent); }

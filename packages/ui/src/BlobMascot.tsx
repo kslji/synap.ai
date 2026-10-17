@@ -23,6 +23,7 @@ const LABEL: Record<BlobMood, string> = {
   guiding: 'here',
   notification: 'notice',
   dizzy: 'dizzy',
+  listening: 'listening',
 }
 
 export interface BlobMascotProps {

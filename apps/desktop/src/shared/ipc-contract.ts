@@ -729,11 +729,6 @@ export interface SurfApi {
   }
   models: {
     status(): Promise<ModelStatus>
-    download(modelId: string): Promise<void>
-    /** Stop the current download and keep the partial file so it can resume. */
-    cancel(): Promise<void>
-    /** Point chat at a .gguf already on this computer. Omit the path to open the file dialog. */
-    importLocal(path?: string): Promise<{ id: string } | null>
     benchmark(modelId: string): Promise<BenchmarkResult>
     onEvent(cb: (e: ModelEvent) => void): () => void
   }

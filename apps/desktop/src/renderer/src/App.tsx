@@ -41,8 +41,6 @@ export default function App() {
   const [messages, setMessages] = useState<UiMsg[]>([])
   const [shots, setShots] = useState<CodeShot[]>([])
   const [streaming, setStreaming] = useState(false)
-  const [progress, setProgress] = useState<Record<string, number>>({})
-  const [busyId, setBusyId] = useState<string | null>(null)
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
@@ -111,13 +109,7 @@ export default function App() {
     })
     void api.library.list().then(setFiles).catch(() => undefined)
     const offModels = api.models.onEvent((e) => {
-      setProgress((p) => ({ ...p, [e.id]: e.total ? e.done / e.total : 0 }))
-      if (e.state === 'error' && e.error) setError(e.error)
-      if (e.state === 'cancelled') setError(null)
-      if (e.state === 'done' || e.state === 'error' || e.state === 'cancelled') {
-        setBusyId(null)
-        void refresh()
-      }
+      if (e.state === 'done') void refresh()
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
     return () => { frames.cancel(); offChat(); offModels(); offLib(); offDocs(); offCode(); window.clearInterval(timer) }
@@ -163,42 +155,6 @@ export default function App() {
       const next = await api.codeAgent.mode().catch(() => null)
       if (next) setCodeMode(next)
     }
-  }
-
-  function downloadCancelled(error: unknown): boolean {
-    const name = error instanceof Error ? error.name : ''
-    const message = error instanceof Error ? error.message : String(error)
-    return name === 'AbortError' || message === 'Download cancelled.'
-  }
-
-  async function download(id: string): Promise<'ok' | 'cancelled'> {
-    setError(null)
-    setBusyId(id)
-    setProgress((p) => ({ ...p, [id]: 0 }))
-    try {
-      await api.models.download(id)
-      return 'ok'
-    } catch (e) {
-      if (downloadCancelled(e)) {
-        setBusyId(null)
-        return 'cancelled'
-      }
-      setError((e as Error).message)
-      setBusyId(null)
-      throw e
-    }
-  }
-
-  function cancelDownload() {
-    void api.models.cancel().catch(() => undefined)
-  }
-
-  async function downloadChatAndEmbed(chatId: string) {
-    const st = status ?? await refresh()
-    const embed = st.models.find((m) => m.role === 'embedding')
-    if (!st.models.find((m) => m.id === chatId)?.installed && await download(chatId) === 'cancelled') return
-    if (embed && !embed.installed && await download(embed.id) === 'cancelled') return
-    await refresh()
   }
 
   async function addShots(files: File[]) {
@@ -302,21 +258,10 @@ export default function App() {
 
   async function chooseChatModel(id: string) {
     const model = status?.models.find((item) => item.id === id && item.role === 'chat')
-    if (!model) return
-    if (!model.installed && await download(id) === 'cancelled') return
+    if (!model?.installed) return
     const codeOnly = model.agents.includes('code') && !model.agents.includes('general')
     await patch(codeOnly ? { codeModelId: id } : { chatModelId: id })
   }
-
-  const codeAuto = useRef(false)
-  useEffect(() => {
-    if (codeAuto.current || agentId !== 'code' || !status || !settings) return
-    if (settings.codeModelId || status.offlineOnly) return
-    const def = status.models.find((model) => model.defaultFor?.includes('code'))
-    if (!def || def.installed) return
-    codeAuto.current = true
-    void download(def.id).catch((e: unknown) => setError((e as Error).message))
-  }, [agentId, status, settings])
 
   async function deleteConversation(id: string) {
     await api.conversations.remove(id)
@@ -796,12 +741,9 @@ export default function App() {
       <div className="h-full" data-ready="yes" data-screen="onboarding">
         <Onboarding
           status={status}
-          progress={busyId ? (progress[busyId] ?? 0) : 0}
-          error={error}
           theme={settings.theme}
           onTheme={chooseTheme}
-          onDownload={downloadChatAndEmbed}
-          onReady={(chatId) => { void patch({ onboardingComplete: true, chatModelId: chatId }).then(() => { setView('home'); setTourStep(0) }) }}
+          onReady={() => { void patch({ onboardingComplete: true }).then(() => { setView('home'); setTourStep(0) }) }}
         />
       </div>
     )
@@ -910,16 +852,6 @@ export default function App() {
           tabSuggestionsOff={settings.tabSuggestionsOff}
           animateMascot={settings.animateMascot !== false}
           onRegenerate={(id) => { void regenerate(id) }}
-          downloadBusyId={busyId}
-          downloadProgress={progress}
-          setupError={error}
-          onDownloadModel={(id) => {
-            void download(id).then((result) => {
-              if (result !== 'ok') return
-              return patch({ chatModelId: id, onboardingComplete: true })
-            }).catch(() => undefined)
-          }}
-          onCancelDownload={cancelDownload}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)
@@ -957,15 +889,7 @@ export default function App() {
         />
       )}
       {screen === 'models' && (
-        <ModelsScreen
-          status={status}
-          progress={progress}
-          busyId={busyId}
-          error={error}
-          onDownload={(id) => { void download(id).catch(() => undefined) }}
-          onCancel={cancelDownload}
-          onSelect={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
-        />
+        <ModelsScreen status={status} />
       )}
       {screen === 'usage' && (
         <UsagePanel machine={{ cpuModel: status.cpuModel, ramGb: status.ramGb }} />
@@ -1006,12 +930,6 @@ export default function App() {
             void api.licence.deactivate().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
           }}
           onPatch={(p) => { void patch(p) }}
-          progress={progress}
-          busyId={busyId}
-          error={error}
-          onDownload={(id) => { void download(id).catch(() => undefined) }}
-          onCancelDownload={cancelDownload}
-          onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           onBack={() => setView('chat')}
           onSave={() => { void patch({}) }}
           onRestore={() => {
@@ -1026,7 +944,6 @@ export default function App() {
               telemetryOptIn: false,
             })
           }}
-          onImportLocal={() => { void api.models.importLocal().catch((e: unknown) => setError((e as Error).message)) }}
           onCheckUpdates={async () => {
             const offer = await api.updates.check()
             setUpdateOffer(offer)

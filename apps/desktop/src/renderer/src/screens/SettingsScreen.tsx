@@ -6,7 +6,7 @@ import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } fro
 import { friendlyModelName } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
 import { DevWebPanel } from './DevWebPanel'
-import { activeChatModel, activeCodeModel, chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
+import { chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
 import { LiveFeelSettings, StoragePanel } from './UsageStorage'
 
 export function SettingsScreen({
@@ -25,16 +25,9 @@ export function SettingsScreen({
   onSignOut,
   onRevoke,
   onDeactivate,
-  progress,
-  busyId,
-  error,
-  onDownload,
-  onCancelDownload,
-  onSelectModel,
   onBack,
   onSave,
   onRestore,
-  onImportLocal,
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
@@ -51,28 +44,17 @@ export function SettingsScreen({
   onSignOut: () => void
   onRevoke: (deviceId: string) => void
   onDeactivate: () => void
-  progress: Record<string, number>
-  busyId: string | null
-  error: string | null
-  onDownload: (id: string) => void
-  onCancelDownload: () => void
-  onSelectModel: (id: string) => void
   onBack: () => void
   onSave: () => void
   onRestore: () => void
-  onImportLocal: () => void
 }) {
   const [category, setCategory] = useState<SettingsCategory>('general')
   const [savedNote, setSavedNote] = useState('')
   const [updateNote, setUpdateNote] = useState('')
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const [codeOpen, setCodeOpen] = useState(false)
   const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
   const [region, setRegion] = useState(settings.myRegion)
   const chats = chatModels(status)
   const code = listedCodeModels(status)
-  const current = activeChatModel(status)
-  const codeCurrent = activeCodeModel(status)
   useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
   useEffect(() => { setRegion(settings.myRegion) }, [settings.myRegion])
   const apiOk = /^https?:\/\/\S+$/.test(apiBase)
@@ -171,47 +153,15 @@ export function SettingsScreen({
         </Group>}
         {category === 'models' && <Group title="Models">
           <div className="card px-4 py-4">
-            <ModelPanel
-              status={status}
-              chats={chats}
-              current={current}
-              progress={progress}
-              busyId={busyId}
-              error={error}
-              detailsOpen={detailsOpen}
-              onToggleDetails={() => setDetailsOpen((open) => !open)}
-              onDownload={onDownload}
-              onCancel={onCancelDownload}
-              onSelect={onSelectModel}
-              extraDetails={(
-                <button className="mt-3 text-sm text-[var(--accent-text)] underline" type="button" data-import-gguf="yes" onClick={onImportLocal}>
-                  Use a GGUF file on this computer
-                </button>
-              )}
-            />
-            {code.length > 0 && (
-              <div className="mt-6">
-                <ModelPanel
-                  status={status}
-                  heading="Code"
-                  chats={code}
-                  current={codeCurrent}
-                  progress={progress}
-                  busyId={busyId}
-                  error={null}
-                  detailsOpen={codeOpen}
-                  onToggleDetails={() => setCodeOpen((open) => !open)}
-                  onDownload={onDownload}
-                  onCancel={onCancelDownload}
-                  onSelect={onSelectModel}
-                />
-              </div>
-            )}
+            <ModelPanel status={status} chats={chats} />
+            <div className="mt-6">
+              <ModelPanel status={status} heading="Code" chats={code} />
+            </div>
           </div>
         </Group>}
         {category === 'models' && <Group title="Code agent">
           <CodeAgentSettings settings={settings} onPatch={onPatch} />
-          <LiveFeelSettings status={status} settings={settings} onPatch={onPatch} onDownload={onDownload} />
+          <LiveFeelSettings status={status} settings={settings} onPatch={onPatch} />
         </Group>}
         {category === 'storage' && <Group title="Storage">
           <StoragePanel />

@@ -1,48 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { StarSurf, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import type { ModelStatus } from '../../../shared/ipc-contract'
+import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
 
 type Step = 'welcome' | 'privacy' | 'setup'
 
 export function Onboarding({
   status,
-  progress,
-  error,
   theme,
   onTheme,
-  onDownload,
   onReady,
 }: {
   status: ModelStatus
-  progress: number
-  error: string | null
   theme: ThemeChoice
   onTheme: (theme: ThemeChoice) => void
-  onDownload: (chatId: string) => Promise<void>
-  onReady: (chatId: string) => void
+  onReady: () => void
 }) {
-  const suggested = status.models.find((m) => m.recommended && m.role === 'chat')?.id
-    ?? status.models.find((m) => m.role === 'chat' && m.fitsRam)?.id
-    ?? ''
-  const chosen = status.models.find((m) => m.id === suggested)
-  const embed = status.models.find((m) => m.role === 'embedding')
-  const ready = Boolean(chosen?.installed && embed?.installed)
+  const ready = status.models.some((model) => model.role === 'chat' && model.installed)
   const [step, setStep] = useState<Step>('welcome')
-  const [working, setWorking] = useState(false)
-  const [localError, setLocalError] = useState<string | null>(null)
-  const started = useRef(false)
-  const shownError = localError ?? error
-
-  useEffect(() => {
-    if (step !== 'setup' || ready || started.current || !suggested) return
-    started.current = true
-    setWorking(true)
-    void onDownload(suggested)
-      .catch((e: unknown) => setLocalError((e as Error).message))
-      .finally(() => setWorking(false))
-  }, [step, ready, suggested, onDownload])
-
-  const bar = ready ? 1 : working ? progress : 0
 
   return (
     <main className="relative flex h-full items-center justify-center bg-[var(--bg)] px-6" data-screen="onboarding" data-first-launch="yes" data-onboarding-step={step}>
@@ -50,7 +25,7 @@ export function Onboarding({
         <ThemeSwitch value={theme} onChange={onTheme} />
       </div>
       <div className="card w-full max-w-xl px-8 py-8">
-        <StarSurf state={step === 'setup' && working ? 'searching' : shownError ? 'error' : 'guiding'} size={180} />
+        <StarSurf state={ready ? 'success' : 'guiding'} size={180} />
         {step === 'welcome' && (
           <>
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Welcome</p>
@@ -76,27 +51,21 @@ export function Onboarding({
         )}
         {step === 'setup' && (
           <>
-            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Setting up your AI</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">{chosen?.label ?? 'Qwen'}</h1>
-            <p className="mt-3 text-[15px] leading-relaxed text-[var(--muted)]">
-              {ready
-                ? 'The model that fits this computer is ready. Chat works offline after this.'
-                : 'One download, picked for this computer. You can quit and it will resume.'}
-            </p>
-            <div className="mt-4" data-download-progress="yes">
-              <div className="progress"><b style={{ width: `${Math.round(bar * 100)}%` }} /></div>
-              <p className="mt-2 text-xs text-[var(--muted)]">{Math.round(bar * 100)}%</p>
-            </div>
-            {shownError && <p className="mt-3 text-sm text-[var(--danger)]">{shownError}</p>}
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Your model</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight">{ready ? 'Ready' : 'One more step'}</h1>
+            {ready ? (
+              <p className="mt-3 text-[15px] leading-relaxed text-[var(--muted)]">A model is already on this computer.</p>
+            ) : (
+              <p className="mt-3 text-[15px] leading-relaxed text-[var(--muted)]" data-model-missing="yes">{MODEL_MISSING_COPY}</p>
+            )}
+            {!ready && (
+              <button className="btn btn-ghost mt-4" type="button" data-open-site="yes" onClick={() => { void window.surf.links.open(modelSiteUrl()) }}>
+                Open synap.surf
+              </button>
+            )}
             <div className="mt-6 flex flex-wrap gap-2">
-              {(ready || shownError) && (
-                <button className="btn btn-primary" type="button" data-first-launch-go="yes" onClick={() => onReady(suggested)} disabled={!suggested}>
-                  {ready ? 'Continue' : 'Continue without the model'}
-                </button>
-              )}
-              {shownError && !ready && (
-                <button className="btn btn-ghost" type="button" onClick={() => { started.current = false; setLocalError(null); setStep('privacy') }}>Try again</button>
-              )}
+              <button className="btn btn-ghost" type="button" onClick={() => setStep('privacy')}>Back</button>
+              <button className="btn btn-primary" type="button" data-first-launch-go="yes" onClick={onReady}>Continue</button>
             </div>
           </>
         )}

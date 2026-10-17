@@ -72,7 +72,9 @@ function assertTrusted(e: IpcMainInvokeEvent): void {
 }
 
 export interface Services {
-  /** Persist a synap://setup?model= choice. Unknown values are ignored. */
+  /** Move a verified local model file into the models folder. */
+  adoptLocal(): Promise<void>
+  /** Read synap://setup?model=&file= and adopt that file when the path checks out. */
   applySetupLink(raw: string): string | null
   chat: {
     send(req: ParsedChat, win: BrowserWindow): Promise<{ conversationId: string; messageId: string }>

@@ -47,7 +47,7 @@ export function suggestBiggerCodeModel(
 
 export function suggestionSentence(suggestion: ModelSuggestion): string {
   const gb = (suggestion.sizeBytes / 1_000_000_000).toFixed(2)
-  return `A larger model that fits this computer is ${suggestion.label} (${gb} GB). You can download it in Settings. Nothing downloads on its own.`
+  return `A larger model that fits this computer is ${suggestion.label} (${gb} GB). Get it from synap.surf. Nothing downloads on its own.`
 }
 
 function isCodeModel(model: CodeModelChoice): boolean {

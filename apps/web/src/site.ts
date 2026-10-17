@@ -43,11 +43,38 @@ export const BUNDLED_ASSETS: ReleaseAsset[] = [
 /** The only link that opens the releases index. Download buttons never use it. */
 export const ALL_DOWNLOADS_URL = 'https://github.com/kslji/synap.ai/releases'
 
-/** Q4_K_M chat rows from models.registry.json. Sizes are decimal GB of size_bytes. */
+/** Qwen chat rows from models.registry.json. Sizes are decimal GB of size_bytes. */
 export const SETUP_MODELS = [
-  { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', size: '1.28 GB', ramGb: 4 },
-  { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', size: '2.74 GB', ramGb: 8 },
-  { id: 'qwen3.5-9b-q4_k_m', name: 'Qwen 9B', size: '5.68 GB', ramGb: 16 },
+  {
+    id: 'qwen3.5-2b-q4_k_m',
+    name: 'Qwen 2B',
+    size: '1.28 GB',
+    ramGb: 4,
+    file: 'Qwen3.5-2B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf',
+    sha256: 'aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223',
+    sizeBytes: 1280835840,
+  },
+  {
+    id: 'qwen3.5-4b-q4_k_m',
+    name: 'Qwen 4B',
+    size: '2.74 GB',
+    ramGb: 8,
+    file: 'Qwen3.5-4B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf',
+    sha256: '00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4',
+    sizeBytes: 2740937888,
+  },
+  {
+    id: 'qwen3.5-9b-q4_k_m',
+    name: 'Qwen 9B',
+    size: '5.68 GB',
+    ramGb: 16,
+    file: 'Qwen3.5-9B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf',
+    sha256: '03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8',
+    sizeBytes: 5680522464,
+  },
 ] as const
 
 export function setupOpenLink(id: string): string {

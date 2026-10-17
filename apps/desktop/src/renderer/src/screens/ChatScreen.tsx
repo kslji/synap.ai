@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, Download, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import { StarSurf, starStateFor } from '@surf/ui'
-import type { CatalogModel, ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
-import { formatModelSize, friendlyModelName, friendlyNameFromId } from '../../../shared/model-label'
-import { STARTER_CHAT_MODEL_ID } from '../../../shared/starter-model'
+import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import { friendlyNameFromId } from '../../../shared/model-label'
 import { quoteChipLabel } from '../../../shared/quote'
+import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { CodeModeBar, CodeTrace } from './CodeTrace'
@@ -66,11 +66,6 @@ export function ChatScreen({
   tabSuggestionsOff = [],
   onRegenerate,
   animateMascot = true,
-  downloadBusyId = null,
-  downloadProgress = {},
-  setupError = null,
-  onDownloadModel,
-  onCancelDownload,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -114,21 +109,13 @@ export function ChatScreen({
   tabSuggestionsOff?: string[]
   onRegenerate?: (messageId: string) => void
   animateMascot?: boolean
-  downloadBusyId?: string | null
-  downloadProgress?: Record<string, number>
-  setupError?: string | null
-  onDownloadModel?: (id: string) => void
-  onCancelDownload?: () => void
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
-  const autoStarted = useRef<string | null>(null)
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
-  const setupId = status.setupModelId || STARTER_CHAT_MODEL_ID
-  const setupModel = status.models.find((item) => item.id === setupId) ?? null
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
   const searching = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'reading'))
@@ -147,15 +134,6 @@ export function ChatScreen({
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
   }, [messages])
-
-  useEffect(() => {
-    if (!setupModel || chatReady || !onDownloadModel) return
-    if (status.offlineOnly || !status.online) return
-    if (downloadBusyId) return
-    if (autoStarted.current === setupModel.id) return
-    autoStarted.current = setupModel.id
-    onDownloadModel(setupModel.id)
-  }, [setupModel, chatReady, status.offlineOnly, status.online, downloadBusyId, onDownloadModel])
 
   function submit(value = text) {
     const t = value.trim()
@@ -219,21 +197,13 @@ export function ChatScreen({
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-6">
           {messages.length === 0 ? (
             <div className="empty-chat">
-              {!chatReady && setupModel && onDownloadModel && onCancelDownload ? (
+              {!chatReady ? (
                 <>
                   <StarSurf state={starStateFor(reading ? 'working' : mood)} size={120} />
-                  <SetupDownload
-                  model={setupModel}
-                  busy={downloadBusyId === setupModel.id}
-                  progress={downloadProgress[setupModel.id] ?? 0}
-                  offline={status.offlineOnly || !status.online}
-                  error={setupError}
-                  onDownload={() => {
-                    autoStarted.current = setupModel.id
-                    onDownloadModel(setupModel.id)
-                  }}
-                  onCancel={onCancelDownload}
-                />
+                  <p className="empty-lead" data-model-missing="yes">{MODEL_MISSING_COPY}</p>
+                  <button className="btn btn-primary mt-4" type="button" data-open-site="yes" onClick={() => { void window.surf.links.open(modelSiteUrl()) }}>
+                    Open synap.surf
+                  </button>
                 </>
               ) : (
                 <>
@@ -322,7 +292,7 @@ export function ChatScreen({
               <textarea
                 className="field min-h-[44px]"
                 rows={1}
-                placeholder={chatReady ? `Message ${agentName}` : 'Still getting ready'}
+                placeholder={chatReady ? `Message ${agentName}` : ''}
                 value={text}
                 disabled={!chatReady}
                 onChange={(e) => setText(e.target.value)}
@@ -348,64 +318,6 @@ export function ChatScreen({
       </div>
       {preview && <Preview preview={preview} onClose={onClosePreview} />}
     </section>
-  )
-}
-
-function setupName(model: CatalogModel): string {
-  return friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })
-}
-
-function ramNote(gb: number): string {
-  const ram = Number.isInteger(gb) ? String(gb) : String(gb)
-  return `needs ${ram} GB RAM`
-}
-
-function SetupDownload({
-  model,
-  busy,
-  progress,
-  offline,
-  error,
-  onDownload,
-  onCancel,
-}: {
-  model: CatalogModel
-  busy: boolean
-  progress: number
-  offline: boolean
-  error: string | null
-  onDownload: () => void
-  onCancel: () => void
-}) {
-  const percent = Math.max(0, Math.min(100, Math.round(progress * 100)))
-  return (
-    <div className="card setup-card mt-5 px-5 py-5" data-model-setup="yes" data-model-option={model.id}>
-      <div className="setup-head">
-        <span className="icon-tile" aria-hidden="true"><Download size={18} /></span>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Setting up {setupName(model)}</h1>
-        </div>
-      </div>
-      <p className="mt-4 text-sm text-[var(--muted)]">
-        <span data-model-size={model.id}>{formatModelSize(model.sizeBytes)}</span>
-        {' · '}
-        <span data-model-ram={model.id}>{ramNote(model.minRamGb)}</span>
-      </p>
-      <div className={`progress mt-4 ${busy ? 'is-busy' : ''}`} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
-        <b style={{ width: `${percent}%` }} />
-      </div>
-      {offline && <p className="mt-3 text-sm" data-setup-offline="yes">Offline. The download starts when this computer is allowed online.</p>}
-      {busy ? (
-        <button className="btn btn-ghost mt-4" type="button" data-cancel-download={model.id} onClick={onCancel}>
-          Cancel {percent}%
-        </button>
-      ) : (
-        <button className="btn btn-primary mt-4" type="button" data-download-model={model.id} onClick={onDownload}>
-          Download {setupName(model)}
-        </button>
-      )}
-      {error && <p className="mt-3 text-sm" data-model-setup-error="yes">{error}</p>}
-    </div>
   )
 }
 

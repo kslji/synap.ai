@@ -3,7 +3,7 @@ import { Cpu } from 'lucide-react'
 import { StarSurf, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { DownloadButtons } from './download-buttons'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, setupOpenLink, type ReleaseListItem } from './site'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, type ReleaseListItem } from './site'
 
 export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -186,7 +186,6 @@ export function DownloadCard() {
   const [arch, setArch] = useState(initialArch)
   const [links, setLinks] = useState(baked)
   const [started, setStarted] = useState<'mac' | 'windows' | null>(null)
-  const [modelId, setModelId] = useState<(typeof SETUP_MODELS)[number]['id']>(SETUP_MODELS[0].id)
   const preferIntel = useRef(false)
 
   useEffect(() => {
@@ -220,7 +219,6 @@ export function DownloadCard() {
   const macHref = arch === 'x64' ? links.intel : links.mac
   const macHere = os === 'mac' && arch !== 'x64'
   const winHere = os === 'windows'
-  const chosen = SETUP_MODELS.find((model) => model.id === modelId) ?? SETUP_MODELS[0]
 
   return (
     <div className="mt-5 flex flex-col gap-2 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
@@ -229,18 +227,17 @@ export function DownloadCard() {
           <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
           <div>
             <p className="text-sm font-semibold">Pick a size</p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Then download the app. Every size uses the same installer.</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Download the model, then the app. Every size uses the same installer.</p>
           </div>
         </div>
         <div className="mt-3 flex flex-col gap-2">
           {SETUP_MODELS.map((model) => (
-            <button
+            <a
               key={model.id}
-              type="button"
+              href={model.url}
+              download={model.file}
               data-setup-model={model.id}
-              aria-pressed={model.id === chosen.id}
               className="model-choice"
-              onClick={() => setModelId(model.id)}
             >
               <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
               <span>
@@ -251,7 +248,7 @@ export function DownloadCard() {
                   <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
                 </span>
               </span>
-            </button>
+            </a>
           ))}
         </div>
       </div>
@@ -268,12 +265,6 @@ export function DownloadCard() {
         Intel Mac?
       </button>
       <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
-      <a className="self-start text-sm font-semibold" href={setupOpenLink(chosen.id)} data-setup-open="yes">
-        Open Synap and start the {chosen.name} download
-      </a>
-      <p className="text-xs leading-relaxed text-[var(--muted)]">
-        Open the app once so the download can start. If no size was chosen, it starts with Qwen 2B.
-      </p>
       {started && (
         <div className="card mt-2 px-4 py-4" data-download-started={started}>
           <StarSurf state="guiding" size={72} />

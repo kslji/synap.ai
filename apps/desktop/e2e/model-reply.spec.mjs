@@ -1,22 +1,15 @@
 import { expect, test } from '@playwright/test'
 import { rmSync } from 'node:fs'
-import { join } from 'node:path'
 import { launch } from './launch.mjs'
 
 test('launch opens chat, then the cached Qwen 2B streams a reply', async () => {
   test.skip(!process.env.SURF_MODELS_DIR, 'Qwen 2B weights are not cached')
   test.setTimeout(360_000)
-  const gguf = join(process.env.SURF_MODELS_DIR, 'Qwen3.5-2B-Q4_K_M.gguf')
-  const { app, page, dir } = await launch({})
+  const { app, page, dir } = await launch({ SURF_MODELS_DIR: process.env.SURF_MODELS_DIR })
   try {
     await expect(page.locator('[data-ready="yes"][data-screen="chat"]')).toBeVisible()
     await expect(page.locator('[data-screen="activate"]')).toHaveCount(0)
-    await expect(page.locator('[data-model-setup="yes"]')).toContainText('Setting up Qwen 2B')
-    await expect(page.locator('[data-model-size="qwen3.5-2b-q4_k_m"]')).toHaveText('1.28 GB')
-    await expect(page.locator('textarea')).toBeDisabled()
-    const imported = await page.evaluate(async (path) => window.surf.models.importLocal(path), gguf)
-    expect(imported && imported.id).toBe('qwen3.5-2b-q4_k_m')
-    await expect(page.locator('[data-model-setup="yes"]')).toHaveCount(0, { timeout: 20_000 })
+    await expect(page.locator('[data-model-missing="yes"]')).toHaveCount(0)
     const box = page.locator('textarea')
     await expect(box).toBeEnabled({ timeout: 20_000 })
     await box.fill('Reply with the single word surf.')

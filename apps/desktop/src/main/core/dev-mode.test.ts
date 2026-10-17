@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { accountsBlocked, devModeEnabled, isSynapUrl, readReleaseFlag, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
+import { accountsBlocked, devModeEnabled, isModelSiteUrl, isSynapUrl, readReleaseFlag, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 
 test('dev mode stays on until the release flag, and SYNAP_DEV_MODE is the switch', () => {
   assert.equal(devModeEnabled({ envDev: undefined, release: false }), true)
@@ -33,4 +33,13 @@ test('only synap.surf hosts count as site links', () => {
   assert.equal(isSynapUrl('https://github.com/kslji/synap.ai'), false)
   assert.equal(isSynapUrl('https://synap.surf.example/buy'), false)
   assert.equal(isSynapUrl('not a url'), false)
+})
+
+test('dev mode can still open the model page on synap.surf', () => {
+  assert.equal(isModelSiteUrl('https://synap.surf'), true)
+  assert.equal(isModelSiteUrl('https://synap.surf/'), true)
+  assert.equal(isModelSiteUrl('https://synap.surf/#download'), true)
+  assert.equal(isModelSiteUrl('https://synap.surf/buy'), false)
+  assert.equal(isModelSiteUrl('https://api.synap.surf/'), false)
+  assert.equal(isModelSiteUrl('http://synap.surf/'), false)
 })

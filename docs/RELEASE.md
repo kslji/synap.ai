@@ -36,7 +36,7 @@ CI sets `SURF_SMOKE=1` and launches the built binary. That opens an encrypted da
 
 ## Dev mode and the licence screen
 
-Dev mode is the default until a release flag is set. The app opens on the chat screen, the licence activation screen stays in the code but does not run, and the app does not call `synap.surf` or `api.synap.surf`. Pack sync and licence refresh stay off. Settings shows a Dev mode badge, and the sync chip says "Dev mode, sync off".
+Dev mode is the default until a release flag is set. The app opens on the chat screen, the licence activation screen stays in the code but does not run, and the app does not call `api.synap.surf`. Pack sync and licence refresh stay off. Settings shows a Dev mode badge, and the sync chip says "Dev mode, sync off". The only `synap.surf` link in dev mode opens the public site in the system browser so a model file can be saved there. `/buy` and the API stay blocked.
 
 Turn the licence gate back on with one of these:
 
@@ -48,11 +48,11 @@ Turn the licence gate back on with one of these:
 
 `SYNAP_DEV_MODE=1` forces dev mode even after the release flag is set. `SYNAP_LICENCE_DEV=1` still skips the licence check on an unpackaged build only.
 
-## Model choice before install
+## Model files
 
-The website offers Qwen 2B, 4B, and 9B before the Mac and Windows buttons. Every choice downloads the same installer. The GGUF is not inside the disk image or the `.exe`.
+The website downloads Qwen 2B, 4B, and 9B from the Hugging Face URLs, sizes, and SHA-256 values in `apps/desktop/resources/models.registry.json`. The Mac and Windows installers are the same for every size. The model file is not inside the disk image or the `.exe`.
 
-After the installer starts, the page links to `synap://setup?model=<registry id>`. The app registers that scheme on launch (`setAsDefaultProtocolClient`) and electron-builder writes it into the installer. Unsigned macOS often ignores the scheme until the app has been opened once, so the page says to open Synap first, then use the link. If no link arrives, the first-run screen downloads Qwen 2B. A link that arrives while another download is still running switches to the chosen file. A local GGUF can still be picked under Settings → Offline Models & Compute.
+On launch the app looks in the Downloads folder for those exact file names. It also accepts `synap://setup?model=<registry id>&file=<absolute path>`. A file is moved into the app models folder only after its SHA-256 matches the registry. A mismatch stays where it is. If nothing matches, chat says to get a model from synap.surf and opens that page in the browser. The app does not download a model itself.
 
 ## How to turn on signing later
 

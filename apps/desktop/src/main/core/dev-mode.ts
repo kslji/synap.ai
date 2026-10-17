@@ -55,3 +55,17 @@ export function isSynapUrl(url: string): boolean {
     return false
   }
 }
+
+/** The public site home, where a model file is downloaded. Not the API, and not /buy. */
+export function isModelSiteUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:') return false
+    if (parsed.hostname.toLowerCase() !== 'synap.surf') return false
+    if (parsed.pathname !== '/' && parsed.pathname !== '') return false
+    if (parsed.search) return false
+    return parsed.hash === '' || parsed.hash === '#download'
+  } catch {
+    return false
+  }
+}

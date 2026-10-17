@@ -9,7 +9,7 @@ const REASONS: Record<string, string> = {
   on: 'A small helper is on.',
   off: 'Off.',
   runtime: 'A faster helper is not available on this computer.',
-  missing: 'Qwen 0.6B is not installed yet.',
+  missing: 'A faster helper is not on this computer.',
   ram: 'Not enough memory for a helper.',
 }
 
@@ -17,12 +17,10 @@ export function LiveFeelSettings({
   status,
   settings,
   onPatch,
-  onDownload,
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
   onPatch: (patch: SettingsPatch) => void
-  onDownload: (id: string) => void
 }) {
   const live = status.live
   const [minutes, setMinutes] = useState(String(settings.idleUnloadMinutes))
@@ -36,7 +34,7 @@ export function LiveFeelSettings({
           <div className="text-sm font-semibold">Keep the model loaded</div>
           <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
             Load the chat model when Synap opens, if it fits.
-            {warm ? ` Ready: ${warm}.` : ' Nothing is installed yet.'}
+            {warm ? ` Ready: ${warm}.` : ' Nothing is on this computer yet.'}
           </p>
         </div>
         <button type="button" className="toggle mt-1" data-keep-warm="yes" data-on={settings.keepWarm ? 'yes' : 'no'} aria-pressed={settings.keepWarm} onClick={() => onPatch({ keepWarm: !settings.keepWarm })}><span /></button>
@@ -68,11 +66,6 @@ export function LiveFeelSettings({
         </div>
         <button type="button" className="toggle mt-1" data-speculative="yes" data-on={settings.speculativeDecoding ? 'yes' : 'no'} aria-pressed={settings.speculativeDecoding} onClick={() => onPatch({ speculativeDecoding: !settings.speculativeDecoding })}><span /></button>
       </div>
-      {live && !live.draftInstalled && live.speculative === 'offer' && (
-        <button type="button" className="btn btn-ghost mt-3" data-draft-download="yes" onClick={() => onDownload(live.draftModelId)}>
-          Download Qwen 0.6B
-        </button>
-      )}
     </div>
   )
 }

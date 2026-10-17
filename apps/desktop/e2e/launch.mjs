@@ -1,5 +1,5 @@
 import { _electron as electron } from '@playwright/test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,8 @@ const desktop = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 export async function launch(env, settings = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'surf-e2e-'))
+  const downloads = join(dir, 'downloads')
+  mkdirSync(downloads)
   writeFileSync(join(dir, 'settings.json'), JSON.stringify({
     onboardingComplete: true,
     theme: 'light',
@@ -25,6 +27,7 @@ export async function launch(env, settings = {}) {
       ...process.env,
       TZ: 'UTC',
       LANG: 'C.UTF-8',
+      SURF_DOWNLOADS_DIR: downloads,
       SURF_MODELS_DIR: '',
       HARBOR_MODELS_DIR: '',
       SURF_DEV_WEB: '',

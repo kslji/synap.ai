@@ -293,12 +293,8 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await go('chat')
     await shot(`chat-${theme}`)
     await go('models')
-    await win.webContents.executeJavaScript(`document.querySelector('[data-model-details="closed"]')?.click()`)
-    await sleep(200)
     await shot(`models-${theme}`)
     await go('settings')
-    await win.webContents.executeJavaScript(`document.querySelector('[data-settings-group="Models"] [data-model-details="closed"]')?.click()`)
-    await sleep(200)
     await shot(`settings-${theme}`)
     await shot(`settings-models-${theme}`)
     const demo = async (scene: string, name: string) => {
@@ -539,9 +535,11 @@ void app.whenReady().then(async () => {
     else app.setAsDefaultProtocolClient('synap')
   }
   if (queuedSetup) services.applySetupLink(queuedSetup)
+  await services.adoptLocal()
   const paths = preloadAndHtml()
   const win: BrowserWindow = createMainWindow(paths.preload, paths.html)
   mainWindow = win
+  win.on('focus', () => { void services.adoptLocal() })
   registerIpc(win, services)
   const stopStreams = () => services.lifecycle.releaseWindow()
   win.on('closed', stopStreams)

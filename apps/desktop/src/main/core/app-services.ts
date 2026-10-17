@@ -22,10 +22,11 @@ import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smal
 import { codePackDir, loadCodePack } from './code-pack.js'
 import { derivePackKey, devBypassEnabled, gatePackDecrypt, licenceAllowsUse } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
-import { accountsBlocked, devModeEnabled, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
+import { adoptFromFolder, adoptRows, adoptVerified } from './adopt-model.js'
+import { accountsBlocked, devModeEnabled, isModelSiteUrl, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
 import { LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
-import { parseSetupModel, resolveSetupModel } from '../../shared/setup-link.js'
+import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
 import { cpuPercent, metricLine, parseProcCpu, type UsageSample } from './live/metrics.js'
@@ -697,7 +698,7 @@ export async function createServices(): Promise<Services> {
       onFile: noteFile,
       embed: (rows) => withModel(async () => {
         const emb = registry().models.find((m) => m.role === 'embedding')
-        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download the search helper in Settings before files can be read.')
+        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('The search helper is not on this computer yet.')
         const server = await ensure('embed', emb, 2048)
         return new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey })).embedDocs(rows)
       }),
@@ -788,7 +789,7 @@ export async function createServices(): Promise<Services> {
     })
     if (!pieces.length) return { pieces: [], ignored }
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download the search helper in Settings before web search can run.')
+    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('The search helper is not on this computer yet.')
     const embedServer = await ensure('embed', emb, 2048)
     const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
     const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
@@ -829,7 +830,7 @@ export async function createServices(): Promise<Services> {
     })
     if (!pieces.length) return { pieces: [], ignored }
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download the search helper in Settings before web search can run.')
+    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('The search helper is not on this computer yet.')
     const embedServer = await ensure('embed', emb, 2048)
     const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
     const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
@@ -1263,7 +1264,7 @@ export async function createServices(): Promise<Services> {
         if (wantDocs || wantPacks || wantSaved) {
           const emb = reg.models.find((m) => m.role === 'embedding')
           if (!emb || !(await installed(emb.file, emb.size_bytes))) {
-            throw new Error('Download the search helper in Settings before search can run.')
+            throw new Error('The search helper is not on this computer yet.')
           }
           const embedServer = await ensure('embed', emb, 2048)
           const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
@@ -1755,6 +1756,47 @@ export async function createServices(): Promise<Services> {
     }),
   })
 
+  const seenAdopt = new Map<string, string>()
+  let adoptChain: Promise<void> = Promise.resolve()
+
+  function downloadsDir(): string {
+    const override = surfEnv('DOWNLOADS_DIR')?.trim()
+    if (override) return override
+    try { return app.getPath('downloads') } catch { return '' }
+  }
+
+  async function takeLocalModels(preferredId: string | null, explicit: string | null): Promise<void> {
+    try {
+      const rows = adoptRows(registry().models)
+      const dest = modelsDir()
+      const found = new Map<string, boolean>()
+      if (explicit) {
+        const one = await adoptVerified(explicit, dest, rows, 'hash', seenAdopt)
+        if (one) found.set(one.id, one.moved)
+      }
+      for (const item of await adoptFromFolder(downloadsDir(), dest, rows, seenAdopt)) {
+        found.set(item.id, found.get(item.id) || item.moved)
+      }
+      if (preferredId && found.has(preferredId)) {
+        const current = readSettings()
+        if (current.chatModelId !== preferredId) writeSettings({ ...current, chatModelId: preferredId })
+      }
+      if ([...found.values()].some(Boolean)) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          safeSend(win, IPC.modelsEvent, { id: 'adopted', done: 1, total: 1, state: 'done' })
+        }
+      }
+    } catch {
+      /* a bad downloads entry must not block launch */
+    }
+  }
+
+  function queueAdopt(preferredId: string | null, explicit: string | null): Promise<void> {
+    const run = adoptChain.then(() => takeLocalModels(preferredId, explicit))
+    adoptChain = run.then(() => undefined, () => undefined)
+    return run
+  }
+
   const services: Services = {
     chat: {
       async send(req, win) {
@@ -1802,13 +1844,11 @@ export async function createServices(): Promise<Services> {
       cancel(id) { inflight.get(id)?.abort() },
     },
     models: { status, download, cancel: cancelDownload, benchmark, importLocal },
+    adoptLocal: () => queueAdopt(null, null),
     applySetupLink(raw: string): string | null {
-      const id = parseSetupModel(raw)
-      if (!id) return null
-      if (downloading && downloading.id !== id && downloadAbort) downloadAbort.abort()
-      const current = readSettings()
-      if (current.chatModelId !== id) writeSettings({ ...current, chatModelId: id })
-      return id
+      const parsed = parseSetupLink(raw)
+      void queueAdopt(parsed.modelId, parsed.filePath)
+      return parsed.modelId
     },
     conversations: {
       list: async () => store.list(),
@@ -1968,7 +2008,7 @@ export async function createServices(): Promise<Services> {
     },
     links: {
       open: async (url) => {
-        if (devMode && isSynapUrl(url)) return
+        if (devMode && isSynapUrl(url) && !isModelSiteUrl(url)) return
         await shell.openExternal(url)
       },
     },

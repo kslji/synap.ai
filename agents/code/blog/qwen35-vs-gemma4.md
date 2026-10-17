@@ -167,12 +167,12 @@ Gemma 4 is a fine choice too, and on a 32 GB laptop the 12B is worth trying for 
 
 ## How to switch models in the app
 
-1. In the sidebar, under **Switch agent**, choose **Code**. That opens a Code chat.
-2. At the top of the chat, open the **Chat model** menu. Each choice shows the family, size, quant, download size, how much RAM it needs, and the RAM tier. The menu lists the models for the memory this computer reports.
-3. Pick a Qwen3.5 or Gemma 4 model. If it is not on the laptop yet, Synap.surf downloads it. After that download, it runs offline.
-4. To read this guide in the app, choose **Which model should I pick?** next to that menu. The same guide is under **Settings**, in **Models**, in the **Code** section. That section has a **Code model** menu and a **Download** button on each row.
+1. Get the model file from synap.surf. The app looks for that file and keeps it on this computer. Nothing downloads from inside the app.
+2. In the sidebar, under **Switch agent**, choose **Code**. That opens a Code chat.
+3. **Chat model** is the file already on this computer. **Settings** shows the same name.
+4. To read this guide in the app, choose **Which model should I pick?** The same guide is under **Settings**, in the **Code** section, next to **Code model**.
 
-You can switch again from the same menu. A model you already downloaded stays on the laptop and is ready the next time you choose it.
+A model already on this computer stays there and is ready the next time you open the app.
 
 If a model fails to load, the chat shows the message from the model server. When a smaller model in the same family exists, the chat also shows **Switch to smaller model**.
 
@@ -184,7 +184,7 @@ If a model fails to load, the chat shows the message from the model server. When
 No. Synap.surf runs the model locally with llama.cpp. Your prompts, files and answers stay on your machine.
 
 **Do I need the internet?**
-Only to download a model the first time. After that, both Qwen3.5 and Gemma 4 run fully offline.
+Only to get a model file from the website the first time. After that, both Qwen3.5 and Gemma 4 run fully offline. The app itself does not fetch the file.
 
 **Can I use these models for commercial work?**
 Both families are released under the Apache 2.0 licence: Qwen3.5 per its [model cards](https://huggingface.co/Qwen/Qwen3.5-9B), Gemma 4 per [Google](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/), which calls it "commercially permissive". Apache 2.0 generally allows commercial use, modification and redistribution, provided you keep the licence and notices. This isn't legal advice. If it matters for your business, read the licence files on the model pages.

@@ -67,6 +67,15 @@ CREATE VIRTUAL TABLE chunk_vec USING vec0(
 );
 `
 
+const FILE_SCHEMA_V2 = `
+ALTER TABLE grants ADD COLUMN embedder TEXT NOT NULL DEFAULT 'hash';
+CREATE TABLE embed_stage (
+  chunk_id INTEGER PRIMARY KEY,
+  grant_id TEXT NOT NULL,
+  embedding BLOB NOT NULL
+);
+`
+
 export type FileDb = DB
 
 export interface GrantRow {
@@ -81,6 +90,7 @@ export interface GrantRow {
   byteSize: number
   status: string
   error: string | null
+  embedder: 'gemma' | 'hash'
 }
 
 export interface StoredChunk {
@@ -103,15 +113,29 @@ export interface RankedChunk {
 
 export function openFileDb(path: string, keyHex: string | null): FileDb {
   mkdirSync(dirname(path), { recursive: true })
-  if (keyHex) return openUserDb(path, keyHex, [FILE_SCHEMA])
+  const db = keyHex ? openUserDb(path, keyHex, [FILE_SCHEMA, FILE_SCHEMA_V2]) : openPlain(path)
+  normalizeEmbedderMeta(db)
+  return db
+}
+
+function openPlain(path: string): FileDb {
   const db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   db.pragma('busy_timeout = 5000')
   db.loadExtension(vecExtensionPath())
-  migrate(db, [FILE_SCHEMA])
+  migrate(db, [FILE_SCHEMA, FILE_SCHEMA_V2])
   return db
 }
+
+function normalizeEmbedderMeta(db: FileDb): void {
+  db.prepare(`UPDATE grants SET status = 'ready' WHERE status = 'indexing'`).run()
+  const saved = metaGet(db, 'embedder')
+  if (saved === 'gemma') db.prepare(`UPDATE grants SET embedder = 'gemma'`).run()
+  if (saved === 'hash' || saved === 'gemma') db.prepare(`DELETE FROM meta WHERE key = 'embedder'`).run()
+}
+
+const GRANT_COLUMNS = `id, path, label, scope, granted_at AS grantedAt, last_indexed_at AS lastIndexedAt, file_count AS fileCount, indexed_count AS indexedCount, byte_size AS byteSize, status, error, embedder`
 
 export function metaGet(db: FileDb, key: string): string | null {
   const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined
@@ -123,13 +147,17 @@ export function metaSet(db: FileDb, key: string, value: string): void {
 }
 
 export function listGrants(db: FileDb): GrantRow[] {
-  const rows = db.prepare('SELECT id, path, label, scope, granted_at AS grantedAt, last_indexed_at AS lastIndexedAt, file_count AS fileCount, indexed_count AS indexedCount, byte_size AS byteSize, status, error FROM grants ORDER BY granted_at').all() as GrantRow[]
-  return rows
+  const rows = db.prepare(`SELECT ${GRANT_COLUMNS} FROM grants ORDER BY granted_at`).all() as GrantRow[]
+  return rows.map(withEmbedder)
 }
 
 export function getGrant(db: FileDb, id: string): GrantRow | null {
-  const row = db.prepare('SELECT id, path, label, scope, granted_at AS grantedAt, last_indexed_at AS lastIndexedAt, file_count AS fileCount, indexed_count AS indexedCount, byte_size AS byteSize, status, error FROM grants WHERE id = ?').get(id) as GrantRow | undefined
-  return row ?? null
+  const row = db.prepare(`SELECT ${GRANT_COLUMNS} FROM grants WHERE id = ?`).get(id) as GrantRow | undefined
+  return row ? withEmbedder(row) : null
+}
+
+function withEmbedder(row: GrantRow): GrantRow {
+  return { ...row, embedder: row.embedder === 'gemma' ? 'gemma' : 'hash' }
 }
 
 export function upsertGrant(db: FileDb, row: { id: string; path: string; label: string; scope: 'once' | 'always'; grantedAt: number }): void {
@@ -138,16 +166,17 @@ export function upsertGrant(db: FileDb, row: { id: string; path: string; label: 
     ON CONFLICT(path) DO UPDATE SET label = excluded.label, scope = excluded.scope, status = 'idle', error = NULL`).run(row.id, row.path, row.label, row.scope, row.grantedAt)
 }
 
-export function updateGrantProgress(db: FileDb, id: string, patch: { fileCount?: number; indexedCount?: number; byteSize?: number; status?: string; error?: string | null; lastIndexedAt?: number | null }): void {
+export function updateGrantProgress(db: FileDb, id: string, patch: { fileCount?: number; indexedCount?: number; byteSize?: number; status?: string; error?: string | null; lastIndexedAt?: number | null; embedder?: 'gemma' | 'hash' }): void {
   const current = getGrant(db, id)
   if (!current) return
-  db.prepare(`UPDATE grants SET file_count = ?, indexed_count = ?, byte_size = ?, status = ?, error = ?, last_indexed_at = ? WHERE id = ?`).run(
+  db.prepare(`UPDATE grants SET file_count = ?, indexed_count = ?, byte_size = ?, status = ?, error = ?, last_indexed_at = ?, embedder = ? WHERE id = ?`).run(
     patch.fileCount ?? current.fileCount,
     patch.indexedCount ?? current.indexedCount,
     patch.byteSize ?? current.byteSize,
     patch.status ?? current.status,
     patch.error === undefined ? current.error : patch.error,
     patch.lastIndexedAt === undefined ? current.lastIndexedAt : patch.lastIndexedAt,
+    patch.embedder ?? current.embedder,
     id,
   )
 }
@@ -195,7 +224,51 @@ export function saveFileChunks(db: FileDb, grantId: string, file: { path: string
   }
 }
 
-export function searchChunks(db: FileDb, query: string, qvec: Float32Array, grantIds: readonly string[], topN = 5): RankedChunk[] {
+export interface StoredPiece {
+  id: number
+  fileId: number
+  name: string
+  text: string
+}
+
+export function chunksForGrant(db: FileDb, grantId: string): StoredPiece[] {
+  return db.prepare('SELECT id, file_id AS fileId, name, text FROM chunks WHERE grant_id = ? ORDER BY id').all(grantId) as StoredPiece[]
+}
+
+export function clearStage(db: FileDb, grantId: string): void {
+  db.prepare('DELETE FROM embed_stage WHERE grant_id = ?').run(grantId)
+}
+
+export function stageEmbedding(db: FileDb, grantId: string, chunkId: number, vector: Float32Array): void {
+  const sized = vector.length === FILE_EMBED_DIM ? vector : fitDim(vector)
+  db.prepare('INSERT INTO embed_stage(chunk_id, grant_id, embedding) VALUES (?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET embedding = excluded.embedding, grant_id = excluded.grant_id').run(chunkId, grantId, vectorBytes(sized))
+}
+
+/** Replace one folder's vectors and its embedder in a single transaction. */
+export function commitStagedEmbeddings(db: FileDb, grantId: string): void {
+  const rows = db.prepare('SELECT chunk_id AS id, embedding FROM embed_stage WHERE grant_id = ?').all(grantId) as { id: number; embedding: Buffer }[]
+  const expected = chunksForGrant(db, grantId).length
+  if (rows.length !== expected) throw new Error('staged embeddings do not cover this folder')
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      deleteVector(db, row.id)
+      db.prepare(`INSERT INTO chunk_vec(chunk_id, embedding) VALUES (${sqlId(row.id)}, ?)`).run(row.embedding)
+    }
+    db.prepare('DELETE FROM embed_stage WHERE grant_id = ?').run(grantId)
+    db.prepare(`UPDATE grants SET embedder = 'gemma', status = 'ready', error = NULL WHERE id = ?`).run(grantId)
+  })
+  tx()
+}
+
+export function embeddingSample(db: FileDb, grantId: string): number | null {
+  const row = db.prepare('SELECT id FROM chunks WHERE grant_id = ? ORDER BY id LIMIT 1').get(grantId) as { id: number } | undefined
+  if (!row) return null
+  const vec = db.prepare(`SELECT embedding FROM chunk_vec WHERE chunk_id = ${sqlId(row.id)}`).get() as { embedding: Buffer } | undefined
+  if (!vec?.embedding?.length) return null
+  return vec.embedding.readFloatLE(0)
+}
+
+export function searchChunks(db: FileDb, query: string, qvec: Float32Array | null, grantIds: readonly string[], topN = 5): RankedChunk[] {
   if (!grantIds.length) return []
   const marks = grantIds.map(() => '?').join(', ')
   const hits = new Map<number, { bm25: number | null; vec: number | null; cosine: number }>()
@@ -214,7 +287,9 @@ export function searchChunks(db: FileDb, query: string, qvec: Float32Array, gran
   } catch {
     /* punctuation: vector side still runs */
   }
-  const vec = db.prepare(`SELECT chunk_id AS id, distance FROM chunk_vec WHERE embedding MATCH ? AND k = 40`).all(vectorBytes(qvec)) as { id: number; distance: number }[]
+  const vec = qvec
+    ? db.prepare(`SELECT chunk_id AS id, distance FROM chunk_vec WHERE embedding MATCH ? AND k = 40`).all(vectorBytes(qvec)) as { id: number; distance: number }[]
+    : []
   const allowed = new Set(grantIds)
   let rank = 0
   const grantOf = db.prepare('SELECT grant_id AS grantId FROM chunks WHERE id = ?')

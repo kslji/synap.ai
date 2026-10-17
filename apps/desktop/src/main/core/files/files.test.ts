@@ -11,8 +11,10 @@ import { isExcluded } from './exclusions.js'
 import { INDEX_BATCH } from './indexer.js'
 import { classifyAccessError, settingsLink } from './os-access.js'
 import { classifyFileAsk, grantAllowed, permissionQuestion, planAccess, suggestedFolders } from './permissions.js'
-import { hashEmbedder } from '../code/embed.js'
-import { openFileDb } from './store.js'
+import { hashEmbedder, type CodeEmbedder } from '../code/embed.js'
+import { composeFileAnswer, composeNameAnswer } from './answer.js'
+import { citedFileSources } from '../../../shared/cited-sources.js'
+import { embeddingSample, openFileDb, type RankedChunk } from './store.js'
 import { createFileSearch } from './service.js'
 import { keepGranted, parseMdfind, parseWindowsSearch, searchFileNames, spotlightInvocation, windowsSearchInvocation, windowsSearchScript } from './search-adapters.js'
 
@@ -243,8 +245,12 @@ test('answers cite the file path', async () => {
     const turn = await search.answerQuestion('find my resume', 'm-cite')
     assert.equal(turn.kind, 'answer')
     if (turn.kind !== 'answer') return
+    assert.match(turn.answer.text, /Kabir Sharma/)
     assert.match(turn.answer.text, /\[S1\]/)
+    assert.doesNotMatch(turn.answer.text, /\[S\d+\]\s+~/)
+    assert.equal(turn.answer.citations.length, citedFileSources(turn.answer.text, turn.answer.citations).length)
     assert.match(turn.answer.citations[0]?.filePath ?? '', /resume\.txt/)
+    assert.equal(turn.answer.citations[0]?.fileName, 'resume.txt')
     assert.match(turn.answer.citations[0]?.title ?? '', /resume\.txt/)
   } finally {
     search.close()
@@ -374,7 +380,43 @@ test('file question eval over a fixture folder', async () => {
   }
 })
 
-test('hash embedder is what the index uses until EmbeddingGemma is installed', async () => {
+test('file answers lead with the passage and cite only markers that appear', () => {
+  const home = '/Users/me'
+  const hit = (name: string, path: string, text: string): RankedChunk => ({
+    id: 1, path, name, heading: null, locator: null, text, cosine: 1, rrf: 1,
+  })
+  const one = composeFileAnswer('find my resume', [
+    hit('resume.txt', '/Users/me/Documents/resume.txt', 'Kabir Sharma resume. Marine engineer.'),
+    hit('notes.md', '/Users/me/Documents/notes.md', 'Harbor ferry notes.'),
+  ], home, 'posix')
+  assert.match(one.text, /^Kabir Sharma resume/)
+  assert.match(one.text, /\[S1\]/)
+  assert.doesNotMatch(one.text, /\[S2\]/)
+  assert.doesNotMatch(one.text, /\[S\d+\]\s+~\//)
+  assert.equal(one.citations.length, 1)
+  assert.equal(one.citations[0]?.fileName, 'resume.txt')
+  assert.equal(citedFileSources(one.text, one.citations).length, 1)
+  assert.equal(citedFileSources(one.text, [...one.citations, { ...one.citations[0], filePath: '/unused' }]).length, 1)
+
+  const both = composeFileAnswer('summarise the notes', [
+    hit('gst-return.pdf', '/Users/me/Downloads/gst-return.pdf', '# GST return\nOutput tax 18400 rupees.'),
+    hit('gst-notes.txt', '/Users/me/Downloads/gst-notes.txt', 'Input tax credit is 3200.'),
+  ], home, 'posix')
+  assert.match(both.text, /18400/)
+  assert.match(both.text, /\[S1\]/)
+  assert.match(both.text, /\[S2\]/)
+  assert.equal(both.text.startsWith('#'), false)
+  assert.doesNotMatch(both.text, /\[S\d+\]\s+\//)
+  assert.equal(both.citations.length, 2)
+  assert.deepEqual(both.citations.map((item) => item.fileName), ['gst-return.pdf', 'gst-notes.txt'])
+
+  const named = composeNameAnswer([{ name: 'resume.txt', path: '/Users/me/Documents/resume.txt' }], home, 'posix')
+  assert.match(named.text, /resume\.txt matches that name\. \[S1\]/)
+  assert.doesNotMatch(named.text, /\[S1\]\s+~/)
+  assert.equal(named.citations.length, 1)
+})
+
+test('hash embedder is temporary until EmbeddingGemma is installed', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'surf-embed-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
@@ -392,6 +434,7 @@ test('hash embedder is what the index uses until EmbeddingGemma is installed', a
   try {
     await search.grant(docs, 'always')
     assert.ok(gemma >= 1)
+    assert.equal(search.list()[0]?.embedder, 'hash')
     const vectors = hashEmbedder()
     assert.equal(vectors.dim, 256)
   } finally {
@@ -399,3 +442,80 @@ test('hash embedder is what the index uses until EmbeddingGemma is installed', a
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('EmbeddingGemma re-embeds a fallback folder and a failed pass leaves the old vectors', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'surf-reembed-'))
+  const docs = join(dir, 'Documents')
+  mkdirSync(docs)
+  writeFileSync(join(docs, 'resume.txt'), 'Kabir Sharma resume. Marine engineer in Mumbai.')
+  writeFileSync(join(docs, 'notes.md'), 'The harbor ferry leaves Pier 4 at 06:40.')
+  const dbPath = join(dir, 'index.sqlite')
+  let current: CodeEmbedder | null = null
+  const phases: string[] = []
+  const search = createFileSearch({
+    dbPath,
+    keyHex: null,
+    home: dir,
+    platform: 'linux',
+    watch: () => ({ close() {} }),
+    sleep: async () => undefined,
+    tryGemma: async () => current,
+    onProgress: (progress) => {
+      if (progress.phase === 'embed') phases.push(`${progress.status}:${progress.done}/${progress.total}`)
+    },
+  })
+  const sample = () => {
+    const id = search.list()[0]?.id
+    if (!id) return null
+    const db = openFileDb(dbPath, null)
+    try { return embeddingSample(db, id) } finally { db.close() }
+  }
+  try {
+    await search.grant(docs, 'always')
+    assert.equal(search.list()[0]?.embedder, 'hash')
+    const before = sample()
+    assert.notEqual(before, 0.5)
+    let calls = 0
+    current = {
+      dim: 256,
+      embedDocs: async (rows) => {
+        calls += 1
+        if (calls > 1) throw new Error('stopped')
+        return rows.map(() => {
+          const vector = new Float32Array(256)
+          vector[0] = 0.5
+          return vector
+        })
+      },
+      embedQueries: async (queries) => queries.map(() => new Float32Array(256)),
+    }
+    await search.upgradeEmbeddings()
+    assert.equal(search.list()[0]?.embedder, 'hash')
+    assert.notEqual(sample(), 0.5)
+    current = constantEmbedder(0.5)
+    await search.upgradeEmbeddings()
+    assert.equal(search.list()[0]?.embedder, 'gemma')
+    assert.equal(sample(), 0.5)
+    assert.ok(phases.some((item) => item.startsWith('indexing:')))
+    assert.ok(phases.some((item) => item.startsWith('ready:')))
+    const found = await search.answerQuestion('find my resume', 'after-gemma')
+    assert.equal(found.kind, 'answer')
+    if (found.kind === 'answer') assert.match(found.answer.citations[0]?.filePath ?? '', /resume\.txt/)
+  } finally {
+    search.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+function constantEmbedder(sample: number): CodeEmbedder {
+  const vector = () => {
+    const out = new Float32Array(256)
+    out[0] = sample
+    return out
+  }
+  return {
+    dim: 256,
+    embedDocs: async (docs) => docs.map(() => vector()),
+    embedQueries: async (queries) => queries.map(() => vector()),
+  }
+}

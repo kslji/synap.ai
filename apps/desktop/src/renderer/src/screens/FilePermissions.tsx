@@ -2,10 +2,15 @@
  * Permission card, indexing progress, and the Settings → Permissions list.
  * Granting always goes through the OS folder picker. Nothing is allowed automatically.
  */
-import { useEffect, useState } from 'react'
-import { BlobMascot } from '@surf/ui'
+import { useEffect, useState, type ReactNode } from 'react'
+import { BlobMascot, parseMarkdown, type Inline } from '@surf/ui'
+import { citedFileSources } from '../../../shared/cited-sources'
 import type { FileFolderGrant, FileIndexProgress, FilePermissionPrompt, FileSuggestFolder } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
+
+export function embedderLabel(kind: 'gemma' | 'hash'): string {
+  return kind === 'gemma' ? 'EmbeddingGemma' : 'Temporary keyword embeddings'
+}
 
 export function formatIndexedAt(ms: number | null): string {
   if (!ms) return 'Not indexed yet'
@@ -39,10 +44,13 @@ export function FilePermissionCard({
 export function IndexingProgress({ progress }: { progress: FileIndexProgress }) {
   const total = Math.max(progress.total, progress.done, 1)
   const width = Math.max(0, Math.min(100, Math.round((progress.done / total) * 100)))
+  const label = progress.phase === 'embed'
+    ? `Updating embeddings ${progress.done} of ${progress.total} files`
+    : `Indexing ${progress.done} of ${progress.total} files`
   return (
-    <div className="file-progress" data-file-progress="yes">
+    <div className="file-progress" data-file-progress="yes" data-file-phase={progress.phase ?? 'index'}>
       <div className="file-progress-meta">
-        <span>Indexing {progress.done} of {progress.total} files</span>
+        <span>{label}</span>
         <span>{formatIndexBytes(progress.byteSize)}</span>
       </div>
       <div className="file-progress-bar" aria-hidden="true"><span style={{ width: `${width}%` }} /></div>
@@ -96,6 +104,7 @@ export function FilePermissionsPage({
               <p>
                 {grant.indexedCount} files indexed · {formatIndexBytes(grant.byteSize)} · {formatIndexedAt(grant.lastIndexedAt)}
                 {grant.scope === 'once' ? ' · this session' : ''}
+                {' · '}<span data-file-embedder={grant.embedder}>{embedderLabel(grant.embedder)}</span>
               </p>
               {progress && progress.grantId === grant.id && progress.status === 'indexing' && <IndexingProgress progress={progress} />}
               {grant.error && <p className="file-denial" data-file-denial="yes">{grant.error}</p>}
@@ -111,6 +120,55 @@ export function FilePermissionsPage({
   )
 }
 
+export interface FileAnswerSource {
+  title: string
+  fileName?: string
+  filePath?: string
+  locator?: string | null
+}
+
+export function FileAnswerBody({
+  text,
+  sources,
+  onOpen,
+}: {
+  text: string
+  sources: FileAnswerSource[]
+  onOpen: (path: string) => void
+}) {
+  const cited = citedFileSources(text, sources)
+  return (
+    <>
+      <div className="file-answer-body text-[15px] leading-relaxed" data-file-answer-body="yes">
+        <AnswerMarkdown source={text} onCite={(n) => { const path = sources[n - 1]?.filePath; if (path) onOpen(path) }} />
+      </div>
+      {cited.length > 0 && (
+        <div className="file-cite-row">
+          {cited.map(({ source, n }) => {
+            const name = source.fileName || source.title
+            const where = source.fileName && source.title !== source.fileName ? source.title : ''
+            const place = [where, source.locator].filter(Boolean).join(' · ')
+            return (
+              <button
+                key={`${n}-${source.filePath}`}
+                type="button"
+                className="pill file-cite"
+                data-citation="yes"
+                data-file-citation="yes"
+                onClick={() => { if (source.filePath) onOpen(source.filePath) }}
+              >
+                <span className="file-cite-mark">S{n}</span>
+                <span className="file-cite-name">{name}</span>
+                {place && <span className="file-cite-path">{place}</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </>
+  )
+}
+
 export function FileAnswerCard({
   text,
   citations,
@@ -118,7 +176,7 @@ export function FileAnswerCard({
   onOpen,
 }: {
   text: string
-  citations: { title: string; filePath?: string }[]
+  citations: FileAnswerSource[]
   searching: boolean
   onOpen: (path: string) => void
 }) {
@@ -127,24 +185,59 @@ export function FileAnswerCard({
       <BlobMascot variant="avatar" state={searching ? 'searching' : 'idle'} size={44} animate={false} />
       <div className="assistant-card">
         {searching && <div className="mb-1 text-sm text-[var(--muted)]" data-file-searching="yes">Searching your files…</div>}
-        <div className="whitespace-pre-wrap text-[15px] leading-relaxed">{text}</div>
-        <div>
-          {citations.map((source, index) => (
-            <button
-              key={source.filePath || source.title}
-              type="button"
-              className="pill file-cite"
-              data-citation="yes"
-              data-file-citation="yes"
-              onClick={() => { if (source.filePath) onOpen(source.filePath) }}
-            >
-              [S{index + 1}] {source.title}
-            </button>
-          ))}
-        </div>
+        <FileAnswerBody text={text} sources={citations} onOpen={onOpen} />
       </div>
     </div>
   )
+}
+
+function AnswerMarkdown({ source, onCite }: { source: string; onCite: (n: number) => void }) {
+  const blocks = parseMarkdown(source)
+  return blocks.map((block, index) => {
+    if (block.type === 'heading') {
+      const tag = block.level <= 2 ? 'h3' : 'h4'
+      return <Heading key={index} tag={tag} nodes={block.children} onCite={onCite} />
+    }
+    if (block.type === 'paragraph') return <p key={index}><InlineBits nodes={block.children} onCite={onCite} /></p>
+    if (block.type === 'list') {
+      const Tag = block.ordered ? 'ol' : 'ul'
+      return (
+        <Tag key={index} className={block.ordered ? 'list-decimal pl-5' : 'list-disc pl-5'}>
+          {block.items.map((item, itemIndex) => <li key={itemIndex}><InlineBits nodes={item} onCite={onCite} /></li>)}
+        </Tag>
+      )
+    }
+    return <p key={index}><InlineBits nodes={block.type === 'table' ? block.header.flat() : []} onCite={onCite} /></p>
+  })
+}
+
+function Heading({ tag, nodes, onCite }: { tag: 'h3' | 'h4'; nodes: Inline[]; onCite: (n: number) => void }) {
+  const content = <InlineBits nodes={nodes} onCite={onCite} />
+  return tag === 'h3' ? <h3 className="text-base font-semibold">{content}</h3> : <h4 className="text-base font-semibold">{content}</h4>
+}
+
+function InlineBits({ nodes, onCite }: { nodes: Inline[]; onCite: (n: number) => void }): ReactNode {
+  return nodes.map((node, index) => {
+    if (node.type === 'text') return <CiteSpans key={index} text={node.text} onCite={onCite} />
+    if (node.type === 'strong') return <strong key={index}><InlineBits nodes={node.children} onCite={onCite} /></strong>
+    if (node.type === 'em') return <em key={index}><InlineBits nodes={node.children} onCite={onCite} /></em>
+    if (node.type === 'code') return <code key={index}>{node.text}</code>
+    return <InlineBits key={index} nodes={node.children} onCite={onCite} />
+  })
+}
+
+function CiteSpans({ text, onCite }: { text: string; onCite: (n: number) => void }) {
+  const parts = text.split(/(\[S\d+\])/g)
+  return parts.map((part, index) => {
+    const mark = /^\[S(\d+)\]$/.exec(part)
+    if (!mark) return <span key={index}>{part}</span>
+    const n = Number(mark[1])
+    return (
+      <button key={index} type="button" className="file-cite-inline" data-file-marker={n} onClick={() => onCite(n)}>
+        {part}
+      </button>
+    )
+  })
 }
 
 export function FilePermissionsPanel() {

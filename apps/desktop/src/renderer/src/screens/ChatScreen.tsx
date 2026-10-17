@@ -10,7 +10,7 @@ import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
 import { CodeModeBar, CodeTrace } from './CodeTrace'
-import { FilePermissionCard } from './FilePermissions'
+import { FileAnswerBody, FilePermissionCard } from './FilePermissions'
 import { CodeEditor } from './CodeEditor'
 import { CodeShots, type CodeShot } from './CodeShots'
 import { Preview } from './LibraryScreen'
@@ -417,9 +417,15 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
             onDeny={() => { void window.surf.files.decide({ promptId: msg.fileAsk!.id, choice: 'deny', path: null }) }}
           />
         )}
-        <div className={`whitespace-pre-wrap text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
-          <CitedText text={shown || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
-        </div>
+        {msg.sources.some((source) => source.filePath) && shown ? (
+          <div className={msg.pending ? 'stream-caret' : ''} data-model-error={msg.error ? 'yes' : 'no'}>
+            <FileAnswerBody text={shown} sources={msg.sources} onOpen={(path) => { void window.surf.files.open(path) }} />
+          </div>
+        ) : (
+          <div className={`whitespace-pre-wrap text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
+            <CitedText text={shown || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
+          </div>
+        )}
         {msg.error && msg.smallerModelId && (
           <button className="btn btn-ghost mt-2" type="button" data-switch-smaller="yes" onClick={() => onSwitchSmaller(msg.smallerModelId!)}>
             Switch to smaller model
@@ -433,9 +439,9 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
             ))}
           </div>
         )}
-        {msg.sources.some((s) => s.kind !== 'web') && (
+        {msg.sources.some((s) => s.kind !== 'web' && !s.filePath) && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {msg.sources.map((s, i) => s.kind === 'web' ? null : (
+            {msg.sources.map((s, i) => s.kind === 'web' || s.filePath ? null : (
               <button
                 key={i}
                 type="button"

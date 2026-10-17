@@ -629,7 +629,10 @@ export async function createServices(): Promise<Services> {
         downloading = { id: modelId, done, total: file.size_bytes }
         send('progress', done)
       }, ac.signal)
-      if (!ac.signal.aborted) send('done', file.size_bytes)
+      if (!ac.signal.aborted) {
+        send('done', file.size_bytes)
+        if (!vision && model.role === 'embedding') void fileSearch?.upgradeEmbeddings()
+      }
     } catch (e) {
       if (ac.signal.aborted || (e as Error).name === 'AbortError') {
         const cancelled = new Error('Download cancelled.')
@@ -2284,7 +2287,7 @@ export async function createServices(): Promise<Services> {
   void warmSelected().catch((error: unknown) => console.warn('[surf] keep-warm:', (error as Error).message))
   return services
 
-  function fileGrantView(row: { id: string; path: string; label: string; scope: 'once' | 'always'; grantedAt: number; lastIndexedAt: number | null; fileCount: number; indexedCount: number; byteSize: number; status: string; error: string | null }): FileFolderGrant {
+  function fileGrantView(row: { id: string; path: string; label: string; scope: 'once' | 'always'; grantedAt: number; lastIndexedAt: number | null; fileCount: number; indexedCount: number; byteSize: number; status: string; error: string | null; embedder: 'gemma' | 'hash' }): FileFolderGrant {
     const denial = row.error ? denialFromMessage(row.error) : null
     const status = row.status === 'indexing' || row.status === 'ready' || row.status === 'error' ? row.status : 'idle'
     return { ...row, scope: row.scope, status, settingsUrl: denial?.settingsUrl ?? null, settingsLabel: denial?.settingsLabel ?? null }

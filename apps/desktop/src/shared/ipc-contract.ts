@@ -872,6 +872,7 @@ export interface FileFolderGrant {
   byteSize: number
   status: 'idle' | 'indexing' | 'ready' | 'error'
   error: string | null
+  embedder: 'gemma' | 'hash'
   settingsUrl: string | null
   settingsLabel: string | null
 }
@@ -910,6 +911,7 @@ export interface FileIndexProgress {
   byteSize: number
   status: 'indexing' | 'ready' | 'error'
   error: string | null
+  phase?: 'index' | 'embed'
 }
 
 export type FileIndexEvent = { type: 'progress'; progress: FileIndexProgress }

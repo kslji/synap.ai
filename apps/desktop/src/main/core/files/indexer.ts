@@ -52,6 +52,7 @@ export interface IndexDeps {
   style: PathStyle
   roots: readonly string[]
   embedder: CodeEmbedder
+  embedderKind?: 'gemma' | 'hash'
   extract?: ExtractOpts
   sleep?: (ms: number) => Promise<void>
   onProgress?: (progress: IndexProgress) => void
@@ -128,7 +129,7 @@ export async function indexGrant(db: FileDb, grantId: string, root: string, deps
     if (done % batchSize === 0 && done < files.length) await sleep(gapMs)
   }
   const finished = Date.now()
-  updateGrantProgress(db, grantId, { fileCount: files.length, indexedCount: done, byteSize: bytes, status: 'ready', error: null, lastIndexedAt: finished })
+  updateGrantProgress(db, grantId, { fileCount: files.length, indexedCount: done, byteSize: bytes, status: 'ready', error: null, lastIndexedAt: finished, embedder: deps.embedderKind })
   deps.onProgress?.({ grantId, path: root, done, total: files.length, byteSize: bytes, status: 'ready', error: null })
   return { files: done, bytes }
 }

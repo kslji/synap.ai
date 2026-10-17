@@ -43,6 +43,7 @@ const grants: FileFolderGrant[] = [
     byteSize: 4_400_000,
     status: 'ready',
     error: null,
+    embedder: 'gemma',
     settingsUrl: null,
     settingsLabel: null,
   },
@@ -58,6 +59,7 @@ const grants: FileFolderGrant[] = [
     byteSize: 1_280_000,
     status: 'indexing',
     error: null,
+    embedder: 'hash',
     settingsUrl: null,
     settingsLabel: null,
   },
@@ -117,10 +119,9 @@ function Gallery() {
       <FileAnswerCard
         searching={false}
         onOpen={() => undefined}
-        text={'I found this in ~/Downloads/razorpay-setup.md. [S1]\n\n[S1] ~/Downloads/razorpay-setup.md\nThe Razorpay key setup uses key_id from the dashboard.'}
+        text={'The Razorpay key setup uses `key_id` from the dashboard. [S1]'}
         citations={[
-          { title: '~/Downloads/razorpay-setup.md', filePath: '/Users/me/Downloads/razorpay-setup.md' },
-          { title: '~/Downloads/gst-return.pdf', filePath: '/Users/me/Downloads/gst-return.pdf' },
+          { title: '~/Downloads/razorpay-setup.md', fileName: 'razorpay-setup.md', filePath: '/Users/me/Downloads/razorpay-setup.md' },
         ]}
       />
     </Frame>

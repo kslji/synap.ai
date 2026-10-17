@@ -71,7 +71,43 @@
   align-items: flex-start;
 }
 .file-answer .assistant-card { flex: 1; }
+.file-answer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.file-answer-body p,
+.file-answer-body h3,
+.file-answer-body h4 { margin: 0; }
+.file-answer-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+.file-cite-inline {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.file-cite-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .file-cite {
   display: inline-flex;
-  margin: 8px 8px 0 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  max-width: 280px;
+  text-align: left;
+}
+.file-cite-mark { font-size: 11px; font-weight: 650; color: var(--muted); }
+.file-cite-name { font-size: 13px; font-weight: 650; }
+.file-cite-path {
+  font-size: 11px;
+  font-weight: 450;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }

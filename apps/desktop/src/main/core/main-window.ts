@@ -9,6 +9,7 @@ import { IPC, type AuthStatus, type BenchmarkResult, type ChunkPreview, type Cod
 import type { ExportFormat } from './ipc-contract.js'
 import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, FileDecideReq as FileDecideBody, FileGrantReq as FileGrantBody, FileLimitsReq, FileOsKind, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
 import { surfEnv } from './surf-env.js'
+import { NO_VOICE, startSpeak, stopSpeak } from './speech.js'
 
 export const CSP = [
   "default-src 'self'",
@@ -347,6 +348,16 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.filesSetLimits, (e, raw) => { assertTrusted(e); return s.files.setLimits(FileLimitsReq.parse(raw)) })
   handle(IPC.filesPause, (e, raw) => { assertTrusted(e); return s.files.pause(z.string().min(1).max(80).parse(raw)) })
   handle(IPC.filesResume, (e, raw) => { assertTrusted(e); return s.files.resume(z.string().min(1).max(80).parse(raw)) })
+  handle(IPC.speechSpeak, async (e, raw) => {
+    assertTrusted(e)
+    const text = z.string().max(8000).parse(raw)
+    const ok = await startSpeak(text)
+    return { ok, note: ok ? '' : NO_VOICE }
+  })
+  handle(IPC.speechStop, (e) => {
+    assertTrusted(e)
+    stopSpeak()
+  })
 }
 
 /** Layout note for electron-vite output: out/main, out/preload, out/renderer. */

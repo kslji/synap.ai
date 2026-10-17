@@ -61,5 +61,5 @@ test('every agent.json has the required fields and the page renders one card eac
   }
   const closed = agents.filter((agent) => !agentCanOpen(agent))
   assert.ok(closed.length >= 3)
-  assert.equal(agents.filter((agent) => agent.status === 'available').map((agent) => agent.id).join(','), 'general')
+  assert.equal(agents.filter((agent) => agent.status === 'available').map((agent) => agent.id).join(','), 'code')
 })

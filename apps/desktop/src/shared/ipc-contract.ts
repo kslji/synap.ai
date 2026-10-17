@@ -89,6 +89,8 @@ export const IPC = {
   filesSetLimits: 'files:set-limits',
   filesPause: 'files:pause',
   filesResume: 'files:resume',
+  speechSpeak: 'speech:speak',
+  speechStop: 'speech:stop',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -862,6 +864,10 @@ export interface SurfApi {
     pause(id: string): Promise<void>
     resume(id: string): Promise<void>
     onEvent(cb: (event: FileIndexEvent) => void): () => void
+  }
+  speech: {
+    speak(text: string): Promise<{ ok: boolean; note: string }>
+    stop(): Promise<void>
   }
 }
 

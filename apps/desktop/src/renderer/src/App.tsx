@@ -36,7 +36,7 @@ export default function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [view, setView] = useState<View>('onboarding')
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [agentId, setAgentId] = useState('general')
+  const [agentId, setAgentId] = useState('code')
   const [codeProject, setCodeProject] = useState<CodeProjectStatus | null>(null)
   const [codeMode, setCodeMode] = useState<CodeAgentModeState | null>(null)
   const [tourStep, setTourStep] = useState<number | null>(null)
@@ -47,7 +47,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [scope, setScope] = useState<DocScope>('chat')
-  const [chatWeb, setChatWeb] = useState(true)
+  const [chatWeb, setChatWeb] = useState(false)
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
   const [account, setAccount] = useState<{ email: string; deviceId: string | null; plan?: string | null } | null>(null)
   const [licence, setLicence] = useState<LicenceStatus | null>(null)
@@ -852,7 +852,7 @@ export default function App() {
           preview={preview}
           webSearchAllowed={settings.webSearchAllowed}
           chatWeb={chatWeb}
-          agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'General'}
+          agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'Code'}
           agentNote={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.notes}
           title={conversations.find((chat) => chat.id === conversationId)?.title}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}

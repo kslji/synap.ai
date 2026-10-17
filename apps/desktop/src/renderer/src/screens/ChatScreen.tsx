@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import { BlobMascot, blobStateFor } from '@surf/ui'
 import { useMascotActivity } from '../mascot-activity'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
@@ -15,6 +15,7 @@ import { CodeEditor } from './CodeEditor'
 import { CodeShots, type CodeShot } from './CodeShots'
 import { Preview } from './LibraryScreen'
 import { ModelGuideButton } from './ModelGuide'
+import { FOLDER_PROMPT } from '../../../main/core/chat-route'
 
 function folderName(root: string): string {
   const parts = root.split(/[/\\]/).filter(Boolean)
@@ -116,7 +117,6 @@ export function ChatScreen({
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
   const [burst, setBurst] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const wasStreaming = useRef(false)
@@ -194,26 +194,20 @@ export function ChatScreen({
           </div>
           {modelGuide && <ModelGuideButton />}
         </header>
-        {project !== undefined && (
+        {project && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-2" data-code-project="yes">
             <div className="min-w-0 text-xs text-[var(--muted)]">
-              {project ? (
-                <>
-                  <span className="font-semibold text-[var(--ink)]">{folderName(project.root)}</span>
-                  {' · '}
-                  {project.state === 'indexing' ? `Indexing ${project.done}/${project.files}` : `${project.files} files`}
-                  {' · '}
-                  {formatIndexBytes(project.bytes)}
-                  {' · '}
-                  {project.embeddings === 'ready' ? 'keywords + embeddings' : project.embeddings === 'pending' ? 'embeddings catching up' : 'keyword index'}
-                  {project.error ? ` · ${project.error}` : ''}
-                </>
-              ) : (
-                'No project open. The index stays in this app private data folder.'
-              )}
+              <span className="font-semibold text-[var(--ink)]">{folderName(project.root)}</span>
+              {' · '}
+              {project.state === 'indexing' ? `Indexing ${project.done}/${project.files}` : `${project.files} files`}
+              {' · '}
+              {formatIndexBytes(project.bytes)}
+              {' · '}
+              {project.embeddings === 'ready' ? 'keywords + embeddings' : project.embeddings === 'pending' ? 'embeddings catching up' : 'keyword index'}
+              {project.error ? ` · ${project.error}` : ''}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {project && onCodeMode && (
+              {onCodeMode && (
                 <CodeModeBar
                   mode={codeMode ?? 'ask'}
                   confirming={confirmingAuto}
@@ -230,7 +224,7 @@ export function ChatScreen({
                 <button type="button" className="btn btn-ghost shrink-0" data-code-stop="yes" onClick={onStop}>Stop</button>
               )}
               <button type="button" className="btn btn-ghost shrink-0" onClick={onOpenProject}>
-                {project ? 'Change folder' : 'Open folder'}
+                Change folder
               </button>
             </div>
           </div>
@@ -242,6 +236,7 @@ export function ChatScreen({
               {!chatReady ? (
                 <>
                   <BlobMascot state={activity.state} size={120} animate={animateMascot} />
+                  <h1 className="empty-title" data-empty-agent="yes">{agentName}</h1>
                   <p className="empty-lead" data-model-missing="yes">{MODEL_MISSING_COPY}</p>
                   <button className="btn btn-primary mt-4" type="button" data-open-site="yes" onClick={() => { void window.surf.links.open(modelSiteUrl()) }}>
                     Open synap.surf
@@ -250,7 +245,7 @@ export function ChatScreen({
               ) : (
                 <>
                   <BlobMascot state={activity.state} size={148} animate={animateMascot} />
-                  <h1 className="empty-title">Hello</h1>
+                  <h1 className="empty-title" data-empty-agent="yes">{agentName}</h1>
                   <p className="empty-lead">
                     {agentNote || `Ask ${agentName} anything. Your files stay here.`}
                   </p>
@@ -264,7 +259,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onOpenFolder={onOpenProject} />)}
             </div>
           )}
         </div>
@@ -288,24 +283,22 @@ export function ChatScreen({
             className={`shell-compose mx-auto max-w-2xl px-3 py-3 ${over ? 'is-over' : ''}`}
             data-upload={over ? 'yes' : 'no'}
           >
-            {searchOpen && (
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <div role="radiogroup" aria-label="Where to search" className="flex gap-1">
-                  <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
-                  <ScopeButton current={scope} id="all" onScope={onScope}>All chats</ScopeButton>
-                </div>
-                <button
-                  type="button"
-                  className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb && !status.offlineOnly ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
-                  data-chat-web={webSearchAllowed && chatWeb && !status.offlineOnly ? 'yes' : 'no'}
-                  aria-pressed={webSearchAllowed && chatWeb && !status.offlineOnly}
-                  title={webSearchAllowed ? 'Search the web for this chat' : 'Turn on web search in Settings'}
-                  onClick={onToggleChatWeb}
-                >
-                  Web search
-                </button>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <div role="radiogroup" aria-label="Where to search" className="flex gap-1">
+                <ScopeButton current={scope} id="chat" onScope={onScope}>This chat</ScopeButton>
+                <ScopeButton current={scope} id="all" onScope={onScope}>All chats</ScopeButton>
               </div>
-            )}
+              <button
+                type="button"
+                className={`rounded-full px-3 py-1 text-xs ${webSearchAllowed && chatWeb && !status.offlineOnly ? 'bg-[var(--accent)] text-[var(--accent-ink)]' : 'bg-[var(--bg-elev)] text-[var(--muted)]'}`}
+                data-chat-web={webSearchAllowed && chatWeb && !status.offlineOnly ? 'yes' : 'no'}
+                aria-pressed={webSearchAllowed && chatWeb && !status.offlineOnly}
+                title={status.offlineOnly ? 'The network is off' : webSearchAllowed ? 'Search the web for this chat' : 'Turn on web search in Settings'}
+                onClick={onToggleChatWeb}
+              >
+                Web search
+              </button>
+            </div>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               {reading && (
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
@@ -329,14 +322,12 @@ export function ChatScreen({
               <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} onAttach={onAddShots} onCapture={onCaptureShot} />
             )}
             <div className="shell-composer flex items-end gap-2">
-              <button type="button" className="composer-icon" aria-label="Attach" data-tip="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}><Plus size={18} strokeWidth={2} /></button>
-              <button type="button" className="composer-icon" aria-label="Search" data-tip="Search" aria-expanded={searchOpen} data-search-tools={searchOpen ? 'open' : 'closed'} onClick={() => setSearchOpen((open) => !open)}><Search size={16} strokeWidth={2} /></button>
+              <button type="button" className="composer-icon" aria-label="Attach" data-tip="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick}><Plus size={18} strokeWidth={2} /></button>
               <textarea
                 className="field min-h-[44px]"
                 rows={1}
                 placeholder={messagePlaceholder(agentName)}
                 value={text}
-                disabled={!chatReady}
                 onChange={(e) => setText(e.target.value)}
                 onPaste={(e) => {
                   if (!onAddShots) return
@@ -352,7 +343,7 @@ export function ChatScreen({
               {streaming && onStop ? (
                 <button className="btn btn-ghost h-9 px-3" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (
-                <button className="send-btn" type="submit" aria-label="Send" data-tip="Send" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}><ArrowUp size={18} strokeWidth={2.4} /></button>
+                <button className="send-btn" type="submit" aria-label="Send" data-tip="Send" disabled={streaming || (!text.trim() && shots.length === 0)}><ArrowUp size={18} strokeWidth={2.4} /></button>
               )}
             </div>
           </div>
@@ -386,7 +377,7 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate }: { msg: UiMsg; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void }) {
+function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onOpenFolder }: { msg: UiMsg; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onOpenFolder?: () => void }) {
   const [versionAt, setVersionAt] = useState<number | null>(null)
   const [wink, setWink] = useState(false)
   const history = msg.versions ?? []
@@ -431,6 +422,9 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
           <button className="btn btn-ghost mt-2" type="button" data-switch-smaller="yes" onClick={() => onSwitchSmaller(msg.smallerModelId!)}>
             Switch to smaller model
           </button>
+        )}
+        {shown.trim() === FOLDER_PROMPT && onOpenFolder && (
+          <button type="button" className="btn btn-primary mt-3" data-open-folder="yes" onClick={onOpenFolder}>Open folder</button>
         )}
         <CodeTrace messageId={msg.id} steps={msg.steps ?? []} diffs={msg.diffs ?? []} plan={msg.plan} onDecide={onCodeDecide} onRevise={onCodeRevise} onUndo={onCodeUndo} onUndoAll={onCodeUndoAll} />
         {msg.tools.length > 0 && (
@@ -544,6 +538,7 @@ function ReplyBar({
   const [note, setNote] = useState('')
   const [copied, setCopied] = useState(false)
   const [more, setMore] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
   return (
     <div className="reply-row" data-reply-actions="yes">
       <button type="button" className="icon-quiet" aria-label="Copy" data-tip="Copy" data-reply-copy="yes" onClick={() => {
@@ -555,7 +550,7 @@ function ReplyBar({
       }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>
       <button type="button" className="icon-quiet" aria-label="Thumbs up" data-tip="Like" data-reply-up="yes" aria-pressed={thumb === 'up'} onClick={() => setThumb((current) => current === 'up' ? null : 'up')}><ThumbsUp size={16} /></button>
       <button type="button" className="icon-quiet" aria-label="Thumbs down" data-tip="Dislike" data-reply-down="yes" aria-pressed={thumb === 'down'} onClick={() => setThumb((current) => current === 'down' ? null : 'down')}><ThumbsDown size={16} /></button>
-      <button type="button" className="icon-quiet" aria-label="Read aloud" data-tip="Speak" data-reply-aloud="yes" onClick={() => { void readAloud(text).then(setNote) }}><Volume2 size={16} /></button>
+      <button type="button" className="icon-quiet" aria-label="Read aloud" data-tip="Speak" data-reply-aloud="yes" data-speaking={speaking ? 'yes' : 'no'} aria-pressed={speaking} onClick={() => { void toggleSpeak(text, setSpeaking).then((next) => { if (next) setNote(next) }) }}><Volume2 size={16} /></button>
       {onRegenerate && <button type="button" className="icon-quiet" aria-label="Regenerate" data-tip="Retry" data-reply-regenerate="yes" onClick={onRegenerate}><RefreshCw size={16} /></button>}
       <button type="button" className="icon-quiet" aria-label="More" data-tip="More" data-reply-more="yes" aria-expanded={more} onClick={() => setMore((open) => !open)}><MoreHorizontal size={16} /></button>
       {versionCount > 1 && (
@@ -588,18 +583,59 @@ async function allowFolder(prompt: { id: string; path: string }, choice: 'once' 
   }
 }
 
-async function readAloud(text: string): Promise<string> {
-  const synth = window.speechSynthesis
-  if (!synth) return 'No system voice is available on this computer.'
+const NO_VOICE = 'No system voice is available on this computer.'
+let speakStop: (() => void) | null = null
+
+function voicesOf(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
   const ready = synth.getVoices()
-  const voices = ready.length ? ready : await new Promise<SpeechSynthesisVoice[]>((resolve) => {
+  if (ready.length) return Promise.resolve(ready)
+  return new Promise((resolve) => {
     const timer = window.setTimeout(() => resolve(synth.getVoices()), 400)
     synth.addEventListener('voiceschanged', () => { window.clearTimeout(timer); resolve(synth.getVoices()) }, { once: true })
   })
-  if (!voices.length) return 'No system voice is available on this computer.'
-  synth.cancel()
-  synth.speak(new SpeechSynthesisUtterance(text))
-  return ''
+}
+
+async function toggleSpeak(text: string, setSpeaking: (on: boolean) => void): Promise<string> {
+  if (speakStop) {
+    speakStop()
+    speakStop = null
+    setSpeaking(false)
+    return ''
+  }
+  let stopped = false
+  const stop = () => {
+    stopped = true
+    window.speechSynthesis?.cancel()
+    void window.surf.speech.stop()
+  }
+  speakStop = stop
+  setSpeaking(true)
+  try {
+    const spoken = text.replace(/\s+/g, ' ').trim().slice(0, 8000)
+    if (!spoken) return ''
+    const synth = window.speechSynthesis
+    const voices = synth ? await voicesOf(synth) : []
+    if (stopped) return ''
+    if (synth && voices.length) {
+      synth.cancel()
+      await new Promise<void>((resolve) => {
+        const utter = new SpeechSynthesisUtterance(spoken)
+        utter.onend = () => resolve()
+        utter.onerror = () => resolve()
+        synth.speak(utter)
+        if (stopped) { synth.cancel(); resolve() }
+      })
+      return ''
+    }
+    const result = await window.surf.speech.speak(spoken)
+    if (stopped || result.ok) return ''
+    return result.note || NO_VOICE
+  } catch {
+    return NO_VOICE
+  } finally {
+    if (speakStop === stop) speakStop = null
+    setSpeaking(false)
+  }
 }
 
 function CitedText({ text, sources, onOpen }: { text: string; sources: UiMsg['sources']; onOpen: (chunkId: number) => void }) {

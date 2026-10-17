@@ -4,7 +4,7 @@
   "description": "Helps with code. You can attach a screenshot. It does not build a live preview of a screen.",
   "icon": "code",
   "accent": "#F97316",
-  "status": "beta",
+  "status": "available",
   "order": 2,
   "notes": "Not for trading or HFT."
 }

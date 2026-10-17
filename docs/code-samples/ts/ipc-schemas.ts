@@ -5,7 +5,7 @@ import type { ChatSendReq as ChatSendReqT, SettingsPatch as SettingsPatchT } fro
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
   text: z.string().min(1).max(20_000),
-  agentId: z.string().max(64).default('general'),
+  agentId: z.string().max(64).default('code'),
   // images are passed as small PNG/JPEG data (the renderer never gets file-system paths)
   images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg']), base64: z.string().max(14_000_000) })).max(4).default([]),
   allowWeb: z.boolean().default(false),

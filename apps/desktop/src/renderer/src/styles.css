@@ -74,7 +74,8 @@ a { color: var(--accent-text); }
   cursor: pointer;
 }
 .icon-quiet:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
-.icon-quiet[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+.icon-quiet[aria-pressed="true"],
+.icon-quiet[data-speaking="yes"] { background: var(--accent-soft); color: var(--accent-text); }
 .icon-quiet:disabled { opacity: 0.4; cursor: not-allowed; }
 .icon-quiet:focus-visible, .icon-btn:focus-visible, .composer-icon:focus-visible, .send-btn:focus-visible {
   outline: 2px solid var(--accent-text);
@@ -166,11 +167,30 @@ a { color: var(--accent-text); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   padding: 8px 10px;
   font-size: 14px;
 }
-.account-row span { display: inline-flex; align-items: center; gap: 10px; }
+.account-row {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.account-row > .theme-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+.account-row > .toggle { flex: 0 0 auto; margin-left: auto; }
+.account-agent {
+  margin: 0;
+  padding: 4px 10px 8px;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
 .account-label { color: #a1a1aa; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
 .shell-title {
   display: inline-flex;
@@ -377,6 +397,7 @@ a { color: var(--accent-text); }
 :root[data-theme="dark"] .icon-tile.is-blue { background: #172554; color: #93c5fd; }
 :root[data-theme="dark"] .icon-tile.is-teal { background: #132e2b; color: #5eead4; }
 .theme-card {
+  min-width: 0;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: var(--bg);

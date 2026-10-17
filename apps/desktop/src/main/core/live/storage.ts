@@ -44,6 +44,11 @@ export function screenshotBelongsInCache(savedPath: string, appDataDir: string):
   return parts[0] === 'screenshots' && parts.length > 1
 }
 
+/** Models and chats are not cache. Clear must not delete them. */
+export function storageClearAllowed(category: StorageCategoryId): boolean {
+  return category !== 'models' && category !== 'chats'
+}
+
 export function sumBytes(items: readonly { bytes: number }[]): number {
   return items.reduce((sum, item) => sum + Math.max(0, item.bytes), 0)
 }

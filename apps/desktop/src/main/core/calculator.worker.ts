@@ -44,4 +44,6 @@ function handle(req: CalcRequest): CalcResponse {
   }
 }
 
+export { handle }
+
 parentPort?.on('message', (req: CalcRequest) => parentPort!.postMessage(handle(req)));

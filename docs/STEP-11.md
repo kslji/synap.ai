@@ -15,7 +15,10 @@ Desktop version **0.2.0**.
 - Dev mode is shown when the unpackaged dev licence flag is on. Term length is shown only when the signed licence has it. Plan names and prices are not shown.
 - The app version is `app.getVersion()`.
 - The desktop app does not download models. The website downloads Qwen 2B, 4B, and 9B from the registry URLs. On launch the app checks the Downloads folder, and a `synap://setup` link that includes a file path, against the registry SHA-256, then moves a match into the models folder. If none is found, chat shows "Get your model from synap.surf to start chatting" and a button that opens the website. Settings lists an installed model by its plain name.
-- Each chat keeps the agent it was started with. The header shows that name beside the title, each sidebar row has a tag, and the input says Message Code…. A new chat is titled New Code chat until the first message. The account menu opens that agent's latest chat, or starts one. It does not retitle the chat that was already open. Coming soon agents appear in the filter once they have a chat.
+- Each chat keeps the agent it was started with. The header shows that name beside the title, each sidebar row has a tag, and the input says Message Code…. A new chat is a Code chat. The account menu shows Agent: Code. General, Assistant, Marine, Pilot, and Construction stay on the card as coming soon. There is no All / General / Code filter. The open chat stays in the list and is highlighted.
+- Arithmetic such as “what is 2+2” is calculated on this computer, then the model phrases that exact number. Greetings, explanations, and small code questions go to the local model. Web search runs only when the Web search chip is on, or the question needs something current and the network is on. It uses public pages on the device. It does not call api.synap.surf. A failed search still answers from the model and says so. “Showing results for …” appears only when a web page was used. Offline mode says the network is off and does not fetch.
+- Read aloud uses the system voice. A second click stops it. If this computer has no voice, the reply row says so. The text is not uploaded.
+- Cache Clear does not remove models or chats. A chat with no model shows the website download line and https://synap.surf/#download.
 
 ## Not shown, because there is no real source
 

@@ -18,6 +18,18 @@ import { createCompletionRuntime, type CompletionRuntime } from './code-agent/co
 import { normalizeLanguagesOff, tabSuggestionsDefault } from './code-agent/completion/policy.js'
 import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { labelFromAgentId, newChatTitle } from '../../shared/chat-title.js'
+import {
+  DEVICE_REPLY,
+  FOLDER_PROMPT,
+  NO_MODEL_MESSAGE,
+  OFFLINE_WEB_NOTE,
+  WEB_FAIL_NOTE,
+  phraseMath,
+  routeTurn,
+  wantsProjectFiles,
+  withWebBanner,
+  type MathJob,
+} from './chat-route.js'
 import { readAgentName } from './agent-names.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
@@ -32,6 +44,7 @@ import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
 import { cpuPercent, metricLine, parseProcCpu, type UsageSample } from './live/metrics.js'
+import { storageClearAllowed } from './live/storage.js'
 import {
   DRAFT_MODEL_ID,
   DEFAULT_IDLE_UNLOAD_MINUTES,
@@ -134,7 +147,6 @@ import {
 } from './auth-session.js'
 import {
   HINT_FAILED,
-  HINT_OFFLINE,
   decideWeb,
   domainOf,
   formatWebCitation,
@@ -191,7 +203,7 @@ export class ModelLoadError extends Error {
 
 const DEFAULT_SETTINGS: Settings = {
   offlineOnly: false,
-  webSearchAllowed: false,
+  webSearchAllowed: true,
   telemetryOptIn: false,
   chatModelId: '',
   codeModelId: '',
@@ -499,12 +511,16 @@ export async function createServices(): Promise<Services> {
     if (preferredId) {
       const pref = chats.find((m) => m.id === preferredId)
       if (pref && await ready(pref)) return pref
-      if (pref && agentId === 'code') return null
     }
     if (agentId === 'code') {
       const fallback = defaultForAgent(reg, 'code')
       if (fallback && await ready(fallback)) return fallback
-      return null
+      const any: ModelEntry[] = []
+      for (const model of withLocal(reg).models) {
+        if (model.role === 'chat' && await ready(model) && fits(model)) any.push(model)
+      }
+      any.sort((a, b) => (b.params_b ?? 0) - (a.params_b ?? 0))
+      return any[0] ?? null
     }
     const recommended = pick(reg, 'chat', hw.tier, agentId)
     if (await ready(recommended)) return recommended
@@ -842,16 +858,22 @@ export async function createServices(): Promise<Services> {
       }))
     })
     if (!pieces.length) return { pieces: [], ignored }
+    const plain = pieces.slice(0, 4).map((piece) => ({ ...piece, cosine: 1, vec: new Float32Array() }))
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('The search helper is not on this computer yet.')
-    const embedServer = await ensure('embed', emb, 2048)
-    const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-    const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
-    const [qvec] = await embedder.embedQueries([question])
-    const ranked = rankPassages(qvec, pieces.map((piece, i) => ({ ...piece, vec: vectors[i] })), 4)
-      .filter((piece) => piece.cosine >= WEB_FLOOR)
-      .map((piece) => piece.downrank ? { ...piece, cosine: piece.cosine * 0.5 } : piece)
-    return { pieces: ranked, ignored }
+    if (!emb || !(await installed(emb.file, emb.size_bytes))) return { pieces: plain, ignored }
+    try {
+      const embedServer = await ensure('embed', emb, 2048)
+      const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
+      const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
+      const [qvec] = await embedder.embedQueries([question])
+      const rankedAll = rankPassages(qvec, pieces.map((piece, i) => ({ ...piece, vec: vectors[i] ?? new Float32Array() })), 4)
+        .map((piece) => piece.downrank ? { ...piece, cosine: piece.cosine * 0.5 } : piece)
+      const ranked = rankedAll.filter((piece) => piece.cosine >= WEB_FLOOR)
+      return { pieces: ranked.length ? ranked : rankedAll.slice(0, 2), ignored }
+    } catch (error) {
+      console.warn('[surf] search ranking skipped:', (error as Error).message)
+      return { pieces: plain, ignored }
+    }
   }
 
   function hasSavedWeb(conversationId: string | null): boolean {
@@ -942,9 +964,8 @@ export async function createServices(): Promise<Services> {
   async function replyCode(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     const root = codeApi.root()
     if (!root) {
-      const message = 'Open a project folder to use the Code agent. Files stay on this computer.'
-      await emitText(win, messageId, message)
-      finish(conversationId, messageId, userMessageId, win, message, [], 'answer')
+      await emitText(win, messageId, FOLDER_PROMPT)
+      finish(conversationId, messageId, userMessageId, win, FOLDER_PROMPT, [], 'answer', true)
       return
     }
     const loaded = await loadCodePack(codePackDir(app.getPath('userData')), trustedPackKeys())
@@ -960,8 +981,9 @@ export async function createServices(): Promise<Services> {
       const reg = registry()
       const chatModel = await chooseChat(reg, settings.codeModelId, 'code')
       if (!chatModel) {
-        const suggested = reg.models.find((m) => m.id === settings.codeModelId) ?? defaultForAgent(reg, 'code') ?? pick(reg, 'chat', hw.tier)
-        throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
+        await emitText(win, messageId, NO_MODEL_MESSAGE)
+        finish(conversationId, messageId, userMessageId, win, NO_MODEL_MESSAGE, [], 'insufficient', true)
+        return
       }
       const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
       const server = await ensure('chat', chatModel, profile.serverCtx, '', 'code')
@@ -1162,12 +1184,76 @@ export async function createServices(): Promise<Services> {
     finish(wait.conversationId, wait.messageId, wait.userMessageId, wait.win, text, citations, gate)
   }
 
+  async function sayMath(req: ChatReq, job: MathJob, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+    const ran = job.kind === 'calc' ? await calc.calc(job.expression) : await calc.convert(job.value, job.from, job.to)
+    if (!ran.ok) {
+      const message = `I couldn't work that out (${ran.error}).`
+      await emitText(win, messageId, message)
+      finish(conversationId, messageId, userMessageId, win, message, [], 'answer', true)
+      return
+    }
+    sendEvent(win, { type: 'tool', messageId, name: job.kind === 'calc' ? 'calculator' : 'unit_convert', input: job.label, output: ran.result })
+    let modelText = ''
+    const agentId = req.agentId || 'code'
+    try {
+      const settings = readSettings()
+      const model = await chooseChat(registry(), agentId === 'code' ? settings.codeModelId : settings.chatModelId, agentId)
+      if (model) {
+        const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+        const server = await ensure('chat', model, profile.serverCtx, '', agentId)
+        const client = new LlamaClient({
+          baseUrl: server.baseUrl,
+          apiKey: server.apiKey,
+          sampling: chatSampling(model),
+          chatTemplateKwargs: model.chat_template_kwargs,
+        })
+        const res = await client.chat([{
+          role: 'user',
+          content: `The calculator result of ${job.label} is ${ran.result}. Reply with one short sentence that states this result. Use the number ${ran.result} exactly.`,
+        }], undefined, signal, 80)
+        modelText = String(res.choices[0]?.message?.content ?? '')
+      }
+    } catch (error) {
+      if (signal.aborted) return
+      console.warn('[surf] calculator phrase skipped:', (error as Error).message)
+    }
+    const answer = phraseMath(job.label, ran.result, modelText)
+    await emitText(win, messageId, answer)
+    finish(conversationId, messageId, userMessageId, win, answer, [], 'answer', true)
+  }
+
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     if (fileSearch && classifyFileAsk(req.text)) {
       const handled = await answerFromFiles(req.text, conversationId, messageId, userMessageId, win)
       if (handled) return
     }
-    if ((req.agentId || 'general') === 'code') {
+    const text = req.text
+    const settingsNow = readSettings()
+    const connectedNow = reachNow(settingsNow.offlineOnly)
+    const turn = routeTurn({
+      text,
+      webChip: req.allowWeb === true,
+      online: connectedNow.online,
+      offlineOnly: settingsNow.offlineOnly,
+      hasFolder: Boolean(codeApi.root()),
+    })
+    let searchNote = turn.note ?? ''
+    if (turn.kind === 'device') {
+      await emitText(win, messageId, DEVICE_REPLY)
+      finish(conversationId, messageId, userMessageId, win, DEVICE_REPLY, [], 'answer', true)
+      return
+    }
+    if (turn.kind === 'folder' || (req.images.length > 0 && !codeApi.root())) {
+      await emitText(win, messageId, FOLDER_PROMPT)
+      finish(conversationId, messageId, userMessageId, win, FOLDER_PROMPT, [], 'answer', true)
+      return
+    }
+    if (turn.kind === 'math' && turn.math) {
+      await sayMath(req, turn.math, conversationId, messageId, userMessageId, win, signal)
+      return
+    }
+    const earlyAgent = req.agentId || 'code'
+    if (earlyAgent === 'code' && codeApi.root() && (wantsProjectFiles(text) || req.images.length > 0)) {
       await replyCode(req, conversationId, messageId, userMessageId, win, signal)
       return
     }
@@ -1179,7 +1265,6 @@ export async function createServices(): Promise<Services> {
     }
     const settings = readSettings()
     const reg = registry()
-    const text = req.text
     if (devWebEnabled()) {
       const command = parseDevWebCommand(text)
       if (command) {
@@ -1216,7 +1301,7 @@ export async function createServices(): Promise<Services> {
       return
     }
 
-    const agentId = req.agentId || 'general'
+    const agentId = req.agentId || 'code'
     if (agentId === 'code') {
       const loaded = await loadCodePack(codePackDir(app.getPath('userData')), trustedPackKeys())
       const codeGate = gatePackDecrypt(loaded.status !== 'absent', {
@@ -1443,13 +1528,20 @@ export async function createServices(): Promise<Services> {
         fromDocs = fromDocs || Boolean(route.local.fileName)
       }
       const connected = reachNow(settings.offlineOnly)
-      const plan = decideWeb({
+      let plan = decideWeb({
         local: decision,
         fresh,
         online: connected.online,
         offlineOnly: settings.offlineOnly,
         webAllowed,
       })
+      if (turn.kind === 'web' && settings.webSearchAllowed) plan = { branch: 'web' }
+      else if (!claimTopic(text)) {
+        plan = { branch: 'local' }
+        if (turn.kind === 'web' && !settings.webSearchAllowed && !searchNote) {
+          searchNote = 'Web search is off in Settings, so this answer is from the model on this computer.'
+        }
+      }
       if (plan.branch === 'refuse') {
         const needsSignIn = fixtureMode && !dev && settings.webSearchAllowed && req.allowWeb !== false && !signedIn && connected.online && !settings.offlineOnly && (fresh || decision === 'insufficient' || decision === 'skip')
         const message = needsSignIn ? 'Sign in to search the web, or add a document.' : refusalMessage(plan.hint ?? HINT_FAILED)
@@ -1460,37 +1552,71 @@ export async function createServices(): Promise<Services> {
 
       const preferred = agentId === 'code' ? settings.codeModelId : settings.chatModelId
       const chatModel = await chooseChat(reg, preferred, agentId)
-      if (!chatModel) {
-        const suggested = agentId === 'code'
-          ? (reg.models.find((m) => m.id === preferred) ?? defaultForAgent(reg, 'code') ?? pick(reg, 'chat', hw.tier))
-          : pick(reg, 'chat', hw.tier)
-        throw new Error(`Download ${labelFor(suggested)} in Models before chatting.`)
-      }
       const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      if (!chatModel && plan.branch !== 'web' && plan.branch !== 'blend') {
+        const message = searchNote ? `${NO_MODEL_MESSAGE}\n\n${searchNote}` : NO_MODEL_MESSAGE
+        await emitText(win, messageId, message)
+        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
+        return
+      }
       let webHits: WebPiece[] = []
       let webIgnored: Array<{ url: string; title: string; flags: string[] }> = []
       if (plan.branch === 'web' || plan.branch === 'blend') {
         sendEvent(win, { type: 'status', messageId, phase: 'searching' })
         try {
-          const collected = await collectWeb(text, signal, chatModel, profile.serverCtx, win, messageId, agentId)
+          const collected = chatModel
+            ? await collectWeb(text, signal, chatModel, profile.serverCtx, win, messageId, agentId)
+            : await collectLocal(text, signal)
           webHits = collected.pieces
           webIgnored = collected.ignored
         } catch (error) {
           if (signal.aborted) return
-          if (plan.branch === 'web' || error instanceof OfflineOnlyError) {
-            const message = refusalMessage(error instanceof OfflineOnlyError ? HINT_OFFLINE : HINT_FAILED)
+          if (error instanceof OfflineOnlyError) {
+            searchNote = OFFLINE_WEB_NOTE
+            webHits = []
+          } else if (claimTopic(text)) {
+            const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
             await emitText(win, messageId, message)
-            finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
+            finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
+            return
+          } else {
+            console.warn('[surf] web search skipped:', (error as Error).message)
+            searchNote = WEB_FAIL_NOTE
+            webHits = []
+          }
+        }
+        if (webHits.length === 0 && (plan.branch === 'web' || plan.branch === 'blend')) {
+          if (claimTopic(text)) {
+            const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
+            await emitText(win, messageId, message)
+            finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
             return
           }
-          webHits = []
+          if (!searchNote) searchNote = WEB_FAIL_NOTE
         }
-        if (plan.branch === 'web' && webHits.length === 0) {
-          const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
-          await emitText(win, messageId, message)
-          finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
+      }
+      if (!chatModel) {
+        if (webHits.length) {
+          const quoted = webHits.slice(0, 3).map((hit, index) => `[S${index + 1}] ${hit.title}\n${hit.text.slice(0, 500)}`).join('\n\n')
+          const answer = withWebBanner(quoted, activeRegion.label, true)
+          const sources: Citation[] = webHits.map((hit) => ({
+            kind: 'web' as const,
+            title: hit.title,
+            url: hit.url,
+            domain: domainOf(hit.url),
+            published: prettyDate(hit.published) || null,
+            pack: 'web',
+            excerpt: formatWebCitation({ title: hit.title, url: hit.url, published: hit.published }),
+          }))
+          sendEvent(win, { type: 'sources', messageId, sources })
+          await emitText(win, messageId, answer)
+          finish(conversationId, messageId, userMessageId, win, answer, sources, 'web', true)
           return
         }
+        const message = [NO_MODEL_MESSAGE, searchNote].filter(Boolean).join('\n\n')
+        await emitText(win, messageId, message)
+        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
+        return
       }
       const topic = claimTopic(text)
       if (topic && webHits.length === 0 && hits.length === 0 && !needsCalculator(text)) {
@@ -1660,19 +1786,25 @@ export async function createServices(): Promise<Services> {
         }),
       })
       let answerSources = sources
-      if (grounded.blocked.length) {
-        answer = `${regionBanner(activeRegion.label)}\n${grounded.text}`
+      const blockedClaim = grounded.blocked.length > 0 && claimTopic(text) != null
+      if (blockedClaim) {
+        answer = withWebBanner(grounded.text, activeRegion.label, webHits.length > 0)
         answerSources = []
         replaceStream = true
-      } else if (grounded.text !== answer) {
+      } else if (!grounded.blocked.length && grounded.text !== answer) {
         answer = grounded.text
         replaceStream = true
       }
-      if (webHits.length && !grounded.blocked.length) {
-        const banner = regionBanner(activeRegion.label)
-        if (!answer.includes(banner)) answer = `${banner}\n${answer}`
+      if (webHits.length && !blockedClaim) {
+        answer = withWebBanner(answer, activeRegion.label, true)
         answer = ensureCitationMarkers(answer, sources)
         answer = withPackVersions(answer, sources)
+        replaceStream = true
+      } else if (!webHits.length) {
+        answer = withWebBanner(answer, activeRegion.label, false)
+      }
+      if (searchNote && !answer.includes(searchNote)) {
+        answer = `${answer}\n\n${searchNote}`
         replaceStream = true
       }
       if (checked.echoed && scoreText(answer).action === 'drop' && scoreText(text).action !== 'drop') {
@@ -1878,7 +2010,7 @@ export async function createServices(): Promise<Services> {
           const ac = new AbortController()
           const messageId = req.replaceMessageId
           inflight.set(messageId, ac)
-          const bound = { ...req, agentId: store.agentOf(conversationId) || req.agentId || 'general' }
+          const bound = { ...req, agentId: store.agentOf(conversationId) || req.agentId || 'code' }
           void reply(bound, conversationId, messageId, userMessageId, win, ac.signal)
             .catch((e: unknown) => {
               if (ac.signal.aborted) return
@@ -1890,7 +2022,7 @@ export async function createServices(): Promise<Services> {
         }
         const messageId = randomUUID()
         const userMessageId = randomUUID()
-        const agentId = (req.conversationId && store.agentOf(req.conversationId)) || req.agentId || 'general'
+        const agentId = (req.conversationId && store.agentOf(req.conversationId)) || req.agentId || 'code'
         const conversationId = store.ensure(req.conversationId, req.text, agentId)
         store.append(conversationId, { id: userMessageId, role: 'user', text: req.text, sources: [] })
         ui = win
@@ -2627,17 +2759,8 @@ export async function createServices(): Promise<Services> {
   }
 
   async function clearStorage(category: StorageCategoryId, itemId?: string): Promise<StorageReport> {
+    if (!storageClearAllowed(category)) return storageReport()
     const root = app.getPath('userData')
-    if (category === 'models') {
-      const dir = categoryDir(category, root)
-      assertInsideAppData(root, dir)
-      if (itemId) assertInsideAppData(root, join(dir, safeItemName(category, itemId)))
-      await withModel(() => stopActive())
-    }
-    if (category === 'chats') {
-      store.clearHistory()
-      return storageReport()
-    }
     if (category === 'web') {
       if (store.db && (!itemId || itemId === 'web')) clearSavedWeb(store.db)
       if (store.db && (!itemId || itemId === 'search-cache')) clearSearchCache(store.db)
@@ -2922,7 +3045,7 @@ export async function createServices(): Promise<Services> {
     const { deps, queue } = requireLibrary()
     let cid = conversationId
     if (!cid && createConversation) {
-      const id = agentId || 'general'
+      const id = agentId || 'code'
       const name = readAgentName(id, agentRoots()) ?? labelFromAgentId(id)
       cid = store.ensure(null, newChatTitle(name), id)
     }

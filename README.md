@@ -164,15 +164,15 @@ SURF_MODELS_DIR=~/surf-models npm run eval
 | `services/packs` | Build and sign a knowledge pack from a folder of documents |
 | `deploy` | Docker Compose: Caddy, API, Postgres/pgvector, Valkey, SearXNG |
 | `pipelines/ingest` | Day 6 placeholder |
-| `packages/ui` | Theme and Star Surf |
+| `packages/ui` | Theme and the Surf Bot blob |
 | `packages/shared` | Product constants |
 | `docs` | Architecture, diagrams, code samples |
 
 ## Design
 
-One theme, in `packages/ui/src/tokens.css`: white and near-black surfaces, black or white text, orange `#F97316` as the only accent. Light and dark both read those variables. The default is Light. Star Surf is the only character. The motion is CSS, and it respects reduced motion.
+One theme, in `packages/ui/src/tokens.css`: white and near-black surfaces, black or white text, orange `#F97316` as the only accent. Light and dark both read those variables. The default is Light. Surf Bot is the only character, an SVG blob. Reduced motion lowers the amplitude and skips sparkles. The installed icon stays the default orange.
 
-The portable zip pack (RAM picker, `LOCAL-SETUP`, `SURF-OPEN`, in-zip `check-pack`) is removed. Model size is chosen in the desktop app's first launch. `build.txt` publishes `apps/web/dist` and drops the old zip pages from the live site.
+The portable zip pack (RAM picker, `LOCAL-SETUP`, `SURF-OPEN`, in-zip `check-pack`) is removed. Model files are downloaded from the website. The app finds a verified file and moves it in. `build.txt` publishes `apps/web/dist` and drops the old zip pages from the live site.
 
 No paid services, no bundled model weights. `resources/bin` and `*.gguf` are gitignored.
 

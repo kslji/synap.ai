@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
-import { StarSurf, starStateFor } from '@surf/ui'
+import { BlobMascot, blobStateFor } from '@surf/ui'
+import { useMascotActivity } from '../mascot-activity'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { friendlyNameFromId } from '../../../shared/model-label'
 import { quoteChipLabel } from '../../../shared/quote'
@@ -114,22 +115,58 @@ export function ChatScreen({
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [burst, setBurst] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  const wasStreaming = useRef(false)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const activity = useMascotActivity()
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
-  const searching = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'reading'))
-  const mood = searching
+  const webSearch = messages.some((m) => m.pending && m.phase === 'searching')
+  const webRead = messages.some((m) => m.pending && m.phase === 'reading')
+  const writing = Boolean(streaming && pending?.text)
+  const toolRun = Boolean(pending && (pending.tools.length > 0 || (pending.steps?.length ?? 0) > 0) && !pending.text)
+  const live = webSearch
     ? 'searching'
-    : streaming
-      ? pending && (pending.tools.length > 0 || (pending.steps?.length ?? 0) > 0) && !pending.text
-        ? 'working'
-        : pending && !pending.text
-          ? 'thinking'
-          : 'answering'
-      : status.offlineOnly || !status.online
-        ? 'offline'
-        : 'idle'
+    : reading || webRead
+      ? 'reading'
+      : writing
+        ? 'writing'
+        : streaming && toolRun
+          ? 'working'
+          : streaming && pending && !pending.text
+            ? 'thinking'
+            : 'idle'
+  const waiting = messages.some((m) => (m.steps ?? []).some((step) => step.status === 'waiting') || (m.diffs ?? []).some((diff) => diff.status === 'pending') || m.plan?.status === 'review')
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
+  useEffect(() => {
+    if (streaming) { wasStreaming.current = true; return }
+    if (!wasStreaming.current) return
+    wasStreaming.current = false
+    const last = [...messagesRef.current].reverse().find((m) => m.role === 'assistant')
+    if (!last || last.pending) return
+    setBurst(last.error ? 'oops' : 'happy')
+    const id = window.setTimeout(() => setBurst(null), 1600)
+    return () => window.clearTimeout(id)
+  }, [streaming])
+  const { setTask, setTyping, setPermission, setCaret } = activity
+  useEffect(() => {
+    setTask(burst ?? live)
+    return () => setTask(null)
+  }, [setTask, burst, live])
+  useEffect(() => {
+    setTyping(text.trim().length > 0)
+    return () => setTyping(false)
+  }, [setTyping, text])
+  useEffect(() => {
+    setPermission(waiting)
+    return () => setPermission(false)
+  }, [setPermission, waiting])
+  useEffect(() => {
+    setCaret(writing ? ((pending?.text.length ?? 0) % 42) / 42 : null)
+  }, [setCaret, writing, pending?.text])
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
@@ -199,7 +236,7 @@ export function ChatScreen({
             <div className="empty-chat">
               {!chatReady ? (
                 <>
-                  <StarSurf state={starStateFor(reading ? 'working' : mood)} size={120} />
+                  <BlobMascot state={activity.state} size={120} animate={animateMascot} />
                   <p className="empty-lead" data-model-missing="yes">{MODEL_MISSING_COPY}</p>
                   <button className="btn btn-primary mt-4" type="button" data-open-site="yes" onClick={() => { void window.surf.links.open(modelSiteUrl()) }}>
                     Open synap.surf
@@ -207,7 +244,7 @@ export function ChatScreen({
                 </>
               ) : (
                 <>
-                  <StarSurf state={starStateFor(reading ? 'working' : mood)} size={148} />
+                  <BlobMascot state={activity.state} size={148} animate={animateMascot} />
                   <h1 className="empty-title">Hello</h1>
                   <p className="empty-lead">
                     {agentNote || `Ask ${agentName} anything. Your files stay here.`}
@@ -222,7 +259,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} mood={mood} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} />)}
             </div>
           )}
         </div>
@@ -267,7 +304,7 @@ export function ChatScreen({
             <div className="mb-2 flex flex-wrap items-center gap-2">
               {reading && (
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
-                  <StarSurf state="searching" size={36} />
+                  <BlobMascot state="reading" size={36} variant="avatar" animate={animateMascot} />
                   Reading files
                 </span>
               )}
@@ -344,8 +381,9 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate }: { msg: UiMsg; mood: string; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void }) {
+function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate }: { msg: UiMsg; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void }) {
   const [versionAt, setVersionAt] = useState<number | null>(null)
+  const [wink, setWink] = useState(false)
   const history = msg.versions ?? []
   const showingOld = versionAt != null && versionAt < history.length
   const shown = showingOld ? history[versionAt] ?? msg.text : msg.text
@@ -356,10 +394,11 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
       </div>
     )
   }
-  const creature = msg.pending ? mood : msg.error ? 'error' : msg.gate === 'answer' || msg.gate === 'web' ? 'success' : 'idle'
+  const waitingHere = (msg.steps ?? []).some((step) => step.status === 'waiting') || (msg.diffs ?? []).some((diff) => diff.status === 'pending') || msg.plan?.status === 'review'
+  const creature = waitingHere ? 'permission' : msg.pending ? live : msg.error ? 'oops' : burst && msg.id === latestId ? burst : 'idle'
   return (
     <div className="msg-in flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
-      <div className="pt-1"><StarSurf state={starStateFor(creature)} size={44} animate={animateMascot} /></div>
+      <div className="pt-1"><BlobMascot variant="avatar" state={blobStateFor(creature)} size={44} animate={animateMascot} wink={wink} caret={msg.pending ? caret : null} /></div>
       <div className="min-w-0 flex-1">
       <div className="assistant-card">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
@@ -447,6 +486,7 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
             versionCount={history.length + 1}
             versionAt={showingOld ? versionAt! : history.length}
             onVersion={(index) => setVersionAt(index >= history.length ? null : index)}
+            onCopied={() => { setWink(true); window.setTimeout(() => setWink(false), 420) }}
             onRegenerate={onRegenerate ? () => onRegenerate(msg.id) : undefined}
           />
         )}
@@ -463,6 +503,7 @@ function ReplyBar({
   versionCount,
   versionAt,
   onVersion,
+  onCopied,
   onRegenerate,
 }: {
   text: string
@@ -472,6 +513,7 @@ function ReplyBar({
   versionCount: number
   versionAt: number
   onVersion: (index: number) => void
+  onCopied?: () => void
   onRegenerate?: () => void
 }) {
   const [thumb, setThumb] = useState<'up' | 'down' | null>(null)
@@ -483,6 +525,7 @@ function ReplyBar({
       <button type="button" className="icon-quiet" aria-label="Copy" data-tip="Copy" data-reply-copy="yes" onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
           setCopied(true)
+          onCopied?.()
           window.setTimeout(() => setCopied(false), 1200)
         }).catch(() => setNote('Could not copy.'))
       }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>

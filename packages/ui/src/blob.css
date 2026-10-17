@@ -1,0 +1,30 @@
+.blob-mascot {
+  display: inline-flex;
+  width: var(--blob-size, 72px);
+  height: var(--blob-size, 72px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  line-height: 0;
+  color: inherit;
+  cursor: default;
+}
+
+.blob-mascot.is-clickable {
+  cursor: pointer;
+}
+
+.blob-mascot svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  display: block;
+}
+
+/* Manifest timings kept on the states: thinking 2.2s, searching 0.7s. The loop itself is scripted. */
+.blob-mascot.is-thinking { animation-duration: 2.2s; }
+.blob-mascot.is-searching { animation-duration: 0.7s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .blob-mascot { animation: none; }
+}

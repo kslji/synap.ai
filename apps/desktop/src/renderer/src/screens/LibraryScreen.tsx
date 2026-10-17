@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StarSurf } from '@surf/ui'
+import { BlobMascot } from '@surf/ui'
 import type { ChunkPreview, LibraryFile } from '../../../shared/ipc-contract'
 
 export function LibraryScreen({
@@ -50,7 +50,7 @@ export function LibraryScreen({
           </label>
           {working && (
             <div className="mt-5 flex items-center gap-3" data-processing="yes">
-              <StarSurf state="searching" size={72} />
+              <BlobMascot state="searching" size={72} />
               <p className="text-sm text-[var(--muted)]">Reading your files. You can keep chatting.</p>
             </div>
           )}
@@ -59,7 +59,7 @@ export function LibraryScreen({
               className="mt-8 flex flex-col items-center rounded-2xl border border-dashed border-[var(--line)] px-6 py-16 text-center"
               data-upload="yes"
             >
-              <StarSurf state="idle" size={96} />
+              <BlobMascot state="idle" size={96} />
               <p className="mt-3 text-sm text-[var(--muted)]">{query ? 'No files match that search.' : 'Drop PDF, Word, PowerPoint, Excel, text, HTML, or images into a chat, or add them here.'}</p>
             </div>
           ) : (

@@ -126,8 +126,10 @@ export interface SettingsPatch {
   idleUnloadMinutes?: number
   /** Prefer speculative decoding when a draft model is installed and RAM allows it. */
   speculativeDecoding?: boolean
-  /** Display name for the star mascot. Saved on this computer. */
+  /** Display name for the blob mascot. Saved on this computer. */
   mascotName?: string
+  /** Body colour for the blob. The installed icon stays the default orange. */
+  mascotColor?: string
   accent?: 'orange' | 'blue' | 'indigo' | 'navy'
   density?: 'compact' | 'comfortable' | 'relaxed'
   /** SVG motion for the mascot. There is no audio. */

@@ -33,6 +33,7 @@ export const SettingsPatch = z.object({
   idleUnloadMinutes: z.number().int().min(1).max(240).optional(),
   speculativeDecoding: z.boolean().optional(),
   mascotName: z.string().trim().min(1).max(40).optional(),
+  mascotColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   accent: z.enum(['orange', 'blue', 'indigo', 'navy']).optional(),
   density: z.enum(['compact', 'comfortable', 'relaxed']).optional(),
   animateMascot: z.boolean().optional(),

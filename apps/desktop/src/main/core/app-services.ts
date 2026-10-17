@@ -74,7 +74,7 @@ import { LIBRARY_MIGRATION } from './library-schema.js'
 import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, savedWebPack, savedWebStats, searchSavedWeb, staleNote, WEB_CACHE_MIGRATION } from './web-cache.js'
 import { SEARCH_CACHE_MIGRATION, clearSearchCache, searchCacheStats } from './search/cache.js'
 import { QUOTE_CACHE_MIGRATION, clearQuoteCache, quoteCacheStats } from './search/quotes.js'
-import { cleanAccent, cleanAnimate, cleanDensity, cleanMascotName } from './appearance.js'
+import { cleanAccent, cleanAnimate, cleanDensity, cleanMascotColor, cleanMascotName } from './appearance.js'
 import { blocksNetwork, cleanNetworkMode, resolveNetworkMode, syncChip, withLocalOnlyNote, type NetworkMode } from './network-mode.js'
 import { nextReplyVersions } from './reply-versions.js'
 import { benchmarkFor, readBenchmarkFile, tokensPerSec, upsertBenchmark, writeBenchmarkFile, type BenchmarkRow } from './benchmark-store.js'
@@ -204,6 +204,7 @@ const DEFAULT_SETTINGS: Settings = {
   speculativeDecoding: true,
   myRegion: '',
   mascotName: 'Surf Bot',
+  mascotColor: '#f2740f',
   accent: 'orange',
   density: 'comfortable',
   animateMascot: true,
@@ -284,6 +285,7 @@ export async function createServices(): Promise<Services> {
       if (typeof raw.speculativeDecoding !== 'boolean') merged.speculativeDecoding = DEFAULT_SETTINGS.speculativeDecoding
       merged.myRegion = typeof raw.myRegion === 'string' ? raw.myRegion.trim().slice(0, 80) : ''
       merged.mascotName = cleanMascotName(raw.mascotName)
+      merged.mascotColor = cleanMascotColor(raw.mascotColor)
       merged.accent = cleanAccent(raw.accent)
       merged.density = cleanDensity(raw.density)
       merged.animateMascot = cleanAnimate(raw.animateMascot, true)
@@ -1932,6 +1934,7 @@ export async function createServices(): Promise<Services> {
         next.tabSuggestionsOff = normalizeLanguagesOff(next.tabSuggestionsOff ?? [])
         next.idleUnloadMinutes = clampIdleMinutes(next.idleUnloadMinutes)
         next.mascotName = cleanMascotName(next.mascotName)
+        next.mascotColor = cleanMascotColor(next.mascotColor)
         next.accent = cleanAccent(next.accent)
         next.density = cleanDensity(next.density)
         next.animateMascot = cleanAnimate(next.animateMascot, true)

@@ -370,6 +370,23 @@ a { color: var(--accent-text); }
 .accent-swatch.is-blue { background: #2563eb; }
 .accent-swatch.is-indigo { background: #4f46e5; }
 .accent-swatch.is-navy { background: #1e3a8a; }
+.mascot-swatch {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+.mascot-swatch.is-on { border-color: var(--ink); }
+.mascot-color-custom {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
 .chip-tab {
   border: 0;
   border-radius: 999px;

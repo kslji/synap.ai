@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BarChart3, Bot, Folder, Home, LogOut, Moon, Package, Plus, Search, Settings, Trash2 } from 'lucide-react'
-import { StarSurf, type ThemeChoice } from '@surf/ui'
+import { BlobMascot, type ThemeChoice } from '@surf/ui'
+import { useMascotActivity } from '../mascot-activity'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
@@ -58,6 +59,7 @@ export function Sidebar({
   onAgent: (id: string) => void
   sync?: SyncChip
 }) {
+  const activity = useMascotActivity()
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -82,7 +84,7 @@ export function Sidebar({
         </label>
       )}
       <div className="mt-4 flex flex-col items-center px-4">
-        <StarSurf state="idle" size={72} animate={animateMascot} clickable label={mascotName} />
+        <BlobMascot state={activity.state} size={72} animate={animateMascot} clickable label={mascotName} caret={activity.caret} />
         <input
           className="mascot-name"
           data-mascot-name="yes"

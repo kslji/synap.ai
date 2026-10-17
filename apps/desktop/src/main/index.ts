@@ -226,7 +226,7 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, networkMode: 'offline' as const, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false, mascotName: 'Surf Bot', accent: 'orange' as const, density: 'comfortable' as const, animateMascot: false }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, networkMode: 'offline' as const, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false, mascotName: 'Surf Bot', mascotColor: '#f2740f', accent: 'orange' as const, density: 'comfortable' as const, animateMascot: false }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)

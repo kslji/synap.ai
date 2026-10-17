@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Text, Wifi } from 'lucide-react'
 import { product } from '@surf/shared'
+import { BLOB_SWATCHES, BlobMascot } from '@surf/ui'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
 import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } from '../../../shared/hardware-label'
 import { friendlyModelName } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
+import { useMascotActivity } from '../mascot-activity'
 import { DevWebPanel } from './DevWebPanel'
 import { chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
 import { LiveFeelSettings, StoragePanel } from './UsageStorage'
@@ -538,21 +540,47 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
           </button>
         ))}
       </div>
-      <label className="mt-4 block text-sm">
-        <span className="font-semibold">Mascot name</span>
+      <div className="mt-4 text-sm font-semibold">Mascot colour</div>
+      <div className="mt-2 flex flex-wrap items-center gap-2" data-mascot-colors="yes">
+        {BLOB_SWATCHES.map((swatch) => (
+          <button
+            key={swatch.id}
+            type="button"
+            className={`mascot-swatch ${settings.mascotColor.toLowerCase() === swatch.hex ? 'is-on' : ''}`}
+            style={{ background: swatch.hex }}
+            data-mascot-color={swatch.hex}
+            aria-label={swatch.label}
+            aria-pressed={settings.mascotColor.toLowerCase() === swatch.hex}
+            onClick={() => onPatch({ mascotColor: swatch.hex })}
+          />
+        ))}
         <input
-          className="field mt-2"
-          data-mascot-rename="yes"
-          aria-label="Mascot name"
-          value={name}
-          maxLength={40}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => {
-            const next = name.trim()
-            if (next && next !== settings.mascotName) onPatch({ mascotName: next })
-          }}
+          className="mascot-color-custom"
+          type="color"
+          aria-label="Custom mascot colour"
+          data-mascot-color-custom="yes"
+          value={/^#[0-9a-fA-F]{6}$/.test(settings.mascotColor) ? settings.mascotColor : '#f2740f'}
+          onChange={(event) => onPatch({ mascotColor: event.target.value })}
         />
-      </label>
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <BlobMascot state="idle" size={64} animate={settings.animateMascot} label={name || settings.mascotName} />
+        <label className="block min-w-0 flex-1 text-sm">
+          <span className="font-semibold">Mascot name</span>
+          <input
+            className="field mt-2"
+            data-mascot-rename="yes"
+            aria-label="Mascot name"
+            value={name}
+            maxLength={40}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => {
+              const next = name.trim()
+              if (next && next !== settings.mascotName) onPatch({ mascotName: next })
+            }}
+          />
+        </label>
+      </div>
       <div className="mt-3 text-sm font-semibold">Accent colour</div>
       <div className="mt-2 flex flex-wrap gap-2" data-accent-choices="yes">
         {ACCENT_CHOICES.map((accent) => (
@@ -575,6 +603,11 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
 function MachineCard({ status }: { status: ModelStatus }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState('')
+  const { setBenchmark } = useMascotActivity()
+  useEffect(() => {
+    setBenchmark(busy !== '')
+    return () => setBenchmark(false)
+  }, [setBenchmark, busy])
   const chats = status.models.filter((model) => model.role === 'chat' && model.installed)
   const total = status.ramGb
   const free = typeof status.freeRamGb === 'number' ? Math.max(0, Math.min(total, status.freeRamGb)) : null

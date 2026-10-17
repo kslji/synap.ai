@@ -3,6 +3,7 @@
 export const ACCENTS = ['orange', 'blue', 'indigo', 'navy'] as const
 export const DENSITIES = ['compact', 'comfortable', 'relaxed'] as const
 export const DEFAULT_MASCOT_NAME = 'Surf Bot'
+export const DEFAULT_MASCOT_COLOR = '#f2740f'
 
 export type AccentId = (typeof ACCENTS)[number]
 export type DensityId = (typeof DENSITIES)[number]
@@ -11,6 +12,12 @@ export function cleanMascotName(value: unknown): string {
   if (typeof value !== 'string') return DEFAULT_MASCOT_NAME
   const name = value.replace(/\s+/g, ' ').trim().slice(0, 40)
   return name || DEFAULT_MASCOT_NAME
+}
+
+export function cleanMascotColor(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_MASCOT_COLOR
+  const hex = value.trim()
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toLowerCase() : DEFAULT_MASCOT_COLOR
 }
 
 export function cleanAccent(value: unknown): AccentId {

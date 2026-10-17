@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
+import { persistThemeChoice, BlobMascot, useMascotColorSetter, type ThemeChoice } from '@surf/ui'
+import { useMascotActivity } from './mascot-activity'
 import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
@@ -57,6 +58,14 @@ export default function App() {
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
+  const setMascotColor = useMascotColorSetter()
+  const { setOffline } = useMascotActivity()
+  useEffect(() => {
+    if (settings?.mascotColor) setMascotColor(settings.mascotColor)
+  }, [settings?.mascotColor, setMascotColor])
+  useEffect(() => {
+    setOffline(Boolean(status && (status.offlineOnly || !status.online)))
+  }, [setOffline, status])
 
   const refresh = useCallback(async () => {
     const [st, se, conv, auth, listed, lic] = await Promise.all([
@@ -149,6 +158,7 @@ export default function App() {
 
   async function patch(p: SettingsPatch) {
     if (p.theme) persistThemeChoice(p.theme)
+    setSettings((current) => (current ? { ...current, ...p } : current))
     await api.settings.set(p)
     await refresh()
     if (p.codeAgentMode !== undefined || p.codeAgentAutoConfirmed !== undefined || p.codeAgentAllowlist !== undefined) {
@@ -679,7 +689,7 @@ export default function App() {
   if (!status || !settings || !licence) {
     return (
       <main className="flex h-full flex-col items-center justify-center gap-2" data-ready="no">
-        <StarSurf state="searching" size={160} />
+        <BlobMascot state="searching" size={160} />
         <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Synap.surf'}</p>
       </main>
     )
@@ -938,6 +948,7 @@ export default function App() {
               accent: 'orange',
               density: 'comfortable',
               mascotName: 'Surf Bot',
+              mascotColor: '#f2740f',
               animateMascot: true,
               networkMode: 'auto',
               webSearchAllowed: false,
@@ -967,7 +978,7 @@ export default function App() {
       {tourStep != null && TOUR[tourStep] && (
         <div className="tour-shade" role="dialog" aria-label="Guided tour">
           <div className="tour-card card px-5 py-5">
-            <StarSurf state="guiding" size={72} />
+            <BlobMascot state="guiding" size={72} />
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Step {tourStep + 1} of {TOUR.length}</p>
             <h2 className="mt-1 text-lg font-semibold">{TOUR[tourStep].title}</h2>
             <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{TOUR[tourStep].body}</p>
@@ -983,7 +994,7 @@ export default function App() {
       {error && (
         <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center px-4">
           <div className="card pointer-events-auto flex items-center gap-3 px-4 py-3 text-sm" role="alert">
-            <StarSurf state="error" size={40} />
+            <BlobMascot state="error" size={40} />
             <span>{error}</span>
             <button className="btn btn-ghost" type="button" onClick={() => setError(null)}>Dismiss</button>
           </div>

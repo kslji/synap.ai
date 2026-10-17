@@ -24,28 +24,11 @@ test('chat, settings, usage, and cache open without a model', async () => {
     await expect(page.locator('[data-open-site="yes"]')).toBeEnabled()
     await expect(page.locator('[data-download-model]')).toHaveCount(0)
     await expect(page.locator('textarea')).toBeDisabled()
-    const clip = page.locator('[data-mascot-idle="clip"] video').first()
-    await expect(clip).toBeVisible()
-    const sample = await clip.evaluate(async (video) => {
-      const el = /** @type {HTMLVideoElement} */ (video)
-      if (el.readyState < 2) {
-        await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error('idle clip did not load')), 8000)
-          el.addEventListener('loadeddata', () => { clearTimeout(timer); resolve(null) }, { once: true })
-        })
-      }
-      const canvas = document.createElement('canvas')
-      const w = el.videoWidth || 32
-      const h = el.videoHeight || 32
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return { alpha: -1, muted: el.muted }
-      ctx.drawImage(el, 0, 0, w, h)
-      return { alpha: ctx.getImageData(0, 0, 1, 1).data[3], muted: el.muted }
-    })
-    expect(sample.muted).toBe(true)
-    expect(sample.alpha).toBe(0)
+    const blob = page.locator('[data-blob-mascot="yes"]').first()
+    await expect(blob).toBeVisible()
+    await expect(blob.locator('svg')).toBeVisible()
+    await expect(page.locator('video')).toHaveCount(0)
+    await expect(blob).toHaveAttribute('data-blob-state', /.+/ )
     await go(page, 'chat')
     await expect(page.locator('[data-screen="chat"]')).toBeVisible()
     await expect(page.locator('textarea')).toBeVisible()

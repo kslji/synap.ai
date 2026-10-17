@@ -1,4 +1,4 @@
-import { StarSurf } from '@surf/ui'
+import { BlobMascot } from '@surf/ui'
 import type { UpdateOffer } from '../../../shared/ipc-contract'
 
 export function UpdateBanner({ offer, onApply }: { offer: UpdateOffer; onApply: () => void }) {
@@ -6,7 +6,7 @@ export function UpdateBanner({ offer, onApply }: { offer: UpdateOffer; onApply: 
     <aside className="border-b border-[var(--line)] bg-[var(--accent-soft)] px-4 py-3" data-update-banner="yes">
       <div className="mx-auto flex max-w-3xl flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <StarSurf state="notification" size={48} />
+          <BlobMascot state="notification" size={48} />
           <div>
           <p className="text-sm font-semibold">Update available · {offer.version}</p>
           <p className="mt-1 max-w-xl text-sm leading-relaxed text-[var(--muted)]">

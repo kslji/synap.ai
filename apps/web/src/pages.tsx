@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Cpu } from 'lucide-react'
-import { StarSurf, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
+import { BlobMascot, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { DownloadButtons } from './download-buttons'
 import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, type ReleaseListItem } from './site'
@@ -19,7 +19,7 @@ export function SiteHeader({ theme, onTheme }: { theme: ThemeChoice; onTheme: (n
   return (
     <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-5">
       <a href="/" className="flex items-center gap-2 text-[var(--ink)] no-underline">
-        <StarSurf state="idle" size={40} />
+        <BlobMascot state="idle" size={40} />
         <span className="text-[15px] font-semibold">{product.name}</span>
       </a>
       <nav className="hidden items-center gap-4 text-sm md:flex">
@@ -267,7 +267,7 @@ export function DownloadCard() {
       <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
       {started && (
         <div className="card mt-2 px-4 py-4" data-download-started={started}>
-          <StarSurf state="guiding" size={72} />
+          <BlobMascot state="guiding" size={72} />
           <p className="mt-2 text-sm font-semibold">Your download has started</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-[var(--muted)]">
             {(started === 'mac' ? MAC_STEPS : WINDOWS_STEPS).map((step) => <li key={step}>{step}</li>)}

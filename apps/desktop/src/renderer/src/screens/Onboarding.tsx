@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StarSurf, ThemeSwitch, type ThemeChoice } from '@surf/ui'
+import { BlobMascot, ThemeSwitch, type ThemeChoice } from '@surf/ui'
 import type { ModelStatus } from '../../../shared/ipc-contract'
 import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
 
@@ -25,11 +25,11 @@ export function Onboarding({
         <ThemeSwitch value={theme} onChange={onTheme} />
       </div>
       <div className="card w-full max-w-xl px-8 py-8">
-        <StarSurf state={ready ? 'success' : 'guiding'} size={180} />
+        <BlobMascot state={ready ? 'success' : 'guiding'} size={180} />
         {step === 'welcome' && (
           <>
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Welcome</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Meet Star Surf</h1>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Meet Surf Bot</h1>
             <p className="mt-3 text-[15px] leading-relaxed text-[var(--muted)]">
               Synap.surf is your offline companion. Chats stay on this computer.
             </p>

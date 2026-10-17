@@ -76,6 +76,19 @@ export const IPC = {
   storageReport: 'storage:report',
   storageClear: 'storage:clear',
   storageOpen: 'storage:open',
+  filesList: 'files:list',
+  filesSuggest: 'files:suggest',
+  filesPick: 'files:pick',
+  filesGrant: 'files:grant',
+  filesDecide: 'files:decide',
+  filesRevoke: 'files:revoke',
+  filesOpen: 'files:open',
+  filesSettings: 'files:settings',
+  filesEvent: 'files:event',
+  filesLimits: 'files:limits',
+  filesSetLimits: 'files:set-limits',
+  filesPause: 'files:pause',
+  filesResume: 'files:resume',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -212,7 +225,8 @@ export type ChatEvent =
   | { type: 'token'; messageId: string; text: string }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
-  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' }
+  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' }
+  | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
   | { type: 'done'; messageId: string; gate: GateName; text?: string; budget?: {
     counter: string
     total: number
@@ -472,6 +486,8 @@ export interface Citation {
   staleNote?: string
   /** The passage was left out of the prompt because it contained instructions. */
   suspicious?: boolean
+  /** Absolute path. Set for a file the user allowed the app to search. Clicking opens it in the OS. */
+  filePath?: string
 }
 
 export interface WebCacheStatus {
@@ -832,4 +848,103 @@ export interface SurfApi {
   devWeb: {
     run(req: DevWebRunReq): Promise<DevWebRunResult>
   }
+  files: {
+    list(): Promise<FileFolderGrant[]>
+    suggestions(): Promise<FileSuggestFolder[]>
+    pick(defaultPath: string): Promise<string[]>
+    grant(req: FileGrantReq): Promise<FileFolderGrant>
+    decide(req: FileDecideReq): Promise<void>
+    revoke(id: string): Promise<void>
+    open(path: string): Promise<void>
+    openSettings(kind: FileOsDenialKind): Promise<void>
+    limits(): Promise<FileIndexLimits>
+    setLimits(req: FileIndexLimitsReq): Promise<FileIndexLimits>
+    pause(id: string): Promise<void>
+    resume(id: string): Promise<void>
+    onEvent(cb: (event: FileIndexEvent) => void): () => void
+  }
 }
+
+export type FileGrantScope = 'once' | 'always'
+export type FileOsDenialKind = 'macos-files-and-folders' | 'macos-full-disk' | 'windows-acl' | 'windows-controlled-folder'
+
+export interface FileFolderGrant {
+  id: string
+  path: string
+  label: string
+  scope: FileGrantScope
+  grantedAt: number
+  lastIndexedAt: number | null
+  fileCount: number
+  indexedCount: number
+  byteSize: number
+  status: 'idle' | 'indexing' | 'ready' | 'error' | 'paused'
+  error: string | null
+  embedder: 'gemma' | 'hash'
+  settingsUrl: string | null
+  settingsLabel: string | null
+}
+
+export type FilePlaceKind = 'home' | 'drive' | 'common' | 'folder' | 'protected'
+
+/** Shown before a whole home folder or another drive is indexed. */
+export const FILE_INDEX_TIME_NOTE = 'Indexing a whole home folder or another drive can take a while and use disk space for the search index. Synap.surf skips system folders, hidden folders, and secrets. Your files are not changed.'
+
+export interface FileSuggestFolder {
+  id: string
+  kind: FilePlaceKind
+  label: string
+  path: string
+  fileCount: number | null
+  byteSize: number | null
+  needsPermission: boolean
+  note: string | null
+  granted: boolean
+}
+
+export interface FilePermissionPrompt {
+  id: string
+  messageId: string
+  label: string
+  path: string
+  question: string
+  /** The question named this folder or file. The card also offers another folder. */
+  specific?: boolean
+  note?: string | null
+}
+
+export interface FileIndexLimits {
+  maxFiles: number
+  extensions: string[]
+  filesPerSec: number | null
+}
+
+export interface FileIndexLimitsReq {
+  maxFiles: number
+  extensions: string
+}
+
+export interface FileGrantReq {
+  path: string
+  scope: FileGrantScope
+}
+
+export interface FileDecideReq {
+  promptId: string
+  choice: 'once' | 'always' | 'deny'
+  path: string | null
+}
+
+export interface FileIndexProgress {
+  grantId: string
+  path: string
+  done: number
+  total: number
+  byteSize: number
+  status: 'indexing' | 'ready' | 'error' | 'paused'
+  error: string | null
+  phase?: 'index' | 'embed'
+  filesPerSec?: number | null
+}
+
+export type FileIndexEvent = { type: 'progress'; progress: FileIndexProgress }

@@ -5,9 +5,9 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type BenchmarkResult, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeCompleteReq, type CodeCompleteResult, type CodeEditorFile, type CodeEditorText, type CodeProjectStatus, type CodeStorageUsage, type CodeVisionCaptureResult, type CodeVisionSaveResult, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage, type UpdateOffer, type UsageReport, type WebCacheStatus } from './ipc-contract.js'
+import { IPC, type AuthStatus, type BenchmarkResult, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeCompleteReq, type CodeCompleteResult, type CodeEditorFile, type CodeEditorText, type CodeProjectStatus, type CodeStorageUsage, type CodeVisionCaptureResult, type CodeVisionSaveResult, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FileDecideReq, type FileFolderGrant, type FileGrantReq, type FileIndexLimits, type FileIndexLimitsReq, type FileOsDenialKind, type FileSuggestFolder, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage, type UpdateOffer, type UsageReport, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
+import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, FileDecideReq as FileDecideBody, FileGrantReq as FileGrantBody, FileLimitsReq, FileOsKind, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
 import { surfEnv } from './surf-env.js'
 
 export const CSP = [
@@ -182,6 +182,20 @@ export interface Services {
     capture(): Promise<CodeVisionCaptureResult>
     save(base64: string, mime: 'image/png' | 'image/jpeg' | 'image/webp', win: BrowserWindow): Promise<CodeVisionSaveResult>
   }
+  files: {
+    list(): Promise<FileFolderGrant[]>
+    suggestions(): Promise<FileSuggestFolder[]>
+    pick(win: BrowserWindow, defaultPath: string | null): Promise<string[]>
+    grant(req: FileGrantReq): Promise<FileFolderGrant>
+    decide(req: FileDecideReq): Promise<void>
+    revoke(id: string): Promise<void>
+    open(path: string): Promise<void>
+    openSettings(kind: FileOsDenialKind): Promise<void>
+    limits(): Promise<FileIndexLimits>
+    setLimits(req: FileIndexLimitsReq): Promise<FileIndexLimits>
+    pause(id: string): Promise<void>
+    resume(id: string): Promise<void>
+  }
   lifecycle: {
     releaseWindow(): void
   }
@@ -317,6 +331,22 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
     assertTrusted(e)
     return s.devWeb.run(DevWebRun.parse(raw))
   })
+  handle(IPC.filesList, (e) => { assertTrusted(e); return s.files.list() })
+  handle(IPC.filesSuggest, (e) => { assertTrusted(e); return s.files.suggestions() })
+  handle(IPC.filesPick, (e, raw) => {
+    assertTrusted(e)
+    const path = raw == null || raw === '' ? null : z.string().min(1).max(4096).parse(raw)
+    return s.files.pick(win, path)
+  })
+  handle(IPC.filesGrant, (e, raw) => { assertTrusted(e); return s.files.grant(FileGrantBody.parse(raw)) })
+  handle(IPC.filesDecide, (e, raw) => { assertTrusted(e); return s.files.decide(FileDecideBody.parse(raw)) })
+  handle(IPC.filesRevoke, (e, raw) => { assertTrusted(e); return s.files.revoke(z.string().min(1).max(80).parse(raw)) })
+  handle(IPC.filesOpen, (e, raw) => { assertTrusted(e); return s.files.open(z.string().min(1).max(4096).parse(raw)) })
+  handle(IPC.filesSettings, (e, raw) => { assertTrusted(e); return s.files.openSettings(FileOsKind.parse(raw)) })
+  handle(IPC.filesLimits, (e) => { assertTrusted(e); return s.files.limits() })
+  handle(IPC.filesSetLimits, (e, raw) => { assertTrusted(e); return s.files.setLimits(FileLimitsReq.parse(raw)) })
+  handle(IPC.filesPause, (e, raw) => { assertTrusted(e); return s.files.pause(z.string().min(1).max(80).parse(raw)) })
+  handle(IPC.filesResume, (e, raw) => { assertTrusted(e); return s.files.resume(z.string().min(1).max(80).parse(raw)) })
 }
 
 /** Layout note for electron-vite output: out/main, out/preload, out/renderer. */

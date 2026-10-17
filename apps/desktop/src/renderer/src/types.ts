@@ -1,4 +1,4 @@
-import type { ChatEvent, CodeDiffView, CodePlanView, CodeStepView, GateName, StoredMessage } from '../../shared/ipc-contract'
+import type { ChatEvent, CodeDiffView, CodePlanView, CodeStepView, FilePermissionPrompt, GateName, StoredMessage } from '../../shared/ipc-contract'
 
 function copyPlan(plan: CodePlanView): CodePlanView {
   const steps = plan.steps.map((step) => ({
@@ -26,7 +26,8 @@ export interface UiMsg {
   error?: boolean
   smallerModelId?: string
   gate?: GateName
-  phase?: 'searching' | 'reading'
+  phase?: 'searching' | 'reading' | 'files'
+  fileAsk?: FilePermissionPrompt | null
   tools: { name: string; input: string; output: string }[]
   steps?: CodeStepView[]
   diffs?: CodeDiffView[]
@@ -52,6 +53,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     elapsedMs: m.elapsedMs,
     modelId: m.modelId,
     versions: m.versions ? [...m.versions] : undefined,
+    fileAsk: m.fileAsk ?? null,
   }))
   let i = next.findIndex((m) => m.id === e.messageId)
   if (i < 0) i = next.findIndex((m) => m.pending && m.role === 'assistant')
@@ -63,6 +65,11 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.streamed = true
   }
   if (e.type === 'status') m.phase = e.phase
+  if (e.type === 'file-ask') {
+    m.fileAsk = e.prompt
+    m.phase = 'files'
+    m.pending = true
+  }
   if (e.type === 'sources') m.sources = e.sources
   if (e.type === 'tool') m.tools.push({ name: e.name, input: e.input, output: e.output })
   if (e.type === 'code-step') {
@@ -84,6 +91,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
   }
   if (e.type === 'done') {
     m.pending = false
+    m.fileAsk = null
     m.gate = e.gate
     if (e.text) m.text = e.text
     if (m.startedAt) m.elapsedMs = Date.now() - m.startedAt

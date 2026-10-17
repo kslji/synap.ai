@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@surf/ui/tokens.css";
 @import "@surf/ui/components.css";
+@import "./file-search.css";
 
 html,
 body,

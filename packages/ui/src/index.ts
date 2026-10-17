@@ -1,4 +1,4 @@
-export { Markdown, markdownHrefs, parseMarkdown, sourceUrls, splitFrontmatter } from './markdown'
+export { Markdown, markdownHrefs, parseMarkdown, sourceUrls, splitFrontmatter, type Inline } from './markdown'
 export { BlobMascot, type BlobMascotProps } from './BlobMascot'
 export { BLOB_SWATCHES, DEFAULT_BLOB_COLOR, blobStateFor, markSvg, paletteFor, resolveBlobState, type BlobMood, type BlobVariant } from './blob'
 export { MascotColorProvider, useMascotColor, useMascotColorSetter } from './mascot-color'

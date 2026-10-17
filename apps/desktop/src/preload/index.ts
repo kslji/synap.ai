@@ -2,7 +2,7 @@
  * Preload (sandboxed, contextIsolation on). Exposes window.surf — never ipcRenderer itself.
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
+import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type FileIndexEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T) => cb(payload)
@@ -118,6 +118,21 @@ const api: SurfApi = {
   codeVision: {
     capture: (req) => ipcRenderer.invoke(IPC.codeVisionCapture, req),
     save: (req) => ipcRenderer.invoke(IPC.codeVisionSave, req),
+  },
+  files: {
+    list: () => ipcRenderer.invoke(IPC.filesList),
+    suggestions: () => ipcRenderer.invoke(IPC.filesSuggest),
+    pick: (defaultPath) => ipcRenderer.invoke(IPC.filesPick, defaultPath),
+    grant: (req) => ipcRenderer.invoke(IPC.filesGrant, req),
+    decide: (req) => ipcRenderer.invoke(IPC.filesDecide, req),
+    revoke: (id) => ipcRenderer.invoke(IPC.filesRevoke, id),
+    open: (path) => ipcRenderer.invoke(IPC.filesOpen, path),
+    openSettings: (kind) => ipcRenderer.invoke(IPC.filesSettings, kind),
+    limits: () => ipcRenderer.invoke(IPC.filesLimits),
+    setLimits: (req) => ipcRenderer.invoke(IPC.filesSetLimits, req),
+    pause: (id) => ipcRenderer.invoke(IPC.filesPause, id),
+    resume: (id) => ipcRenderer.invoke(IPC.filesResume, id),
+    onEvent: (cb) => subscribe<FileIndexEvent>(IPC.filesEvent, cb),
   },
 }
 

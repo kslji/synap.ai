@@ -14,31 +14,46 @@ export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   return [theme, choose]
 }
 
+const NAV = [
+  { href: '/features', label: 'Features' },
+  { href: '/#agents', label: 'Agents' },
+  { href: '/about#pip', label: 'Pip' },
+  { href: '/pricing', label: 'Pricing' },
+  { href: '/docs', label: 'Docs' },
+  { href: '/about', label: 'About' },
+  { href: '/contact', label: 'Contact' },
+] as const
+
 export function SiteHeader({ theme, onTheme }: { theme: ThemeChoice; onTheme: (next: ThemeChoice) => void }) {
   const [menu, setMenu] = useState(false)
   return (
-    <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-5">
-      <a href="/" className="flex items-center gap-2 text-[var(--ink)] no-underline">
-        <BlobMascot state="idle" size={40} />
-        <span className="text-[15px] font-semibold">{product.name}</span>
-      </a>
-      <nav className="hidden items-center gap-4 text-sm md:flex">
-          <a className="text-[var(--muted)] no-underline" href="/#companion">Companion</a>
-        <a className="text-[var(--muted)] no-underline" href="/#agents">Agents</a>
-        <a className="text-[var(--muted)] no-underline" href="/#download">Download</a>
-        <a className="text-[var(--muted)] no-underline" href="/privacy">Privacy</a>
-        <ThemeSwitch value={theme} onChange={onTheme} />
-      </nav>
-      <div className="flex items-center gap-2 md:hidden">
-        <ThemeSwitch value={theme} onChange={onTheme} compact />
-        <button type="button" className="btn btn-ghost" aria-expanded={menu} data-menu-button="site" onClick={() => setMenu((v) => !v)}>Menu</button>
+    <header className="site-header">
+      <div className="site-header-inner">
+        <a href="/" className="flex items-center gap-2 text-[var(--ink)] no-underline">
+          <BlobMascot state="idle" size={40} label="Pip" />
+          <span className="text-[15px] font-semibold">{product.name}</span>
+        </a>
+        <nav className="site-nav" aria-label="Primary">
+          {NAV.map((item) => (
+            <a key={item.href} href={item.href}>{item.label}</a>
+          ))}
+          <ThemeSwitch value={theme} onChange={onTheme} />
+          <a className="btn btn-primary no-underline" href="/#download">Download</a>
+        </nav>
+        <div className="menu-button flex items-center gap-2">
+          <ThemeSwitch value={theme} onChange={onTheme} compact />
+          <button type="button" className="btn btn-ghost" aria-expanded={menu} aria-controls="site-menu" data-menu-button="site" onClick={() => setMenu((v) => !v)}>Menu</button>
+        </div>
       </div>
       {menu && (
-        <div className="absolute left-0 right-0 top-16 flex flex-col gap-3 bg-[var(--bg)] px-6 py-4 md:hidden">
-          <a className="no-underline" href="/#download" onClick={() => setMenu(false)}>Download</a>
-          <a className="no-underline" href="/privacy" onClick={() => setMenu(false)}>Privacy</a>
-          <a className="no-underline" href="/security" onClick={() => setMenu(false)}>Security</a>
-          <a className="no-underline" href="/contribute" onClick={() => setMenu(false)}>Contribute</a>
+        <div id="site-menu" className="site-menu">
+          {NAV.map((item) => (
+            <a key={item.href} href={item.href} onClick={() => setMenu(false)}>{item.label}</a>
+          ))}
+          <a href="/#download" onClick={() => setMenu(false)}>Download</a>
+          <a href="/privacy" onClick={() => setMenu(false)}>Privacy</a>
+          <a href="/security" onClick={() => setMenu(false)}>Security</a>
+          <a href="/contribute" onClick={() => setMenu(false)}>Contribute</a>
         </div>
       )}
     </header>
@@ -47,10 +62,24 @@ export function SiteHeader({ theme, onTheme }: { theme: ThemeChoice; onTheme: (n
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-[var(--line)] px-6 py-8">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 text-sm text-[var(--muted)]">
-        <span>{product.name} · on your computer</span>
-        <nav className="flex flex-wrap gap-4">
+    <footer className="border-t border-[var(--line)] px-6 py-10">
+      <div className="mx-auto grid max-w-6xl gap-8 text-sm text-[var(--muted)] md:grid-cols-[1.4fr_1fr_1fr]">
+        <div>
+          <div className="flex items-center gap-2 text-[var(--ink)]">
+            <BlobMascot state="idle" size={36} variant="mark" label="Pip" />
+            <span className="font-semibold">{product.name}</span>
+          </div>
+          <p className="mt-3 max-w-xs leading-relaxed">{product.tagline}</p>
+        </div>
+        <nav className="flex flex-col gap-2" aria-label="Product">
+          <a href="/features">Features</a>
+          <a href="/#agents">Agents</a>
+          <a href="/pricing">Pricing</a>
+          <a href="/docs">Docs</a>
+          <a href="/about">About</a>
+          <a href="/contact">Contact</a>
+        </nav>
+        <nav className="flex flex-col gap-2" aria-label="Legal">
           {footerLinks.map((link) => (
             <a key={link.href} className="text-[var(--muted)]" href={link.href}>{link.label}</a>
           ))}
@@ -77,23 +106,45 @@ function Page({ title, children }: { title: string; children: ReactNode }) {
 
 export function PrivacyPage() {
   const email = contactEmail()
+  const [theme, onTheme] = useTheme()
   return (
-    <Page title="Privacy">
-      <p data-page="privacy">
-        Synap.surf is designed so chats and documents stay on your device in an encrypted database. The model runs locally. This page is a description of that design. It is not a certification, and it does not mean data cannot be leaked. A stolen computer, a bug, or other software on the machine can still expose files.
-      </p>
-      <p>
-        Designed around the India IT Act 2000 and the DPDP Act 2023, the EU and UK GDPR, and the California CCPA/CPRA. Naming those laws is not a claim of certified compliance.
-      </p>
-      <ul className="list-disc space-y-2 pl-5">
-        <li>The app reads only the folders and files you pick. It does not edit, move, or delete those files on its own.</li>
-        <li>Sending, changing, or deleting mail waits for your approval. Delete asks a second time.</li>
-        <li>Web search is optional. When you allow it, only the short query is sent, not your documents.</li>
-        <li>There are no ads and no sale of data. Crash reports are off by default.</li>
-        <li>To delete everything the app stored, quit Synap.surf and remove its data folder: ~/Library/Application Support/surf-ai on macOS, or %APPDATA%\surf-ai on Windows.</li>
-      </ul>
-      <p>Questions: <a href={`mailto:${email}`}>{email}</a></p>
-    </Page>
+    <div data-page="privacy">
+      <SiteHeader theme={theme} onTheme={onTheme} />
+      <main id="top" className="mx-auto grid max-w-6xl gap-10 px-6 pb-20 pt-8 md:grid-cols-[220px_1fr]">
+        <nav className="flex flex-col gap-2 text-sm" aria-label="On this page">
+          <a href="#design">Design</a>
+          <a href="#laws">Laws named here</a>
+          <a href="#files">Your files</a>
+          <a href="#mail">Mail</a>
+          <a href="#search">Web search</a>
+          <a href="#ads">Ads and crash reports</a>
+          <a href="#delete">Delete</a>
+          <a href="/terms">Terms</a>
+          <a href="/security">Security</a>
+        </nav>
+        <div>
+          <p className="pill">{DRAFT}</p>
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight">Privacy</h1>
+          <div className="mt-6 flex flex-col gap-4 text-[15px] leading-relaxed text-[var(--muted)]">
+            <p className="card px-5 py-5" id="design">
+              Synap.surf is designed so chats and documents stay on your device in an encrypted database. The model runs locally. This page is a description of that design. It is not a certification, and it does not mean data cannot be leaked. A stolen computer, a bug, or other software on the machine can still expose files.
+            </p>
+            <p className="card px-5 py-5" id="laws">
+              Designed around the India IT Act 2000 and the DPDP Act 2023, the EU and UK GDPR, and the California CCPA/CPRA. Naming those laws is not a claim of certified compliance.
+            </p>
+            <ul className="flex flex-col gap-3">
+              <li className="card px-5 py-4" id="files">The app reads only the folders and files you pick. It does not edit, move, or delete those files on its own.</li>
+              <li className="card px-5 py-4" id="mail">Sending, changing, or deleting mail waits for your approval. Delete asks a second time.</li>
+              <li className="card px-5 py-4" id="search">Web search is optional. When you allow it, only the short query is sent, not your documents.</li>
+              <li className="card px-5 py-4" id="ads">There are no ads and no sale of data. Crash reports are off by default.</li>
+              <li className="card px-5 py-4" id="delete">To delete everything the app stored, quit Synap.surf and remove its data folder: ~/Library/Application Support/surf-ai on macOS, or %APPDATA%\surf-ai on Windows.</li>
+            </ul>
+            <p>Questions: <a href={`mailto:${email}`}>{email}</a></p>
+          </div>
+        </div>
+      </main>
+      <SiteFooter />
+    </div>
   )
 }
 
@@ -166,13 +217,13 @@ function webglRenderer(): string {
   }
 }
 
-const MAC_STEPS = [
+export const MAC_STEPS = [
   'Open the download when it finishes.',
   'Drag Synap.surf into Applications.',
   'If macOS blocks the app, choose Open Anyway in Privacy & Security. You only do this once.',
 ]
 
-const WINDOWS_STEPS = [
+export const WINDOWS_STEPS = [
   'Open the installer when it finishes.',
   'If Windows asks, choose More info, then Run anyway.',
   'Finish the prompts. You only do this once.',
@@ -267,7 +318,7 @@ export function DownloadCard() {
       <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
       {started && (
         <div className="card mt-2 px-4 py-4" data-download-started={started}>
-          <BlobMascot state="guiding" size={72} />
+          <BlobMascot state="guiding" size={72} label="Pip" />
           <p className="mt-2 text-sm font-semibold">Your download has started</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-[var(--muted)]">
             {(started === 'mac' ? MAC_STEPS : WINDOWS_STEPS).map((step) => <li key={step}>{step}</li>)}

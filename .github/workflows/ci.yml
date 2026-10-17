@@ -71,7 +71,7 @@ jobs:
         run: npm run build -w @surf/web
       - name: Website link check
         run: |
-          npx tsx --test apps/web/src/site.test.ts apps/web/src/brand.test.ts apps/web/src/agent-blog.test.ts
+          npx tsx --test apps/web/src/site.test.ts apps/web/src/brand.test.ts apps/web/src/agent-blog.test.ts apps/web/src/marketing.test.ts
           node apps/web/scripts/check-dist.mjs
 
   api:

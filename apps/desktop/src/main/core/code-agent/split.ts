@@ -55,6 +55,8 @@ export interface SplitHost extends CodeAgentHost {
   catalog?: readonly CodeModelChoice[]
   reviewPlan?(steps: PlanStep[]): Promise<string[] | { order: string[]; edits?: PlanGoalEdit[] }>
   onPlan?(plan: CodePlanView): void
+  /** Short Code-pack excerpts. Not part of triage. */
+  reference?: string
 }
 
 interface GateSession {
@@ -123,8 +125,9 @@ async function runSplitBody(
   session: GateSession,
 ): Promise<SplitResult> {
   const kind = triageTask(task, host.facts.files)
+  const grounded = host.reference ? `${task.trim()}\n\n${host.reference}` : task
   if (kind === 'chat') {
-    const result = await runCodeAgent(task, { ...host, mode: session.mode, commandAllowlist: session.allowlist }, history)
+    const result = await runCodeAgent(grounded, { ...host, mode: session.mode, commandAllowlist: session.allowlist }, history)
     return {
       answer: result.answer,
       kind,
@@ -385,7 +388,7 @@ async function tryOnce(
   const turn = await host.complete({
     messages: [
       { role: 'system', content: EDIT_SYSTEM },
-      { role: 'user', content: editPrompt(step, packText(pack), pass) },
+      { role: 'user', content: editPrompt(step, packText(pack), pass, host.reference) },
     ],
     responseFormat: patchResponseFormat(),
     thinking: pass.thinking,
@@ -732,11 +735,12 @@ function planPrompt(task: string, host: SplitHost, feedback: string, attempt: nu
     files.length ? `Indexed files:\n${files.join('\n')}${more > 0 ? `\n… ${more} more files` : ''}` : 'No indexed files.',
     symbols.length ? `Indexed symbols:\n${symbols.join('\n')}` : '',
     feedback ? `The previous checklist was rejected:\n${feedback}` : '',
+    host.reference ? `Reference:\n${host.reference}\nDo not copy the reference into step goals.` : '',
     `Task:\n${task}`,
   ].filter(Boolean).join('\n\n')
 }
 
-function editPrompt(step: PlanStep, context: string, pass: { attempt: number; candidate: number; error: string }): string {
+function editPrompt(step: PlanStep, context: string, pass: { attempt: number; candidate: number; error: string }, reference?: string): string {
   const files = step.files.length ? step.files.join(', ') : 'choose the file from the context'
   return [
     'Kind: edit',
@@ -746,6 +750,7 @@ function editPrompt(step: PlanStep, context: string, pass: { attempt: number; ca
     `Target files: ${files}`,
     step.symbols.length ? `Symbols: ${step.symbols.join(', ')}` : '',
     `Context:\n${context}`,
+    reference ? `Reference:\n${reference}` : '',
     pass.error ? `The previous edit failed. Exact output:\n${exactError(pass.error)}` : '',
     'Return search/replace edits only.',
   ].filter(Boolean).join('\n\n')

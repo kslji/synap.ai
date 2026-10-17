@@ -34,6 +34,7 @@ const config = {
   ],
   extraResources: [
     { from: 'resources/bin/${platform}-${arch}', to: 'bin' },
+    { from: 'resources/whisper/${platform}-${arch}', to: 'whisper' },
     { from: 'resources/tree-sitter', to: 'tree-sitter' },
     { from: 'resources/models.registry.json', to: 'models.registry.json' },
     { from: 'resources/tessdata', to: 'tessdata' },
@@ -41,6 +42,7 @@ const config = {
     { from: 'resources/licence-public.json', to: 'licence-public.json' },
     { from: 'resources/release-mode.json', to: 'release-mode.json' },
     { from: 'resources/code/system.md', to: 'code/system.md' },
+    { from: 'resources/code-pack', to: 'code-pack' },
     { from: 'resources/geo', to: 'geo' },
   ],
   npmRebuild: false,
@@ -58,6 +60,9 @@ const config = {
     gatekeeperAssess: false,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
+    extendInfo: {
+      NSMicrophoneUsageDescription: 'Synap.surf uses the microphone so you can dictate a message. The recording stays on this computer.',
+    },
     notarize: signing && Boolean(process.env.APPLE_ID),
   },
   win: {

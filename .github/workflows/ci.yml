@@ -36,11 +36,16 @@ jobs:
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs
+      - name: Fetch whisper.cpp
+        working-directory: apps/desktop
+        run: node scripts/fetch-whisper.mjs
       - name: Fetch OCR language data
         working-directory: apps/desktop
         run: node scripts/fetch-tessdata.mjs
       - name: Document index unit tests
         run: npm run test:unit -w @surf/desktop
+        env:
+          SURF_WHISPER_LIVE: '1'
       - name: Typecheck and build the desktop app
         run: npm run build -w @surf/desktop
 
@@ -510,3 +515,49 @@ jobs:
         with:
           name: model-eval
           path: harness/reports/
+
+  code-pack-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Qwen 2B file id
+        id: weights
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
+          key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
+      - name: Download and verify Qwen 2B
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+      - name: Fetch llama.cpp sidecar for this OS
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
+      - name: Code pack eval
+        env:
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
+        run: npx tsx apps/desktop/scripts/code-pack-eval.ts --out harness/reports/code-pack-eval.json
+      - name: Upload code pack eval
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-pack-eval
+          path: harness/reports/code-pack-eval.json

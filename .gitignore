@@ -29,9 +29,12 @@ apps/desktop/test-results/
 apps/desktop/playwright-report/
 /gitleaks
 apps/desktop/resources/bin
+apps/desktop/resources/whisper
 apps/desktop/resources/tessdata/*.traineddata
 apps/desktop/resources/geo/*.cidr
 packages/*/dist
 *.gguf
 *.part
 .surf-models/
+scripts/code-pack-src/.cache/
+scripts/code-pack-src/.dev-seed

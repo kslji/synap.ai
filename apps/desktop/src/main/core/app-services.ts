@@ -8,6 +8,7 @@ import { app, BrowserWindow, desktopCapturer, dialog, net, shell, systemPreferen
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { availableParallelism } from 'node:os'
 import { copyFile, mkdir, realpath, rm, stat, statfs } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
@@ -35,6 +36,11 @@ import { readAgentName } from './agent-names.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { codePackDir, loadCodePack } from './code-pack.js'
+import { bundledCodePackDir } from './code-pack-install.js'
+import { codePackIndexProgress } from './code-pack-index.js'
+import { ensureCitations } from './code-pack-prompt.js'
+import { codePackListing } from './code-pack-status.js'
+import { prepareCodePackTurn, stepCodePackIndex } from './code-pack-turn.js'
 import { derivePackKey, devBypassEnabled, gatePackDecrypt, licenceAllowsUse } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
 import { adoptFromFolder, adoptRows, adoptVerified } from './adopt-model.js'
@@ -72,6 +78,8 @@ import { runSplitTask } from './code-agent/split.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
 import { downloadVerified } from './model-download.js'
+import { NOTHING_HEARD, osMicStatus, SPEECH_FAILED, SPEECH_MODEL_MISSING, SPEECH_MODEL_OFFLINE, SPEECH_PROGRAM_MISSING } from './dictation.js'
+import { resolveWhisperCli, transcribeFile } from './dictation-run.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
 import { EVAL_SAMPLING, LlamaClient } from './llama-client.js'
 import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
@@ -248,6 +256,7 @@ export async function createServices(): Promise<Services> {
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; draft: string; cache: number; server: LlamaServer } | null = null
   let lastModelUse = Date.now()
   let modelBusy = 0
+  let codeIndexRunning = false
   let prefixKey: string | null = null
   let prefixModelId: string | null = null
   let draftRuntime = false
@@ -489,6 +498,7 @@ export async function createServices(): Promise<Services> {
       installed: models.filter((m) => m.installed).map((m) => m.id),
       downloading,
       sidecars: { ...sidecars },
+      speechModelId: pick(reg, 'asr', hw.tier).id,
       models,
       ...reachNow(settings.offlineOnly),
       offlineOnly: settings.offlineOnly,
@@ -633,7 +643,6 @@ export async function createServices(): Promise<Services> {
       })
       if (!decision.offer) throw new Error(visionOfferMessage(decision.reason))
     }
-    if (model.role === 'asr') throw new Error('Speech models land in week 2.')
     const file = vision && model.mmproj ? model.mmproj : model
     const destName = vision && model.mmproj ? mmprojDestName(model.id, model.mmproj.file) : model.file
     mkdirSync(modelsDir(), { recursive: true })
@@ -981,6 +990,28 @@ export async function createServices(): Promise<Services> {
     })
     if (loaded.status === 'invalid') console.warn('[surf] code pack skipped:', loaded.message)
     if (codeGate.status === 'locked') console.warn('[surf] code pack skipped:', codeGate.message)
+    const packTurn = codeGate.status === 'ready'
+      ? await prepareCodePackTurn({
+        userData: app.getPath('userData'),
+        bundledDir: bundledCodePackDir(app.isPackaged, process.resourcesPath, app.getAppPath()),
+        keys: trustedPackKeys(),
+        allowed: true,
+        projectRoot: root,
+        question: req.text,
+        maxChars: 2400,
+        embedQuery: async (text) => {
+          const embedder = await codeEmbedder()
+          if (!embedder) return null
+          const [vec] = await embedder.embedQueries([text])
+          return vec ?? null
+        },
+      })
+      : { reference: '', citations: [], hits: [], answerOverride: null }
+    if (packTurn.answerOverride) {
+      await emitText(win, messageId, packTurn.answerOverride)
+      finish(conversationId, messageId, userMessageId, win, packTurn.answerOverride, packTurn.citations, 'answer')
+      return
+    }
     await withModel(async () => {
       const settings = readSettings()
       const reg = registry()
@@ -1141,6 +1172,7 @@ export async function createServices(): Promise<Services> {
         },
         reviewPlan: mode === 'ask' ? () => waitPlan(messageId, signal) : undefined,
         onRememberCommand: (command) => writeAllowed(root, command),
+        reference: packTurn.reference || undefined,
       }, history)
       } finally {
         acceptAllEdits.delete(messageId)
@@ -1162,9 +1194,13 @@ export async function createServices(): Promise<Services> {
         ramMb: null,
         cpuPercent: null,
       })
-      await emitText(win, messageId, result.answer)
-      finish(conversationId, messageId, userMessageId, win, result.answer, [], 'answer')
+      const answer = result.kind === 'chat' && result.stopped === 'finish'
+        ? ensureCitations(result.answer, packTurn.hits)
+        : result.answer
+      await emitText(win, messageId, answer)
+      finish(conversationId, messageId, userMessageId, win, answer, packTurn.citations, 'answer')
     })
+    kickCodePackIndex()
   }
 
   async function answerFromFiles(question: string, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow): Promise<boolean> {
@@ -2047,6 +2083,44 @@ export async function createServices(): Promise<Services> {
     return run
   }
 
+  async function prepareMicrophone(): Promise<{ status: 'granted' | 'denied' | 'prompt' | 'unknown' }> {
+    if (surfEnv('E2E_DIR') && process.env.SURF_E2E_MIC === 'denied') return { status: 'denied' }
+    try {
+      const mapped = osMicStatus(systemPreferences.getMediaAccessStatus('microphone'))
+      if (process.platform !== 'darwin' || mapped === 'granted' || mapped === 'denied') return { status: mapped }
+      const ask = systemPreferences.askForMediaAccess
+      if (typeof ask !== 'function') return { status: mapped }
+      const ok = await ask.call(systemPreferences, 'microphone')
+      return { status: ok ? 'granted' : 'denied' }
+    } catch {
+      return { status: 'unknown' }
+    }
+  }
+
+  async function transcribeRecording(wav: Buffer): Promise<{ ok: boolean; text: string; note: string }> {
+    if (wav.length < 44 || wav.length > 2_100_000) return { ok: false, text: '', note: SPEECH_FAILED }
+    const canned = surfEnv('E2E_DIR') ? process.env.SURF_E2E_MIC_TEXT : ''
+    if (canned) return { ok: true, text: canned.slice(0, 200), note: '' }
+    let model: ModelEntry
+    try {
+      model = pick(registry(), 'asr', hw.tier)
+    } catch {
+      return { ok: false, text: '', note: SPEECH_FAILED }
+    }
+    if (!(await installed(model.file, model.size_bytes))) {
+      return { ok: false, text: '', note: readSettings().offlineOnly ? SPEECH_MODEL_OFFLINE : SPEECH_MODEL_MISSING }
+    }
+    const bin = resolveWhisperCli(app.isPackaged, process.resourcesPath, app.getAppPath())
+    if (!existsSync(bin)) return { ok: false, text: '', note: SPEECH_PROGRAM_MISSING }
+    try {
+      const text = await transcribeFile(bin, join(modelsDir(), model.file), wav, Math.min(4, availableParallelism()))
+      if (!text) return { ok: false, text: '', note: NOTHING_HEARD }
+      return { ok: true, text, note: '' }
+    } catch {
+      return { ok: false, text: '', note: SPEECH_FAILED }
+    }
+  }
+
   const services: Services = {
     chat: {
       async send(req, win) {
@@ -2114,6 +2188,10 @@ export async function createServices(): Promise<Services> {
       cancel(id) { inflight.get(id)?.abort() },
     },
     models: { status, download, cancel: cancelDownload, benchmark, importLocal },
+    speech: {
+      prepare: prepareMicrophone,
+      transcribe: transcribeRecording,
+    },
     adoptLocal: () => queueAdopt(null, null),
     applySetupLink(raw: string): string | null {
       const parsed = parseSetupLink(raw)
@@ -2935,11 +3013,50 @@ export async function createServices(): Promise<Services> {
     return { signedIn: true, email: session.email, deviceId: session.deviceId }
   }
 
+  function kickCodePackIndex(): void {
+    if (codeIndexRunning) return
+    codeIndexRunning = true
+    void (async () => {
+      try {
+        const embedder = await codeEmbedder()
+        if (!embedder) return
+        for (let n = 0; n < 40; n++) {
+          if (inflight.size > 0 || modelBusy > 0) return
+          await stepCodePackIndex({
+            userData: app.getPath('userData'),
+            keys: trustedPackKeys(),
+            allowed: await licences.allowsUse(),
+            embedder,
+            busy: () => inflight.size > 0 || modelBusy > 0,
+          })
+          const progress = codePackIndexProgress()
+          if (progress.state !== 'indexing') return
+        }
+      } catch (error) {
+        console.warn('[surf] code pack index:', (error as Error).message)
+      } finally {
+        codeIndexRunning = false
+      }
+    })()
+  }
+
   async function listPacks(): Promise<PackRow[]> {
-    const installed = await readInstalled(packsRoot())
-    const byId = new Map(installed.map((row) => [row.id, row]))
+    const emb = registry().models.find((model) => model.role === 'embedding')
+    const embedderReady = Boolean(emb && await installed(emb.file, emb.size_bytes))
+    const code = await codePackListing({
+      userData: app.getPath('userData'),
+      bundledDir: bundledCodePackDir(app.isPackaged, process.resourcesPath, app.getAppPath()),
+      keys: trustedPackKeys(),
+      allowed: await licences.allowsUse(),
+      embedderReady,
+    })
+    if (embedderReady && code.installed && code.indexState !== 'blocked' && code.indexState !== 'ready' && code.indexState !== 'error') {
+      kickCodePackIndex()
+    }
+    const installedRows = await readInstalled(packsRoot())
+    const byId = new Map(installedRows.map((row) => [row.id, row]))
     const ids = new Set<string>([...byId.keys(), ...catalogCache.map((pack) => pack.id)])
-    return [...ids].map((id) => {
+    const remoteRows = [...ids].filter((id) => id !== 'code').map((id) => {
       const local = byId.get(id)
       const remote = catalogCache.find((pack) => pack.id === id)
       const state = packState.get(id)
@@ -2957,6 +3074,7 @@ export async function createServices(): Promise<Services> {
         error: state?.error ?? null,
       }
     })
+    return [code, ...remoteRows]
   }
 
   async function installRemote(pack: RemotePack, previous: string | null): Promise<void> {
@@ -3262,7 +3380,8 @@ function isMetered(): Promise<boolean> {
 function labelFor(m: ModelEntry): string {
   if (m.role === 'embedding') return 'EmbeddingGemma 2'
   if (m.role === 'chat') return chatModelLabel(m)
-  if (m.role === 'asr') return m.id
+  if (m.role === 'asr') return 'Speech model'
+  if (m.role === 'vad') return 'Voice activity'
   return m.id
 }
 

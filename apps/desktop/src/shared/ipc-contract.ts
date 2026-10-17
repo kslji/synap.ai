@@ -91,6 +91,8 @@ export const IPC = {
   filesResume: 'files:resume',
   speechSpeak: 'speech:speak',
   speechStop: 'speech:stop',
+  speechPrepare: 'speech:prepare',
+  speechTranscribe: 'speech:transcribe',
 } as const
 
 export type DocScope = 'chat' | 'all'
@@ -406,6 +408,8 @@ export interface ModelStatus {
   installed: string[]
   downloading: { id: string; done: number; total: number } | null
   sidecars: Record<'chat' | 'embed' | 'whisper', 'stopped' | 'starting' | 'ready' | 'crashed'>
+  /** Registry speech model for this computer's tier. */
+  speechModelId: string
   models: CatalogModel[]
   online: boolean
   /** Why the pill says online, offline, or offline only. */
@@ -721,6 +725,15 @@ export interface PackRow {
   syncedAt: number | null
   progress: number | null
   error: string | null
+  /** Code pack: bytes of the signed files. Omitted for other packs. */
+  sizeBytes?: number | null
+  sources?: { title: string; version: string; licence: string; url: string }[]
+  /** 0 to 1 while EmbeddingGemma builds the local cache. */
+  indexProgress?: number | null
+  indexState?: 'pending' | 'indexing' | 'ready' | 'off' | 'error' | 'blocked'
+  updatedAt?: string | null
+  /** Plain status when the pack is missing, invalid, or locked. */
+  note?: string | null
 }
 
 /** One opened project. The index lives in the app private data folder, not in the project. */
@@ -752,6 +765,7 @@ export interface SurfApi {
   models: {
     status(): Promise<ModelStatus>
     benchmark(modelId: string): Promise<BenchmarkResult>
+    download(modelId: string): Promise<void>
     onEvent(cb: (e: ModelEvent) => void): () => void
   }
   packs: {
@@ -870,6 +884,8 @@ export interface SurfApi {
   speech: {
     speak(text: string): Promise<{ ok: boolean; note: string }>
     stop(): Promise<void>
+    prepare(): Promise<{ status: 'granted' | 'denied' | 'prompt' | 'unknown' }>
+    transcribe(req: { wavBase64: string }): Promise<{ ok: boolean; text: string; note: string }>
   }
 }
 

@@ -36,6 +36,7 @@ export type BlobMood =
   | 'guiding'
   | 'notification'
   | 'dizzy'
+  | 'listening'
 
 export type BlobVariant = 'full' | 'avatar' | 'mark'
 
@@ -90,6 +91,7 @@ const EXTRA: Record<Exclude<BlobMood, keyof typeof FILE_POSES>, Pose> = {
   guiding: { ...IDLE, tilt: -6, amp: 3, spd: 0.9, bob: 2.2, bs: 1.4, es: 1.05 },
   notification: { ...IDLE, es: 1.08, amp: 5, bob: 3.2, bs: 2.1 },
   dizzy: { ...IDLE, amp: 9, spd: 3.2, bob: 3, bs: 4, es: 1.16 },
+  listening: { ...IDLE, ehl: 1.35, ehr: 1.35, amp: 2.4, spd: 0.8, bob: 2, bs: 1.2, tilt: -16, es: 1.12 },
 }
 
 const POSES: Record<BlobMood, Pose> = { ...FILE_POSES, ...EXTRA }
@@ -125,7 +127,7 @@ export function resolveBlobState(input: {
   if (task === 'oops') return 'oops'
   if (input.permission) return 'permission'
   if (input.benchmark) return 'benchmark'
-  if (task === 'searching' || task === 'reading' || task === 'writing' || task === 'thinking' || task === 'happy' || task === 'working') return task
+  if (task === 'searching' || task === 'reading' || task === 'writing' || task === 'thinking' || task === 'happy' || task === 'working' || task === 'listening') return task
   if (input.typing) return 'typing'
   if (input.offline) return 'offline'
   if (input.sleepy) return 'sleepy'
@@ -245,6 +247,7 @@ export function gazeTarget(state: string, t: number, pointer: { x: number; y: nu
   if (mood === 'benchmark') return { x: Math.sin(t * 5) * 0.16, y: -0.04 }
   if (mood === 'wink') return { x: 0.15, y: 0 }
   if (mood === 'dizzy') return { x: Math.sin(t * 8) * 0.35, y: Math.cos(t * 8) * 0.28 }
+  if (mood === 'listening') return { x: 0.04 * Math.sin(t * 0.6), y: -0.12 }
   if (pointer) return pointer
   return { x: 0, y: 0 }
 }

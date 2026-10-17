@@ -63,7 +63,7 @@
   padding: 12px 14px;
   font: inherit;
   font-size: 15px;
-  line-height: 1.45;
+  line-height: 1.55;
 }
 .field:focus { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 

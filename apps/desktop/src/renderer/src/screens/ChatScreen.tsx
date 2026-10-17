@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ArrowUp, Copy, Download, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import { StarSurf, starStateFor } from '@surf/ui'
 import type { CatalogModel, ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { formatModelSize } from '../../../shared/model-label'
@@ -215,11 +216,13 @@ export function ChatScreen({
           </div>
         )}
         {project && <CodeEditor enabled={tabSuggestions} languagesOff={tabSuggestionsOff} />}
-        <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
+        <div ref={scroller} className="flex-1 overflow-auto px-6 py-6">
           {messages.length === 0 ? (
-            <div className="mx-auto flex max-w-lg flex-col items-center pt-16 text-center">
+            <div className="empty-chat">
               {!chatReady && setupModel && onDownloadModel && onCancelDownload ? (
-                <SetupDownload
+                <>
+                  <StarSurf state={starStateFor(reading ? 'working' : mood)} size={120} />
+                  <SetupDownload
                   model={setupModel}
                   busy={downloadBusyId === setupModel.id}
                   progress={downloadProgress[setupModel.id] ?? 0}
@@ -231,16 +234,17 @@ export function ChatScreen({
                   }}
                   onCancel={onCancelDownload}
                 />
+                </>
               ) : (
                 <>
-                  <StarSurf state={starStateFor(reading ? 'working' : mood)} size={220} />
-                  <h1 className="mt-2 text-3xl font-semibold tracking-tight">{agentName}</h1>
-                  <p className="mt-2 text-[15px] leading-relaxed text-[var(--muted)]">
-                    {agentNote || 'Ask here. Files you attach stay on this computer.'}
+                  <StarSurf state={starStateFor(reading ? 'working' : mood)} size={148} />
+                  <h1 className="empty-title">Hello</h1>
+                  <p className="empty-lead">
+                    {agentNote || `${agentName} answers on this computer. Files you attach stay here.`}
                   </p>
-                  <div className="mt-6 flex flex-wrap justify-center gap-2">
+                  <div className="suggest-row">
                     {PROMPTS.map((p) => (
-                      <button key={p} type="button" className="btn btn-ghost" onClick={() => submit(p)}>{p}</button>
+                      <button key={p} type="button" className="suggest-chip" onClick={() => submit(p)}>{p}</button>
                     ))}
                   </div>
                 </>
@@ -313,10 +317,10 @@ export function ChatScreen({
               <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} onAttach={onAddShots} onCapture={onCaptureShot} />
             )}
             <div className="shell-composer flex items-end gap-2">
-              <button type="button" className="composer-icon" aria-label="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}>+</button>
-              <button type="button" className="composer-icon" aria-label="Search" aria-expanded={searchOpen} data-search-tools={searchOpen ? 'open' : 'closed'} onClick={() => setSearchOpen((open) => !open)}>⌕</button>
+              <button type="button" className="composer-icon" aria-label="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}><Plus size={18} strokeWidth={2} /></button>
+              <button type="button" className="composer-icon" aria-label="Search" aria-expanded={searchOpen} data-search-tools={searchOpen ? 'open' : 'closed'} onClick={() => setSearchOpen((open) => !open)}><Search size={16} strokeWidth={2} /></button>
               <textarea
-                className="field min-h-[44px] border-0 bg-transparent shadow-none"
+                className="field min-h-[44px]"
                 rows={1}
                 placeholder={chatReady ? `Message ${agentName}` : 'The model is still downloading'}
                 value={text}
@@ -334,9 +338,9 @@ export function ChatScreen({
                 }}
               />
               {streaming && onStop ? (
-                <button className="btn btn-ghost h-11 px-4" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
+                <button className="btn btn-ghost h-9 px-3" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (
-                <button className="btn btn-primary h-11 px-4" type="submit" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}>Send</button>
+                <button className="send-btn" type="submit" aria-label="Send" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}><ArrowUp size={18} strokeWidth={2.4} /></button>
               )}
             </div>
           </div>
@@ -379,16 +383,24 @@ function SetupDownload({
 }) {
   const percent = Math.max(0, Math.min(100, Math.round(progress * 100)))
   return (
-    <div className="card w-full px-5 py-5 text-left" data-model-setup="yes" data-model-option={model.id}>
-      <h1 className="text-2xl font-semibold tracking-tight">Setting up {setupName(model)}</h1>
-      <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
-        The file stays on this computer. Chat opens when the check finishes.
-      </p>
-      <p className="mt-3 text-sm text-[var(--muted)]">
+    <div className="card setup-card mt-5 px-5 py-5" data-model-setup="yes" data-model-option={model.id}>
+      <div className="setup-head">
+        <span className="icon-tile" aria-hidden="true"><Download size={18} /></span>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Setting up {setupName(model)}</h1>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+            The file stays on this computer. Chat opens when the check finishes.
+          </p>
+        </div>
+      </div>
+      <p className="mt-4 text-sm text-[var(--muted)]">
         <span data-model-size={model.id}>{formatModelSize(model.sizeBytes)}</span>
         {' · '}
         <span data-model-ram={model.id}>{ramNote(model.minRamGb)}</span>
       </p>
+      <div className="progress mt-4" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+        <b style={{ width: `${percent}%` }} />
+      </div>
       {offline && <p className="mt-3 text-sm" data-setup-offline="yes">Offline. The download starts when this computer is allowed online.</p>}
       {busy ? (
         <button className="btn btn-ghost mt-4" type="button" data-cancel-download={model.id} onClick={onCancel}>
@@ -399,7 +411,6 @@ function SetupDownload({
           Download {setupName(model)}
         </button>
       )}
-      {busy && <div className="progress mt-3"><b style={{ width: `${percent}%` }} /></div>}
       {error && <p className="mt-3 text-sm" data-model-setup-error="yes">{error}</p>}
     </div>
   )
@@ -444,7 +455,8 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
   return (
     <div className="flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
       <div className="pt-1"><StarSurf state={starStateFor(creature)} size={44} animate={animateMascot} /></div>
-      <div className="assistant-card min-w-0 flex-1">
+      <div className="min-w-0 flex-1">
+      <div className="assistant-card">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
         <div className="whitespace-pre-wrap text-[15px] leading-relaxed" data-model-error={msg.error ? 'yes' : 'no'}>
@@ -520,6 +532,7 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
             ) : null)}
           </div>
         )}
+      </div>
         {!msg.pending && msg.text && (
           <ReplyBar
             text={shown}
@@ -560,23 +573,24 @@ function ReplyBar({
   const [note, setNote] = useState('')
   const [more, setMore] = useState(false)
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2" data-reply-actions="yes">
-      <button type="button" className="btn btn-ghost" data-reply-copy="yes" onClick={() => {
+    <div className="reply-row" data-reply-actions="yes">
+      <button type="button" className="icon-quiet" aria-label="Copy" data-reply-copy="yes" onClick={() => {
         void navigator.clipboard.writeText(text).then(() => setNote('Copied.')).catch(() => setNote('Copy failed on this computer.'))
-      }}>Copy</button>
-      <button type="button" className="btn btn-ghost" data-reply-up="yes" aria-pressed={thumb === 'up'} onClick={() => setThumb((current) => current === 'up' ? null : 'up')}>Thumbs up</button>
-      <button type="button" className="btn btn-ghost" data-reply-down="yes" aria-pressed={thumb === 'down'} onClick={() => setThumb((current) => current === 'down' ? null : 'down')}>Thumbs down</button>
-      <button type="button" className="btn btn-ghost" data-reply-aloud="yes" onClick={() => { void readAloud(text).then(setNote) }}>Read aloud</button>
-      {onRegenerate && <button type="button" className="btn btn-ghost" data-reply-regenerate="yes" onClick={onRegenerate}>Regenerate</button>}
-      <button type="button" className="btn btn-ghost" data-reply-more="yes" aria-expanded={more} onClick={() => setMore((open) => !open)}>More</button>
+      }}><Copy size={16} /></button>
+      <button type="button" className="icon-quiet" aria-label="Thumbs up" data-reply-up="yes" aria-pressed={thumb === 'up'} onClick={() => setThumb((current) => current === 'up' ? null : 'up')}><ThumbsUp size={16} /></button>
+      <button type="button" className="icon-quiet" aria-label="Thumbs down" data-reply-down="yes" aria-pressed={thumb === 'down'} onClick={() => setThumb((current) => current === 'down' ? null : 'down')}><ThumbsDown size={16} /></button>
+      <button type="button" className="icon-quiet" aria-label="Read aloud" data-reply-aloud="yes" onClick={() => { void readAloud(text).then(setNote) }}><Volume2 size={16} /></button>
+      {onRegenerate && <button type="button" className="icon-quiet" aria-label="Regenerate" data-reply-regenerate="yes" onClick={onRegenerate}><RefreshCw size={16} /></button>}
+      <button type="button" className="icon-quiet" aria-label="More" data-reply-more="yes" aria-expanded={more} onClick={() => setMore((open) => !open)}><MoreHorizontal size={16} /></button>
       {versionCount > 1 && (
-        <span className="text-xs text-[var(--muted)]" data-reply-versions="yes">
-          <button type="button" className="btn btn-ghost" aria-label="Previous version" disabled={versionAt <= 0} onClick={() => onVersion(versionAt - 1)}>‹</button>
+        <span className="msg-meta" data-reply-versions="yes">
+          <button type="button" className="icon-quiet" aria-label="Previous version" disabled={versionAt <= 0} onClick={() => onVersion(versionAt - 1)}>‹</button>
           {versionAt + 1}/{versionCount}
-          <button type="button" className="btn btn-ghost" aria-label="Next version" disabled={versionAt >= versionCount - 1} onClick={() => onVersion(versionAt + 1)}>›</button>
+          <button type="button" className="icon-quiet" aria-label="Next version" disabled={versionAt >= versionCount - 1} onClick={() => onVersion(versionAt + 1)}>›</button>
         </span>
       )}
-      {note && <span className="text-xs text-[var(--muted)]" data-reply-note="yes">{note}</span>}
+      <span className="msg-meta">{modelId}</span>
+      {note && <span className="msg-meta" data-reply-note="yes">{note}</span>}
       {more && (
         <div className="basis-full text-sm text-[var(--muted)]" data-reply-details="yes">
           <p>Model: {modelId}</p>

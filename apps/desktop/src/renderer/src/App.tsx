@@ -487,10 +487,28 @@ export default function App() {
         setView('chat')
         setPreview(null)
         setFiles([])
+        setConversationId(`c-${agentScene}`)
+        setConversations((prev) => prev.some((chat) => chat.id === `c-${agentScene}`) ? prev : [
+          { id: `c-${agentScene}`, title: 'Harbor ferry', agentId: agentScene, updatedAt: Date.now(), preview: 'On this computer.' },
+          ...prev,
+        ])
         setMessages([
           { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
-          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [] },
+          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 2B' },
         ])
+        return
+      }
+      if (scene === 'empty') {
+        setView('chat')
+        setMessages([])
+        setFiles([])
+        setPreview(null)
+        setConversationId(null)
+        setConversations([])
+        setStatus((current) => current && {
+          ...current,
+          models: current.models.map((model) => model.id === 'qwen3.5-2b-q4_k_m' ? { ...model, installed: true } : model),
+        })
         return
       }
       if (scene === 'update') {

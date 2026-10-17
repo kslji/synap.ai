@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Cpu } from 'lucide-react'
 import { StarSurf, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { DownloadButtons } from './download-buttons'
@@ -224,8 +225,13 @@ export function DownloadCard() {
   return (
     <div className="mt-5 flex flex-col gap-2 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
       <div className="card px-4 py-4" data-model-picker="yes">
-        <p className="text-sm font-semibold">Choose a model, then download the app</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">The installer is the same for every size. Model files are not inside the disk image.</p>
+        <div className="flex items-start gap-3">
+          <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
+          <div>
+            <p className="text-sm font-semibold">Choose a model, then download the app</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">The installer is the same for every size. Model files are not inside the disk image.</p>
+          </div>
+        </div>
         <div className="mt-3 flex flex-col gap-2">
           {SETUP_MODELS.map((model) => (
             <button
@@ -233,14 +239,17 @@ export function DownloadCard() {
               type="button"
               data-setup-model={model.id}
               aria-pressed={model.id === chosen.id}
-              className={`rounded-xl px-3 py-2 text-left text-sm ${model.id === chosen.id ? 'bg-[var(--accent-soft)]' : 'bg-[var(--bg)]'}`}
+              className="model-choice"
               onClick={() => setModelId(model.id)}
             >
-              <span className="font-semibold">{model.name}</span>
-              <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                <span data-model-size={model.id}>{model.size}</span>
-                {' · '}
-                <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+              <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
+              <span>
+                <span className="font-semibold">{model.name}</span>
+                <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                  <span data-model-size={model.id}>{model.size}</span>
+                  {' · '}
+                  <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+                </span>
               </span>
             </button>
           ))}

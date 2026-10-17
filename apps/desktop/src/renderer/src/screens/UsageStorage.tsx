@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Boxes, Cpu, HardDrive, Hash } from 'lucide-react'
 import type { ModelStatus, SettingsPatch, StorageCategoryId, StorageReport, UsageReport } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
 
@@ -95,8 +96,8 @@ export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: n
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Usage</h1>
-            <p className="mt-1 max-w-xl text-sm leading-relaxed text-[var(--muted)]">
+            <h1 className="page-title">Usage</h1>
+            <p className="page-sub">
               Requests, tokens, model, agent, and day from the log on this computer.
             </p>
           </div>
@@ -111,7 +112,7 @@ export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: n
         </div>
         <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Usage range">
           {RANGES.map((id) => (
-            <button key={id} type="button" role="tab" aria-selected={range === id} data-usage-range={id} className={range === id ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setRange(id)}>
+            <button key={id} type="button" role="tab" aria-selected={range === id} data-usage-range={id} className="chip-tab" onClick={() => setRange(id)}>
               {RANGE_LABEL[id]}
             </button>
           ))}
@@ -121,43 +122,41 @@ export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: n
         {report && (
           <>
             <div className="grid gap-3 md:grid-cols-3" data-usage-figures="yes">
-              <Stat label="Requests" value={String(requests)} />
-              <Stat label="Tokens" value={formatCount(tokens)} />
-              <Stat label="Models" value={String(modelIds.length)} />
+              <Stat label="Requests" value={String(requests)} tile="orange" icon={<Hash size={16} />} />
+              <Stat label="Tokens" value={formatCount(tokens)} tile="violet" icon={<Boxes size={16} />} />
+              <Stat label="Models" value={String(modelIds.length)} tile="blue" icon={<Cpu size={16} />} />
             </div>
-            {rows.length === 0 ? (
-              <div className="card px-4 py-8 text-center text-sm text-[var(--muted)]" data-usage-empty="yes">No requests in this range.</div>
-            ) : (
-              <>
-                <UsageChart rows={rows} />
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="text-lg font-semibold tracking-tight">Local inference history</h2>
-                  <input className="field w-auto" data-usage-filter="yes" aria-label="Filter by agent or model" placeholder="Filter by agent or model" value={filter} onChange={(event) => setFilter(event.target.value)} />
-                </div>
-                <div className="card overflow-hidden">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="text-[var(--muted)]">
-                        <th className="px-4 py-3 font-medium">Date</th>
-                        <th className="px-4 py-3 font-medium">Agent</th>
-                        <th className="px-4 py-3 font-medium">Model</th>
-                        <th className="px-4 py-3 font-medium">Tokens</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr key={`${row.day}-${row.agentId}-${row.modelId}`} data-usage-days="yes">
-                          <td className="px-4 py-3">{row.day}</td>
-                          <td className="px-4 py-3" data-usage-agents="yes">{row.agentId || 'unspecified'}</td>
-                          <td className="px-4 py-3" data-usage-models="yes">{row.modelId}</td>
-                          <td className="px-4 py-3">{formatCount(row.tokensIn + row.tokensOut)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
+            <UsageChart rows={rows} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold tracking-tight">Local inference history</h2>
+              <input className="field w-auto" data-usage-filter="yes" aria-label="Filter by agent or model" placeholder="Filter by agent or model" value={filter} onChange={(event) => setFilter(event.target.value)} />
+            </div>
+            <div className="card overflow-hidden">
+              <table className="usage-table w-full text-left text-sm">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Agent</th>
+                    <th>Model</th>
+                    <th>Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted)]" data-usage-empty="yes">No requests in this range.</td>
+                    </tr>
+                  ) : rows.map((row) => (
+                    <tr key={`${row.day}-${row.agentId}-${row.modelId}`} data-usage-days="yes">
+                      <td>{row.day}</td>
+                      <td data-usage-agents="yes">{row.agentId || 'unspecified'}</td>
+                      <td data-usage-models="yes">{row.modelId}</td>
+                      <td>{formatCount(row.tokensIn + row.tokensOut)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {confirming ? (
               <div className="flex gap-2" data-usage-reset-confirm="yes">
                 <button type="button" className="btn btn-primary" data-usage-reset-yes="yes" onClick={() => {
@@ -176,11 +175,14 @@ export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: n
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, icon, tile }: { label: string; value: string; icon: ReactNode; tile: 'orange' | 'violet' | 'blue' }) {
   return (
-    <div className="card px-4 py-4">
-      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
+    <div className="stat-card">
+      <div className="flex items-center justify-between gap-3">
+        <div className="stat-kicker">{label}</div>
+        <span className={`icon-tile ${tile === 'violet' ? 'is-violet' : tile === 'blue' ? 'is-blue' : ''}`}>{icon}</span>
+      </div>
+      <div className="stat-value">{value}</div>
     </div>
   )
 }
@@ -190,8 +192,12 @@ function UsageChart({ rows }: { rows: UsageReport['entries'] }) {
   const models = [...new Set(rows.map((row) => row.modelId).filter(Boolean))]
   const max = Math.max(1, ...days.map((day) => rows.filter((row) => row.day === day).reduce((sum, row) => sum + row.tokensIn + row.tokensOut, 0)))
   return (
-    <div className="card px-4 py-4" data-usage-chart="yes">
+    <div className="card chart-frame px-5 py-5" data-usage-chart="yes">
       <div className="text-sm font-semibold">Tokens by model</div>
+      <p className="mt-1 text-sm text-[var(--muted)]">Each bar is one day from the log on this computer.</p>
+      {days.length === 0 ? (
+        <div className="chart-empty mt-4">No requests in this range.</div>
+      ) : (
       <div className="mt-4 flex h-40 items-end gap-3">
         {days.map((day) => {
           const slice = rows.filter((row) => row.day === day)
@@ -211,6 +217,7 @@ function UsageChart({ rows }: { rows: UsageReport['entries'] }) {
           )
         })}
       </div>
+      )}
       <div className="mt-3 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
         {models.map((model, index) => (
           <span key={model}><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: CHART[index % CHART.length] }} />{model}</span>
@@ -265,11 +272,16 @@ export function StoragePanel() {
   }
   useEffect(() => { reload() }, [])
   return (
-    <div className="card px-4 py-4" data-storage-page="yes">
-      <div className="text-sm font-semibold">On this computer</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        Delete only removes files inside the app data folder. A confirmation is required for each clear.
-      </p>
+    <div className="card px-5 py-5" data-storage-page="yes">
+      <div className="flex items-start gap-3">
+        <span className="icon-tile is-teal" aria-hidden="true"><HardDrive size={16} /></span>
+        <div>
+          <div className="text-sm font-semibold">On this computer</div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+            Delete only removes files inside the app data folder. A confirmation is required for each clear.
+          </p>
+        </div>
+      </div>
       {report && (
         <p className="mt-2 text-sm" data-storage-total="yes">
           App data {formatIndexBytes(report.totalBytes)} · free {formatIndexBytes(report.freeBytes)} of {formatIndexBytes(report.diskBytes)}
@@ -320,9 +332,16 @@ export function StoragePanel() {
 
 function CachePlot({ report }: { report: StorageReport }) {
   const total = report.categories.reduce((sum, category) => sum + category.bytes, 0)
-  if (total <= 0) return <p className="mt-3 text-sm text-[var(--muted)]" data-cache-plot="empty">Nothing stored in these folders yet.</p>
+  if (total <= 0) {
+    return (
+      <div className="mt-3" data-cache-plot="empty">
+        <div className="cache-track" />
+        <p className="mt-2 text-sm text-[var(--muted)]">Nothing stored in these folders yet.</p>
+      </div>
+    )
+  }
   return (
-    <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-[var(--bg-side)]" data-cache-plot="yes" aria-label="Storage by category">
+    <div className="cache-track mt-3 flex" data-cache-plot="yes" aria-label="Storage by category">
       {report.categories.filter((category) => category.bytes > 0).map((category) => (
         <div key={category.id} title={`${category.label} ${formatIndexBytes(category.bytes)}`} style={{ width: `${(category.bytes / total) * 100}%`, background: 'var(--accent)' }} data-cache-slice={category.id} />
       ))}

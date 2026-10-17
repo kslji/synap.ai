@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
+import { BarChart3, Bot, Folder, Home, LogOut, Moon, Package, Plus, Search, Settings, Trash2 } from 'lucide-react'
 import { StarSurf, type ThemeChoice } from '@surf/ui'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
-const MENU: { id: View; label: string }[] = [
-  { id: 'usage', label: 'Usage' },
-  { id: 'home', label: 'Home' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'library', label: 'Files' },
-  { id: 'packs', label: 'Packs' },
-  { id: 'settings', label: 'Settings' },
+const MENU: { id: View; label: string; icon: typeof Home }[] = [
+  { id: 'usage', label: 'Usage', icon: BarChart3 },
+  { id: 'home', label: 'Home', icon: Home },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'library', label: 'Files', icon: Folder },
+  { id: 'packs', label: 'Packs', icon: Package },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar({
@@ -68,10 +69,10 @@ export function Sidebar({
     <aside className="shell-side flex h-full min-h-0 w-[280px] shrink-0 flex-col">
       <div className="flex items-center justify-between px-4 pt-4">
         <button type="button" className="icon-btn" aria-label="Search chats" aria-expanded={searchOpen} onClick={() => setSearchOpen((open) => !open)}>
-          <SearchIcon />
+          <Search size={18} />
         </button>
         <button type="button" className="icon-btn" data-new-chat="yes" aria-label="New chat" onClick={onNew}>
-          <PlusIcon />
+          <Plus size={18} />
         </button>
       </div>
       {searchOpen && (
@@ -108,8 +109,8 @@ export function Sidebar({
                 <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
               </span>
             </button>
-            <button type="button" className="shrink-0 px-2 py-2 text-xs text-[var(--muted)]" aria-label={`Delete ${chat.title}`} data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
-              Delete
+            <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
+              <Trash2 size={15} />
             </button>
           </div>
         ))}
@@ -136,7 +137,9 @@ export function Sidebar({
         </button>
         {menuOpen && (
           <div className="account-menu" data-account-panel="yes">
-            {MENU.map((item) => (
+            {MENU.map((item) => {
+              const Icon = item.icon
+              return (
               <button
                 key={item.id}
                 type="button"
@@ -145,11 +148,13 @@ export function Sidebar({
                 className={view === item.id ? 'is-on' : ''}
                 onClick={() => { setMenuOpen(false); onView(item.id) }}
               >
+                <Icon size={16} />
                 {item.label}
               </button>
-            ))}
+              )
+            })}
             <div className="account-row">
-              <span>Dark mode</span>
+              <span><Moon size={16} /> Dark mode</span>
               <button
                 type="button"
                 className="toggle"
@@ -183,10 +188,10 @@ export function Sidebar({
               })}
             </div>
             {!devMode && signedIn && onSignOut && (
-              <button type="button" data-sign-out="yes" onClick={() => { setMenuOpen(false); onSignOut() }}>Log out</button>
+              <button type="button" data-sign-out="yes" onClick={() => { setMenuOpen(false); onSignOut() }}><LogOut size={16} /> Log out</button>
             )}
             {!devMode && !signedIn && (
-              <button type="button" data-sign-in="yes" onClick={() => { setMenuOpen(false); onSignIn() }}>Sign in</button>
+              <button type="button" data-sign-in="yes" onClick={() => { setMenuOpen(false); onSignIn() }}><LogOut size={16} /> Sign in</button>
             )}
           </div>
         )}
@@ -198,21 +203,4 @@ export function Sidebar({
 function when(ms: number): string {
   if (!ms) return ''
   try { return new Date(ms).toLocaleString() } catch { return '' }
-}
-
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M16 16 L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <path d="M12 5 V19 M5 12 H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  )
 }

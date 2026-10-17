@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { Cpu, HardDrive, Monitor, Palette, Plug, Wifi } from 'lucide-react'
 import { product } from '@surf/shared'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
@@ -81,10 +82,10 @@ export function SettingsScreen({
 
   return (
     <section className="settings-shell flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-8 py-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-[var(--muted)]">Preferences stay on this computer.</p>
+          <h1 className="page-title">Settings</h1>
+          <p className="page-sub">Preferences stay on this computer.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {licenceState === 'dev' && <span className="pill" data-dev-mode="yes">Dev mode</span>}
@@ -95,18 +96,22 @@ export function SettingsScreen({
       </header>
       <div className="flex min-h-0 flex-1">
         <nav className="settings-nav flex w-[240px] shrink-0 flex-col gap-1 overflow-auto px-3 py-4" aria-label="Settings categories">
-          {SETTINGS_NAV.map((item) => (
+          {SETTINGS_NAV.map((item) => {
+            const Icon = item.icon
+            return (
             <button
               key={item.id}
               type="button"
               data-settings-nav={item.id}
               aria-current={category === item.id ? 'page' : undefined}
-              className={`rounded-xl px-3 py-2 text-left text-sm ${category === item.id ? 'bg-[var(--bg-elev)] font-semibold' : 'hover:bg-[var(--bg-elev)]'}`}
+              className="settings-nav-btn"
               onClick={() => setCategory(item.id)}
             >
+              <Icon size={16} />
               {item.label}
             </button>
-          ))}
+            )
+          })}
         </nav>
         <div className="min-w-0 flex-1 overflow-auto px-8 py-6">
           <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -360,12 +365,12 @@ export function SettingsScreen({
   )
 }
 
-const SETTINGS_NAV: { id: SettingsCategory; label: string }[] = [
-  { id: 'general', label: 'General & Appearance' },
-  { id: 'models', label: 'Offline Models & Compute' },
-  { id: 'network', label: 'Network' },
-  { id: 'apps', label: 'Connected Apps' },
-  { id: 'storage', label: 'Storage' },
+const SETTINGS_NAV: { id: SettingsCategory; label: string; icon: typeof Palette }[] = [
+  { id: 'general', label: 'General & Appearance', icon: Palette },
+  { id: 'models', label: 'Offline Models & Compute', icon: Cpu },
+  { id: 'network', label: 'Network', icon: Wifi },
+  { id: 'apps', label: 'Connected Apps', icon: Plug },
+  { id: 'storage', label: 'Storage', icon: HardDrive },
 ]
 
 type SettingsCategory = 'general' | 'models' | 'network' | 'apps' | 'storage'
@@ -537,7 +542,14 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
   const [name, setName] = useState(settings.mascotName)
   useEffect(() => { setName(settings.mascotName) }, [settings.mascotName])
   return (
-    <div className="card px-4 py-4" data-appearance="yes">
+    <div className="card px-5 py-5" data-appearance="yes">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="icon-tile" aria-hidden="true"><Palette size={16} /></span>
+        <div>
+          <div className="text-sm font-semibold">Interface</div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Light or dark. The accent shows on buttons and the active category.</p>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Color theme">
         {(['light', 'dark'] as const).map((theme) => (
           <button
@@ -549,8 +561,17 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
             className={`theme-card ${settings.theme === theme ? 'is-on' : ''}`}
             onClick={() => onPatch({ theme })}
           >
-            <span className={`theme-preview is-${theme}`} />
-            <span className="mt-2 block text-sm font-semibold">{theme === 'light' ? 'Light' : 'Dark'}</span>
+            <span className={`theme-preview is-${theme}`} aria-hidden="true">
+              <span className="theme-preview-side" />
+              <span className="theme-preview-main">
+                <span className="theme-preview-bubble" />
+                <span className="theme-preview-line" />
+              </span>
+            </span>
+            <span className="mt-2 flex items-center gap-2 text-sm font-semibold">
+              <Monitor size={14} />
+              {theme === 'light' ? 'Light' : 'Dark'}
+            </span>
           </button>
         ))}
       </div>
@@ -577,7 +598,7 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
       </div>
       <div className="mt-3 flex flex-wrap gap-2" data-density-choices="yes">
         {DENSITY_CHOICES.map((density) => (
-          <button key={density} type="button" className="btn btn-ghost" data-density-choice={density} aria-pressed={settings.density === density} onClick={() => onPatch({ density })}>{density}</button>
+          <button key={density} type="button" className="chip-tab" data-density-choice={density} aria-pressed={settings.density === density} onClick={() => onPatch({ density })}>{density}</button>
         ))}
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
@@ -594,7 +615,11 @@ function MachineCard({ status }: { status: ModelStatus }) {
   const chats = status.models.filter((model) => model.role === 'chat' && model.installed)
   const gpus = (status.gpus ?? []).filter((gpu) => gpu.model.trim())
   return (
-    <div className="card px-4 py-4 text-sm" data-machine="yes">
+    <div className="card px-5 py-5 text-sm" data-machine="yes">
+      <div className="mb-3 flex items-center gap-3">
+        <span className="icon-tile is-blue" aria-hidden="true"><Cpu size={16} /></span>
+        <div className="text-sm font-semibold">Hardware</div>
+      </div>
       <p>{status.cpuModel} · {status.cores} cores · {status.ramGb} GB RAM{typeof status.freeRamGb === 'number' ? ` · ${status.freeRamGb} GB free` : ''}</p>
       {gpus.map((gpu) => (
         <p key={`${gpu.vendor}-${gpu.model}`} className="mt-1" data-gpu="yes">

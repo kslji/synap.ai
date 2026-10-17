@@ -5,7 +5,7 @@
  * has to live inside the bundle. Unsigned builds can still ad-hoc sign.
  */
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,10 +52,15 @@ for (const { app, arch } of apps) {
     rmSync(stage, { recursive: true, force: true })
     mkdirSync(stage, { recursive: true })
     const staged = join(stage, basename(app))
-    cpSync(app, staged, { recursive: true })
+    // Node's recursive copy turns framework symlinks into real files, and codesign
+    // then rejects the Electron framework. ditto keeps the bundle layout.
+    execFileSync('ditto', [app, staged], { stdio: 'inherit' })
     writeFileSync(join(staged, 'Contents', 'Resources', 'setup-model.json'), `${JSON.stringify({ model })}\n`)
     try { execFileSync('xattr', ['-cr', staged], { stdio: 'inherit' }) } catch { /* quarantine bits are optional */ }
-    execFileSync('codesign', ['--force', '--deep', '--sign', '-', staged], { stdio: 'inherit' })
+    // The nested Electron binaries are already signed. --deep re-signs the framework
+    // and fails once the bundle has been copied. Signing the outer app reseals the
+    // new setup-model.json without touching those frameworks.
+    execFileSync('codesign', ['--force', '--sign', '-', staged], { stdio: 'inherit' })
     symlinkSync('/Applications', join(stage, 'Applications'))
     const out = join(dist, `Synap.surf-${version}-${arch}-${token}.dmg`)
     execFileSync('hdiutil', ['create', '-volname', 'Synap.surf', '-srcfolder', stage, '-ov', '-format', 'UDZO', out], { stdio: 'inherit' })

@@ -15,7 +15,7 @@ function copyPlan(plan: CodePlanView): CodePlanView {
   return { status: plan.status, steps, undos: plan.undos.map((undo) => ({ stepId: undo.stepId, title: undo.title })) }
 }
 
-export type View = 'onboarding' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs'
+export type View = 'onboarding' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs' | 'usage'
 
 export interface UiMsg {
   id: string
@@ -31,6 +31,13 @@ export interface UiMsg {
   steps?: CodeStepView[]
   diffs?: CodeDiffView[]
   plan?: CodePlanView
+  startedAt?: number
+  elapsedMs?: number | null
+  modelId?: string
+  /** Earlier sibling answers for this reply. The latest text is `text`. */
+  versions?: string[]
+  /** A token event arrived, so the reply was streamed. */
+  streamed?: boolean
 }
 
 export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
@@ -41,13 +48,20 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     steps: [...(m.steps ?? [])],
     diffs: [...(m.diffs ?? [])],
     plan: m.plan ? copyPlan(m.plan) : undefined,
+    startedAt: m.startedAt,
+    elapsedMs: m.elapsedMs,
+    modelId: m.modelId,
+    versions: m.versions ? [...m.versions] : undefined,
   }))
   let i = next.findIndex((m) => m.id === e.messageId)
   if (i < 0) i = next.findIndex((m) => m.pending && m.role === 'assistant')
   if (i < 0) return prev
   const m = next[i]
   m.id = e.messageId
-  if (e.type === 'token') m.text += e.text
+  if (e.type === 'token') {
+    m.text += e.text
+    m.streamed = true
+  }
   if (e.type === 'status') m.phase = e.phase
   if (e.type === 'sources') m.sources = e.sources
   if (e.type === 'tool') m.tools.push({ name: e.name, input: e.input, output: e.output })
@@ -72,6 +86,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.pending = false
     m.gate = e.gate
     if (e.text) m.text = e.text
+    if (m.startedAt) m.elapsedMs = Date.now() - m.startedAt
   }
   return next
 }

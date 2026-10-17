@@ -69,6 +69,8 @@ export const IPC = {
   devWebRun: 'dev-web:run',
   usageGet: 'usage:get',
   usageReset: 'usage:reset',
+  usageCsv: 'usage:csv',
+  modelsBenchmark: 'models:benchmark',
   storageReport: 'storage:report',
   storageClear: 'storage:clear',
   storageOpen: 'storage:open',
@@ -83,6 +85,8 @@ export interface ChatSendReq {
   images?: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }[]
   allowWeb?: boolean
   docScope?: DocScope
+  /** When set, the new answer is another version of this assistant reply. No new user turn is stored. */
+  replaceMessageId?: string
 }
 
 export type ThemeChoice = 'light' | 'dark'
@@ -120,6 +124,14 @@ export interface SettingsPatch {
   idleUnloadMinutes?: number
   /** Prefer speculative decoding when a draft model is installed and RAM allows it. */
   speculativeDecoding?: boolean
+  /** Display name for the star mascot. Saved on this computer. */
+  mascotName?: string
+  accent?: 'orange' | 'blue' | 'indigo' | 'navy'
+  density?: 'compact' | 'comfortable' | 'relaxed'
+  /** SVG motion for the mascot. There is no audio. */
+  animateMascot?: boolean
+  /** Offline blocks every network call. Online allows web and pack sync. Auto follows the connection. */
+  networkMode?: 'offline' | 'online' | 'auto'
 }
 
 /** Shown before Auto mode is allowed to write or run commands. */
@@ -390,6 +402,39 @@ export interface ModelStatus {
     draftModelId: string
     draftInstalled: boolean
   }
+  /** electron app.getVersion(). Empty only in a stub that did not set it. */
+  appVersion?: string
+  gpus?: { vendor: string; model: string; vramMb: number | null }[]
+  /** llama-server -c for this machine's tier. */
+  contextTokens?: number
+  /** Configured prompt-cache RAM. Zero means the cache is off. Not a file size. */
+  promptCacheMiB?: number
+  freeRamGb?: number
+  benchmarks?: { modelId: string; tokensPerSec: number; measuredAt: number; sizeBytes: number }[]
+  /** Background pack sync. Absent only on a stub that did not build it. */
+  sync?: SyncChip
+}
+
+export interface SyncChip {
+  label: string
+  state: 'uptodate' | 'syncing' | 'failed' | 'offline'
+  mode: 'offline' | 'online' | 'auto'
+  modeLabel: 'Offline' | 'Online' | 'Auto'
+  packVersion: string | null
+  lastSyncAt: number | null
+  tooltip: string
+  detail: string
+  refreshWarning: string | null
+}
+
+export interface BenchmarkResult {
+  measured: boolean
+  modelId: string
+  tokensPerSec: number | null
+  tokens: number | null
+  elapsedMs: number | null
+  measuredAt: number | null
+  reason?: string
 }
 
 export interface ConversationSummary {
@@ -425,7 +470,7 @@ export interface WebCacheStatus {
   capBytes: number
 }
 
-export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs'
+export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs' | 'shots'
 
 export interface UsageModelRow {
   modelId: string
@@ -451,6 +496,23 @@ export interface UsageDayRow {
   ttftP95Ms: number | null
 }
 
+export interface UsageAgentRow {
+  agentId: string
+  tasks: number
+  tokensIn: number
+  tokensOut: number
+}
+
+export interface UsageEntryRow {
+  day: string
+  agentId: string
+  modelId: string
+  tasks: number
+  tokensIn: number
+  tokensOut: number
+  tokensPerSec: number | null
+}
+
 export interface UsageReport {
   tasks: number
   steps: number
@@ -463,6 +525,8 @@ export interface UsageReport {
   cpuPercent: number | null
   models: UsageModelRow[]
   days: UsageDayRow[]
+  agents: UsageAgentRow[]
+  entries: UsageEntryRow[]
   localOnly: true
 }
 
@@ -565,6 +629,8 @@ export interface StoredMessage {
   text: string
   sources: Citation[]
   gate?: GateName
+  /** Every sibling text of this reply, including the current one. Empty on older rows. */
+  versions?: string[]
 }
 
 export interface ModelEvent {
@@ -656,6 +722,7 @@ export interface SurfApi {
   models: {
     status(): Promise<ModelStatus>
     download(modelId: string): Promise<void>
+    benchmark(modelId: string): Promise<BenchmarkResult>
     onEvent(cb: (e: ModelEvent) => void): () => void
   }
   packs: {
@@ -699,6 +766,7 @@ export interface SurfApi {
   usage: {
     get(): Promise<UsageReport>
     reset(): Promise<UsageReport>
+    csv(): Promise<string>
   }
   storage: {
     report(): Promise<StorageReport>

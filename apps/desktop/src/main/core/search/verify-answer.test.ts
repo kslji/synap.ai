@@ -160,6 +160,52 @@ test('math that is not a live price keeps the calculated figure', () => {
   assert.equal(refusal.text.includes('Unable to find'), false)
 })
 
+test('an unsourced number, price, or link is removed and a sourced figure stays', () => {
+  const mixed = verifyGroundedAnswer({
+    answer: 'Harbor Growth Fund NAV 42.50. Extra 99999. See https://evil.example/x',
+    question: 'What is the NAV of Harbor Growth Fund?',
+    records: [record({
+      kind: 'nav',
+      text: 'Harbor Growth Fund NAV 42.50 on 16-Oct-2026',
+      url: 'https://www.amfiindia.com/spages/NAVAll.txt',
+      asOf: '16-Oct-2026',
+    })],
+    now: NOW,
+  })
+  assert.equal(mixed.blocked.length, 0)
+  assert.equal(mixed.text.includes('42.50'), true)
+  assert.equal(mixed.text.includes('99999'), false)
+  assert.equal(mixed.text.includes('evil.example'), false)
+
+  const invented = verifyGroundedAnswer({
+    answer: 'The spare lamp code is PL-99.',
+    question: 'What is the spare lamp code?',
+    records: [record({ text: 'The spare lamp code is PL-17.' })],
+    now: NOW,
+  })
+  assert.equal(invented.text, UNABLE_FACT)
+  assert.equal(invented.text.includes('99'), false)
+
+  const kept = verifyGroundedAnswer({
+    answer: 'The spare lamp code is PL-17. Also 99.',
+    question: 'What is the spare lamp code?',
+    records: [record({ text: 'The spare lamp code is PL-17.' })],
+    now: NOW,
+  })
+  assert.equal(kept.blocked.length, 0)
+  assert.equal(kept.text.includes('PL-17'), true)
+  assert.equal(kept.text.includes('99'), false)
+
+  const fromQuestion = verifyGroundedAnswer({
+    answer: 'The code is 17.',
+    question: 'The code is 17. Repeat it.',
+    records: [record({ text: 'No code here.' })],
+    now: NOW,
+  })
+  assert.equal(fromQuestion.text, UNABLE_FACT)
+  assert.equal(fromQuestion.text.includes('17'), false)
+})
+
 test('a market row with an old or missing date does not authorize a figure', () => {
   const old = verifyGroundedAnswer({
     answer: 'Bitcoin is 100.00.',

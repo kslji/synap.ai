@@ -37,10 +37,17 @@ import { installMainLog, installProcessGuards } from './core/main-log'
 
 app.setName('surf-ai')
 if (surfEnv('EVAL')) app.setPath('userData', surfEnv('EVAL_DIR') || join(app.getPath('temp'), 'surf-eval'))
+else if (surfEnv('E2E_DIR')) app.setPath('userData', surfEnv('E2E_DIR')!)
 else app.setPath('userData', join(app.getPath('appData'), 'surf-ai'))
 
 const mainLog = installMainLog(join(app.getPath('userData'), 'logs'))
 installProcessGuards(mainLog, (message) => {
+  // A native error dialog blocks the main thread. Tests and eval never have a
+  // person to dismiss it, so a background failure would leave the window uncreated.
+  if (surfEnv('E2E_DIR') || surfEnv('SMOKE') || surfEnv('EVAL') || surfEnv('SELFTEST')) {
+    console.error(message)
+    return
+  }
   dialog.showErrorBox('Synap.surf', message)
 })
 
@@ -219,7 +226,7 @@ async function selfTest(): Promise<void> {
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))
     ipcMain.removeHandler(IPC.settingsGet)
-    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false }))
+    ipcMain.handle(IPC.settingsGet, () => ({ offlineOnly: true, networkMode: 'offline' as const, webSearchAllowed: false, telemetryOptIn: false, chatModelId: '', codeModelId: '', onboardingComplete: true, theme: 'light' as const, apiBaseUrl: 'https://api.synap.surf', myRegion: '', packSyncHours: 6, updateChannel: 'stable' as const, codeAgentMode: 'ask' as const, codeAgentAllowlist: [], codeAgentAutoConfirmed: false, tabSuggestions: false, tabSuggestionsOff: [] as string[], keepWarm: true, idleUnloadMinutes: 15, speculativeDecoding: false, mascotName: 'Surf Bot', accent: 'orange' as const, density: 'comfortable' as const, animateMascot: false }))
     ipcMain.removeHandler(IPC.conversationsList)
     ipcMain.handle(IPC.conversationsList, () => [])
     ipcMain.removeHandler(IPC.authStatus)
@@ -317,14 +324,16 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
     await demo('packcite', 'packcite')
     await demo('savedweb', 'savedweb')
     await demo('update', 'update')
-    const offlineBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.getAttribute('data-on') || ''`)
-    if (offlineBefore !== 'yes') {
-      await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
+    await go('settings')
+    const modeBefore = await win.webContents.executeJavaScript(`document.querySelector('[data-sync-chip]')?.getAttribute('data-network-mode') || ''`)
+    if (modeBefore !== 'offline') {
+      await win.webContents.executeJavaScript(`document.querySelector('[data-network-settings] [data-network-mode="offline"]')?.click()`)
       await sleep(700)
     }
     await demo('refusal', 'refusal')
-    if (offlineBefore !== 'yes') {
-      await win.webContents.executeJavaScript(`document.querySelector('[data-offline-toggle]')?.click()`)
+    if (modeBefore && modeBefore !== 'offline') {
+      await go('settings')
+      await win.webContents.executeJavaScript(`document.querySelector('[data-network-settings] [data-network-mode=${JSON.stringify(modeBefore)}]')?.click()`)
       await sleep(400)
     }
   }
@@ -475,7 +484,7 @@ async function smoke(): Promise<void> {
   }
 }
 
-if (surfEnv('SMOKE')) app.disableHardwareAcceleration()
+if (surfEnv('SMOKE') || surfEnv('E2E_DIR')) app.disableHardwareAcceleration()
 // The smoke process only opens a database and a sidecar. The Chromium sandbox
 // deadlocks an x64 build under Rosetta, so the packaged app still sandboxes
 // and the smoke launch does not.
@@ -496,6 +505,7 @@ void app.whenReady().then(async () => {
     }
     return
   }
+  const boot = Date.now()
   const services = await createServices()
   const paths = preloadAndHtml()
   const win: BrowserWindow = createMainWindow(paths.preload, paths.html)
@@ -505,5 +515,12 @@ void app.whenReady().then(async () => {
   win.webContents.on('render-process-gone', stopStreams)
   startUpdater()
   const shots = surfEnv('CAPTURE_DIR')
-  if (shots) win.webContents.once('did-finish-load', () => { void captureShots(win, shots) })
+  win.webContents.once('did-finish-load', () => {
+    if (surfEnv('E2E_QUIT')) {
+      console.log(`[surf] startup-ms ${Date.now() - boot}`)
+      app.exit(0)
+      return
+    }
+    if (shots) void captureShots(win, shots)
+  })
 })

@@ -1,0 +1,79 @@
+# Nightly full model run. A v* release calls this with release_gate and
+# refuses to build installers until 2B, 4B, 9B, and mmproj have measured results.
+# Set the repository variable SURF_MODEL_EVAL_RUNNER to a larger runner label
+# when one is available. Otherwise run ./scripts/model-eval-full.sh on a Mac
+# and commit harness/baselines/model-eval-full.json (numbers only, never a GGUF).
+name: model-eval-full
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_gate:
+        description: Fail unless 2B, 4B, 9B, and mmproj were measured
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      release_gate:
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 7 * * *"
+
+jobs:
+  full:
+    runs-on: ${{ vars.SURF_MODEL_EVAL_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Weight ids
+        id: weights
+        working-directory: apps/desktop
+        run: |
+          node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m --print-key --ids qwen3.5-2b-q4_k_m,qwen3.5-4b-q4_k_m,qwen3.5-9b-q4_k_m --mmproj >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .surf-models
+          key: gguf-full-${{ steps.weights.outputs.key }}
+      - name: Fetch llama.cpp sidecar for this OS
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
+      - name: Full model eval
+        env:
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
+        run: |
+          npx tsx apps/desktop/scripts/model-eval.ts \
+            --mode full \
+            --models qwen3.5-2b-q4_k_m,qwen3.5-4b-q4_k_m,qwen3.5-9b-q4_k_m \
+            --mmproj \
+            --allow-skip \
+            --out harness/reports/model-eval-full.json
+      - name: Measure process RSS
+        env:
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
+        run: npx tsx apps/desktop/scripts/measure-ram.ts --out harness/reports/ram.json
+      - name: Release gate
+        if: ${{ inputs.release_gate }}
+        run: npx tsx apps/desktop/scripts/model-eval.ts --gate harness/reports/model-eval-full.json --baseline harness/baselines/model-eval-full.json
+      - name: Upload full model eval
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-eval-full
+          path: harness/reports/

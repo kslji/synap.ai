@@ -2,9 +2,9 @@
  * Disk totals for the Storage page, and a delete that refuses anything outside the app data directory.
  */
 import { lstatSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs'
+export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs' | 'shots'
 
 export interface StorageItem {
   id: string
@@ -25,6 +25,23 @@ export interface StorageReport {
   totalBytes: number
   freeBytes: number
   diskBytes: number
+}
+
+/**
+ * The cache lists the app screenshots folder only when that folder already has files.
+ * A Save dialog writes to the path the user picked and is not copied here.
+ */
+export function includeScreenshotCache(fileCount: number): boolean {
+  return fileCount > 0
+}
+
+/** True only for a file that already sits inside the app screenshots folder. */
+export function screenshotBelongsInCache(savedPath: string, appDataDir: string): boolean {
+  const rel = relative(resolve(appDataDir), resolve(savedPath))
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return false
+  const parts = rel.split(/[/\\]/).filter(Boolean)
+  if (sep === '\\' && parts[0]?.includes(':')) return false
+  return parts[0] === 'screenshots' && parts.length > 1
 }
 
 export function sumBytes(items: readonly { bytes: number }[]): number {

@@ -19,7 +19,7 @@ const config = {
   executableName: 'SynapSurf',
   artifactName: 'Synap.surf-${version}-${arch}.${ext}',
   directories: { buildResources: 'build', output: 'dist' },
-  files: ['out/**', 'package.json', '!**/*.map'],
+  files: ['out/**', 'package.json', '!**/*.map', '!**/*.mp4', '!animation/**'],
   asar: true,
   asarUnpack: [
     '**/*.node',

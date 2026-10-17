@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, StarSurf, type ThemeChoice } from '@surf/ui'
-import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, UpdateOffer } from '../../shared/ipc-contract'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
@@ -13,6 +13,7 @@ import { codeModelLine, modelChoiceLabel } from '../../shared/model-label'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { StoragePanel, UsagePanel } from './screens/UsageStorage'
 import { createFrameBatcher } from '../../shared/stream-batch'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { ConvertDialog, FillReview, type ConvertPanelState, type FillPanelState } from './screens/DocumentPanels'
@@ -20,6 +21,12 @@ import { SignInScreen } from './screens/SignInScreen'
 import { ActivationScreen } from './screens/ActivationScreen'
 import { PacksScreen } from './screens/PacksScreen'
 import { UpdateBanner } from './screens/UpdateBanner'
+
+function fromStored(message: StoredMessage): UiMsg {
+  const all = message.versions ?? []
+  if (message.role !== 'assistant' || all.length < 2) return { ...message, tools: [] }
+  return { ...message, text: all[all.length - 1] || message.text, versions: all.slice(0, -1), tools: [] }
+}
 
 export default function App() {
   const api = window.surf
@@ -130,7 +137,10 @@ export default function App() {
   }, [agentId, api, codeProject?.root])
 
   useEffect(() => {
-    if (settings) persistThemeChoice(settings.theme)
+    if (!settings) return
+    persistThemeChoice(settings.theme)
+    document.documentElement.dataset.accent = settings.accent || 'orange'
+    document.documentElement.dataset.density = settings.density || 'comfortable'
   }, [settings])
 
   useEffect(() => {
@@ -214,7 +224,8 @@ export default function App() {
     const body = `${text.trim() || (images.length ? 'Look at this screenshot.' : '')}${note}`.trim()
     if (!body) return
     const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
-    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true }
+    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || ''
+    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
@@ -229,13 +240,34 @@ export default function App() {
     }
   }
 
+  async function regenerate(messageId: string) {
+    const current = messages.find((msg) => msg.id === messageId)
+    if (!current || current.role !== 'assistant' || current.pending || streaming) return
+    const index = messages.findIndex((msg) => msg.id === messageId)
+    const user = [...messages.slice(0, index)].reverse().find((msg) => msg.role === 'user')
+    if (!user?.text.trim()) return
+    const prior = current.versions ?? []
+    const versions = prior[prior.length - 1] === current.text ? prior : [...prior, current.text]
+    const modelId = (agentId === 'code' ? status?.codeModelId : status?.chatModelId) || current.modelId || ''
+    setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId, error: false } : msg)))
+    setStreaming(true)
+    try {
+      const res = await api.chat.send({ conversationId, text: user.text, agentId, allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly), docScope: scope, replaceMessageId: messageId })
+      setConversationId(res.conversationId)
+      setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, id: res.messageId, versions } : msg)))
+    } catch (e) {
+      setStreaming(false)
+      setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, pending: false, error: true, text: (e as Error).message, versions } : msg)))
+    }
+  }
+
   async function openConversation(id: string) {
     const opened = await api.conversations.open(id)
     const summary = conversations.find((chat) => chat.id === id)
     if (summary) setAgentId(summary.agentId)
     setConversationId(id)
     setShots([])
-    setMessages(opened.messages.map((m) => ({ ...m, tools: [] })))
+    setMessages(opened.messages.map((m) => fromStored(m)))
     setChatWeb(true)
     setView('chat')
   }
@@ -509,6 +541,15 @@ export default function App() {
           },
         ])
       }
+      if (scene === 'versions') {
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setMessages([
+          { id: '11111111-1111-4111-8111-111111111111', role: 'user', text: 'Hello', sources: [], tools: [] },
+          { id: '22222222-2222-4222-8222-222222222222', role: 'assistant', text: 'Second answer', sources: [], tools: [], versions: ['First answer'] },
+        ])
+      }
       if (scene === 'refusal') {
         setView('chat')
         setPreview(null)
@@ -675,7 +716,7 @@ export default function App() {
           status={licence}
           offlineOnly={settings.offlineOnly}
           renewal={licence.state === 'subscription_ended'}
-          onAllowNetwork={async () => { await patch({ offlineOnly: false }) }}
+          onAllowNetwork={async () => { await patch({ networkMode: 'auto' }) }}
           onStart={(email) => api.auth.start(email)}
           onVerify={async (email, code) => {
             await api.auth.verify(email, code)
@@ -752,11 +793,16 @@ export default function App() {
         onView={setView}
         theme={settings.theme}
         onTheme={chooseTheme}
+        mascotName={settings.mascotName || 'Surf Bot'}
+        animateMascot={settings.animateMascot !== false}
+        onMascotName={(mascotName) => { void patch({ mascotName }) }}
+        onSignIn={() => setView('signin')}
         tourId={tourStep != null ? TOUR[tourStep]?.id ?? null : null}
         onNew={() => newChat()}
         onOpen={(id) => { void openConversation(id) }}
         onDelete={(id) => { void deleteConversation(id) }}
         onAgent={(id) => newChat(id)}
+        sync={status.sync}
       />
       {view === 'home' && (
         <HomeScreen
@@ -791,14 +837,12 @@ export default function App() {
           chatChoices={(agentId === 'code' ? codeModels(status) : chatModels(status)).map((model) => ({ id: model.id, label: agentId === 'code' ? codeModelLine(model) : modelChoiceLabel(model) }))}
           chatModelId={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.id ?? ''}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
-          tourOnline={tourStep != null && TOUR[tourStep]?.id === 'online'}
           onSend={(t, images) => { void send(t, images) }}
           shots={agentId === 'code' ? shots : []}
           onAddShots={agentId === 'code' ? (files) => { void addShots(files) } : undefined}
           onRemoveShot={agentId === 'code' ? (id) => setShots((current) => current.filter((shot) => shot.id !== id)) : undefined}
           onSaveShot={agentId === 'code' ? (id) => { void saveShot(id) } : undefined}
           onCaptureShot={agentId === 'code' ? () => { void captureShot() } : undefined}
-          onToggleOffline={() => { void patch({ offlineOnly: !settings.offlineOnly }) }}
           onToggleChatWeb={() => { if (settings.webSearchAllowed) setChatWeb((on) => !on) }}
           onAttach={(paths) => { void attach(paths, true).catch((e: unknown) => setError((e as Error).message)) }}
           onPick={() => { void api.library.pick(conversationId, true).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
@@ -824,6 +868,8 @@ export default function App() {
           }}
           tabSuggestions={settings.tabSuggestions}
           tabSuggestionsOff={settings.tabSuggestionsOff}
+          animateMascot={settings.animateMascot !== false}
+          onRegenerate={(id) => { void regenerate(id) }}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)
@@ -869,13 +915,23 @@ export default function App() {
           onSelect={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
+      {view === 'usage' && (
+        <section className="flex-1 overflow-auto px-8 py-8" data-usage-view="yes">
+          <div className="mx-auto flex max-w-xl flex-col gap-4">
+            <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
+            <UsagePanel />
+            <h2 className="text-lg font-semibold tracking-tight">Cache</h2>
+            <StoragePanel />
+          </div>
+        </section>
+      )}
       {view === 'settings' && (
         <SettingsScreen
           status={status}
           settings={settings}
           account={shownAccount}
           devices={demoDevices ?? licenceDevices.map((device) => ({ ...device, status: 'active' }))}
-          plan={demoAccount?.plan ?? licence.plan}
+          licenceState={licence.state}
           termMonths={demoAccount ? null : licence.termMonths}
           subscriptionEndsAt={demoAccount ? null : licence.subscriptionEndsAt}
           knowledgePack={(() => {

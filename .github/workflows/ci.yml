@@ -3,6 +3,9 @@ name: CI
 on:
   pull_request:
   push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  workflow_call:
 
 jobs:
   desktop:
@@ -155,4 +158,355 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eval-report
+          path: harness/reports/
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: ESLint
+        run: npx eslint .
+      - name: Ruff
+        run: |
+          python -m pip install ruff==0.11.12
+          ruff check apps services harness scripts
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: tsc
+        run: npm run typecheck
+      - name: pyright
+        run: |
+          python -m pip install pyright==1.1.407
+          pyright
+
+  unit-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Unit tests with coverage threshold
+        run: npm run test:coverage -w @surf/desktop
+
+  no-fabrication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: No-fabrication gate
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          npx tsx src/main/core/search/no-fabrication-suite.ts > /tmp/no-fabrication.json
+          python3 - <<'PY'
+          import json
+          rows = json.load(open("/tmp/no-fabrication.json"))
+          bad = [row["id"] for row in rows if not row.get("fields", {}).get("ok")]
+          print(f"no-fabrication {len(rows) - len(bad)}/{len(rows)}")
+          if bad or not rows:
+              raise SystemExit("failed: " + ", ".join(bad[:12]))
+          PY
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Python tools
+        run: |
+          python -m pip install pip-audit==2.7.3
+          python -m pip install -r services/api/requirements.txt
+      - name: npm audit and pip-audit
+        run: node scripts/check-audit.mjs
+      - name: gitleaks
+        run: |
+          for attempt in 1 2 3; do
+            if curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz | tar -xz gitleaks; then
+              break
+            fi
+            echo "gitleaks download failed (attempt ${attempt})"
+            sleep $((attempt * 2))
+          done
+          test -x ./gitleaks
+          ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner --exit-code 1
+
+  licences:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Python packages
+        run: |
+          python -m pip install -r services/api/requirements.txt -r harness/requirements.txt
+          python -m venv /tmp/host-venv
+          /tmp/host-venv/bin/pip install -r apps/host/requirements.txt
+      - name: Dependency and asset licences
+        run: |
+          node scripts/check-licences.mjs
+          python scripts/check_python_licences.py services/api/requirements.txt harness/requirements.txt
+          /tmp/host-venv/bin/python scripts/check_python_licences.py apps/host/requirements.txt
+
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Electron libraries and a display
+        run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 libx11-xcb1 libxss1 fonts-liberation make g++
+      - name: Install dependencies
+        shell: bash
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Qwen 2B file id
+        id: weights
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
+          key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
+      - name: Download and verify Qwen 2B
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+      - name: Build the desktop app
+        run: npm run build -w @surf/desktop
+      - name: Fetch llama.cpp sidecar
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
+      - name: Playwright smoke
+        working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+          DISPLAY: ":99"
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+          npx playwright test e2e/smoke.spec.mjs e2e/model-reply.spec.mjs
+
+  visual:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Electron libraries and a display
+        run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 libx11-xcb1 libxss1 fonts-liberation make g++
+      - name: Install dependencies
+        shell: bash
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Build the desktop app
+        run: npm run build -w @surf/desktop
+      - name: Visual snapshots
+        working-directory: apps/desktop
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+          DISPLAY: ":99"
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+          npx playwright test e2e/visual.spec.mjs
+      - name: Upload snapshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: apps/desktop/test-results/
+
+  budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Electron libraries and a display
+        run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 libx11-xcb1 libxss1 make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Build the desktop app
+        run: npm run build -w @surf/desktop
+      - name: Bundle size and startup time
+        env:
+          DISPLAY: ":99"
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+          node apps/desktop/scripts/check-budget.mjs
+      - name: RAM script when weights are absent
+        run: npx tsx apps/desktop/scripts/measure-ram.ts
+
+  model-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Qwen 2B file id
+        id: weights
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
+          key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
+      - name: Download and verify Qwen 2B
+        working-directory: apps/desktop
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+      - name: Fetch llama.cpp sidecar for this OS
+        working-directory: apps/desktop
+        run: node scripts/fetch-sidecars.mjs
+      - name: Model eval subset
+        env:
+          SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
+        run: npx tsx apps/desktop/scripts/model-eval.ts --mode subset --models qwen3.5-2b-q4_k_m --out harness/reports/model-eval.json
+      - name: Upload model eval
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-eval
           path: harness/reports/

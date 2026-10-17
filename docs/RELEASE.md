@@ -26,7 +26,7 @@ git tag v0.2.0-beta.1
 git push origin v0.2.0-beta.1
 ```
 
-The Release workflow builds macOS and Windows, smoke-tests each app (database opens, llama-server starts, the process quits), and publishes a GitHub Release with the installers, `latest*.yml`, `SHA256SUMS`, and generated notes. A tag that contains `-beta` is a prerelease. Installer builds pass `--publish never`. electron-builder would otherwise try to upload from CI and fail without `GH_TOKEN`. The Release workflow uploads the artifacts itself.
+The Release workflow runs the CI checks first, including the no-fabrication gate, the Step 11 suite, and the Qwen 2B model-eval job. That job's no-fabrication floor is 1.0. It then runs model-eval-full and reads those results before any installer is built. A 2B, 4B, or 9B row that the runner could not load must already be in `harness/baselines/model-eval-full.json` from `./scripts/model-eval-full.sh`. Installers are built only after those checks pass. macOS and Windows are smoke-tested (database opens, llama-server starts, the process quits). Linux builds an AppImage and smoke-tests it the same way. The workflow publishes a GitHub Release with the installers, `latest*.yml`, `SHA256SUMS`, and generated notes. A tag that contains `-beta` is a prerelease. Installer builds pass `--publish never`. electron-builder would otherwise try to upload from CI and fail without `GH_TOKEN`. The Release workflow uploads the artifacts itself.
 
 The app version in `apps/desktop/package.json` should match the tag without the leading `v`.
 

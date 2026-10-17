@@ -1,0 +1,31 @@
+{
+  "minAccuracy": 1,
+  "minNoFabrication": 1,
+  "fullMinAccuracy": 0.821,
+  "note": "The CI subset (46 questions) must be exact, and no-fabrication must be 1.0 on every real-model run. fullMinAccuracy is the 101-question run on the same Qwen3.5-2B Q4_K_M and llama.cpp b11514. A later run fails when it drops below the floor for its mode.",
+  "measured": {
+    "modelId": "qwen3.5-2b-q4_k_m",
+    "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+    "questions": 46,
+    "correct": 46,
+    "accuracy": 1,
+    "noFabricationCorrect": 10,
+    "noFabrication": 1,
+    "tokensPerSec": 28.82,
+    "ttftMs": 574.5,
+    "peakRssMb": 1545.4,
+    "tokenizer": "gguf"
+  },
+  "full": {
+    "modelId": "qwen3.5-2b-q4_k_m",
+    "questions": 101,
+    "correct": 83,
+    "accuracy": 0.8217821782178217,
+    "noFabricationCorrect": 10,
+    "noFabrication": 1,
+    "tokensPerSec": 27.02,
+    "ttftMs": 406,
+    "peakRssMb": 1537.9,
+    "tokenizer": "gguf"
+  }
+}

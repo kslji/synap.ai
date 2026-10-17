@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ThemeSwitch } from '@surf/ui'
 import { product } from '@surf/shared'
-import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
+import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
 import { formatIndexBytes } from '../format'
 import { DevWebPanel } from './DevWebPanel'
 import { activeChatModel, activeCodeModel, chatModels, codeModels, ModelPanel } from './ModelsScreen'
@@ -12,7 +12,7 @@ export function SettingsScreen({
   settings,
   account,
   devices,
-  plan,
+  licenceState,
   termMonths,
   subscriptionEndsAt,
   knowledgePack,
@@ -33,7 +33,7 @@ export function SettingsScreen({
   settings: Required<SettingsPatch>
   account: { email: string; deviceId: string | null; plan?: string | null } | null
   devices: DeviceInfo[]
-  plan: string | null
+  licenceState: LicenceStatus['state']
   termMonths: number | null
   subscriptionEndsAt: string | null
   knowledgePack: { version: string | null; syncedAt: number | null } | null
@@ -70,7 +70,11 @@ export function SettingsScreen({
         <Group title="Account">
         <div className="card px-4 py-4" data-account="yes">
           <div className="text-sm font-semibold">Account</div>
-          <p className="mt-1 text-sm" data-licence-plan="yes">Plan: {plan ?? 'None'}{termMonths ? ` · ${termMonths} ${termMonths === 1 ? 'month' : 'months'}` : ''}</p>
+          <p className="mt-1 text-sm" data-licence-plan="yes">
+            {licenceState === 'dev' ? <span data-dev-mode="yes">Dev mode</span> : 'Subscription term comes from the licence on this computer.'}
+            {termMonths ? ` · ${termMonths} ${termMonths === 1 ? 'month' : 'months'}` : ''}
+          </p>
+          {status.appVersion ? <p className="mt-1 text-sm" data-app-version="yes">Version {status.appVersion}</p> : null}
           {subscriptionEndsAt && <p className="mt-1 text-sm" data-licence-ends="yes">Ends: {subscriptionEndsAt.slice(0, 10)}</p>}
           <p className="mt-1 text-sm" data-knowledge-pack="yes">
             {knowledgePack?.version
@@ -102,6 +106,12 @@ export function SettingsScreen({
             <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
           )}
         </div>
+        </Group>
+        <Group title="Appearance">
+          <AppearanceCard settings={settings} onPatch={onPatch} />
+        </Group>
+        <Group title="This computer">
+          <MachineCard status={status} />
         </Group>
         <Group title="Models">
           <div className="card px-4 py-4">
@@ -148,12 +158,29 @@ export function SettingsScreen({
           <StoragePanel />
         </Group>
         <Group title="Privacy and permissions">
-        <Row
-          title="Offline only"
-          body="No network calls for answers, downloads, or update checks."
-          on={settings.offlineOnly}
-          onToggle={() => onPatch({ offlineOnly: !settings.offlineOnly })}
-        />
+        <div className="card px-4 py-4" data-network-settings="yes">
+          <div className="text-sm font-semibold">Network</div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+            Offline answers from this computer only. It does not search the web, sync packs, or fetch quotes. Online allows those. Auto follows the connection. This is the only place that changes it.
+          </p>
+          <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Network mode">
+            {(['offline', 'online', 'auto'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={settings.networkMode === mode}
+                data-network-mode={mode}
+                className={settings.networkMode === mode ? 'btn btn-primary' : 'btn btn-ghost'}
+                onClick={() => onPatch({ networkMode: mode })}
+              >
+                {mode === 'offline' ? 'Offline' : mode === 'online' ? 'Online' : 'Auto'}
+              </button>
+            ))}
+          </div>
+          {status.sync && <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]" data-sync-detail="yes">{status.sync.detail}</p>}
+          {status.sync?.refreshWarning && <p className="mt-2 text-sm leading-relaxed" data-licence-refresh="yes">{status.sync.refreshWarning}</p>}
+        </div>
         <Row
           title="Allow web search"
           body="Search runs on this computer. No API key. When you are online and local sources are thin, this laptop asks official public sources. Documents stay here."
@@ -425,6 +452,93 @@ function AboutLink({ href, children }: { href: string; children: string }) {
     <button type="button" className="text-[var(--accent-text)]" onClick={() => { void window.surf.links.open(href) }}>
       {children}
     </button>
+  )
+}
+
+const ACCENT_CHOICES = ['orange', 'blue', 'indigo', 'navy'] as const
+const DENSITY_CHOICES = ['compact', 'comfortable', 'relaxed'] as const
+
+function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatch>; onPatch: (p: SettingsPatch) => void }) {
+  const [name, setName] = useState(settings.mascotName)
+  useEffect(() => { setName(settings.mascotName) }, [settings.mascotName])
+  return (
+    <div className="card px-4 py-4" data-appearance="yes">
+      <label className="block text-sm">
+        <span className="font-semibold">Mascot name</span>
+        <input
+          className="field mt-2"
+          data-mascot-rename="yes"
+          aria-label="Mascot name"
+          value={name}
+          maxLength={40}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            const next = name.trim()
+            if (next && next !== settings.mascotName) onPatch({ mascotName: next })
+          }}
+        />
+      </label>
+      <div className="mt-3 flex flex-wrap gap-2" data-accent-choices="yes">
+        {ACCENT_CHOICES.map((accent) => (
+          <button key={accent} type="button" className="btn btn-ghost" data-accent-choice={accent} aria-pressed={settings.accent === accent} onClick={() => onPatch({ accent })}>{accent}</button>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2" data-density-choices="yes">
+        {DENSITY_CHOICES.map((density) => (
+          <button key={density} type="button" className="btn btn-ghost" data-density-choice={density} aria-pressed={settings.density === density} onClick={() => onPatch({ density })}>{density}</button>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-sm font-semibold">Animate Surf Bot</span>
+        <button type="button" className="toggle" data-animate-mascot="yes" data-on={settings.animateMascot ? 'yes' : 'no'} aria-pressed={settings.animateMascot} onClick={() => onPatch({ animateMascot: !settings.animateMascot })}><span /></button>
+      </div>
+    </div>
+  )
+}
+
+function MachineCard({ status }: { status: ModelStatus }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState('')
+  const chats = status.models.filter((model) => model.role === 'chat' && model.installed)
+  const gpus = (status.gpus ?? []).filter((gpu) => gpu.model.trim())
+  return (
+    <div className="card px-4 py-4 text-sm" data-machine="yes">
+      <p>{status.cpuModel} · {status.cores} cores · {status.ramGb} GB RAM{typeof status.freeRamGb === 'number' ? ` · ${status.freeRamGb} GB free` : ''}</p>
+      {gpus.map((gpu) => (
+        <p key={`${gpu.vendor}-${gpu.model}`} className="mt-1" data-gpu="yes">
+          {gpu.vendor ? `${gpu.vendor} ` : ''}{gpu.model}{typeof gpu.vramMb === 'number' ? ` · ${gpu.vramMb} MB` : ''}
+        </p>
+      ))}
+      {typeof status.contextTokens === 'number' && <p className="mt-1" data-context-tokens="yes">Context length {status.contextTokens} tokens</p>}
+      {typeof status.promptCacheMiB === 'number' && (
+        <p className="mt-1" data-prompt-cache="yes">
+          {status.promptCacheMiB === 0 ? 'Prompt cache is off on this computer.' : `Prompt cache ${status.promptCacheMiB} MiB of RAM. This is not a file on disk.`}
+        </p>
+      )}
+      {chats.map((model) => {
+        const bench = status.benchmarks?.find((row) => row.modelId === model.id && row.sizeBytes === model.sizeBytes)
+        return (
+          <div key={model.id} className="mt-3" data-benchmark={model.id}>
+            <p>{model.label} · {model.quant || 'quant unknown'} · {formatIndexBytes(model.sizeBytes)}</p>
+            <p data-benchmark-speed="yes">{bench ? `${bench.tokensPerSec} tok/s, measured ${new Date(bench.measuredAt).toISOString()}` : 'not measured yet'}</p>
+            <button
+              type="button"
+              className="btn btn-ghost mt-2"
+              data-run-benchmark={model.id}
+              disabled={busy === model.id}
+              onClick={() => {
+                setBusy(model.id)
+                setNote('')
+                void window.surf.models.benchmark(model.id).then((result) => {
+                  setNote(result.measured && result.tokensPerSec != null ? `${model.label}: ${result.tokensPerSec} tok/s` : `${model.label}: ${result.reason || 'not measured yet'}`)
+                }).catch((error: unknown) => setNote((error as Error).message)).finally(() => setBusy(''))
+              }}
+            >Run benchmark</button>
+          </div>
+        )
+      })}
+      {note && <p className="mt-2" data-benchmark-note="yes">{note}</p>}
+    </div>
   )
 }
 

@@ -19,6 +19,7 @@ const api: SurfApi = {
   models: {
     status: () => ipcRenderer.invoke(IPC.modelsStatus),
     download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
+    benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
   },
   packs: {
@@ -62,6 +63,7 @@ const api: SurfApi = {
   usage: {
     get: () => ipcRenderer.invoke(IPC.usageGet),
     reset: () => ipcRenderer.invoke(IPC.usageReset),
+    csv: () => ipcRenderer.invoke(IPC.usageCsv),
   },
   storage: {
     report: () => ipcRenderer.invoke(IPC.storageReport),

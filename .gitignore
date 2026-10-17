@@ -25,9 +25,13 @@ harness/reports/
 apps/web/dist
 apps/desktop/out
 apps/desktop/dist
+apps/desktop/test-results/
+apps/desktop/playwright-report/
+/gitleaks
 apps/desktop/resources/bin
 apps/desktop/resources/tessdata/*.traineddata
 apps/desktop/resources/geo/*.cidr
 packages/*/dist
 *.gguf
 *.part
+.surf-models/

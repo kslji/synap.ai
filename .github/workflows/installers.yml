@@ -175,7 +175,30 @@ jobs:
             find dist -name '*.app' -maxdepth 3 -print || true
             exit 1
           fi
-          smoke_native "$native_app" "$(bundle_bin "$native_app")"
+          native_bin="$(bundle_bin "$native_app")"
+          native_archs="$(lipo -archs "$native_bin" 2>/dev/null || echo unknown)"
+          dmg_arch="x64"
+          if printf '%s\n' "$native_archs" | grep -q arm64; then dmg_arch="arm64"; fi
+          dmg="$(find dist -name "*-${dmg_arch}.dmg" -print -quit)"
+          if [ -z "$dmg" ]; then
+            echo "missing disk image for $dmg_arch"
+            find dist -name '*.dmg' -print || true
+            exit 1
+          fi
+          mnt="$(mktemp -d)"
+          installed="$(mktemp -d)"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
+          dmg_app="$(find "$mnt" -name '*.app' -maxdepth 3 -print -quit)"
+          if [ -z "$dmg_app" ]; then
+            echo "disk image has no app: $dmg"
+            hdiutil detach "$mnt" || true
+            exit 1
+          fi
+          cp -R "$dmg_app" "$installed/"
+          hdiutil detach "$mnt"
+          installed_app="$installed/$(basename "$dmg_app")"
+          echo "installed $installed_app from $dmg"
+          smoke_native "$installed_app" "$(bundle_bin "$installed_app")"
           for app in "${apps[@]}"; do
             if [ "$app" = "$native_app" ]; then continue; fi
             bin="$(bundle_bin "$app")"
@@ -297,4 +320,50 @@ jobs:
             apps/desktop/dist/*.yml
             apps/desktop/dist/*.blockmap
             apps/desktop/dist/SIZES.txt
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools, fuse, and Electron libraries
+        run: sudo apt-get update && sudo apt-get install -y make g++ libfuse2t64 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 libx11-xcb1 libxss1 xvfb
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Fetch llama.cpp and OCR data
+        working-directory: apps/desktop
+        run: |
+          node scripts/fetch-sidecars.mjs
+          node scripts/fetch-tessdata.mjs
+      - name: Build the AppImage
+        run: npm run dist:linux -w @surf/desktop
+      - name: Smoke test the AppImage
+        working-directory: apps/desktop
+        env:
+          DISPLAY: ":99"
+        run: |
+          set -euo pipefail
+          Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+          app=$(find dist -name '*.AppImage' | head -n 1)
+          echo "smoke $app"
+          chmod +x "$app"
+          SURF_SMOKE=1 "$app" --appimage-extract-and-run --no-sandbox
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-linux
+          path: |
+            apps/desktop/dist/*.AppImage
           if-no-files-found: error

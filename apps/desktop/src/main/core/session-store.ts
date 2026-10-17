@@ -38,7 +38,9 @@ interface MemConv {
 export class SessionStore {
   private mem = new Map<string, MemConv>()
 
-  constructor(readonly db: DB | null) {}
+  constructor(readonly db: DB | null) {
+    if (db) ensureVersionsColumn(db)
+  }
 
   get mode(): 'encrypted' | 'session' {
     return this.db ? 'encrypted' : 'session'
@@ -59,11 +61,11 @@ export class SessionStore {
   open(id: string): { id: string; messages: StoredMessage[] } {
     if (!this.db) {
       const c = this.mem.get(id)
-      return { id, messages: c ? c.messages.map((m) => ({ ...m, sources: [...m.sources] })) : [] }
+      return { id, messages: c ? c.messages.map((m) => copyMessage(m)) : [] }
     }
     const rows = this.db.prepare(
-      'SELECT id, role, content, sources_json AS sourcesJson, gate FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
-    ).all(id) as { id: string; role: 'user' | 'assistant'; content: string; sourcesJson: string; gate: GateName | null }[]
+      'SELECT id, role, content, sources_json AS sourcesJson, gate, versions_json AS versionsJson FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
+    ).all(id) as { id: string; role: 'user' | 'assistant'; content: string; sourcesJson: string; gate: GateName | null; versionsJson: string | null }[]
     return {
       id,
       messages: rows.map((r) => ({
@@ -72,7 +74,31 @@ export class SessionStore {
         text: r.content,
         sources: parseSources(r.sourcesJson),
         gate: r.gate ?? undefined,
+        versions: parseVersions(r.versionsJson),
       })),
+    }
+  }
+
+  readMessage(id: string): (StoredMessage & { conversationId: string }) | null {
+    if (!this.db) {
+      for (const conv of this.mem.values()) {
+        const message = conv.messages.find((item) => item.id === id)
+        if (message) return { ...copyMessage(message), conversationId: conv.id }
+      }
+      return null
+    }
+    const row = this.db.prepare(
+      'SELECT id, conversation_id AS conversationId, role, content, sources_json AS sourcesJson, gate, versions_json AS versionsJson FROM messages WHERE id = ?',
+    ).get(id) as { id: string; conversationId: string; role: 'user' | 'assistant'; content: string; sourcesJson: string; gate: GateName | null; versionsJson: string | null } | undefined
+    if (!row) return null
+    return {
+      id: row.id,
+      conversationId: row.conversationId,
+      role: row.role,
+      text: row.content,
+      sources: parseSources(row.sourcesJson),
+      gate: row.gate ?? undefined,
+      versions: parseVersions(row.versionsJson),
     }
   }
 
@@ -104,8 +130,34 @@ export class SessionStore {
       return
     }
     this.db.prepare(
-      'INSERT INTO messages (id, conversation_id, role, content, sources_json, gate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run(message.id, conversationId, message.role, message.text, JSON.stringify(message.sources), message.gate ?? null, now)
+      'INSERT INTO messages (id, conversation_id, role, content, sources_json, gate, created_at, versions_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(message.id, conversationId, message.role, message.text, JSON.stringify(message.sources), message.gate ?? null, now, JSON.stringify(message.versions ?? []))
+    this.db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
+  }
+
+  /** Insert the assistant reply, or replace that same row when regenerating. */
+  saveReply(conversationId: string, message: StoredMessage): void {
+    const versions = message.versions ?? (message.text ? [message.text] : [])
+    const stored: StoredMessage = { ...message, versions }
+    if (!this.readMessage(message.id)) {
+      this.append(conversationId, stored)
+      return
+    }
+    const now = Date.now()
+    if (!this.db) {
+      const conv = this.mem.get(conversationId)
+      const current = conv?.messages.find((item) => item.id === message.id)
+      if (!current || !conv) return
+      current.text = stored.text
+      current.sources = [...stored.sources]
+      current.gate = stored.gate
+      current.versions = [...versions]
+      conv.updatedAt = now
+      return
+    }
+    this.db.prepare(
+      'UPDATE messages SET content = ?, sources_json = ?, gate = ?, versions_json = ? WHERE id = ?',
+    ).run(stored.text, JSON.stringify(stored.sources), stored.gate ?? null, JSON.stringify(versions), message.id)
     this.db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
   }
 
@@ -165,5 +217,26 @@ function parseSources(json: string): StoredMessage['sources'] {
     return Array.isArray(v) ? v : []
   } catch {
     return []
+  }
+}
+
+function parseVersions(json: string | null | undefined): string[] {
+  if (!json) return []
+  try {
+    const v = JSON.parse(json) as unknown
+    return Array.isArray(v) ? v.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function copyMessage(message: StoredMessage): StoredMessage {
+  return { ...message, sources: [...message.sources], versions: [...(message.versions ?? [])] }
+}
+
+function ensureVersionsColumn(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(messages)').all() as { name: string }[]
+  if (!cols.some((col) => col.name === 'versions_json')) {
+    db.exec(`ALTER TABLE messages ADD COLUMN versions_json TEXT NOT NULL DEFAULT '[]'`)
   }
 }

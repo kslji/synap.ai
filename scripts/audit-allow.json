@@ -1,0 +1,15 @@
+{
+  "npm": [
+    "@typescript-eslint/eslint-plugin:high",
+    "@typescript-eslint/parser:high",
+    "@typescript-eslint/type-utils:high",
+    "@typescript-eslint/typescript-estree:high",
+    "@typescript-eslint/utils:high",
+    "fast-glob:high",
+    "https://github.com/advisories/GHSA-4r6h-8v6p-xvw6",
+    "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+    "micromatch:high",
+    "typescript-eslint:high"
+  ],
+  "pip": []
+}

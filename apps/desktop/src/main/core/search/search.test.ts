@@ -30,6 +30,7 @@ import { searchFixtureEnabled } from './mode.js'
 import { pageToMarkdown, readPage, stripTrackers } from './reader.js'
 import { labelForCode, lookupCountry, parseCountryTable, resolveRegion } from './region.js'
 import { composeRouted, gatherOnline } from './run.js'
+import { UNABLE_NEWS } from './verify-answer.js'
 import { historyHits, pickLocal, planRoute } from './router.js'
 import { LOCAL_LAYER_ORDER, type LocalHit } from './types.js'
 
@@ -266,6 +267,34 @@ test('gather keeps going when DuckDuckGo and a connector fail', async () => {
   })
   assert.equal(fetched.pages.length, 0)
   assert.ok(calls > 0)
+})
+
+test('a news question with no fetched row does not call the model', async () => {
+  resetRateLimits()
+  const region = { code: 'GLOBAL', label: 'worldwide sources', source: 'global' as const }
+  const missed = await composeRouted({
+    question: 'latest harbor news headlines',
+    hits: [],
+    region,
+    offlineOnly: false,
+    webAllowed: true,
+    now: Date.parse('2026-10-16T12:00:00.000Z'),
+    fetchImpl: async () => new Response('no', { status: 503 }),
+  })
+  assert.ok(missed)
+  assert.equal(missed.citations.length, 0)
+  assert.match(missed.text, new RegExp(UNABLE_NEWS))
+  const kept = await composeRouted({
+    question: 'latest harbor news headlines',
+    hits: [{ layer: 'files', title: 'Harbor note', text: 'The harbor notice says the channel is open.', url: '', pack: 'library', score: 1 }],
+    region,
+    offlineOnly: true,
+    webAllowed: false,
+    now: Date.parse('2026-10-16T12:00:00.000Z'),
+  })
+  assert.ok(kept)
+  assert.match(kept.text, /channel is open/)
+  assert.equal(kept.text.includes(UNABLE_NEWS), false)
 })
 
 test('production search does not enable the eval fixture', () => {

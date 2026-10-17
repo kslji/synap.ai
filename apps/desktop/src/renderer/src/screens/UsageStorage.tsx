@@ -97,7 +97,12 @@ export function UsagePanel() {
           <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
         </div>
       ) : (
-        <button type="button" className="btn btn-ghost mt-3" data-usage-reset="yes" onClick={() => setConfirming(true)}>Reset</button>
+        <div className="mt-3 flex gap-2">
+          <button type="button" className="btn btn-ghost" data-usage-reset="yes" onClick={() => setConfirming(true)}>Reset</button>
+          <button type="button" className="btn btn-ghost" data-usage-csv="yes" onClick={() => {
+            void window.surf.usage.csv().then((csv) => downloadCsv(csv)).catch((err: unknown) => setError((err as Error).message))
+          }}>Export CSV</button>
+        </div>
       )}
     </div>
   )
@@ -122,6 +127,7 @@ export function StoragePanel() {
           App data {formatIndexBytes(report.totalBytes)} · free {formatIndexBytes(report.freeBytes)} of {formatIndexBytes(report.diskBytes)}
         </p>
       )}
+      {report && <CachePlot report={report} />}
       {error && <p className="mt-2 text-sm">{error}</p>}
       {report?.categories.map((category) => (
         <div key={category.id} className="mt-4" data-storage-category={category.id}>
@@ -180,6 +186,13 @@ function UsageFigures({ report }: { report: UsageReport }) {
           ))}
         </ul>
       )}
+      {report.agents.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1" data-usage-agents="yes">
+          {report.agents.map((agent) => (
+            <li key={agent.agentId || 'unspecified'}>{agent.agentId || 'unspecified'}: {agent.tasks} requests, {agent.tokensIn} in, {agent.tokensOut} out</li>
+          ))}
+        </ul>
+      )}
       {report.days.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1" data-usage-days="yes">
           {report.days.map((day) => (
@@ -189,6 +202,28 @@ function UsageFigures({ report }: { report: UsageReport }) {
       )}
     </div>
   )
+}
+
+function CachePlot({ report }: { report: StorageReport }) {
+  const total = report.categories.reduce((sum, category) => sum + category.bytes, 0)
+  if (total <= 0) return <p className="mt-3 text-sm text-[var(--muted)]" data-cache-plot="empty">Nothing stored in these folders yet.</p>
+  return (
+    <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-[var(--bg-side)]" data-cache-plot="yes" aria-label="Storage by category">
+      {report.categories.filter((category) => category.bytes > 0).map((category) => (
+        <div key={category.id} title={`${category.label} ${formatIndexBytes(category.bytes)}`} style={{ width: `${(category.bytes / total) * 100}%`, background: 'var(--accent)' }} data-cache-slice={category.id} />
+      ))}
+    </div>
+  )
+}
+
+function downloadCsv(csv: string): void {
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'synap-usage.csv'
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function ms(value: number | null): string {

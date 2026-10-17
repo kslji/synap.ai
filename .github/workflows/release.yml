@@ -10,7 +10,17 @@ permissions:
   contents: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  model-eval-full:
+    needs: checks
+    uses: ./.github/workflows/model-eval-full.yml
+    with:
+      release_gate: true
+
   installers:
+    needs: [checks, model-eval-full]
     uses: ./.github/workflows/installers.yml
     secrets: inherit
 

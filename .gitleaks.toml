@@ -1,0 +1,17 @@
+title = "Synap.surf secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixtures, public verification keys, and generated reports"
+paths = [
+  '''docs/code-samples/''',
+  '''harness/''',
+  '''resources/licence-public\.json''',
+  '''resources/pack-keys\.json''',
+  '''(.*)_test\.py$''',
+  '''(.*)\.test\.(ts|tsx|mjs|js)$''',
+  '''(.*)/tests/''',
+  '''apps/desktop/src/main/core/search/fixtures/''',
+]

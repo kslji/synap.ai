@@ -2133,10 +2133,6 @@ export async function createServices(): Promise<Services> {
     }
   }
 
-  function readSetupText(path: string): string | null {
-    try { return readFileSync(path, 'utf8') } catch { return null }
-  }
-
   function noteKeywordSearch(win: BrowserWindow, messageId: string): void {
     const offline = readSettings().offlineOnly
     if (!offline) queueSearchModelRepair()

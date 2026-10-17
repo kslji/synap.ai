@@ -207,19 +207,20 @@ test('the header bot name renames, persists, and falls back to Surf', async () =
     try {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
       const header = page.locator('header')
+      const pill = page.locator('[data-chat-header="yes"]')
       await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Surf')
       await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
       await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Surf')
       await expect(page.locator('textarea')).toHaveAttribute('placeholder', 'Message Surf…')
       await expect(header).not.toContainText('what is 2+2')
-      await expect(header).toHaveScreenshot(`header-surf-${theme}.png`)
+      await expect(pill).toHaveScreenshot(`header-surf-${theme}.png`)
 
       await page.locator('[data-bot-name="yes"]').click()
       const editor = page.locator('[data-bot-name-edit="yes"]')
       await editor.fill('Harbor')
       await editor.press('End')
       await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
-      await expect(header).toHaveScreenshot(`header-edit-${theme}.png`)
+      await expect(pill).toHaveScreenshot(`header-edit-${theme}.png`)
       await editor.press('Enter')
       await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Harbor')
       await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
@@ -227,7 +228,7 @@ test('the header bot name renames, persists, and falls back to Surf', async () =
       await expect(page.locator('textarea')).toHaveAttribute('placeholder', 'Message Harbor…')
       await expect(page.locator('[data-sync-chip="yes"]')).toHaveAttribute('data-sync-label', 'Offline')
       await expect.poll(() => JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).mascotName).toBe('Harbor')
-      await expect(header).toHaveScreenshot(`header-renamed-${theme}.png`)
+      await expect(pill).toHaveScreenshot(`header-renamed-${theme}.png`)
 
       if (theme === 'light') {
         await page.locator('[data-bot-name="yes"]').click()

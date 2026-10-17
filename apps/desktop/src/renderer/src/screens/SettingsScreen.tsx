@@ -445,7 +445,7 @@ function QwenSizes({ status, onPatch }: { status: ModelStatus; onPatch: (p: Sett
   return (
     <div data-qwen-sizes="yes">
       <h2 className="text-lg font-semibold tracking-tight">Qwen</h2>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Download another size, or switch to one already on this computer. EmbeddingGemma comes with it.</p>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Download another size, or switch to one already on this computer. The search model comes with it.</p>
       <ul className="mt-3 flex flex-col gap-2">
         {sizes.map((model) => {
           const active = model.id === status.chatModelId && model.installed
@@ -473,7 +473,7 @@ function QwenSizes({ status, onPatch }: { status: ModelStatus; onPatch: (p: Sett
       </ul>
       {embed && (
         <p className="mt-3 text-sm text-[var(--muted)]" data-embedding-status={embed.installed ? 'installed' : 'missing'}>
-          {embed.installed ? 'EmbeddingGemma is on this computer.' : 'EmbeddingGemma downloads with the model you pick. If it is missing later, the app downloads it again.'}
+          {embed.installed ? 'The search model is on this computer.' : 'The search model downloads with the model you pick. If it is missing or damaged later, the app downloads it again.'}
         </p>
       )}
       {note && <p className="mt-2 text-sm" data-qwen-note="yes">{note}</p>}

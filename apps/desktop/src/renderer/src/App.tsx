@@ -104,6 +104,7 @@ export default function App() {
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
   const [setupLive, setSetupLive] = useState<SetupSnapshot | null>(null)
   const [setupPreview, setSetupPreview] = useState<SetupSnapshot | null>(null)
+  const [setupKind, setSetupKind] = useState<'pick' | 'repair'>('pick')
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
@@ -193,13 +194,27 @@ export default function App() {
     if (!status || !licence || booted.current) return
     booted.current = true
     const hasChat = status.models.some((model) => model.role === 'chat' && model.installed)
+    if (!status.holdSetup && !status.offlineOnly && hasChat && status.searchModelReady === false) {
+      setSetupKind('repair')
+      setView('setup')
+      return
+    }
     if (!status.holdSetup && !hasChat) {
+      setSetupKind('pick')
       setView('setup')
       return
     }
     if (licence.state === 'dev') setView('chat')
     else if (status.onboardingComplete) setView('home')
   }, [status, licence])
+
+  useEffect(() => {
+    if (!status || status.holdSetup || status.offlineOnly || status.searchModelReady !== false) return
+    const hasChat = status.models.some((model) => model.role === 'chat' && model.installed)
+    if (!hasChat) return
+    setSetupKind('repair')
+    setView('setup')
+  }, [status])
 
   useEffect(() => {
     if (view !== 'setup' || setupPreview) return
@@ -218,9 +233,9 @@ export default function App() {
         setView('chat')
       }
     }).catch(() => undefined)
-    void api.setup.start().catch(() => undefined)
+    void (setupKind === 'repair' ? api.setup.repair() : api.setup.start()).catch(() => undefined)
     return off
-  }, [api, refresh, view, setupPreview])
+  }, [api, refresh, view, setupPreview, setupKind])
 
   useEffect(() => {
     if (agentId !== 'code') return

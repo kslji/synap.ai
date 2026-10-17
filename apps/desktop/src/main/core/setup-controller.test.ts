@@ -20,15 +20,16 @@ const nine: SetupModel = {
   minRamGb: 16, sizeBytes: 500, sha256: 'cd', url: 'https://example.invalid/9b',
 }
 const embed: SetupEmbed = {
-  id: 'embeddinggemma-2-text-q8_0', name: 'EmbeddingGemma', file: 'embeddinggemma-2-Q8_0.gguf',
+  id: 'embeddinggemma-2-text-q8_0', name: 'Search model', file: 'embeddinggemma-2-Q8_0.gguf',
   sizeBytes: 50, sha256: 'ef', url: 'https://example.invalid/emb',
 }
 
-function host(over: Partial<SetupHost> & { ram?: number } = {}): { host: SetupHost; events: SetupSnapshot[]; saved: string[]; downloads: string[]; copies: string[] } {
+function host(over: Partial<SetupHost> & { ram?: number } = {}): { host: SetupHost; events: SetupSnapshot[]; saved: string[]; downloads: string[]; copies: string[]; ready: string[] } {
   const events: SetupSnapshot[] = []
   const saved: string[] = []
   const downloads: string[] = []
   const copies: string[] = []
+  const ready: string[] = []
   const root = mkdtempSync(join(tmpdir(), 'surf-setup-'))
   const built: SetupHost = {
     ramGb: () => over.ram ?? 8,
@@ -39,6 +40,9 @@ function host(over: Partial<SetupHost> & { ram?: number } = {}): { host: SetupHo
     takeDownloads: async (file) => { copies.push(file) },
     spec: (step) => ({ url: step.url, dest: join(root, step.file), size: step.sizeBytes, sha256: step.sha256 }),
     saveChoice: (id) => { saved.push(id) },
+    embeddingReady: () => { ready.push('ready') },
+    installedSetupId: async () => null,
+    anyChatInstalled: async () => false,
     offlineOnly: () => false,
     freeBytes: async () => 10_000,
     emit: (snapshot) => { events.push(snapshot) },
@@ -49,7 +53,7 @@ function host(over: Partial<SetupHost> & { ram?: number } = {}): { host: SetupHo
     },
     ...over,
   }
-  return { host: built, events, saved, downloads, copies }
+  return { host: built, events, saved, downloads, copies, ready }
 }
 
 test('first open lists the three sizes and does not download', async () => {
@@ -82,7 +86,11 @@ test('a 9B choice on 8 GB still downloads, and EmbeddingGemma is always added', 
   assert.equal(built.events.at(-1)?.phase, 'done')
   assert.deepEqual(built.saved, [nine.id])
   const files = built.events.find((event) => event.phase === 'downloading')?.files ?? []
-  assert.deepEqual(files.map((file) => file.name), ['Qwen 9B', 'EmbeddingGemma'])
+  assert.deepEqual(files.map((file) => file.name), ['Qwen 9B', 'Search model'])
+  const moving = built.events.find((event) => event.phase === 'downloading' && event.files[0]?.done === nine.sizeBytes)
+  assert.equal(moving?.total, nine.sizeBytes + embed.sizeBytes)
+  assert.equal(moving?.done, nine.sizeBytes)
+  assert.equal(built.ready.length, 1)
 })
 
 test('Use the file in Downloads copies that Qwen and still fetches EmbeddingGemma', async () => {
@@ -147,6 +155,57 @@ test('a network failure stays resumable and a retry can finish', async () => {
   assert.equal(built.events.at(-1)?.phase, 'done')
   assert.deepEqual(built.saved, [two.id])
   assert.equal(calls, 3)
+})
+
+test('chat is not ready until the search model verifies', async () => {
+  const built = host({
+    download: async (spec, onProgress) => {
+      if (spec.url === embed.url) throw new DownloadError('checksum', 'sha256 mismatch - file deleted, retry')
+      onProgress?.(spec.size, spec.size)
+      return spec.dest
+    },
+  })
+  const setup = createSetupController(built.host)
+  await setup.choose(two.id)
+  assert.equal(built.events.at(-1)?.phase, 'error')
+  assert.equal(built.events.at(-1)?.error?.code, 'checksum')
+  assert.deepEqual(built.saved, [])
+  assert.deepEqual(built.ready, [])
+})
+
+test('a later launch with Qwen already installed downloads only the search model', async () => {
+  const hashes: string[] = []
+  const built = host({
+    isInstalled: async (file, _size, sha) => {
+      if (sha) hashes.push(sha)
+      return file === two.file && !sha
+    },
+    installedSetupId: async () => two.id,
+    anyChatInstalled: async () => true,
+  })
+  const setup = createSetupController(built.host)
+  await setup.repair()
+  assert.deepEqual(hashes, [embed.sha256])
+  assert.deepEqual(built.downloads, [embed.url])
+  assert.deepEqual(built.copies, [])
+  assert.deepEqual(built.saved, [])
+  assert.equal(built.events.at(-1)?.phase, 'done')
+  assert.deepEqual(built.ready, ['ready'])
+  const names = built.events.find((event) => event.phase === 'downloading')?.files.map((file) => file.name)
+  assert.deepEqual(names, ['Qwen 2B', 'Search model'])
+})
+
+test('a chat model outside the picker still repairs the search model alone', async () => {
+  const built = host({
+    installedSetupId: async () => null,
+    anyChatInstalled: async () => true,
+  })
+  const setup = createSetupController(built.host)
+  await setup.repair()
+  assert.deepEqual(built.downloads, [embed.url])
+  assert.deepEqual(built.saved, [])
+  assert.equal(built.events.at(-1)?.phase, 'done')
+  assert.equal(built.events.at(-1)?.modelName, 'Search model')
 })
 
 test('offline mode does not start a download', async () => {

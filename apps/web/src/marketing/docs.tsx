@@ -62,7 +62,7 @@ export function DocsPage() {
           <section id="model" aria-labelledby="model-title">
             <h2 id="model-title" className="text-2xl font-semibold">Pick a model in the app</h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">
-              After you install, the first open asks you to pick Qwen 2B, Qwen 4B, or Qwen 9B. EmbeddingGemma downloads with it. If that Qwen file is already in Downloads and the check matches, the app offers to use it.
+              After you install, the first open asks you to pick Qwen 2B, Qwen 4B, or Qwen 9B. The search model, about 310 MB, downloads with it. If that Qwen file is already in Downloads and the check matches, the app offers to use it.
             </p>
             <p className="mt-3"><a href="/#download">Go to the download</a></p>
           </section>

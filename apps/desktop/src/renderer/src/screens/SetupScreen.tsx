@@ -37,15 +37,18 @@ export function SetupScreen({
         : snapshot.phase === 'checking'
           ? 'Checking this computer'
           : `Setting up ${snapshot.modelName || 'Qwen'}`
+  const chatPending = snapshot.files.some((file) => file.role === 'chat' && file.state !== 'done')
   const note = errorCopy
     ? errorCopy.body
     : picking
-      ? 'Pick Qwen 2B, 4B, or 9B. EmbeddingGemma downloads with it.'
+      ? 'Pick Qwen 2B, 4B, or 9B. The search model downloads with it.'
       : snapshot.phase === 'paused'
         ? 'The part that already arrived is kept. Resume continues from there.'
         : snapshot.phase === 'checking'
           ? 'Looking at free space and any copy already in Downloads.'
-          : 'Qwen and EmbeddingGemma download together.'
+          : chatPending
+            ? 'Qwen and the search model download together. Chat opens when both check out.'
+            : 'The search model is downloading. Chat opens when it checks out.'
 
   return (
     <main className="relative flex h-full items-center justify-center bg-[var(--bg)] px-6" data-screen="setup" data-setup-phase={snapshot.phase} data-setup-model={snapshot.modelId} data-mascot-state={mascot}>
@@ -54,7 +57,7 @@ export function SetupScreen({
       </div>
       <div className="card w-full max-w-xl px-8 py-6">
         <BlobMascot state={mascot} size={picking ? 88 : 140} />
-        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">First open</p>
+        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{picking || chatPending || (snapshot.files.length === 0 && snapshot.modelName !== 'Search model') ? 'First open' : 'Search model'}</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-[15px] leading-relaxed text-[var(--muted)]" data-setup-note="yes">{note}</p>
         {picking && (
@@ -66,7 +69,10 @@ export function SetupScreen({
                   {choice.recommended && <span className="pill" data-setup-recommended="yes">Recommended for your laptop</span>}
                 </div>
                 <p className="mt-1 text-xs text-[var(--muted)]" data-setup-size={choice.id}>
-                  {formatByteCount(choice.sizeBytes)} · needs {choice.minRamGb} GB RAM
+                  {formatByteCount(choice.withSearchBytes)} · needs {choice.minRamGb} GB RAM
+                </p>
+                <p className="mt-0.5 text-xs text-[var(--muted)]" data-setup-parts={choice.id}>
+                  {formatByteCount(choice.sizeBytes)} model + {formatByteCount(choice.withSearchBytes - choice.sizeBytes)} search model
                 </p>
                 {choice.warning && <p className="mt-1 text-xs leading-relaxed" data-setup-warning={choice.id}>{choice.warning}</p>}
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -83,8 +89,13 @@ export function SetupScreen({
             ))}
           </ul>
         )}
+        {!picking && snapshot.files.length > 0 && snapshot.total > 0 && (
+          <p className="mt-4 text-sm font-semibold" data-setup-combined="yes">
+            {formatByteCount(snapshot.done)} of {formatByteCount(snapshot.total)}
+          </p>
+        )}
         {!picking && snapshot.files.length > 0 && (
-          <ul className="mt-4 flex flex-col gap-3">
+          <ul className={snapshot.total > 0 ? 'mt-3 flex flex-col gap-3' : 'mt-4 flex flex-col gap-3'}>
             {snapshot.files.map((file) => (
               <FileRow key={file.id} file={file} speed={file.state === 'active' && snapshot.phase === 'downloading' ? snapshot.bytesPerSecond : null} showBar={file.state === 'active'} />
             ))}

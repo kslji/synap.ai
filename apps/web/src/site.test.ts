@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DownloadButtons } from './download-buttons.tsx'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, isSizedInstaller, newestPublishableRelease, pickDownload, releaseAssets, SETUP_MODELS } from './site.ts'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, formatModelSize, isSizedInstaller, newestPublishableRelease, pickDownload, releaseAssets, SETUP_MODELS } from './site.ts'
 
 test('contact email falls back to the placeholder', () => {
   assert.equal(contactEmail(''), 'contact@example.com')
@@ -91,11 +91,15 @@ test('the download page is one installer, and the sizes are a reference list', (
     assert.equal(model.sha256, row?.sha256)
     assert.equal(model.file, row?.file)
     assert.equal(model.sizeBytes, row?.size_bytes)
+    assert.equal(model.size, formatModelSize((row?.size_bytes ?? 0) + 309_855_520))
+    assert.match(model.parts, /search model/)
   }
   const page = readFileSync(new URL('./pages.tsx', import.meta.url), 'utf8')
   const home = readFileSync(new URL('./marketing/home.tsx', import.meta.url), 'utf8')
   assert.match(page, /data-model-list="yes"/)
   assert.match(page, /data-model-size=\{model\.id\}/)
+  assert.match(page, /data-model-parts=\{model\.id\}/)
+  assert.match(page, /309\.9 MB search model/)
   assert.match(page, /data-model-ram=\{model\.id\}/)
   assert.match(page, /Download for Mac/)
   assert.match(page, /Download for Windows/)

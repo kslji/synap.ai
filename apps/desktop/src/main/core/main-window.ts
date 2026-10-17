@@ -96,6 +96,7 @@ export interface Services {
     pause(): void
     resume(): Promise<void>
     retry(): Promise<void>
+    repair(): Promise<void>
   }
   conversations: {
     list(): Promise<ConversationSummary[]>
@@ -245,6 +246,7 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.setupStart, (e) => { assertTrusted(e); return s.setup.start() })
   handle(IPC.setupChoose, (e, raw) => { assertTrusted(e); return s.setup.choose(ModelId.parse(raw)) })
   handle(IPC.setupUseFile, (e, raw) => { assertTrusted(e); return s.setup.useFile(ModelId.parse(raw)) })
+  handle(IPC.setupRepair, (e) => { assertTrusted(e); return s.setup.repair() })
   handle(IPC.setupPause, (e) => { assertTrusted(e); s.setup.pause() })
   handle(IPC.setupResume, (e) => { assertTrusted(e); return s.setup.resume() })
   handle(IPC.setupRetry, (e) => { assertTrusted(e); return s.setup.retry() })

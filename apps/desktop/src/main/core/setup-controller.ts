@@ -7,6 +7,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   byteRate,
+  planEmbeddingRepair,
   planFirstRun,
   setupChoices,
   type FirstRunPlan,
@@ -25,11 +26,15 @@ export interface SetupHost {
   ramGb: () => number
   catalog: () => SetupModel[]
   embedding: () => SetupEmbed
-  isInstalled: (file: string, size: number) => Promise<boolean>
+  /** Pass sha256 to require a checksum. Size alone treats a same-size corrupt file as installed. */
+  isInstalled: (file: string, size: number, sha256?: string) => Promise<boolean>
   inDownloads: (file: string, size: number, sha256: string) => Promise<boolean>
   takeDownloads: (file: string, size: number, sha256: string, dest: string) => Promise<void>
   spec: (step: SetupStep) => DownloadSpec
   saveChoice: (modelId: string) => void
+  embeddingReady: () => void
+  installedSetupId: () => Promise<string | null>
+  anyChatInstalled: () => Promise<boolean>
   offlineOnly: () => boolean
   freeBytes: (dir: string) => Promise<number | null>
   emit: (snapshot: SetupSnapshot) => void
@@ -55,10 +60,12 @@ export function createSetupController(host: SetupHost) {
   let running: Promise<void> | null = null
   let generation = 0
   let samples: { at: number; bytes: number }[] = []
-  let pending: { modelId: string; useDownloads: boolean } | null = null
+  let pending: { modelId: string; useDownloads: boolean; keepChoice: boolean; embeddingOnly: boolean } | null = null
 
   function publish(next: SetupSnapshot): void {
-    snapshot = next
+    const done = next.files.reduce((sum, file) => sum + file.done, 0)
+    const total = next.files.reduce((sum, file) => sum + file.total, 0)
+    snapshot = next.files.length ? { ...next, done, total } : next
     host.emit(snapshot)
   }
 
@@ -70,11 +77,12 @@ export function createSetupController(host: SetupHost) {
     for (const model of catalog) {
       if (await host.inDownloads(model.file, model.sizeBytes, model.sha256)) downloads.push(model.id)
     }
+    const embedBytes = host.embedding().sizeBytes
     publish({
       ...EMPTY,
       phase: 'pick',
       ramGb: ramGb > 0 ? ramGb : null,
-      choices: setupChoices(catalog, ramGb > 0 ? ramGb : null, downloads),
+      choices: setupChoices(catalog, ramGb > 0 ? ramGb : null, downloads, embedBytes),
     })
   }
 
@@ -83,6 +91,10 @@ export function createSetupController(host: SetupHost) {
     const request = pending
     if (!request) {
       await showPick()
+      return
+    }
+    if (request.embeddingOnly) {
+      await runEmbedding(gen)
       return
     }
     samples = []
@@ -102,7 +114,7 @@ export function createSetupController(host: SetupHost) {
       ramGb: ramGb > 0 ? ramGb : null,
     })
     const chatInstalled = await host.isInstalled(chosen.file, chosen.sizeBytes)
-    const embedInstalled = await host.isInstalled(embedding.file, embedding.sizeBytes)
+    const embedInstalled = await host.isInstalled(embedding.file, embedding.sizeBytes, embedding.sha256)
     const chatInDownloads = await host.inDownloads(chosen.file, chosen.sizeBytes, chosen.sha256)
     const embedInDownloads = await host.inDownloads(embedding.file, embedding.sizeBytes, embedding.sha256)
     if (gen !== generation) return
@@ -124,7 +136,7 @@ export function createSetupController(host: SetupHost) {
     })
     if (gen !== generation) return
     if (plan.action === 'done') {
-      finish(plan.modelId, catalog, ramGb)
+      finish(plan.modelId, catalog, ramGb, request.keepChoice)
       return
     }
     const files = plan.steps.map((step) => fileView(step, step.action === 'ready' ? step.sizeBytes : 0, step.action === 'ready' ? 'done' : 'waiting'))
@@ -163,7 +175,8 @@ export function createSetupController(host: SetupHost) {
 
   async function transfer(plan: FirstRunPlan, catalog: readonly SetupModel[], ramGb: number, gen: number, files: SetupFileView[]): Promise<void> {
     const chosen = catalog.find((model) => model.id === plan.modelId)
-    if (!chosen) return
+    const modelId = chosen?.id ?? plan.modelId
+    const modelName = chosen?.name ?? 'Search model'
     for (const step of plan.steps) {
       if (gen !== generation) return
       if (step.action === 'ready') continue
@@ -176,8 +189,8 @@ export function createSetupController(host: SetupHost) {
       files = mark(0, 'active')
       publish({
         phase,
-        modelId: chosen.id,
-        modelName: chosen.name,
+        modelId,
+        modelName,
         ramGb: ramGb > 0 ? ramGb : null,
         choices: [],
         files,
@@ -225,22 +238,65 @@ export function createSetupController(host: SetupHost) {
       }
     }
     if (gen !== generation) return
-    finish(chosen.id, catalog, ramGb)
+    finish(modelId, catalog, ramGb, pending?.keepChoice ?? !chosen)
   }
 
-  function finish(modelId: string, catalog: readonly SetupModel[], ramGb: number): void {
+  async function runEmbedding(gen: number): Promise<void> {
+    const embedding = host.embedding()
+    const ramGb = host.ramGb()
+    publish({
+      ...EMPTY,
+      phase: 'checking',
+      modelId: embedding.id,
+      modelName: embedding.name,
+      ramGb: ramGb > 0 ? ramGb : null,
+    })
+    const embedInstalled = await host.isInstalled(embedding.file, embedding.sizeBytes, embedding.sha256)
+    const embedInDownloads = await host.inDownloads(embedding.file, embedding.sizeBytes, embedding.sha256)
+    const probe = host.spec({
+      id: embedding.id, role: 'embedding', name: embedding.name, file: embedding.file, url: embedding.url, sha256: embedding.sha256, sizeBytes: embedding.sizeBytes, action: 'download',
+    })
+    mkdirSync(dirname(probe.dest), { recursive: true })
+    const free = await host.freeBytes(dirname(probe.dest))
+    const plan = planEmbeddingRepair({ embedding, embedInstalled, embedInDownloads, freeBytes: free })
+    if (gen !== generation) return
+    if (plan.action === 'done') {
+      finish(plan.modelId, host.catalog(), ramGb, true)
+      return
+    }
+    const files = plan.steps.map((step) => fileView(step, 0, 'waiting'))
+    if (plan.action === 'disk') {
+      publish({
+        phase: 'error', modelId: embedding.id, modelName: embedding.name, ramGb: ramGb > 0 ? ramGb : null, choices: [], files,
+        done: 0, total: files[0]?.total ?? 0, bytesPerSecond: null,
+        error: { code: 'disk', requiredBytes: plan.requiredBytes ?? null, freeBytes: plan.freeBytes ?? null },
+      })
+      return
+    }
+    if (plan.steps.some((step) => step.action === 'download') && host.offlineOnly()) {
+      publish({
+        phase: 'error', modelId: embedding.id, modelName: embedding.name, ramGb: ramGb > 0 ? ramGb : null, choices: [], files,
+        done: 0, total: files[0]?.total ?? 0, bytesPerSecond: null, error: { code: 'offline' },
+      })
+      return
+    }
+    await transfer(plan, host.catalog(), ramGb, gen, files)
+  }
+
+  function finish(modelId: string, catalog: readonly SetupModel[], ramGb: number, keepChoice: boolean): void {
     const model = catalog.find((item) => item.id === modelId)
-    host.saveChoice(modelId)
+    if (!keepChoice) host.saveChoice(modelId)
+    host.embeddingReady()
     pending = null
     publish({
       phase: 'done',
       modelId,
-      modelName: model?.name ?? '',
+      modelName: model?.name || snapshot.modelName || 'Search model',
       ramGb: ramGb > 0 ? ramGb : null,
       choices: [],
       files: snapshot.files.map((file) => ({ ...file, done: file.total, state: 'done' })),
-      done: model?.sizeBytes ?? snapshot.done,
-      total: model?.sizeBytes ?? snapshot.total,
+      done: snapshot.done,
+      total: snapshot.total,
       bytesPerSecond: null,
       error: null,
     })
@@ -256,13 +312,20 @@ export function createSetupController(host: SetupHost) {
     return { code: 'offline' }
   }
 
-  async function begin(modelId: string, useDownloads: boolean): Promise<void> {
+  async function begin(modelId: string, useDownloads: boolean, keepChoice = false, embeddingOnly = false): Promise<void> {
     if (snapshot.phase === 'downloading' || snapshot.phase === 'checking') return
     if (running) return
-    pending = { modelId, useDownloads }
+    pending = { modelId, useDownloads, keepChoice, embeddingOnly }
     const job = run()
     running = job
     try { await job } finally { if (running === job) running = null }
+  }
+
+  async function repair(): Promise<void> {
+    const id = await host.installedSetupId()
+    if (id) return begin(id, false, true, false)
+    if (await host.anyChatInstalled()) return begin('', false, true, true)
+    return showPick()
   }
 
   return {
@@ -270,16 +333,17 @@ export function createSetupController(host: SetupHost) {
     start: () => showPick(),
     choose: (modelId: string) => begin(modelId, false),
     useFile: (modelId: string) => begin(modelId, true),
+    repair: () => repair(),
     pause() {
       abort?.abort()
     },
     resume: () => {
       if (!pending) return showPick()
-      return begin(pending.modelId, pending.useDownloads)
+      return begin(pending.modelId, pending.useDownloads, pending.keepChoice, pending.embeddingOnly)
     },
     retry: () => {
       if (!pending) return showPick()
-      return begin(pending.modelId, pending.useDownloads)
+      return begin(pending.modelId, pending.useDownloads, pending.keepChoice, pending.embeddingOnly)
     },
   }
 }

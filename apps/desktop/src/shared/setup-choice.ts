@@ -73,7 +73,7 @@ export function setupEmbedding(models: readonly {
   if (!row) return null
   return {
     id: row.id,
-    name: 'EmbeddingGemma',
+    name: 'Search model',
     file: row.file,
     sizeBytes: row.size_bytes,
     sha256: row.sha256,
@@ -114,27 +114,43 @@ export interface SetupChoiceView {
   id: string
   name: string
   sizeBytes: number
+  /** Qwen file plus the search model. This is the download the person waits for. */
+  withSearchBytes: number
   minRamGb: number
   recommended: boolean
   warning: string | null
   inDownloads: boolean
 }
 
-export function setupChoices(catalog: readonly SetupModel[], ramGb: number | null, downloadsIds: readonly string[]): SetupChoiceView[] {
+export function setupChoices(catalog: readonly SetupModel[], ramGb: number | null, downloadsIds: readonly string[], embedBytes = 0): SetupChoiceView[] {
   const known = ramGb != null && Number.isFinite(ramGb) && ramGb > 0
   const recommended = recommendSetupModel(known ? ramGb : null, catalog)
+  const extra = Number.isFinite(embedBytes) && embedBytes > 0 ? embedBytes : 0
   return catalog.map((model) => {
     const tight = known && !ramFits(model.minRamGb, ramGb)
     return {
       id: model.id,
       name: model.name,
       sizeBytes: model.sizeBytes,
+      withSearchBytes: model.sizeBytes + extra,
       minRamGb: model.minRamGb,
       recommended: recommended.source === 'ram' && model.id === recommended.id,
       warning: tight ? `This model needs ${model.minRamGb} GB of memory. This computer has ${formatRamGb(ramGb)}.` : null,
       inDownloads: downloadsIds.includes(model.id),
     }
   })
+}
+
+/** GitHub Releases rejects one asset at 2 GiB. The check is strict. */
+export const GITHUB_ASSET_LIMIT_BYTES = 2_147_483_648
+
+/** Qwen file plus the search model. The installer itself is extra. */
+export function bundledModelBytes(chatBytes: number, embedBytes: number): number {
+  return chatBytes + embedBytes
+}
+
+export function fitsGitHubAsset(bytes: number): boolean {
+  return Number.isFinite(bytes) && bytes > 0 && bytes < GITHUB_ASSET_LIMIT_BYTES
 }
 
 export function requiredFreeBytes(sizeBytes: number): number {
@@ -214,6 +230,32 @@ export function planFirstRun(input: {
   return { action: 'run', modelId: chosen.id, steps }
 }
 
+/** Later launch: the chat model is already verified. Only the search model is fetched. */
+export function planEmbeddingRepair(input: {
+  embedding: SetupEmbed
+  embedInstalled: boolean
+  embedInDownloads: boolean
+  freeBytes: number | null
+}): FirstRunPlan {
+  const action: SetupStep['action'] = input.embedInstalled ? 'ready' : input.embedInDownloads ? 'copy' : 'download'
+  const steps: SetupStep[] = [{
+    id: input.embedding.id,
+    role: 'embedding',
+    name: input.embedding.name,
+    file: input.embedding.file,
+    url: input.embedding.url,
+    sha256: input.embedding.sha256,
+    sizeBytes: input.embedding.sizeBytes,
+    action,
+  }]
+  if (action === 'ready') return { action: 'done', modelId: input.embedding.id, steps }
+  const requiredBytes = requiredFreeBytes(input.embedding.sizeBytes)
+  if (input.freeBytes != null && Number.isFinite(input.freeBytes) && input.freeBytes < requiredBytes) {
+    return { action: 'disk', modelId: input.embedding.id, steps, requiredBytes, freeBytes: input.freeBytes }
+  }
+  return { action: 'run', modelId: input.embedding.id, steps }
+}
+
 /** Bytes per second from the oldest and newest samples. Null until two real samples exist. */
 export function byteRate(samples: readonly { at: number; bytes: number }[]): number | null {
   if (samples.length < 2) return null
@@ -280,6 +322,12 @@ export function setupErrorCopy(error: {
   return { title: 'Download stopped', body: `The download stopped${status}. Retry continues from the part already saved.` }
 }
 
+/** Said in the chat while vector search cannot run. Ready embeddings say nothing. */
+export function keywordSearchNote(kind: 'offline' | 'downloading'): string {
+  if (kind === 'offline') return 'Search is using keywords because this computer is offline and the search model is not here.'
+  return 'Search is using keywords until the search model finishes downloading.'
+}
+
 export const SETUP_TOKENS = TOKENS
 
 export interface SetupFileView {
@@ -320,7 +368,7 @@ export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'di
   const rate = byteRate([{ at: 0, bytes: 0 }, { at: 2000, bytes: 16_400_000 }])
   const files: SetupFileView[] = [
     { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', role: 'chat', done, total: chatTotal, state: 'active' },
-    { id: 'embeddinggemma-2-text-q8_0', name: 'EmbeddingGemma', role: 'embedding', done: 0, total: EMBED_BYTES, state: 'waiting' },
+    { id: 'embeddinggemma-2-text-q8_0', name: 'Search model', role: 'embedding', done: 0, total: EMBED_BYTES, state: 'waiting' },
   ]
   const base: SetupSnapshot = {
     phase: 'downloading',
@@ -330,7 +378,7 @@ export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'di
     choices: [],
     files,
     done,
-    total: chatTotal,
+    total: chatTotal + EMBED_BYTES,
     bytesPerSecond: rate,
     error: null,
   }
@@ -345,9 +393,9 @@ export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'di
       total: 0,
       bytesPerSecond: null,
       choices: [
-        { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', sizeBytes: chatTotal, minRamGb: 4, recommended: false, warning: null, inDownloads: true },
-        { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', sizeBytes: 2_740_937_888, minRamGb: 8, recommended: true, warning: null, inDownloads: false },
-        { id: 'qwen3.5-9b-q4_k_m', name: 'Qwen 9B', sizeBytes: 5_680_522_464, minRamGb: 16, recommended: false, warning: 'This model needs 16 GB of memory. This computer has 8 GB.', inDownloads: false },
+        { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', sizeBytes: chatTotal, withSearchBytes: chatTotal + EMBED_BYTES, minRamGb: 4, recommended: false, warning: null, inDownloads: true },
+        { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', sizeBytes: 2_740_937_888, withSearchBytes: 2_740_937_888 + EMBED_BYTES, minRamGb: 8, recommended: true, warning: null, inDownloads: false },
+        { id: 'qwen3.5-9b-q4_k_m', name: 'Qwen 9B', sizeBytes: 5_680_522_464, withSearchBytes: 5_680_522_464 + EMBED_BYTES, minRamGb: 16, recommended: false, warning: 'This model needs 16 GB of memory. This computer has 8 GB.', inDownloads: false },
       ],
     }
   }

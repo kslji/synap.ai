@@ -69,7 +69,7 @@ export function CodeAgentPage() {
           </div>
         </section>
 
-        <Section id="download" title="Same models as the rest of the app" lede="One installer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app. Code uses that model.">
+        <Section id="download" title="Same models as the rest of the app" lede="One installer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app. Each size includes the search model. Code uses that Qwen.">
           <div className="card mt-8 px-6 py-6">
             <DownloadCard />
             <BetaUnsignedNote />

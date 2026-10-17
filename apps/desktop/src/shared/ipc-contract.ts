@@ -18,6 +18,7 @@ export const IPC = {
   setupStart: 'setup:start',
   setupChoose: 'setup:choose',
   setupUseFile: 'setup:use-file',
+  setupRepair: 'setup:repair',
   setupPause: 'setup:pause',
   setupResume: 'setup:resume',
   setupRetry: 'setup:retry',
@@ -241,7 +242,7 @@ export type ChatEvent =
   | { type: 'token'; messageId: string; text: string }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
-  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' }
+  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' | 'keywords'; note?: string }
   | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
   | { type: 'done'; messageId: string; gate: GateName; text?: string; canContinue?: boolean; budget?: {
     counter: string
@@ -430,6 +431,8 @@ export interface ModelStatus {
   chatPersistence: 'encrypted' | 'session'
   /** True during screenshot capture so the first-run download does not start. */
   holdSetup?: boolean
+  /** False when the search model is missing or its checksum does not match. */
+  searchModelReady?: boolean
   /** True only when NODE_ENV=development or SYNAP_DEV_WEB=1. Omitted tools stay off. */
   devWeb?: boolean
   /** Search origin while dev web is on. Omitted in production builds. */
@@ -777,6 +780,7 @@ export interface SurfApi {
     start(): Promise<void>
     choose(modelId: string): Promise<void>
     useFile(modelId: string): Promise<void>
+    repair(): Promise<void>
     pause(): Promise<void>
     resume(): Promise<void>
     retry(): Promise<void>

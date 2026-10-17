@@ -221,14 +221,14 @@ export const MAC_STEPS = [
   'Open the disk image when it finishes.',
   'Drag Synap.surf into Applications.',
   'Open Synap.surf. If macOS blocks it, go to System Settings, then Privacy & Security, scroll to Security, and click Open Anyway. You only do this once.',
-  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and EmbeddingGemma finish.',
+  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and the search model finish.',
 ]
 
 export const WINDOWS_STEPS = [
   'Open the installer when it finishes.',
   'If SmartScreen says Windows protected your PC, click More info, then Run anyway.',
   'Finish the prompts. You only do this once.',
-  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and EmbeddingGemma finish.',
+  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and the search model finish.',
 ]
 
 export function DownloadCard() {
@@ -294,7 +294,7 @@ export function DownloadCard() {
       </div>
       <div data-model-list="yes">
         <p className="text-sm font-semibold">Sizes in the app</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">These are not separate downloads. EmbeddingGemma is included with whichever you pick.</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Each size is the Qwen file plus a 309.9 MB search model. These are not separate downloads.</p>
         <ul className="mt-3 flex flex-col gap-2">
           {SETUP_MODELS.map((model) => (
             <li key={model.id} className="model-choice" data-setup-model={model.id}>
@@ -305,6 +305,7 @@ export function DownloadCard() {
                   <span data-model-size={model.id}>{model.size}</span>
                   {' · '}
                   <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+                  <span className="mt-0.5 block" data-model-parts={model.id}>{model.parts}</span>
                 </span>
               </span>
             </li>

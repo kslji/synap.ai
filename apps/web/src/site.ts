@@ -48,13 +48,21 @@ export function formatModelSize(bytes: number): string {
   return `${(bytes / 1_000_000_000).toFixed(2)} GB`
 }
 
+/** embeddinggemma-2-Q8_0.gguf from the model registry. 309855520 bytes is 309.9 MB. */
+export const SEARCH_MODEL_BYTES = 309_855_520
+
+export function formatSearchSize(bytes: number): string {
+  return `${(bytes / 1_000_000).toFixed(1)} MB`
+}
+
 /** Qwen chat rows from models.registry.json. Shown for reference. The installer does not contain a model. */
 export const SETUP_MODELS = [
   {
     id: 'qwen3.5-2b-q4_k_m',
     token: '2b',
     name: 'Qwen 2B',
-    size: formatModelSize(1280835840),
+    size: formatModelSize(1280835840 + SEARCH_MODEL_BYTES),
+    parts: `${formatModelSize(1280835840)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
     ramGb: 4,
     file: 'Qwen3.5-2B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf',
@@ -65,7 +73,8 @@ export const SETUP_MODELS = [
     id: 'qwen3.5-4b-q4_k_m',
     token: '4b',
     name: 'Qwen 4B',
-    size: formatModelSize(2740937888),
+    size: formatModelSize(2740937888 + SEARCH_MODEL_BYTES),
+    parts: `${formatModelSize(2740937888)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
     ramGb: 8,
     file: 'Qwen3.5-4B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf',
@@ -76,7 +85,8 @@ export const SETUP_MODELS = [
     id: 'qwen3.5-9b-q4_k_m',
     token: '9b',
     name: 'Qwen 9B',
-    size: formatModelSize(5680522464),
+    size: formatModelSize(5680522464 + SEARCH_MODEL_BYTES),
+    parts: `${formatModelSize(5680522464)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
     ramGb: 16,
     file: 'Qwen3.5-9B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf',

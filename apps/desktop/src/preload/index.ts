@@ -28,6 +28,7 @@ const api: SurfApi = {
     start: () => ipcRenderer.invoke(IPC.setupStart),
     choose: (modelId) => ipcRenderer.invoke(IPC.setupChoose, modelId),
     useFile: (modelId) => ipcRenderer.invoke(IPC.setupUseFile, modelId),
+    repair: () => ipcRenderer.invoke(IPC.setupRepair),
     pause: () => ipcRenderer.invoke(IPC.setupPause),
     resume: () => ipcRenderer.invoke(IPC.setupResume),
     retry: () => ipcRenderer.invoke(IPC.setupRetry),

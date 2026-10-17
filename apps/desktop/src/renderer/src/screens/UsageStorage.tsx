@@ -1,14 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Boxes, Cpu, HardDrive, Hash } from 'lucide-react'
 import type { ModelStatus, SettingsPatch, StorageCategoryId, StorageReport, UsageReport } from '../../../shared/ipc-contract'
+import { cleanCpuName } from '../../../shared/hardware-label'
+import { friendlyNameFromId } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
 
 const REASONS: Record<string, string> = {
-  on: 'Speculative decoding is on. The draft model runs next to the main model.',
-  off: 'Speculative decoding is off.',
-  runtime: 'This llama.cpp build has no draft-model flag, so speculative decoding stays off.',
-  missing: 'The Qwen 0.6B draft is not installed. Nothing is downloaded until you ask.',
-  ram: 'This computer does not have room for the main model and a draft together, so speculative decoding stays off.',
+  on: 'A small helper is on.',
+  off: 'Off.',
+  runtime: 'A faster helper is not available on this computer.',
+  missing: 'Qwen 0.6B is not installed yet.',
+  ram: 'Not enough memory for a helper.',
 }
 
 export function LiveFeelSettings({
@@ -26,14 +28,15 @@ export function LiveFeelSettings({
   const [minutes, setMinutes] = useState(String(settings.idleUnloadMinutes))
   useEffect(() => { setMinutes(String(settings.idleUnloadMinutes)) }, [settings.idleUnloadMinutes])
   const reason = live ? REASONS[live.speculativeReason] ?? REASONS.off : 'Checking this computer.'
+  const warm = live?.warmModelId ? friendlyNameFromId(live.warmModelId) : null
   return (
     <div className="card px-4 py-4" data-live-feel="yes">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm font-semibold">Keep the model loaded</div>
           <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Load the selected model when Synap.surf opens, when it fits this computer. Qwen stays on 2B, 4B, or 9B for the laptop. Gemma 4 is used only when you picked it and the file fits: 2 GB on a 4 GB laptop, 3 GB on 8 GB, 4 GB on 16 GB, 8 GB on 32 GB.
-            {live?.warmModelId ? ` Ready to keep ${live.warmModelId} warm.` : ' No installed model fits this computer yet.'}
+            Load the chat model when Synap opens, if it fits.
+            {warm ? ` Ready: ${warm}.` : ' Nothing is installed yet.'}
           </p>
         </div>
         <button type="button" className="toggle mt-1" data-keep-warm="yes" data-on={settings.keepWarm ? 'yes' : 'no'} aria-pressed={settings.keepWarm} onClick={() => onPatch({ keepWarm: !settings.keepWarm })}><span /></button>
@@ -60,14 +63,14 @@ export function LiveFeelSettings({
       </label>
       <div className="mt-4 flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm font-semibold">Speculative decoding</div>
+          <div className="text-sm font-semibold">Faster replies</div>
           <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]" data-speculative-reason="yes">{reason}</p>
         </div>
         <button type="button" className="toggle mt-1" data-speculative="yes" data-on={settings.speculativeDecoding ? 'yes' : 'no'} aria-pressed={settings.speculativeDecoding} onClick={() => onPatch({ speculativeDecoding: !settings.speculativeDecoding })}><span /></button>
       </div>
       {live && !live.draftInstalled && live.speculative === 'offer' && (
         <button type="button" className="btn btn-ghost mt-3" data-draft-download="yes" onClick={() => onDownload(live.draftModelId)}>
-          Download Qwen 0.6B draft
+          Download Qwen 0.6B
         </button>
       )}
     </div>
@@ -98,12 +101,12 @@ export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: n
           <div>
             <h1 className="page-title">Usage</h1>
             <p className="page-sub">
-              Requests, tokens, model, agent, and day from the log on this computer.
+              Requests and tokens from this computer.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {machine && machine.cpuModel.trim() && machine.cpuModel.trim().toLowerCase() !== 'unknown' && (
-              <span className="pill" data-usage-hardware="yes">{machine.cpuModel.trim()} · {machine.ramGb} GB RAM</span>
+              <span className="pill" data-usage-hardware="yes">{cleanCpuName(machine.cpuModel)} · {machine.ramGb} GB RAM</span>
             )}
             <button type="button" className="btn btn-primary" data-usage-csv="yes" onClick={() => {
               void window.surf.usage.csv().then((csv) => downloadCsv(csv)).catch((err: unknown) => setError((err as Error).message))
@@ -118,7 +121,13 @@ export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: n
           ))}
         </div>
         {error && <p className="text-sm">{error}</p>}
-        {!report && <p className="text-sm text-[var(--muted)]">Checking usage…</p>}
+        {!report && !error && (
+          <div className="grid gap-3 md:grid-cols-3" aria-hidden="true">
+            <div className="skeleton h-24" />
+            <div className="skeleton h-24" />
+            <div className="skeleton h-24" />
+          </div>
+        )}
         {report && (
           <>
             <div className="grid gap-3 md:grid-cols-3" data-usage-figures="yes">
@@ -150,7 +159,7 @@ export function UsagePanel({ machine }: { machine?: { cpuModel: string; ramGb: n
                     <tr key={`${row.day}-${row.agentId}-${row.modelId}`} data-usage-days="yes">
                       <td>{row.day}</td>
                       <td data-usage-agents="yes">{row.agentId || 'unspecified'}</td>
-                      <td data-usage-models="yes">{row.modelId}</td>
+                      <td data-usage-models="yes">{friendlyNameFromId(row.modelId) ?? row.modelId}</td>
                       <td>{formatCount(row.tokensIn + row.tokensOut)}</td>
                     </tr>
                   ))}
@@ -194,7 +203,7 @@ function UsageChart({ rows }: { rows: UsageReport['entries'] }) {
   return (
     <div className="card chart-frame px-5 py-5" data-usage-chart="yes">
       <div className="text-sm font-semibold">Tokens by model</div>
-      <p className="mt-1 text-sm text-[var(--muted)]">Each bar is one day from the log on this computer.</p>
+      <p className="mt-1 text-sm text-[var(--muted)]">Each bar is one day.</p>
       {days.length === 0 ? (
         <div className="chart-empty mt-4">No requests in this range.</div>
       ) : (
@@ -220,7 +229,7 @@ function UsageChart({ rows }: { rows: UsageReport['entries'] }) {
       )}
       <div className="mt-3 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
         {models.map((model, index) => (
-          <span key={model}><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: CHART[index % CHART.length] }} />{model}</span>
+          <span key={model}><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: CHART[index % CHART.length] }} />{friendlyNameFromId(model) ?? model}</span>
         ))}
       </div>
     </div>
@@ -235,7 +244,8 @@ function rowsInRange(report: UsageReport, range: UsageRange, filter: string, now
   return report.entries.filter((row) => {
     if (row.day < start || row.day > end) return false
     if (!needle) return true
-    return row.agentId.toLowerCase().includes(needle) || row.modelId.toLowerCase().includes(needle)
+    const name = friendlyNameFromId(row.modelId) ?? ''
+    return row.agentId.toLowerCase().includes(needle) || row.modelId.toLowerCase().includes(needle) || name.toLowerCase().includes(needle)
   })
 }
 
@@ -277,9 +287,7 @@ export function StoragePanel() {
         <span className="icon-tile is-teal" aria-hidden="true"><HardDrive size={16} /></span>
         <div>
           <div className="text-sm font-semibold">On this computer</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Delete only removes files inside the app data folder. A confirmation is required for each clear.
-          </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Clear asks before it deletes.</p>
         </div>
       </div>
       {report && (
@@ -288,6 +296,7 @@ export function StoragePanel() {
         </p>
       )}
       {report && <CachePlot report={report} />}
+      {!report && !error && <div className="skeleton mt-4 h-24" aria-hidden="true" />}
       {error && <p className="mt-2 text-sm">{error}</p>}
       {report?.categories.map((category) => (
         <div key={category.id} className="mt-4" data-storage-category={category.id}>

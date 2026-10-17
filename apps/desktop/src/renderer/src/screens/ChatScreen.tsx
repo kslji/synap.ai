@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Copy, Download, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { ArrowUp, Check, Copy, Download, MoreHorizontal, Plus, RefreshCw, Search, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import { StarSurf, starStateFor } from '@surf/ui'
 import type { CatalogModel, ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
-import { formatModelSize } from '../../../shared/model-label'
+import { formatModelSize, friendlyModelName, friendlyNameFromId } from '../../../shared/model-label'
 import { STARTER_CHAT_MODEL_ID } from '../../../shared/starter-model'
 import { quoteChipLabel } from '../../../shared/quote'
 import { formatIndexBytes } from '../format'
@@ -240,7 +240,7 @@ export function ChatScreen({
                   <StarSurf state={starStateFor(reading ? 'working' : mood)} size={148} />
                   <h1 className="empty-title">Hello</h1>
                   <p className="empty-lead">
-                    {agentNote || `${agentName} answers on this computer. Files you attach stay here.`}
+                    {agentNote || `Ask ${agentName} anything. Your files stay here.`}
                   </p>
                   <div className="suggest-row">
                     {PROMPTS.map((p) => (
@@ -317,12 +317,12 @@ export function ChatScreen({
               <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} onAttach={onAddShots} onCapture={onCaptureShot} />
             )}
             <div className="shell-composer flex items-end gap-2">
-              <button type="button" className="composer-icon" aria-label="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}><Plus size={18} strokeWidth={2} /></button>
-              <button type="button" className="composer-icon" aria-label="Search" aria-expanded={searchOpen} data-search-tools={searchOpen ? 'open' : 'closed'} onClick={() => setSearchOpen((open) => !open)}><Search size={16} strokeWidth={2} /></button>
+              <button type="button" className="composer-icon" aria-label="Attach" data-tip="Attach" data-tour="attach" data-tour-target={tourAttach ? 'yes' : 'no'} onClick={onPick} disabled={!chatReady}><Plus size={18} strokeWidth={2} /></button>
+              <button type="button" className="composer-icon" aria-label="Search" data-tip="Search" aria-expanded={searchOpen} data-search-tools={searchOpen ? 'open' : 'closed'} onClick={() => setSearchOpen((open) => !open)}><Search size={16} strokeWidth={2} /></button>
               <textarea
                 className="field min-h-[44px]"
                 rows={1}
-                placeholder={chatReady ? `Message ${agentName}` : 'The model is still downloading'}
+                placeholder={chatReady ? `Message ${agentName}` : 'Still getting ready'}
                 value={text}
                 disabled={!chatReady}
                 onChange={(e) => setText(e.target.value)}
@@ -340,11 +340,10 @@ export function ChatScreen({
               {streaming && onStop ? (
                 <button className="btn btn-ghost h-9 px-3" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (
-                <button className="send-btn" type="submit" aria-label="Send" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}><ArrowUp size={18} strokeWidth={2.4} /></button>
+                <button className="send-btn" type="submit" aria-label="Send" data-tip="Send" disabled={!chatReady || streaming || (!text.trim() && shots.length === 0)}><ArrowUp size={18} strokeWidth={2.4} /></button>
               )}
             </div>
           </div>
-          {!chatReady && <p className="mx-auto mt-2 max-w-2xl text-xs text-[var(--muted)]">Finish setup in Settings → Models. The file stays on this computer.</p>}
         </form>
       </div>
       {preview && <Preview preview={preview} onClose={onClosePreview} />}
@@ -353,10 +352,7 @@ export function ChatScreen({
 }
 
 function setupName(model: CatalogModel): string {
-  if (model.id === 'qwen3.5-2b-q4_k_m') return 'Qwen 2B'
-  if (model.id === 'qwen3.5-4b-q4_k_m') return 'Qwen 4B'
-  if (model.id === 'qwen3.5-9b-q4_k_m') return 'Qwen 9B'
-  return model.label
+  return friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })
 }
 
 function ramNote(gb: number): string {
@@ -388,9 +384,6 @@ function SetupDownload({
         <span className="icon-tile" aria-hidden="true"><Download size={18} /></span>
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Setting up {setupName(model)}</h1>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            The file stays on this computer. Chat opens when the check finishes.
-          </p>
         </div>
       </div>
       <p className="mt-4 text-sm text-[var(--muted)]">
@@ -398,7 +391,7 @@ function SetupDownload({
         {' · '}
         <span data-model-ram={model.id}>{ramNote(model.minRamGb)}</span>
       </p>
-      <div className="progress mt-4" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+      <div className={`progress mt-4 ${busy ? 'is-busy' : ''}`} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
         <b style={{ width: `${percent}%` }} />
       </div>
       {offline && <p className="mt-3 text-sm" data-setup-offline="yes">Offline. The download starts when this computer is allowed online.</p>}
@@ -446,20 +439,20 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
   const shown = showingOld ? history[versionAt] ?? msg.text : msg.text
   if (msg.role === 'user') {
     return (
-      <div className="flex justify-end" data-user-message="yes">
+      <div className="msg-in flex justify-end" data-user-message="yes">
         <div className="user-bubble max-w-[80%] px-4 py-3 text-[15px] leading-relaxed">{msg.text}</div>
       </div>
     )
   }
   const creature = msg.pending ? mood : msg.error ? 'error' : msg.gate === 'answer' || msg.gate === 'web' ? 'success' : 'idle'
   return (
-    <div className="flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
+    <div className="msg-in flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
       <div className="pt-1"><StarSurf state={starStateFor(creature)} size={44} animate={animateMascot} /></div>
       <div className="min-w-0 flex-1">
       <div className="assistant-card">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
-        <div className="whitespace-pre-wrap text-[15px] leading-relaxed" data-model-error={msg.error ? 'yes' : 'no'}>
+        <div className={`whitespace-pre-wrap text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
           <CitedText text={shown || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
         </div>
         {msg.error && msg.smallerModelId && (
@@ -536,7 +529,7 @@ function Bubble({ msg, mood, modelLabel, animateMascot, onOpenCitation, onSwitch
         {!msg.pending && msg.text && (
           <ReplyBar
             text={shown}
-            modelId={msg.modelId || modelLabel}
+            modelId={friendlyNameFromId(msg.modelId) || msg.modelId || modelLabel}
             elapsedMs={showingOld ? null : msg.elapsedMs ?? null}
             sources={msg.sources.map((source) => source.title).filter(Boolean)}
             versionCount={history.length + 1}
@@ -571,17 +564,21 @@ function ReplyBar({
 }) {
   const [thumb, setThumb] = useState<'up' | 'down' | null>(null)
   const [note, setNote] = useState('')
+  const [copied, setCopied] = useState(false)
   const [more, setMore] = useState(false)
   return (
     <div className="reply-row" data-reply-actions="yes">
-      <button type="button" className="icon-quiet" aria-label="Copy" data-reply-copy="yes" onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => setNote('Copied.')).catch(() => setNote('Copy failed on this computer.'))
-      }}><Copy size={16} /></button>
-      <button type="button" className="icon-quiet" aria-label="Thumbs up" data-reply-up="yes" aria-pressed={thumb === 'up'} onClick={() => setThumb((current) => current === 'up' ? null : 'up')}><ThumbsUp size={16} /></button>
-      <button type="button" className="icon-quiet" aria-label="Thumbs down" data-reply-down="yes" aria-pressed={thumb === 'down'} onClick={() => setThumb((current) => current === 'down' ? null : 'down')}><ThumbsDown size={16} /></button>
-      <button type="button" className="icon-quiet" aria-label="Read aloud" data-reply-aloud="yes" onClick={() => { void readAloud(text).then(setNote) }}><Volume2 size={16} /></button>
-      {onRegenerate && <button type="button" className="icon-quiet" aria-label="Regenerate" data-reply-regenerate="yes" onClick={onRegenerate}><RefreshCw size={16} /></button>}
-      <button type="button" className="icon-quiet" aria-label="More" data-reply-more="yes" aria-expanded={more} onClick={() => setMore((open) => !open)}><MoreHorizontal size={16} /></button>
+      <button type="button" className="icon-quiet" aria-label="Copy" data-tip="Copy" data-reply-copy="yes" onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1200)
+        }).catch(() => setNote('Could not copy.'))
+      }}>{copied ? <Check size={16} /> : <Copy size={16} />}</button>
+      <button type="button" className="icon-quiet" aria-label="Thumbs up" data-tip="Like" data-reply-up="yes" aria-pressed={thumb === 'up'} onClick={() => setThumb((current) => current === 'up' ? null : 'up')}><ThumbsUp size={16} /></button>
+      <button type="button" className="icon-quiet" aria-label="Thumbs down" data-tip="Dislike" data-reply-down="yes" aria-pressed={thumb === 'down'} onClick={() => setThumb((current) => current === 'down' ? null : 'down')}><ThumbsDown size={16} /></button>
+      <button type="button" className="icon-quiet" aria-label="Read aloud" data-tip="Speak" data-reply-aloud="yes" onClick={() => { void readAloud(text).then(setNote) }}><Volume2 size={16} /></button>
+      {onRegenerate && <button type="button" className="icon-quiet" aria-label="Regenerate" data-tip="Retry" data-reply-regenerate="yes" onClick={onRegenerate}><RefreshCw size={16} /></button>}
+      <button type="button" className="icon-quiet" aria-label="More" data-tip="More" data-reply-more="yes" aria-expanded={more} onClick={() => setMore((open) => !open)}><MoreHorizontal size={16} /></button>
       {versionCount > 1 && (
         <span className="msg-meta" data-reply-versions="yes">
           <button type="button" className="icon-quiet" aria-label="Previous version" disabled={versionAt <= 0} onClick={() => onVersion(versionAt - 1)}>‹</button>
@@ -593,7 +590,7 @@ function ReplyBar({
       {note && <span className="msg-meta" data-reply-note="yes">{note}</span>}
       {more && (
         <div className="basis-full text-sm text-[var(--muted)]" data-reply-details="yes">
-          <p>Model: {modelId}</p>
+          <p>{modelId}</p>
           <p>{elapsedMs == null ? 'Time: not measured yet' : `Time: ${Math.round(elapsedMs)} ms`}</p>
           <p>{sources.length ? `Sources: ${sources.join(', ')}` : 'Sources: none on this reply'}</p>
         </div>

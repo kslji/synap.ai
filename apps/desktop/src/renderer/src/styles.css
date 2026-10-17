@@ -461,6 +461,77 @@ a { color: var(--accent-text); }
   text-transform: uppercase;
   color: var(--muted);
 }
+.view-pane { animation: view-in 180ms ease; }
+.msg-in { animation: msg-in 180ms ease; }
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.stream-caret::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--accent);
+  animation: caret-blink 1s steps(1) infinite;
+}
+@keyframes caret-blink { 50% { opacity: 0; } }
+@keyframes bar-sheen {
+  from { background-position: -40% 0; }
+  to { background-position: 140% 0; }
+}
+.skeleton {
+  border-radius: 14px;
+  background: linear-gradient(90deg, var(--line), color-mix(in srgb, var(--bg-elev) 80%, var(--line)), var(--line));
+  background-size: 200% 100%;
+  animation: bar-sheen 1.2s ease infinite;
+}
+.icon-quiet[data-tip], .icon-btn[data-tip], .composer-icon[data-tip], .send-btn[data-tip] { position: relative; }
+.icon-quiet[data-tip]:hover::after,
+.icon-btn[data-tip]:hover::after,
+.composer-icon[data-tip]:hover::after,
+.send-btn[data-tip]:hover::after,
+.icon-quiet[data-tip]:focus-visible::after,
+.icon-btn[data-tip]:focus-visible::after,
+.composer-icon[data-tip]:focus-visible::after,
+.send-btn[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: #1c1c1e;
+  color: #fafafa;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.chat-row, .settings-nav-btn, .suggest-chip, .model-choice, .hw-tile, .stat-card, .account-launch {
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.suggest-chip:hover, .model-choice:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.suggest-chip:active, .model-choice:active, .settings-nav-btn:active, .account-launch:active { transform: scale(0.98); }
+.btn:focus-visible, .chip-tab:focus-visible, .settings-nav-btn:focus-visible, .suggest-chip:focus-visible,
+.chat-row button:focus-visible, .account-menu button:focus-visible, .model-choice:focus-visible, .field:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .view-pane, .msg-in, .stream-caret::after, .skeleton, .progress.is-busy b { animation: none; }
+  .chat-row, .settings-nav-btn, .suggest-chip, .model-choice, .hw-tile, .stat-card, .account-launch, .btn { transition: none; }
+}
 .hw-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));

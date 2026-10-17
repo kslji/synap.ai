@@ -167,7 +167,7 @@ function webglRenderer(): string {
 }
 
 const MAC_STEPS = [
-  'Open the disk image when it finishes.',
+  'Open the download when it finishes.',
   'Drag Synap.surf into Applications.',
   'If macOS blocks the app, choose Open Anyway in Privacy & Security. You only do this once.',
 ]
@@ -228,8 +228,8 @@ export function DownloadCard() {
         <div className="flex items-start gap-3">
           <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
           <div>
-            <p className="text-sm font-semibold">Choose a model, then download the app</p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">The installer is the same for every size. Model files are not inside the disk image.</p>
+            <p className="text-sm font-semibold">Pick a size</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Then download the app. Every size uses the same installer.</p>
           </div>
         </div>
         <div className="mt-3 flex flex-col gap-2">
@@ -272,7 +272,7 @@ export function DownloadCard() {
         Open Synap and start the {chosen.name} download
       </a>
       <p className="text-xs leading-relaxed text-[var(--muted)]">
-        Open the app once so this computer accepts the synap:// link. Unsigned macOS often registers that link only after the first launch. If the link never arrives, the app downloads Qwen 2B.
+        Open the app once so the download can start. If no size was chosen, it starts with Qwen 2B.
       </p>
       {started && (
         <div className="card mt-2 px-4 py-4" data-download-started={started}>

@@ -59,6 +59,7 @@ test('chat, settings, usage, and cache open without a model', async () => {
     await expect(page.locator('[data-storage-page="yes"]')).toBeVisible()
     await expect(page.locator('[data-cache-plot]')).toBeVisible()
     await page.locator('[data-settings-nav="models"]').click()
+    await page.locator('[data-settings-group="Models"] [data-model-details="closed"]').first().click()
     await expect(page.locator('[data-import-gguf="yes"]')).toBeEnabled()
     await go(page, 'usage')
     await expect(page.locator('[data-screen="usage"]')).toBeVisible()

@@ -697,7 +697,7 @@ export async function createServices(): Promise<Services> {
       onFile: noteFile,
       embed: (rows) => withModel(async () => {
         const emb = registry().models.find((m) => m.role === 'embedding')
-        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 in Models before indexing documents.')
+        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download the search helper in Settings before files can be read.')
         const server = await ensure('embed', emb, 2048)
         return new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey })).embedDocs(rows)
       }),
@@ -788,7 +788,7 @@ export async function createServices(): Promise<Services> {
     })
     if (!pieces.length) return { pieces: [], ignored }
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 in Models before searching the web.')
+    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download the search helper in Settings before web search can run.')
     const embedServer = await ensure('embed', emb, 2048)
     const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
     const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
@@ -829,7 +829,7 @@ export async function createServices(): Promise<Services> {
     })
     if (!pieces.length) return { pieces: [], ignored }
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download EmbeddingGemma 2 in Models before searching the web.')
+    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('Download the search helper in Settings before web search can run.')
     const embedServer = await ensure('embed', emb, 2048)
     const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
     const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
@@ -1263,7 +1263,7 @@ export async function createServices(): Promise<Services> {
         if (wantDocs || wantPacks || wantSaved) {
           const emb = reg.models.find((m) => m.role === 'embedding')
           if (!emb || !(await installed(emb.file, emb.size_bytes))) {
-            throw new Error('Download EmbeddingGemma 2 in Models before searching documents or packs.')
+            throw new Error('Download the search helper in Settings before search can run.')
           }
           const embedServer = await ensure('embed', emb, 2048)
           const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
@@ -2435,9 +2435,9 @@ export async function createServices(): Promise<Services> {
       },
       { id: 'chats', label: 'Chat history', bytes: 0, items: [{ id: 'history', label: 'Chat history', bytes: store.historyBytes() }] },
       { id: 'web', label: 'Saved web', bytes: 0, items: [
-        { id: 'web', label: 'Saved web passages', bytes: webBytes },
-        { id: 'search-cache', label: 'Search cache · searches 24h, pages 7 days', bytes: store.db ? searchCacheStats(store.db).bytes : 0 },
-        { id: 'quotes', label: 'Quote cache · 60 seconds', bytes: store.db ? quoteCacheStats(store.db).bytes : 0 },
+        { id: 'web', label: 'Saved pages', bytes: webBytes },
+        { id: 'search-cache', label: 'Recent searches', bytes: store.db ? searchCacheStats(store.db).bytes : 0 },
+        { id: 'quotes', label: 'Recent quotes', bytes: store.db ? quoteCacheStats(store.db).bytes : 0 },
       ] },
       { id: 'logs', label: 'Logs', bytes: 0, items: scanFiles(join(root, 'logs')) },
       ...shotCategory(root),

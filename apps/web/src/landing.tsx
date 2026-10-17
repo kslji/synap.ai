@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { StarSurf } from '@surf/ui'
-import { embeddingModel, modelTiers, product } from '@surf/shared'
+import { modelTiers, product } from '@surf/shared'
 import { agents } from '../../../packages/shared/src/agent-catalog'
 import { AgentCards } from './AgentCards'
 import { agentPosts } from './agent-blog'
@@ -57,7 +57,7 @@ const FAQ = [
   },
   {
     q: 'What hardware does the model need?',
-    a: `Under 8 GB of memory uses ${modelTiers[0].chat}. 8 GB uses ${modelTiers[1].chat}. 16 GB and above uses ${modelTiers[2].chat}. Embeddings are ${embeddingModel.name}.`,
+    a: `Under 8 GB of memory uses ${modelTiers[0].chat}. 8 GB uses ${modelTiers[1].chat}. 16 GB and above uses ${modelTiers[2].chat}.`,
   },
 ]
 

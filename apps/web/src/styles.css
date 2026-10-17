@@ -42,7 +42,15 @@ a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   font: inherit;
   cursor: pointer;
 }
+.model-choice {
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+.model-choice:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.model-choice:active { transform: scale(0.98); }
 .model-choice[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: var(--accent-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-choice { transition: none; }
 }

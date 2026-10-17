@@ -3,6 +3,7 @@
  * This does not download anything.
  */
 import { codeFileCapBytes, offeredOnLaptop } from '../../../shared/code-ram.js'
+import { friendlyModelName } from '../../../shared/model-label.js'
 
 export interface CodeModelChoice {
   id: string
@@ -46,7 +47,7 @@ export function suggestBiggerCodeModel(
 
 export function suggestionSentence(suggestion: ModelSuggestion): string {
   const gb = (suggestion.sizeBytes / 1_000_000_000).toFixed(2)
-  return `A larger model that fits this laptop is ${suggestion.label} (${suggestion.id}, ${gb} GB). Download it in Models if you want to retry. Nothing is downloaded automatically.`
+  return `A larger model that fits this computer is ${suggestion.label} (${gb} GB). You can download it in Settings. Nothing downloads on its own.`
 }
 
 function isCodeModel(model: CodeModelChoice): boolean {
@@ -60,9 +61,5 @@ function smallerFirst(a: CodeModelChoice, b: CodeModelChoice): number {
 }
 
 function choiceLabel(model: CodeModelChoice): string {
-  if (model.label) return model.label
-  const size = model.sizeName ?? (model.paramsB != null ? `${model.paramsB}B` : model.id)
-  if (model.family === 'qwen3.5') return `Qwen ${size}`
-  if (model.family === 'gemma4') return `Gemma 4 ${size}`
-  return size
+  return friendlyModelName({ id: model.id, family: model.family, params_b: model.paramsB })
 }

@@ -24,5 +24,5 @@ export function formatContextTokens(tokens: number): string {
 
 export function formatPromptCache(mib: number): string {
   if (mib <= 0) return 'Off'
-  return `${new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(mib)} MB in RAM`
+  return `${new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(mib)} MB`
 }

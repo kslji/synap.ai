@@ -3,6 +3,7 @@ import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Te
 import { product } from '@surf/shared'
 import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
 import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } from '../../../shared/hardware-label'
+import { friendlyModelName } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
 import { DevWebPanel } from './DevWebPanel'
 import { activeChatModel, activeCodeModel, chatModels, listedCodeModels, ModelPanel } from './ModelsScreen'
@@ -132,7 +133,7 @@ export function SettingsScreen({
           </p>
           {licenceNote && <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{licenceNote}</p>}
           {licenceState === 'dev' ? (
-            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Local chat works on this computer. Accounts, pack sync, and licence refresh are off.</p>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Chat works on this computer. Sign-in and sync are off.</p>
           ) : account ? (
             <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
           ) : (
@@ -182,13 +183,17 @@ export function SettingsScreen({
               onDownload={onDownload}
               onCancel={onCancelDownload}
               onSelect={onSelectModel}
+              extraDetails={(
+                <button className="mt-3 text-sm text-[var(--accent-text)] underline" type="button" data-import-gguf="yes" onClick={onImportLocal}>
+                  Use a GGUF file on this computer
+                </button>
+              )}
             />
             {code.length > 0 && (
               <div className="mt-6">
                 <ModelPanel
                   status={status}
                   heading="Code"
-                  intro="Qwen3.5 2B is the default. Gemma 4 is optional. If you do not pick, Qwen3.5 2B downloads."
                   chats={code}
                   current={codeCurrent}
                   progress={progress}
@@ -202,9 +207,6 @@ export function SettingsScreen({
                 />
               </div>
             )}
-            <button className="mt-4 text-sm text-[var(--accent-text)] underline" type="button" data-import-gguf="yes" onClick={onImportLocal}>
-              Use a GGUF file on this computer
-            </button>
           </div>
         </Group>}
         {category === 'models' && <Group title="Code agent">
@@ -217,9 +219,6 @@ export function SettingsScreen({
         {category === 'network' && <Group title="Network">
         <div className="card px-4 py-4" data-network-settings="yes">
           <div className="text-sm font-semibold">Network</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Offline answers from this computer only. It does not search the web, sync packs, or fetch quotes. Online allows those. Auto follows the connection. This is the only place that changes it.
-          </p>
           <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Network mode">
             {(['offline', 'online', 'auto'] as const).map((mode) => (
               <button
@@ -240,21 +239,18 @@ export function SettingsScreen({
         </div>
         <Row
           title="Allow web search"
-          body="Search runs on this computer. No API key. When you are online and local sources are thin, this laptop asks official public sources. Documents stay here."
+          body="Look up pages when you are online. Your files stay here."
           on={settings.webSearchAllowed}
           onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
         />
         <div className="card px-4 py-4">
           <div className="text-sm font-semibold">My region</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            For a VPN. A place named in the question still wins. Leave this blank to use the country of the public IP, then worldwide sources when that lookup has no file.
-          </p>
           <input
             className="field mt-3"
             value={region}
             spellCheck={false}
             aria-label="My region"
-            placeholder="Country or ISO code"
+            placeholder="Country"
             maxLength={80}
             onChange={(e) => setRegion(e.target.value)}
             onBlur={() => { if (region.trim() !== settings.myRegion) onPatch({ myRegion: region.trim() }) }}
@@ -264,14 +260,14 @@ export function SettingsScreen({
         <CodeIndexCard />
         <Row
           title="Telemetry"
-          body="Off unless you turn it on. Prompts stay on this computer."
+          body="Off until you turn it on. Chats stay on this computer."
           on={settings.telemetryOptIn}
           onToggle={() => onPatch({ telemetryOptIn: !settings.telemetryOptIn })}
         />
         {licenceState === 'dev' ? (
           <div className="card px-4 py-4">
             <div className="text-sm font-semibold">Account and pack server</div>
-            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Dev mode, sync off. This build does not call the account server.</p>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Dev mode, sync off.</p>
           </div>
         ) : status.devWeb ? (
           <DevWebPanel apiUrl={status.devApiUrl || 'http://127.0.0.1:8000'} />
@@ -294,21 +290,29 @@ export function SettingsScreen({
         )}
         </Group>}
         {category === 'apps' && <Group title="Connected Apps">
-          <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]" data-connected-apps="yes">
-            <p>Assistant can draft email and look at a calendar, Slack, or Drive after those accounts are connected. Connecting accounts is not in this beta. Send and delete still wait for your approval.</p>
-            <p className="mt-2">Code chats about the code you are writing. You can attach a screenshot. It is not for trading or high-frequency trading. A live code preview is not in this beta.</p>
+          <div className="card px-4 py-4" data-connected-apps="yes">
+            <div className="hw-grid">
+              <div className="hw-tile">
+                <div className="hw-label">Mail and calendar</div>
+                <div className="hw-value">Not in this beta</div>
+              </div>
+              <div className="hw-tile">
+                <div className="hw-label">Code</div>
+                <div className="hw-value">On this computer</div>
+              </div>
+            </div>
           </div>
         </Group>}
         {category === 'network' && <Group title="Updates">
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
-          <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
+          <p className="mt-2">Chats stay on this computer.</p>
           {licenceState !== 'dev' && <p className="mt-1">Account server: {status.devApiUrl || settings.apiBaseUrl}.</p>}
           <p className="mt-3">
             <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span>{' '}
             {licenceState === 'dev'
               ? 'Dev mode, sync off.'
-              : 'While a subscription is active and this computer is online, Synap.surf checks for a newer signed pack on startup and every 24 hours. The new pack is swapped in between messages.'}
+              : 'When you are online, Synap checks for newer packs.'}
           </p>
           <button
             className="btn btn-ghost mt-3"
@@ -333,14 +337,14 @@ export function SettingsScreen({
                 </button>
               ))}
             </div>
-            <p className="mt-2">Beta includes tags that contain -beta. Stable does not.</p>
+            <p className="mt-2">Beta gets early builds. Stable waits.</p>
           </div>
         </div>
         </Group>}
         {category === 'general' && <Group title="About">
         <div className="card px-4 py-4 text-sm leading-relaxed" data-about="yes">
           <div className="font-semibold text-[var(--ink)]">About</div>
-          <p className="mt-2 text-[var(--muted)]">Synap.surf runs on this computer. The notes below are drafts, not legal advice.</p>
+          <p className="mt-2 text-[var(--muted)]">Synap.surf runs on this computer.</p>
           <div className="mt-3 flex flex-wrap gap-3">
             {licenceState !== 'dev' && (
               <>
@@ -399,7 +403,7 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
     <div className="card px-4 py-4" data-code-agent-settings="yes">
       <div className="text-sm font-semibold">Default mode</div>
       <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        New projects start here. A project keeps its own choice after you change it in the Code agent. Ask is the default.
+        New code projects start in Ask. A project can keep its own choice.
       </p>
       <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Default code agent mode">
         <button type="button" className={mode === 'ask' ? 'btn btn-primary' : 'btn btn-ghost'} data-code-default-mode="ask" aria-checked={mode === 'ask'} role="radio" onClick={() => choose('ask')}>Ask</button>
@@ -416,7 +420,7 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
       )}
       <div className="mt-4 text-sm font-semibold">Command allowlist</div>
       <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        Auto runs these commands, plus test, lint, typecheck, and build commands detected in the open project. One exact command per line. Install and network commands are never added.
+        Auto may run these commands. One command per line.
       </p>
       <textarea
         className="field mt-3 min-h-24"
@@ -434,13 +438,13 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
         <div>
           <div className="text-sm font-semibold">Tab suggestions</div>
           <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-            Ghost text in the code editor. Tab accepts it. Nothing is written until you save. On by default when the Code model fits this computer.
+            Grey text in the editor. Tab accepts it. Nothing is saved until you save.
           </p>
         </div>
         <button type="button" className="toggle mt-1" data-tab-suggestions="yes" data-on={settings.tabSuggestions ? 'yes' : 'no'} aria-pressed={settings.tabSuggestions} onClick={() => onPatch({ tabSuggestions: !settings.tabSuggestions })}><span /></button>
       </div>
       <div className="mt-3 text-sm font-semibold">Languages off</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Comma-separated language ids, such as markdown or plaintext.</p>
+      <p className="mt-1 text-sm text-[var(--muted)]">Comma-separated, such as markdown.</p>
       <input
         className="field mt-2"
         aria-label="Languages with Tab suggestions off"
@@ -473,20 +477,24 @@ function SavedWebCard() {
   }, [])
   return (
     <div className="card px-4 py-4" data-saved-web-card="yes">
-      <div className="text-sm font-semibold">Saved web sources</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        When an answer cites a web page, Surf keeps that passage on this computer so a later question can use it offline. Passages are not uploaded. The store holds {webSize(status?.capBytes ?? 8 * 1024 * 1024)} and drops the least recently used passages after that.
-      </p>
-      <p className="mt-2 text-sm" data-saved-web-size="yes">
-        {status ? `${status.count} passage${status.count === 1 ? '' : 's'} · ${webSize(status.bytes)}` : 'Checking size…'}
-      </p>
+      <div className="text-sm font-semibold">Saved pages</div>
+      <div className="hw-grid mt-3" data-saved-web-size="yes">
+        <div className="hw-tile">
+          <div className="hw-label">Pages</div>
+          <div className="hw-value">{status ? String(status.count) : '…'}</div>
+        </div>
+        <div className="hw-tile">
+          <div className="hw-label">Space</div>
+          <div className="hw-value">{status ? webSize(status.bytes) : '…'}</div>
+        </div>
+      </div>
       <button
         className="btn btn-ghost mt-3"
         type="button"
         data-clear-web="yes"
         onClick={() => { void window.surf.webCache.clear().then(setStatus).catch(() => undefined) }}
       >
-        Clear saved web sources
+        Clear saved pages
       </button>
     </div>
   )
@@ -499,13 +507,17 @@ function CodeIndexCard() {
   }, [])
   return (
     <div className="card px-4 py-4" data-code-index-card="yes">
-      <div className="text-sm font-semibold">Code project indexes</div>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-        Opening a project folder indexes it on this computer. The index stays in the app private data folder. Source files are not uploaded.
-      </p>
-      <p className="mt-2 text-sm" data-code-index-size="yes">
-        {usage ? `${usage.projects.length} project${usage.projects.length === 1 ? '' : 's'} · ${formatIndexBytes(usage.totalBytes)}` : 'Checking size…'}
-      </p>
+      <div className="text-sm font-semibold">Code projects</div>
+      <div className="hw-grid mt-3" data-code-index-size="yes">
+        <div className="hw-tile">
+          <div className="hw-label">Projects</div>
+          <div className="hw-value">{usage ? String(usage.projects.length) : '…'}</div>
+        </div>
+        <div className="hw-tile">
+          <div className="hw-label">Space</div>
+          <div className="hw-value">{usage ? formatIndexBytes(usage.totalBytes) : '…'}</div>
+        </div>
+      </div>
       {usage && usage.projects.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1 text-sm text-[var(--muted)]">
           {usage.projects.map((project) => (
@@ -548,7 +560,7 @@ function AppearanceCard({ settings, onPatch }: { settings: Required<SettingsPatc
         <span className="icon-tile" aria-hidden="true"><Palette size={16} /></span>
         <div>
           <div className="text-sm font-semibold">Interface</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Light or dark. The accent shows on buttons and the active category.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Light or dark.</p>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Color theme">
@@ -639,18 +651,18 @@ function MachineCard({ status }: { status: ModelStatus }) {
           )}
         />
         {typeof status.contextTokens === 'number' && (
-          <HardwareTile icon={<Text size={15} />} tile="" label="Context length" value={formatContextTokens(status.contextTokens)} marker="context-tokens" />
+          <HardwareTile icon={<Text size={15} />} tile="" label="Memory it can read" value={formatContextTokens(status.contextTokens)} marker="context-tokens" />
         )}
         {typeof status.promptCacheMiB === 'number' && (
-          <HardwareTile icon={<Database size={15} />} tile="violet" label="Prompt cache" value={formatPromptCache(status.promptCacheMiB)} marker="prompt-cache" />
+          <HardwareTile icon={<Database size={15} />} tile="violet" label="Chat memory" value={formatPromptCache(status.promptCacheMiB)} marker="prompt-cache" />
         )}
       </div>
       {chats.map((model) => {
         const bench = status.benchmarks?.find((row) => row.modelId === model.id && row.sizeBytes === model.sizeBytes)
         return (
           <div key={model.id} className="mt-3" data-benchmark={model.id}>
-            <p>{model.label} · {model.quant || 'quant unknown'} · {formatIndexBytes(model.sizeBytes)}</p>
-            <p data-benchmark-speed="yes">{bench ? `${bench.tokensPerSec} tok/s, measured ${new Date(bench.measuredAt).toISOString()}` : 'not measured yet'}</p>
+            <p>{friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })} · {formatIndexBytes(model.sizeBytes)}</p>
+            <p data-benchmark-speed="yes">{bench ? `${bench.tokensPerSec} tok/s` : 'not measured yet'}</p>
             <button
               type="button"
               className="btn btn-ghost mt-2"
@@ -660,7 +672,7 @@ function MachineCard({ status }: { status: ModelStatus }) {
                 setBusy(model.id)
                 setNote('')
                 void window.surf.models.benchmark(model.id).then((result) => {
-                  setNote(result.measured && result.tokensPerSec != null ? `${model.label}: ${result.tokensPerSec} tok/s` : `${model.label}: ${result.reason || 'not measured yet'}`)
+                  setNote(result.measured && result.tokensPerSec != null ? `${friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })}: ${result.tokensPerSec} tok/s` : `${friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })}: ${result.reason || 'not measured yet'}`)
                 }).catch((error: unknown) => setNote((error as Error).message)).finally(() => setBusy(''))
               }}
             >Run benchmark</button>

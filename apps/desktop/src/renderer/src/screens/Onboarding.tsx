@@ -77,7 +77,7 @@ export function Onboarding({
         {step === 'setup' && (
           <>
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Setting up your AI</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">{chosen?.label ?? 'Qwen3.5'}</h1>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight">{chosen?.label ?? 'Qwen'}</h1>
             <p className="mt-3 text-[15px] leading-relaxed text-[var(--muted)]">
               {ready
                 ? 'The model that fits this computer is ready. Chat works offline after this.'

@@ -16,6 +16,6 @@ test('hardware values stay short and measured', () => {
   assert.equal(formatRamGb(16), '16 GB')
   assert.equal(formatContextTokens(16384), '16K tokens')
   assert.equal(formatContextTokens(8192), '8K tokens')
-  assert.equal(formatPromptCache(512), '512 MB in RAM')
+  assert.equal(formatPromptCache(512), '512 MB')
   assert.equal(formatPromptCache(0), 'Off')
 })

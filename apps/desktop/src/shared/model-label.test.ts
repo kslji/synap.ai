@@ -3,17 +3,19 @@ import { test } from 'node:test'
 import { chatModelLabel, codeModelLine, fitMarkLabel, formatModelSize, modelChoiceLabel, quantFromFile } from './model-label.js'
 
 test('chat model names come from the registry family', () => {
-  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: 9 }), 'Qwen3.5 9B')
-  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: 4 }), 'Qwen3.5 4B')
-  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: 2 }), 'Qwen3.5 2B')
-  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: null }), 'Qwen3.5')
-  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: 2, label: 'Qwen3.5 2B' }), 'Qwen3.5 2B')
-  assert.equal(chatModelLabel({ family: 'gemma4', params_b: 2, label: 'Gemma 4 E2B' }), 'Gemma 4 E2B')
+  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: 9 }), 'Qwen 9B')
+  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: 4 }), 'Qwen 4B')
+  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: 2 }), 'Qwen 2B')
+  assert.equal(chatModelLabel({ family: 'qwen3.5', params_b: null }), 'Qwen')
+  assert.equal(chatModelLabel({ id: 'qwen3.5-2b-q4_k_m', family: 'qwen3.5', params_b: 2, label: 'Qwen3.5 2B' }), 'Qwen 2B')
+  assert.equal(chatModelLabel({ id: 'gemma-4-e2b-q4_0', family: 'gemma4', params_b: 2, label: 'Gemma 4 E2B' }), 'Gemma 2B')
+  assert.equal(chatModelLabel({ id: 'gemma-4-12b-q4_0', family: 'gemma4', params_b: 12, label: 'Gemma 4 12B' }), 'Gemma 12B')
+  assert.equal(chatModelLabel({ id: 'qwen3-0.6b-q4_k_m', family: 'qwen3', params_b: 0.6, label: 'Qwen 0.6B draft' }), 'Qwen 0.6B')
   assert.equal(quantFromFile('Qwen3.5-9B-Q4_K_M.gguf'), 'Q4_K_M')
   assert.equal(quantFromFile('Qwen3.5-2B-Q6_K.gguf'), 'Q6_K')
   assert.equal(quantFromFile('gemma-4-E2B_q4_0-it.gguf'), 'Q4_0')
   assert.equal(quantFromFile('gemma-4-12b-it-qat-q4_0.gguf'), 'Q4_0')
-  assert.doesNotMatch(chatModelLabel({ family: 'qwen3.5', params_b: 9 }), /Q4_K_M|Q6_K|gguf/)
+  assert.doesNotMatch(chatModelLabel({ family: 'qwen3.5', params_b: 9 }), /Q4_K_M|Q6_K|gguf|3\.5/)
 })
 
 test('picker lines show download size and RAM', () => {

@@ -845,6 +845,7 @@ export default function App() {
         onAgent={(id) => newChat(id)}
         sync={status.sync}
       />
+      <div key={screen} className="view-pane flex min-h-0 min-w-0 flex-1">
       {screen === 'home' && (
         <HomeScreen
           agents={agents}
@@ -875,7 +876,7 @@ export default function App() {
           agentName={agents.find((agent) => agent.id === agentId)?.name ?? 'General'}
           agentNote={agents.find((agent) => agent.id === agentId)?.notes}
           title={conversations.find((chat) => chat.id === conversationId)?.title}
-          modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen3.5'}
+          modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           onSend={(t, images) => { void send(t, images) }}
           shots={agentId === 'code' ? shots : []}
@@ -1031,11 +1032,12 @@ export default function App() {
             setUpdateOffer(offer)
             if (!offer) return 'You are up to date.'
             return offer.kind === 'manual'
-              ? `Version ${offer.version} is available. Download the disk image from the banner.`
+              ? `Version ${offer.version} is ready. Use the banner to download it.`
               : `Version ${offer.version} can install over this copy.`
           }}
         />
       )}
+      </div>
       {convertJob && (
         <ConvertDialog
           state={convertJob}

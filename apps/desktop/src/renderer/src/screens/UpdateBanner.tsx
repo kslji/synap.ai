@@ -11,7 +11,7 @@ export function UpdateBanner({ offer, onApply }: { offer: UpdateOffer; onApply: 
           <p className="text-sm font-semibold">Update available · {offer.version}</p>
           <p className="mt-1 max-w-xl text-sm leading-relaxed text-[var(--muted)]">
             {offer.kind === 'manual'
-              ? 'This Mac build is unsigned, so Synap.surf cannot replace itself. Download the new disk image and move it to Applications.'
+              ? 'This Mac copy cannot replace itself. Download the new copy and move it to Applications.'
               : 'Synap.surf can download the Windows installer and replace this copy.'}
           </p>
           {offer.kind === 'manual' && (
@@ -22,7 +22,7 @@ export function UpdateBanner({ offer, onApply }: { offer: UpdateOffer; onApply: 
           </div>
         </div>
         <button className="btn btn-primary" type="button" data-update-apply="yes" onClick={onApply}>
-          {offer.kind === 'manual' ? 'Download .dmg' : 'Download and install'}
+          {offer.kind === 'manual' ? 'Download' : 'Download and install'}
         </button>
       </div>
     </aside>

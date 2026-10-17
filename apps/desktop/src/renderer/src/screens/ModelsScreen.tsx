@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { CatalogModel, ModelStatus } from '../../../shared/ipc-contract'
-import { codeFileCapBytes, laptopRamClass } from '../../../shared/code-ram'
-import { codeModelLine, formatModelSize, modelChoiceLabel, servesAgent } from '../../../shared/model-label'
+import { laptopRamClass } from '../../../shared/code-ram'
+import { formatModelSize, friendlyModelName, modelChoiceLabel, servesAgent } from '../../../shared/model-label'
 import { formatBytes } from '../format'
 import { ModelGuideButton } from './ModelGuide'
 
@@ -77,7 +77,6 @@ export function ModelsScreen({
           <ModelPanel
             status={status}
             heading="Code"
-            intro="Qwen3.5 2B is the default. Gemma 4 is optional. If you do not pick, Qwen3.5 2B downloads."
             chats={code}
             current={codeCurrent}
             progress={progress}
@@ -108,7 +107,7 @@ export function ModelPanel({
   onCancel,
   onSelect,
   heading = 'Models',
-  intro,
+  extraDetails,
 }: {
   status: ModelStatus
   chats: CatalogModel[]
@@ -122,23 +121,14 @@ export function ModelPanel({
   onCancel: () => void
   onSelect: (id: string) => void
   heading?: string
-  intro?: string
+  extraDetails?: ReactNode
 }) {
   const embed = heading === 'Models' ? status.models.find((model) => model.role === 'embedding') : undefined
   return (
     <div data-model-panel="yes">
-      <h2 className="text-lg font-semibold tracking-tight">{heading}</h2>
-      <p className="mt-1 text-sm text-[var(--muted)]">{intro ?? `The chat model is ${current?.label ?? 'Qwen3.5'}.`}</p>
-      {heading === 'Code' && (
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          This computer reports {status.ramGb} GB of RAM ({laptopRamClass(status.ramGb)} GB tier, model file up to {formatModelSize(codeFileCapBytes(status.ramGb))}).
-        </p>
-      )}
+      <h2 className="text-lg font-semibold tracking-tight">{heading === 'Code' ? 'Code' : 'Chat'}</h2>
       {heading === 'Code' && (
         <p className="mt-2"><ModelGuideButton /></p>
-      )}
-      {heading === 'Code' && (
-        <p className="mt-2 text-sm text-[var(--muted)]">The screenshot add-on is the Qwen vision projector for the installed model size. It is not downloaded unless you ask, and only when the model and the projector fit this computer.</p>
       )}
       {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
       <label className="mt-4 block text-sm font-semibold">
@@ -152,7 +142,7 @@ export function ModelPanel({
         >
           {chats.map((model) => (
             <option key={model.id} value={model.id}>
-              {(heading === 'Code' ? codeModelLine(model) : modelChoiceLabel(model))}{model.installed ? '' : ' · not downloaded'}
+              {publicLine(model)}{model.installed ? '' : ' · not downloaded'}
             </option>
           ))}
         </select>
@@ -165,10 +155,9 @@ export function ModelPanel({
             <li key={model.id} className="card px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold">{model.label}</div>
-                  <div className="text-xs text-[var(--muted)]">{heading === 'Code' ? codeModelLine(model) : modelChoiceLabel(model)}</div>
+                  <div className="text-sm font-semibold">{shownName(model)}</div>
+                  <div className="text-xs text-[var(--muted)]">{sizeLine(model)}</div>
                   <div className="text-xs text-[var(--muted)]" data-model-speed={model.id}>{speedLine(status, model)}</div>
-                  {heading === 'Code' && model.note && <div className="mt-1 text-xs text-[var(--muted)]">{model.note}</div>}
                 </div>
                 {model.installed ? <span className="pill pill-ok"><i />Installed</span> : busy ? (
                   <button className="btn btn-ghost" type="button" data-cancel-download={model.id} onClick={onCancel}>Cancel</button>
@@ -180,7 +169,7 @@ export function ModelPanel({
               </div>
               {heading === 'Code' && model.family === 'qwen3.5' && model.visionBytes != null && (model.visionOffer || model.visionInstalled) && (
                 <div className="mt-3 flex items-center justify-between gap-3" data-vision-offer={model.visionOffer ? 'yes' : 'no'} data-vision-model={model.id}>
-                  <div className="text-xs text-[var(--muted)]">Screenshot add-on · {formatModelSize(model.visionBytes)}</div>
+                  <div className="text-xs text-[var(--muted)]">Screenshots · {formatModelSize(model.visionBytes)}</div>
                   {model.visionInstalled ? <span className="pill pill-ok"><i />Installed</span> : (
                     <button className="btn btn-ghost" type="button" data-vision-download={model.id} disabled={busyId === `${model.id}#mmproj` || status.offlineOnly || !model.visionOffer} onClick={() => onDownload(`${model.id}#mmproj`)}>
                       {busyId === `${model.id}#mmproj` ? `${Math.min(100, Math.round((progress[`${model.id}#mmproj`] ?? 0) * 100))}%` : 'Download'}
@@ -188,7 +177,7 @@ export function ModelPanel({
                   )}
                 </div>
               )}
-              {busy && <div className="progress mt-3"><b style={{ width: `${pct}%` }} /></div>}
+              {busy && <div className="progress is-busy mt-3"><b style={{ width: `${pct}%` }} /></div>}
             </li>
           )
         })}
@@ -200,7 +189,7 @@ export function ModelPanel({
         <div className="card mt-3 px-4 py-4 text-sm leading-relaxed text-[var(--muted)]" data-model-details-body="yes">
           {chats.map((model) => (
             <p key={model.id} className="mt-2 first:mt-0">
-              <span className="font-semibold text-[var(--ink)]">{model.label}.</span>
+              <span className="font-semibold text-[var(--ink)]">{shownName(model)}.</span>
               {' '}File {model.file ?? 'unknown'}.
               {model.quant ? ` Quant ${model.quant}.` : ''}
               {' '}Size {formatBytes(model.sizeBytes)}.
@@ -212,14 +201,28 @@ export function ModelPanel({
           {embed && (
             <p className="mt-3">
               <span className="font-semibold text-[var(--ink)]">Helper.</span>
-              {' '}{embed.label} is used in the background and is not a chat model.
+              {' '}Search helper. Not a chat model.
               {embed.file ? ` File ${embed.file}.` : ''}
             </p>
           )}
+          {extraDetails}
         </div>
       )}
     </div>
   )
+}
+
+function shownName(model: CatalogModel): string {
+  return friendlyModelName({ id: model.id, family: model.family, paramsB: model.paramsB })
+}
+
+function publicLine(model: CatalogModel): string {
+  return modelChoiceLabel({ label: shownName(model), sizeBytes: model.sizeBytes, minRamGb: model.minRamGb })
+}
+
+function sizeLine(model: CatalogModel): string {
+  const ram = Number.isInteger(model.minRamGb) ? String(model.minRamGb) : String(model.minRamGb)
+  return `${formatModelSize(model.sizeBytes)} · needs ${ram} GB RAM`
 }
 
 function speedLine(status: ModelStatus, model: CatalogModel): string {

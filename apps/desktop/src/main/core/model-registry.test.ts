@@ -34,7 +34,7 @@ test('Code defaults to Qwen3.5 2B and lists Gemma 4 as optional', () => {
   assert.equal(code.filter((model) => model.default_for?.includes('code')).map((model) => model.id).join(','), 'qwen3.5-2b-q6_k')
   assert.equal(fallback?.size_bytes, 1574961408)
   assert.equal(fallback?.peak_ram_gb, 1.74)
-  assert.equal(chatModelLabel(fallback!), 'Qwen3.5 2B')
+  assert.equal(chatModelLabel(fallback!), 'Qwen 2B')
   const e2b = code.find((model) => model.id === 'gemma-4-e2b-q4_0')
   const e4b = code.find((model) => model.id === 'gemma-4-e4b-q4_0')
   const g12 = code.find((model) => model.id === 'gemma-4-12b-q4_0')

@@ -68,10 +68,10 @@ export function Sidebar({
   return (
     <aside className="shell-side flex h-full min-h-0 w-[280px] shrink-0 flex-col">
       <div className="flex items-center justify-between px-4 pt-4">
-        <button type="button" className="icon-btn" aria-label="Search chats" aria-expanded={searchOpen} onClick={() => setSearchOpen((open) => !open)}>
+        <button type="button" className="icon-btn" aria-label="Search chats" data-tip="Search" aria-expanded={searchOpen} onClick={() => setSearchOpen((open) => !open)}>
           <Search size={18} />
         </button>
-        <button type="button" className="icon-btn" data-new-chat="yes" aria-label="New chat" onClick={onNew}>
+        <button type="button" className="icon-btn" data-new-chat="yes" aria-label="New chat" data-tip="New" onClick={onNew}>
           <Plus size={18} />
         </button>
       </div>
@@ -109,7 +109,7 @@ export function Sidebar({
                 <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
               </span>
             </button>
-            <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
+            <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-tip="Delete" data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>
               <Trash2 size={15} />
             </button>
           </div>

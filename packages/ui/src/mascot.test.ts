@@ -67,6 +67,8 @@ test('eyes follow the task: up, across, down the page, and drooping', () => {
   assert.ok(top.x < 0)
   assert.equal(gazeTarget('oops', 1, null).y, 0.85)
   assert.ok(gazeTarget('typing', 0, null).y > 0.8)
+  assert.ok(Math.abs(gazeTarget('listening', 0, null).x) < 0.2)
+  assert.ok(gazeTarget('listening', 0, null).y < 0)
   assert.ok(gazeTarget('permission', 3, { x: 1, y: 1 }).x < 0.5)
 })
 

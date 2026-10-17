@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const desktop = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-export async function launch(env, settings = {}) {
+export async function launch(env, settings = {}, extraArgs = []) {
   const dir = mkdtempSync(join(tmpdir(), 'surf-e2e-'))
   const downloads = join(dir, 'downloads')
   mkdirSync(downloads)
@@ -21,7 +21,7 @@ export async function launch(env, settings = {}) {
     ...settings,
   }))
   const app = await electron.launch({
-    args: ['.', '--no-sandbox', '--disable-gpu', '--force-device-scale-factor=1'],
+    args: ['.', '--no-sandbox', '--disable-gpu', '--force-device-scale-factor=1', ...extraArgs],
     cwd: desktop,
     env: {
       ...process.env,

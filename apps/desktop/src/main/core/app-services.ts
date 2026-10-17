@@ -8,6 +8,7 @@ import { app, BrowserWindow, desktopCapturer, dialog, net, shell, systemPreferen
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { availableParallelism } from 'node:os'
 import { copyFile, mkdir, realpath, rm, stat, statfs } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
@@ -72,6 +73,8 @@ import { runSplitTask } from './code-agent/split.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
 import { downloadVerified } from './model-download.js'
+import { NOTHING_HEARD, osMicStatus, SPEECH_FAILED, SPEECH_MODEL_MISSING, SPEECH_MODEL_OFFLINE, SPEECH_PROGRAM_MISSING } from './dictation.js'
+import { resolveWhisperCli, transcribeFile } from './dictation-run.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
 import { EVAL_SAMPLING, LlamaClient } from './llama-client.js'
 import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
@@ -489,6 +492,7 @@ export async function createServices(): Promise<Services> {
       installed: models.filter((m) => m.installed).map((m) => m.id),
       downloading,
       sidecars: { ...sidecars },
+      speechModelId: pick(reg, 'asr', hw.tier).id,
       models,
       ...reachNow(settings.offlineOnly),
       offlineOnly: settings.offlineOnly,
@@ -633,7 +637,6 @@ export async function createServices(): Promise<Services> {
       })
       if (!decision.offer) throw new Error(visionOfferMessage(decision.reason))
     }
-    if (model.role === 'asr') throw new Error('Speech models land in week 2.')
     const file = vision && model.mmproj ? model.mmproj : model
     const destName = vision && model.mmproj ? mmprojDestName(model.id, model.mmproj.file) : model.file
     mkdirSync(modelsDir(), { recursive: true })
@@ -2047,6 +2050,44 @@ export async function createServices(): Promise<Services> {
     return run
   }
 
+  async function prepareMicrophone(): Promise<{ status: 'granted' | 'denied' | 'prompt' | 'unknown' }> {
+    if (surfEnv('E2E_DIR') && process.env.SURF_E2E_MIC === 'denied') return { status: 'denied' }
+    try {
+      const mapped = osMicStatus(systemPreferences.getMediaAccessStatus('microphone'))
+      if (process.platform !== 'darwin' || mapped === 'granted' || mapped === 'denied') return { status: mapped }
+      const ask = systemPreferences.askForMediaAccess
+      if (typeof ask !== 'function') return { status: mapped }
+      const ok = await ask.call(systemPreferences, 'microphone')
+      return { status: ok ? 'granted' : 'denied' }
+    } catch {
+      return { status: 'unknown' }
+    }
+  }
+
+  async function transcribeRecording(wav: Buffer): Promise<{ ok: boolean; text: string; note: string }> {
+    if (wav.length < 44 || wav.length > 2_100_000) return { ok: false, text: '', note: SPEECH_FAILED }
+    const canned = surfEnv('E2E_DIR') ? process.env.SURF_E2E_MIC_TEXT : ''
+    if (canned) return { ok: true, text: canned.slice(0, 200), note: '' }
+    let model: ModelEntry
+    try {
+      model = pick(registry(), 'asr', hw.tier)
+    } catch {
+      return { ok: false, text: '', note: SPEECH_FAILED }
+    }
+    if (!(await installed(model.file, model.size_bytes))) {
+      return { ok: false, text: '', note: readSettings().offlineOnly ? SPEECH_MODEL_OFFLINE : SPEECH_MODEL_MISSING }
+    }
+    const bin = resolveWhisperCli(app.isPackaged, process.resourcesPath, app.getAppPath())
+    if (!existsSync(bin)) return { ok: false, text: '', note: SPEECH_PROGRAM_MISSING }
+    try {
+      const text = await transcribeFile(bin, join(modelsDir(), model.file), wav, Math.min(4, availableParallelism()))
+      if (!text) return { ok: false, text: '', note: NOTHING_HEARD }
+      return { ok: true, text, note: '' }
+    } catch {
+      return { ok: false, text: '', note: SPEECH_FAILED }
+    }
+  }
+
   const services: Services = {
     chat: {
       async send(req, win) {
@@ -2114,6 +2155,10 @@ export async function createServices(): Promise<Services> {
       cancel(id) { inflight.get(id)?.abort() },
     },
     models: { status, download, cancel: cancelDownload, benchmark, importLocal },
+    speech: {
+      prepare: prepareMicrophone,
+      transcribe: transcribeRecording,
+    },
     adoptLocal: () => queueAdopt(null, null),
     applySetupLink(raw: string): string | null {
       const parsed = parseSetupLink(raw)
@@ -3262,7 +3307,8 @@ function isMetered(): Promise<boolean> {
 function labelFor(m: ModelEntry): string {
   if (m.role === 'embedding') return 'EmbeddingGemma 2'
   if (m.role === 'chat') return chatModelLabel(m)
-  if (m.role === 'asr') return m.id
+  if (m.role === 'asr') return 'Speech model'
+  if (m.role === 'vad') return 'Voice activity'
   return m.id
 }
 

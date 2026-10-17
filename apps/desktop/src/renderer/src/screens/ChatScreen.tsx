@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, Mic, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import { BlobMascot, blobStateFor, Markdown } from '@surf/ui'
 import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
@@ -15,6 +15,8 @@ import { CodeModeBar, CodeTrace } from './CodeTrace'
 import { FileAnswerBody, FilePermissionCard } from './FilePermissions'
 import { CodeEditor } from './CodeEditor'
 import { CodeShots, type CodeShot } from './CodeShots'
+import { MicButton } from './MicButton'
+import { placeTranscript, speechProgressLabel } from '../../../main/core/dictation'
 import { Preview } from './LibraryScreen'
 import { FOLDER_PROMPT } from '../../../main/core/chat-route'
 
@@ -109,6 +111,12 @@ export function ChatScreen({
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
+  const [listening, setListening] = useState(false)
+  const [micNoteText, setMicNoteText] = useState('')
+  const [micProgress, setMicProgress] = useState<{ done: number; total: number } | null>(null)
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
+  const textRef = useRef(text)
+  textRef.current = text
   const [over, setOver] = useState(false)
   const [burst, setBurst] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -148,9 +156,9 @@ export function ChatScreen({
   }, [streaming])
   const { setTask, setTyping, setPermission, setCaret } = activity
   useEffect(() => {
-    setTask(burst ?? live)
+    setTask(listening ? 'listening' : (burst ?? live))
     return () => setTask(null)
-  }, [setTask, burst, live])
+  }, [setTask, burst, live, listening])
   useEffect(() => {
     setTyping(text.trim().length > 0)
     return () => setTyping(false)
@@ -177,11 +185,11 @@ export function ChatScreen({
 
   const bot = cleanMascotName(botName)
   return (
-    <section className="flex min-w-0 flex-1">
+    <section className="flex min-w-0 flex-1" data-listening={listening ? 'yes' : 'no'}>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-center px-6 py-4">
           <div className="shell-title" data-chat-header="yes" data-chat-agent={agentName} title={status.onlineReason} data-online-reason={status.onlineReason}>
-            <BlobMascot variant="avatar" state="idle" size={28} animate={animateMascot} label={bot} />
+            <BlobMascot variant="avatar" state={listening ? 'listening' : 'idle'} size={28} animate={animateMascot} label={bot} />
             <BotNameField name={bot} onSave={(next) => onBotName?.(next)} />
             <span className="agent-tag" data-agent-pill="yes">{agentName}</span>
           </div>
@@ -295,9 +303,15 @@ export function ChatScreen({
               </div>
             )}
             {onRemoveShot && onSaveShot && <CodeShots shots={shots} onRemove={onRemoveShot} onSave={onSaveShot} />}
+            {(micNoteText || micProgress) && (
+              <p className="mic-note" data-mic-note={micNoteText ? 'yes' : 'no'} data-speech-progress={micProgress ? 'yes' : 'no'}>
+                {micProgress ? speechProgressLabel(micProgress.done, micProgress.total) : micNoteText}
+              </p>
+            )}
             <div className="shell-composer flex items-end gap-2" data-composer="yes">
               <AttachMenu tourAttach={tourAttach} onPick={onPick} onAddShots={onAddShots} onCaptureShot={onCaptureShot} />
               <textarea
+                ref={fieldRef}
                 className="field min-h-[44px]"
                 rows={1}
                 placeholder={messagePlaceholder(bot)}
@@ -314,7 +328,28 @@ export function ChatScreen({
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
                 }}
               />
-              <button type="button" className="composer-icon" aria-label="Microphone" data-mic="yes" data-tip="Microphone"><Mic size={18} strokeWidth={2} /></button>
+              <MicButton
+                speechModelId={status.speechModelId}
+                installed={Boolean(status.models.find((model) => model.id === status.speechModelId)?.installed)}
+                modelBytes={status.models.find((model) => model.id === status.speechModelId)?.sizeBytes ?? 0}
+                offlineOnly={status.offlineOnly}
+                onListening={setListening}
+                onTranscript={(spoken) => {
+                  const field = fieldRef.current
+                  const start = field?.selectionStart ?? textRef.current.length
+                  const end = field?.selectionEnd ?? textRef.current.length
+                  const next = placeTranscript(textRef.current, spoken, start, end)
+                  setText(next.text)
+                  requestAnimationFrame(() => {
+                    fieldRef.current?.focus()
+                    fieldRef.current?.setSelectionRange(next.caret, next.caret)
+                  })
+                }}
+                onStatus={(next) => {
+                  setMicNoteText(next.note)
+                  setMicProgress(next.progress)
+                }}
+              />
               {streaming && onStop ? (
                 <button className="btn btn-ghost h-9 px-3" type="button" data-code-stop="yes" onClick={onStop}>Stop</button>
               ) : (

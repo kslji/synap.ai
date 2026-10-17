@@ -9,6 +9,8 @@ export const IPC = {
   chatEvent: 'chat:event',
   modelsStatus: 'models:status',
   modelsDownload: 'models:download',
+  modelsCancel: 'models:cancel',
+  modelsImportLocal: 'models:import-local',
   modelsEvent: 'models:event',
   packsList: 'packs:list',
   packsSync: 'packs:sync',
@@ -425,6 +427,8 @@ export interface SyncChip {
   tooltip: string
   detail: string
   refreshWarning: string | null
+  /** False in dev mode. The chip then shows only its label. */
+  showMode?: boolean
 }
 
 export interface BenchmarkResult {
@@ -722,6 +726,10 @@ export interface SurfApi {
   models: {
     status(): Promise<ModelStatus>
     download(modelId: string): Promise<void>
+    /** Stop the current download and keep the partial file so it can resume. */
+    cancel(): Promise<void>
+    /** Point chat at a .gguf already on this computer. Omit the path to open the file dialog. */
+    importLocal(path?: string): Promise<{ id: string } | null>
     benchmark(modelId: string): Promise<BenchmarkResult>
     onEvent(cb: (e: ModelEvent) => void): () => void
   }

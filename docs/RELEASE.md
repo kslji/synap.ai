@@ -34,6 +34,20 @@ The app version in `apps/desktop/package.json` should match the tag without the 
 
 CI sets `SURF_SMOKE=1` and launches the built binary. That opens an encrypted database, checks the unpacked native addons, pdf.js, and tesseract data, runs `llama-server --version`, and exits. It does not download a model.
 
+## Dev mode and the licence screen
+
+Dev mode is the default until a release flag is set. The app opens on the chat screen, the licence activation screen stays in the code but does not run, and the app does not call `synap.surf` or `api.synap.surf`. Pack sync and licence refresh stay off. Settings shows a Dev mode badge, and the sync chip says "Dev mode, sync off".
+
+Turn the licence gate back on with one of these:
+
+| Switch | Effect |
+|---|---|
+| `SYNAP_DEV_MODE=0` | This launch requires a licence. |
+| `"release": true` in `apps/desktop/resources/release-mode.json` | Installers built with that file require a licence. `macSigned` is unchanged. |
+| `SYNAP_RELEASE=1` | This launch requires a licence, same as the file flag. |
+
+`SYNAP_DEV_MODE=1` forces dev mode even after the release flag is set. `SYNAP_LICENCE_DEV=1` still skips the licence check on an unpackaged build only.
+
 ## How to turn on signing later
 
 Leave these unset until a certificate exists. With them empty, builds stay unsigned and macOS uses the ad-hoc signature.

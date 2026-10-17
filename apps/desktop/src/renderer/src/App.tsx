@@ -114,7 +114,8 @@ export default function App() {
     const offModels = api.models.onEvent((e) => {
       setProgress((p) => ({ ...p, [e.id]: e.total ? e.done / e.total : 0 }))
       if (e.state === 'error' && e.error) setError(e.error)
-      if (e.state === 'done' || e.state === 'error') {
+      if (e.state === 'cancelled') setError(null)
+      if (e.state === 'done' || e.state === 'error' || e.state === 'cancelled') {
         setBusyId(null)
         void refresh()
       }
@@ -125,10 +126,11 @@ export default function App() {
 
   const booted = useRef(false)
   useEffect(() => {
-    if (!status || booted.current) return
+    if (!status || !licence || booted.current) return
     booted.current = true
-    if (status.onboardingComplete) setView('home')
-  }, [status])
+    if (licence.state === 'dev') setView('chat')
+    else if (status.onboardingComplete) setView('home')
+  }, [status, licence])
 
   useEffect(() => {
     if (agentId !== 'code') return
@@ -164,24 +166,39 @@ export default function App() {
     }
   }
 
-  async function download(id: string) {
+  function downloadCancelled(error: unknown): boolean {
+    const name = error instanceof Error ? error.name : ''
+    const message = error instanceof Error ? error.message : String(error)
+    return name === 'AbortError' || message === 'Download cancelled.'
+  }
+
+  async function download(id: string): Promise<'ok' | 'cancelled'> {
     setError(null)
     setBusyId(id)
     setProgress((p) => ({ ...p, [id]: 0 }))
     try {
       await api.models.download(id)
+      return 'ok'
     } catch (e) {
+      if (downloadCancelled(e)) {
+        setBusyId(null)
+        return 'cancelled'
+      }
       setError((e as Error).message)
       setBusyId(null)
       throw e
     }
   }
 
+  function cancelDownload() {
+    void api.models.cancel().catch(() => undefined)
+  }
+
   async function downloadChatAndEmbed(chatId: string) {
     const st = status ?? await refresh()
     const embed = st.models.find((m) => m.role === 'embedding')
-    if (!st.models.find((m) => m.id === chatId)?.installed) await download(chatId)
-    if (embed && !embed.installed) await download(embed.id)
+    if (!st.models.find((m) => m.id === chatId)?.installed && await download(chatId) === 'cancelled') return
+    if (embed && !embed.installed && await download(embed.id) === 'cancelled') return
     await refresh()
   }
 
@@ -287,7 +304,7 @@ export default function App() {
   async function chooseChatModel(id: string) {
     const model = status?.models.find((item) => item.id === id && item.role === 'chat')
     if (!model) return
-    if (!model.installed) await download(id)
+    if (!model.installed && await download(id) === 'cancelled') return
     const codeOnly = model.agents.includes('code') && !model.agents.includes('general')
     await patch(codeOnly ? { codeModelId: id } : { chatModelId: id })
   }
@@ -727,7 +744,6 @@ export default function App() {
             await api.licence.activate(key)
             await refresh()
           }}
-          onBuy={() => { void api.links.open(licence.buyUrl) }}
         />
       </div>
     )
@@ -735,8 +751,10 @@ export default function App() {
 
   const shownAccount = demoAccount ?? account
   const shownPacks = demoPacks ?? packs
+  const devMode = licence.state === 'dev'
+  const screen: View = devMode && view === 'onboarding' ? 'chat' : view
 
-  if (view === 'signin') {
+  if (screen === 'signin') {
     return (
       <div className="h-full" data-ready="yes" data-screen="signin">
         <SignInScreen
@@ -756,7 +774,7 @@ export default function App() {
     )
   }
 
-  if (view === 'onboarding') {
+  if (screen === 'onboarding') {
     return (
       <div className="h-full" data-ready="yes" data-screen="onboarding">
         <Onboarding
@@ -773,11 +791,10 @@ export default function App() {
   }
 
   return (
-    <div className="relative flex h-full flex-col" data-ready="yes" data-screen={view}>
+    <div className="relative flex h-full flex-col" data-ready="yes" data-screen={screen}>
       {licence.subscriptionWarning && licence.subscriptionEndsAt && (
         <div className="border-b border-[var(--line)] px-4 py-2 text-center text-sm" data-licence-ending="yes">
-          This subscription ends on {licence.subscriptionEndsAt.slice(0, 10)}. Renew to keep using Synap.surf.{' '}
-          <button className="underline" type="button" data-licence-renew="yes" onClick={() => { void api.links.open(licence.buyUrl) }}>Renew</button>
+          This subscription ends on {licence.subscriptionEndsAt.slice(0, 10)}. Renew to keep using Synap.surf.
         </div>
       )}
       {licence.state === 'grace' && (
@@ -786,7 +803,8 @@ export default function App() {
       {updateOffer && <UpdateBanner offer={updateOffer} onApply={() => { void api.updates.apply().catch((e: unknown) => setError((e as Error).message)) }} />}
       <div className="flex min-h-0 flex-1">
       <Sidebar
-        view={view}
+        view={screen}
+        devMode={devMode}
         conversations={conversations}
         activeId={conversationId}
         agentId={agentId}
@@ -804,7 +822,7 @@ export default function App() {
         onAgent={(id) => newChat(id)}
         sync={status.sync}
       />
-      {view === 'home' && (
+      {screen === 'home' && (
         <HomeScreen
           agents={agents}
           conversations={conversations}
@@ -817,11 +835,11 @@ export default function App() {
           onSearch={() => setView('library')}
         />
       )}
-      {view === 'agents' && <AgentsScreen agents={agents} onStart={(id) => newChat(id)} />}
-      {view === 'chats' && (
+      {screen === 'agents' && <AgentsScreen agents={agents} onStart={(id) => newChat(id)} />}
+      {screen === 'chats' && (
         <ChatsScreen agents={agents} conversations={conversations} agentId={agentId} onOpen={(id) => { void openConversation(id) }} onNew={() => newChat()} />
       )}
-      {view === 'chat' && (
+      {screen === 'chat' && (
         <ChatScreen
           messages={messages}
           streaming={streaming}
@@ -870,13 +888,24 @@ export default function App() {
           tabSuggestionsOff={settings.tabSuggestionsOff}
           animateMascot={settings.animateMascot !== false}
           onRegenerate={(id) => { void regenerate(id) }}
+          downloadBusyId={busyId}
+          downloadProgress={progress}
+          setupError={error}
+          onDownloadModel={(id) => {
+            void download(id).then((result) => {
+              if (result !== 'ok') return
+              return patch({ chatModelId: id, onboardingComplete: true })
+            }).catch(() => undefined)
+          }}
+          onCancelDownload={cancelDownload}
+          onImportLocal={() => { void api.models.importLocal().catch((e: unknown) => setError((e as Error).message)) }}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)
           } : undefined}
         />
       )}
-      {view === 'library' && (
+      {screen === 'library' && (
         <LibraryScreen
           files={files}
           preview={preview}
@@ -890,10 +919,11 @@ export default function App() {
           onFill={(file) => { void openFill(file).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
-      {view === 'packs' && (
+      {screen === 'packs' && (
         <PacksScreen
           packs={shownPacks}
           busy={packBusy}
+          syncOff={devMode}
           error={error}
           onSync={() => {
             setPackBusy(true)
@@ -905,17 +935,18 @@ export default function App() {
           }}
         />
       )}
-      {view === 'models' && (
+      {screen === 'models' && (
         <ModelsScreen
           status={status}
           progress={progress}
           busyId={busyId}
           error={error}
           onDownload={(id) => { void download(id).catch(() => undefined) }}
+          onCancel={cancelDownload}
           onSelect={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
         />
       )}
-      {view === 'usage' && (
+      {screen === 'usage' && (
         <section className="flex-1 overflow-auto px-8 py-8" data-usage-view="yes">
           <div className="mx-auto flex max-w-xl flex-col gap-4">
             <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
@@ -925,7 +956,7 @@ export default function App() {
           </div>
         </section>
       )}
-      {view === 'settings' && (
+      {screen === 'settings' && (
         <SettingsScreen
           status={status}
           settings={settings}
@@ -965,6 +996,7 @@ export default function App() {
           busyId={busyId}
           error={error}
           onDownload={(id) => { void download(id).catch(() => undefined) }}
+          onCancelDownload={cancelDownload}
           onSelectModel={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           onCheckUpdates={async () => {
             const offer = await api.updates.check()

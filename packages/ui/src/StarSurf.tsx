@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import star from './assets/star-surf-256.webp'
+import idleClip from './assets/surfbot-idle.webm'
+import idleStill from './assets/surfbot-idle.png'
 import { MOUTH_PATH, blinkDelayMs, pickClick, poseAt, shouldAnimate, stillPose, type MascotPose } from './mascot'
 import './star-surf.css'
 
@@ -43,12 +45,13 @@ export function StarSurf({
   size?: number
   followCursor?: boolean
   label?: string
-  /** When false the star stays still. There is no sound either way. */
+  /** When false the star stays on the still frame. There is no sound either way. */
   animate?: boolean
   clickable?: boolean
 }) {
   const root = useRef<HTMLSpanElement>(null)
   const body = useRef<HTMLSpanElement>(null)
+  const clip = useRef<HTMLVideoElement>(null)
   const eyeL = useRef<SVGEllipseElement>(null)
   const eyeR = useRef<SVGEllipseElement>(null)
   const pupilL = useRef<SVGCircleElement>(null)
@@ -58,7 +61,9 @@ export function StarSurf({
   const lean = useRef({ x: 0, y: 0 })
   const [reduced, setReduced] = useState(readReduced)
   const [shown, setShown] = useState<string>(state)
+  const [clipReady, setClipReady] = useState(false)
   const motion = shouldAnimate(animate, reduced)
+  const idleClipOn = state === 'idle' && shown === 'idle'
 
   function apply(pose: MascotPose) {
     const el = body.current
@@ -86,6 +91,11 @@ export function StarSurf({
   }
 
   useEffect(() => {
+    if (burst.current) return
+    setShown(state)
+  }, [state])
+
+  useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
     const onChange = () => setReduced(media.matches)
     media.addEventListener('change', onChange)
@@ -93,8 +103,34 @@ export function StarSurf({
   }, [])
 
   useEffect(() => {
+    if (!idleClipOn || !motion) return
     const el = root.current
-    if (!followCursor || !el || state === 'error' || reduced) return
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setClipReady(true)
+      return
+    }
+    const watcher = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setClipReady(true)
+    }, { rootMargin: '80px' })
+    watcher.observe(el)
+    return () => watcher.disconnect()
+  }, [idleClipOn, motion])
+
+  useEffect(() => {
+    const video = clip.current
+    if (!video || !clipReady || !idleClipOn || !motion) return
+    const sync = () => {
+      if (document.hidden) video.pause()
+      else void video.play().catch(() => undefined)
+    }
+    document.addEventListener('visibilitychange', sync)
+    sync()
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [clipReady, idleClipOn, motion])
+
+  useEffect(() => {
+    const el = root.current
+    if (!followCursor || !el || state === 'error' || reduced || idleClipOn) return
     const fine = window.matchMedia('(pointer: fine)')
     if (!fine.matches) return
     function onMove(event: PointerEvent) {
@@ -109,12 +145,12 @@ export function StarSurf({
     }
     window.addEventListener('pointermove', onMove)
     return () => window.removeEventListener('pointermove', onMove)
-  }, [followCursor, state, reduced])
+  }, [followCursor, state, reduced, idleClipOn])
 
   useEffect(() => {
-    if (!motion) {
+    if (!motion || idleClipOn) {
       lean.current = { x: 0, y: 0 }
-      burst.current = null
+      if (!motion) burst.current = null
       apply(stillPose())
       return
     }
@@ -148,12 +184,12 @@ export function StarSurf({
       window.cancelAnimationFrame(frame)
       window.clearTimeout(blinkTimer)
     }
-  }, [motion, state])
+  }, [motion, state, idleClipOn])
 
   return (
     <span
       ref={root}
-      className={`star-surf ${motion ? `is-${shown}` : 'is-still'}`}
+      className={`star-surf ${motion && !idleClipOn ? `is-${shown}` : 'is-still'}`}
       style={{ width: size, height: size }}
       role={clickable ? 'button' : 'img'}
       tabIndex={clickable ? 0 : undefined}
@@ -161,6 +197,7 @@ export function StarSurf({
       data-star-surf={shown}
       data-mascot-animate={animate ? 'yes' : 'no'}
       data-reduced-motion={reduced ? 'yes' : 'no'}
+      data-mascot-idle={idleClipOn ? (motion ? 'clip' : 'still') : 'off'}
       data-mascot-mouth="smile"
       onClick={clickable ? playClick : undefined}
       onKeyDown={clickable ? (event) => {
@@ -170,16 +207,35 @@ export function StarSurf({
         }
       } : undefined}
     >
-      <span className="star-surf-body" ref={body}>
-        <img src={star} alt="" width={size} height={size} draggable={false} />
-        <svg className="star-surf-face" viewBox="0 0 100 100" aria-hidden="true" data-mascot-face="yes">
-          <ellipse ref={eyeL} cx="38" cy="46" rx="6.5" ry="6.5" fill="#fffaf3" />
-          <ellipse ref={eyeR} cx="62" cy="46" rx="6.5" ry="6.5" fill="#fffaf3" />
-          <circle ref={pupilL} cx="38" cy="46" r="2.6" fill="#24180f" />
-          <circle ref={pupilR} cx="62" cy="46" r="2.6" fill="#24180f" />
-          <path ref={mouth} d={MOUTH_PATH.smile} fill="none" stroke="#24180f" strokeWidth="3.2" strokeLinecap="round" />
-        </svg>
-      </span>
+      {idleClipOn ? (
+        motion ? (
+          <video
+            ref={clip}
+            className="star-surf-clip"
+            src={clipReady ? idleClip : undefined}
+            poster={idleStill}
+            muted
+            autoPlay
+            playsInline
+            loop
+            preload={clipReady ? 'auto' : 'none'}
+            data-mascot-clip="yes"
+          />
+        ) : (
+          <img src={idleStill} alt="" width={size} height={size} draggable={false} data-mascot-still="yes" />
+        )
+      ) : (
+        <span className="star-surf-body" ref={body}>
+          <img src={star} alt="" width={size} height={size} draggable={false} />
+          <svg className="star-surf-face" viewBox="0 0 100 100" aria-hidden="true" data-mascot-face="yes">
+            <ellipse ref={eyeL} cx="38" cy="46" rx="6.5" ry="6.5" fill="#fffaf3" />
+            <ellipse ref={eyeR} cx="62" cy="46" rx="6.5" ry="6.5" fill="#fffaf3" />
+            <circle ref={pupilL} cx="38" cy="46" r="2.6" fill="#24180f" />
+            <circle ref={pupilR} cx="62" cy="46" r="2.6" fill="#24180f" />
+            <path ref={mouth} d={MOUTH_PATH.smile} fill="none" stroke="#24180f" strokeWidth="3.2" strokeLinecap="round" />
+          </svg>
+        </span>
+      )}
     </span>
   )
 }

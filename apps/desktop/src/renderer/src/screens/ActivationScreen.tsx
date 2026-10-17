@@ -11,7 +11,6 @@ export function ActivationScreen({
   onStart,
   onVerify,
   onKey,
-  onBuy,
   renewal,
 }: {
   theme: ThemeChoice
@@ -22,7 +21,6 @@ export function ActivationScreen({
   onStart: (email: string) => Promise<void>
   onVerify: (email: string, code: string) => Promise<void>
   onKey: (key: string) => Promise<void>
-  onBuy: () => void
   renewal?: boolean
 }) {
   const [email, setEmail] = useState('')
@@ -117,7 +115,6 @@ export function ActivationScreen({
           <button className="btn btn-primary" type="submit" disabled={busy} data-activate="key-submit">Use this key</button>
         </form>
         {error && <p className="mt-3 text-center text-sm">{error}</p>}
-        <button className="btn btn-ghost mt-4" type="button" data-activate={renewal ? 'renew' : 'buy'} onClick={onBuy}>{renewal ? 'Renew' : 'Buy a licence'}</button>
         <div className="mt-4">
           <ThemeSwitch value={theme} onChange={onTheme} />
         </div>

@@ -7,9 +7,9 @@
 import { app, BrowserWindow, desktopCapturer, dialog, net, shell, systemPreferences } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { copyFile, mkdir, rm, stat, statfs } from 'node:fs/promises'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { copyFile, mkdir, realpath, rm, stat, statfs } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
 import { IPC, type AuthStatus, type ChatEvent, type Citation, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage } from './ipc-contract.js'
 import { createTextBatch } from '../../shared/stream-batch.js'
@@ -20,8 +20,11 @@ import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { codePackDir, loadCodePack } from './code-pack.js'
-import { derivePackKey, gatePackDecrypt, licenceAllowsUse } from './licence.js'
+import { derivePackKey, devBypassEnabled, gatePackDecrypt, licenceAllowsUse } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
+import { devModeEnabled, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
+import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
+import { LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
 import { cpuPercent, metricLine, parseProcCpu, type UsageSample } from './live/metrics.js'
@@ -207,6 +210,8 @@ const DEFAULT_SETTINGS: Settings = {
 
 export async function createServices(): Promise<Services> {
   const hw = await detectHardware()
+  const devMode = devModeEnabled({ envDev: process.env.SYNAP_DEV_MODE, release: releaseFlagNow() })
+    || devBypassEnabled(process.env.SYNAP_LICENCE_DEV, app.isPackaged)
   let offlineOnly = false
   const store = await openStore()
   const calc = new Calculator(calcWorker)
@@ -309,10 +314,56 @@ export async function createServices(): Promise<Services> {
     return parseRegistry(JSON.parse(readFileSync(registryPath(), 'utf8')))
   }
 
+  function localPointerPath(): string {
+    return join(app.getPath('userData'), 'local-chat-model.json')
+  }
+
+  function readLocal(): LocalGgufPointer | null {
+    try {
+      return parseLocalPointer(JSON.parse(readFileSync(localPointerPath(), 'utf8')) as unknown)
+    } catch {
+      return null
+    }
+  }
+
+  function modelFilePath(file: string, size?: number): string {
+    if (isAbsolute(file)) return file
+    const dest = join(modelsDir(), file)
+    if (existsSync(dest) && (size == null || statSync(dest).size === size)) return dest
+    const local = readLocal()
+    if (local && local.file === file && existsSync(local.path)) return local.path
+    return dest
+  }
+
   async function installed(file: string, size: number): Promise<boolean> {
-    const p = join(modelsDir(), file)
-    if (!existsSync(p)) return false
-    return (await stat(p)).size === size
+    const direct = isAbsolute(file) ? file : join(modelsDir(), file)
+    if (existsSync(direct) && (await stat(direct)).size === size) return true
+    if (isAbsolute(file)) return false
+    const local = readLocal()
+    if (!local || local.file !== file || !existsSync(local.path)) return false
+    return (await stat(local.path)).size === size
+  }
+
+  function withLocal(reg: ModelRegistry): ModelRegistry {
+    const local = readLocal()
+    if (!local || local.modelId !== LOCAL_CHAT_MODEL_ID || !existsSync(local.path)) return reg
+    const entry: ModelEntry = {
+      id: LOCAL_CHAT_MODEL_ID,
+      role: 'chat',
+      family: 'qwen3.5',
+      license: 'apache-2.0',
+      file: local.path,
+      url: 'file://local.gguf',
+      size_bytes: local.bytes,
+      sha256: '0'.repeat(64),
+      min_ram_gb: 0,
+      tiers: [0, 1, 2, 3],
+      params_b: 2,
+      label: 'Local GGUF',
+      chat_template_kwargs: { enable_thinking: false },
+      sampling: { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 },
+    }
+    return { ...reg, models: [...reg.models, entry] }
   }
 
   function fits(m: ModelEntry): boolean {
@@ -355,7 +406,7 @@ export async function createServices(): Promise<Services> {
   }
 
   async function status(): Promise<ModelStatus> {
-    const reg = registry()
+    const reg = withLocal(registry())
     const settings = readSettings()
     const recommended = pick(reg, 'chat', hw.tier)
     const models = await Promise.all(reg.models.map(async (m) => ({
@@ -430,7 +481,7 @@ export async function createServices(): Promise<Services> {
   }
 
   async function chooseChat(reg: ModelRegistry, preferredId: string, agentId = 'general'): Promise<ModelEntry | null> {
-    const chats = reg.models.filter((m) => m.role === 'chat' && servesAgent(m, agentId))
+    const chats = withLocal(reg).models.filter((m) => m.role === 'chat' && servesAgent(m, agentId))
     const ready = async (m: ModelEntry) => installed(m.file, m.size_bytes)
     if (preferredId) {
       const pref = chats.find((m) => m.id === preferredId)
@@ -467,7 +518,7 @@ export async function createServices(): Promise<Services> {
   function serverOptions(bin: string, model: ModelEntry, ctx: number, mmproj: string, role: 'chat' | 'embed', cacheRamMiB: number, draftPath: string): ConstructorParameters<typeof LlamaServer>[0] {
     return {
       binPath: bin,
-      modelPath: join(modelsDir(), model.file),
+      modelPath: modelFilePath(model.file, model.size_bytes),
       mmprojPath: mmproj || undefined,
       embeddings: role === 'embed',
       pooling: 'mean',
@@ -567,7 +618,11 @@ export async function createServices(): Promise<Services> {
       }, ac.signal)
       if (!ac.signal.aborted) send('done', file.size_bytes)
     } catch (e) {
-      if (ac.signal.aborted || (e as Error).name === 'AbortError') return
+      if (ac.signal.aborted || (e as Error).name === 'AbortError') {
+        const cancelled = new Error('Download cancelled.')
+        cancelled.name = 'AbortError'
+        throw cancelled
+      }
       const message = (e as Error).message
       send('error', downloading?.done ?? 0, message)
       throw e
@@ -575,6 +630,37 @@ export async function createServices(): Promise<Services> {
       downloading = null
       if (downloadAbort === ac) downloadAbort = null
     }
+  }
+
+  function cancelDownload(win: BrowserWindow): void {
+    const ac = downloadAbort
+    const current = downloading
+    if (!ac || !current) return
+    ac.abort()
+    safeSend(win, IPC.modelsEvent, { id: current.id, done: current.done, total: current.total, state: 'cancelled' })
+  }
+
+  async function importLocal(source: string | null, win: BrowserWindow): Promise<{ id: string } | null> {
+    let picked = source?.trim() ?? ''
+    if (!picked) {
+      const choice = await dialog.showOpenDialog(win, {
+        title: 'Choose a GGUF file',
+        filters: [{ name: 'GGUF', extensions: ['gguf'] }],
+        properties: ['openFile'],
+      })
+      if (choice.canceled || !choice.filePaths[0]) return null
+      picked = choice.filePaths[0]
+    }
+    if (!isGgufName(picked)) throw new Error('Choose a .gguf file.')
+    const resolved = await realpath(picked)
+    const info = await stat(resolved)
+    if (!info.isFile() || info.size <= 0) throw new Error('That GGUF file is empty.')
+    const plan = planLocalGguf({ sourcePath: resolved, bytes: info.size, models: registry().models })
+    writeFileSync(localPointerPath(), JSON.stringify(plan), { mode: 0o600 })
+    const settings = readSettings()
+    writeSettings({ ...settings, chatModelId: plan.modelId, onboardingComplete: true })
+    safeSend(win, IPC.modelsEvent, { id: plan.modelId, done: info.size, total: info.size, state: 'done' })
+    return { id: plan.modelId }
   }
 
   function sendEvent(win: BrowserWindow, event: ChatEvent): boolean {
@@ -1627,6 +1713,7 @@ export async function createServices(): Promise<Services> {
     userData: app.getPath('userData'),
     packaged: app.isPackaged,
     devFlag: process.env.SYNAP_LICENCE_DEV,
+    forceDev: devMode,
     apiBase: () => apiBase(readSettings()),
     offlineOnly: () => readSettings().offlineOnly,
     online: () => reachNow(readSettings().offlineOnly).online,
@@ -1712,7 +1799,7 @@ export async function createServices(): Promise<Services> {
       },
       cancel(id) { inflight.get(id)?.abort() },
     },
-    models: { status, download, benchmark },
+    models: { status, download, cancel: cancelDownload, benchmark, importLocal },
     conversations: {
       list: async () => store.list(),
       open: async (id) => store.open(id),
@@ -1753,24 +1840,29 @@ export async function createServices(): Promise<Services> {
     auth: {
       status: async () => authStatus(),
       start: async (email) => {
+        assertAccountsAllowed()
         const settings = readSettings()
         await startOtp(apiBase(settings), email, settings.offlineOnly)
       },
       verify: async (email, code) => {
+        assertAccountsAllowed()
         const settings = readSettings()
         await verifyOtp(apiBase(settings), email, code, settings.offlineOnly)
         void syncPacks(true).catch((error: unknown) => console.warn('[surf] pack sync:', (error as Error).message))
         return authStatus()
       },
       signOut: async () => {
+        assertAccountsAllowed()
         const settings = readSettings()
         await logoutSession(apiBase(settings), settings.offlineOnly)
       },
       devices: async () => {
+        assertAccountsAllowed()
         const settings = readSettings()
         return fetchDevices(apiBase(settings), settings.offlineOnly)
       },
       revoke: async (deviceId) => {
+        assertAccountsAllowed()
         const settings = readSettings()
         await revokeDeviceRemote(apiBase(settings), deviceId, settings.offlineOnly)
       },
@@ -1865,7 +1957,10 @@ export async function createServices(): Promise<Services> {
       },
     },
     links: {
-      open: async (url) => { await shell.openExternal(url) },
+      open: async (url) => {
+        if (devMode && isSynapUrl(url)) return
+        await shell.openExternal(url)
+      },
     },
     codeAgent: {
       root: async () => ({ root: codeApi.root() }),
@@ -2007,6 +2102,7 @@ export async function createServices(): Promise<Services> {
       lastSyncAt,
       refreshBy,
       now: Date.now(),
+      devMode,
     })
   }
 
@@ -2034,8 +2130,8 @@ export async function createServices(): Promise<Services> {
     const settings = readSettings()
     stableOnline = isOnline()
     osOnline = stableOnline
-    if (settings.offlineOnly || !stableOnline) {
-      apiReachable = false
+    if (devMode || settings.offlineOnly || !stableOnline) {
+      apiReachable = devMode ? !settings.offlineOnly && stableOnline : false
       checking = false
       return
     }
@@ -2439,6 +2535,10 @@ export async function createServices(): Promise<Services> {
     }
   }
 
+  function assertAccountsAllowed(): void {
+    if (devMode) throw new Error('Accounts are off in dev mode.')
+  }
+
   async function authStatus(): Promise<AuthStatus> {
     const session = await loadSession()
     if (!session) return { signedIn: false, email: null, deviceId: null }
@@ -2526,6 +2626,7 @@ export async function createServices(): Promise<Services> {
   }
 
   async function ensurePackContentKey(): Promise<Buffer | null> {
+    if (devMode) return null
     const cached = await loadPackContentKey(app.getPath('userData'))
     if (cached) return cached
     const settings = readSettings()
@@ -2546,6 +2647,10 @@ export async function createServices(): Promise<Services> {
   }
 
   async function syncPacks(force: boolean): Promise<void> {
+    if (devMode) {
+      if (force) throw new Error('Pack sync is off in dev mode.')
+      return
+    }
     const licence = await licences.status()
     if (!packAutoSyncAllowed({ state: licence.state, features: licence.features })) {
       if (force) throw new Error('Knowledge pack updates are included with an active subscription.')
@@ -2749,6 +2854,22 @@ function labelFor(m: ModelEntry): string {
   if (m.role === 'chat') return chatModelLabel(m)
   if (m.role === 'asr') return m.id
   return m.id
+}
+
+function releaseFlagNow(): boolean {
+  const candidates = [
+    join(process.resourcesPath, 'release-mode.json'),
+    join(app.getAppPath(), 'resources', 'release-mode.json'),
+  ]
+  let fileFlag = false
+  for (const path of candidates) {
+    try {
+      if (!existsSync(path)) continue
+      fileFlag = releaseFlagFromJson(readFileSync(path, 'utf8'))
+      break
+    } catch { /* the next copy of release-mode.json */ }
+  }
+  return releaseBuild({ fileFlag, envRelease: process.env.SYNAP_RELEASE })
 }
 
 function apiBase(settings: Settings): string {

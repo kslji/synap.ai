@@ -27,6 +27,7 @@ export function SettingsScreen({
   busyId,
   error,
   onDownload,
+  onCancelDownload,
   onSelectModel,
 }: {
   status: ModelStatus
@@ -48,6 +49,7 @@ export function SettingsScreen({
   busyId: string | null
   error: string | null
   onDownload: (id: string) => void
+  onCancelDownload: () => void
   onSelectModel: (id: string) => void
 }) {
   const [updateNote, setUpdateNote] = useState('')
@@ -82,7 +84,9 @@ export function SettingsScreen({
               : 'Knowledge pack: not installed'}
           </p>
           {licenceNote && <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">{licenceNote}</p>}
-          {account ? (
+          {licenceState === 'dev' ? (
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Local chat works on this computer. Accounts, pack sync, and licence refresh are off.</p>
+          ) : account ? (
             <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
           ) : (
             <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
@@ -91,19 +95,23 @@ export function SettingsScreen({
                 : 'Sign in to see every computer on this licence and to search the web. A licence key activates this computer on its own. Local chat and documents work without an account.'}
             </p>
           )}
-          <ul className="mt-3 flex flex-col gap-2">
-            {devices.filter((device) => device.status === 'active').map((device) => (
-              <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
-                <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
-                <button className="btn btn-ghost" type="button" onClick={() => (device.current ? onDeactivate() : onRevoke(device.id))}>Remove</button>
-              </li>
-            ))}
-          </ul>
-          <button className="btn btn-ghost mt-3" type="button" data-deactivate-device="yes" onClick={onDeactivate}>Deactivate this device</button>
-          {account ? (
-            <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
-          ) : (
-            <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
+          {licenceState !== 'dev' && (
+            <>
+              <ul className="mt-3 flex flex-col gap-2">
+                {devices.filter((device) => device.status === 'active').map((device) => (
+                  <li key={device.id} className="flex items-center justify-between gap-3 text-sm" data-device={device.current ? 'current' : 'other'}>
+                    <span>{device.name} · {device.os}{device.current ? ' · this device' : ''}</span>
+                    <button className="btn btn-ghost" type="button" onClick={() => (device.current ? onDeactivate() : onRevoke(device.id))}>Remove</button>
+                  </li>
+                ))}
+              </ul>
+              <button className="btn btn-ghost mt-3" type="button" data-deactivate-device="yes" onClick={onDeactivate}>Deactivate this device</button>
+              {account ? (
+                <button className="btn btn-ghost mt-3" type="button" data-sign-out="yes" onClick={onSignOut}>Sign out</button>
+              ) : (
+                <button className="btn btn-primary mt-3" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
+              )}
+            </>
           )}
         </div>
         </Group>
@@ -125,6 +133,7 @@ export function SettingsScreen({
               detailsOpen={detailsOpen}
               onToggleDetails={() => setDetailsOpen((open) => !open)}
               onDownload={onDownload}
+              onCancel={onCancelDownload}
               onSelect={onSelectModel}
             />
             {code.length > 0 && (
@@ -141,6 +150,7 @@ export function SettingsScreen({
                   detailsOpen={codeOpen}
                   onToggleDetails={() => setCodeOpen((open) => !open)}
                   onDownload={onDownload}
+                  onCancel={onCancelDownload}
                   onSelect={onSelectModel}
                 />
               </div>
@@ -211,7 +221,12 @@ export function SettingsScreen({
           on={settings.telemetryOptIn}
           onToggle={() => onPatch({ telemetryOptIn: !settings.telemetryOptIn })}
         />
-        {status.devWeb ? (
+        {licenceState === 'dev' ? (
+          <div className="card px-4 py-4">
+            <div className="text-sm font-semibold">Account and pack server</div>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Dev mode, sync off. This build does not call the account server.</p>
+          </div>
+        ) : status.devWeb ? (
           <DevWebPanel apiUrl={status.devApiUrl || 'http://127.0.0.1:8000'} />
         ) : (
           <div className="card px-4 py-4">
@@ -241,9 +256,12 @@ export function SettingsScreen({
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats: {status.chatPersistence === 'encrypted' ? 'encrypted SQLite' : 'this session only (OS keychain unavailable)'}.</p>
-          <p className="mt-1">Account server: {status.devApiUrl || settings.apiBaseUrl}.</p>
+          {licenceState !== 'dev' && <p className="mt-1">Account server: {status.devApiUrl || settings.apiBaseUrl}.</p>}
           <p className="mt-3">
-            <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span> While a subscription is active and this computer is online, Synap.surf checks for a newer signed pack on startup and every 24 hours. The new pack is swapped in between messages.
+            <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span>{' '}
+            {licenceState === 'dev'
+              ? 'Dev mode, sync off.'
+              : 'While a subscription is active and this computer is online, Synap.surf checks for a newer signed pack on startup and every 24 hours. The new pack is swapped in between messages.'}
           </p>
           <button
             className="btn btn-ghost mt-3"
@@ -282,10 +300,14 @@ export function SettingsScreen({
           <div className="mt-4 font-semibold text-[var(--ink)]">About</div>
           <p className="mt-2 text-[var(--muted)]">Synap.surf runs on this computer. The notes below are drafts, not legal advice.</p>
           <div className="mt-3 flex flex-wrap gap-3">
-            <AboutLink href={`${product.site}/privacy`}>Privacy</AboutLink>
-            <AboutLink href={`${product.site}/security`}>Security</AboutLink>
-            <AboutLink href={`${product.site}/contribute`}>Contribute</AboutLink>
-            <AboutLink href={`${product.site}/terms`}>Terms</AboutLink>
+            {licenceState !== 'dev' && (
+              <>
+                <AboutLink href={`${product.site}/privacy`}>Privacy</AboutLink>
+                <AboutLink href={`${product.site}/security`}>Security</AboutLink>
+                <AboutLink href={`${product.site}/contribute`}>Contribute</AboutLink>
+                <AboutLink href={`${product.site}/terms`}>Terms</AboutLink>
+              </>
+            )}
             <AboutLink href={product.repo}>GitHub</AboutLink>
           </div>
         </div>

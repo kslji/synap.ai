@@ -79,6 +79,8 @@ export interface Services {
   models: {
     status(): Promise<ModelStatus>
     download(modelId: string, win: BrowserWindow): Promise<void>
+    cancel(win: BrowserWindow): void
+    importLocal(path: string | null, win: BrowserWindow): Promise<{ id: string } | null>
     benchmark(modelId: string): Promise<BenchmarkResult>
   }
   conversations: {
@@ -200,6 +202,12 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.settingsSet, (e, raw) => { assertTrusted(e); return s.settings.set(SettingsPatchSchema.parse(raw)) })
   handle(IPC.modelsStatus, (e) => { assertTrusted(e); return s.models.status() })
   handle(IPC.modelsDownload, (e, raw) => { assertTrusted(e); return s.models.download(ModelId.parse(raw), win) })
+  handle(IPC.modelsCancel, (e) => { assertTrusted(e); s.models.cancel(win) })
+  handle(IPC.modelsImportLocal, (e, raw) => {
+    assertTrusted(e)
+    const path = raw == null || raw === '' ? null : z.string().min(1).max(4096).parse(raw)
+    return s.models.importLocal(path, win)
+  })
   handle(IPC.modelsBenchmark, (e, raw) => { assertTrusted(e); return s.models.benchmark(ModelId.parse(raw)) })
   handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
   handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })

@@ -28,6 +28,7 @@ export function Sidebar({
   animateMascot,
   onMascotName,
   onSignIn,
+  devMode = false,
   onView,
   onNew,
   onOpen,
@@ -46,6 +47,7 @@ export function Sidebar({
   animateMascot: boolean
   onMascotName: (name: string) => void
   onSignIn: () => void
+  devMode?: boolean
   onView: (v: View) => void
   onNew: () => void
   onOpen: (id: string) => void
@@ -146,11 +148,11 @@ export function Sidebar({
             data-tour-target={tourId === 'online' ? 'yes' : 'no'}
           >
             <span>{sync.label}</span>
-            {sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
+            {sync.showMode !== false && sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
           </p>
         )}
         <ThemeSwitch value={theme} onChange={onTheme} compact />
-        <button className="btn btn-ghost" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>
+        {!devMode && <button className="btn btn-ghost" type="button" data-sign-in="yes" onClick={onSignIn}>Sign in</button>}
       </div>
     </aside>
   )

@@ -1,6 +1,7 @@
 /**
  * Original Surf Bot motion. The star drawing stays; a face and squash-and-stretch
- * are drawn in SVG and stepped in JavaScript. No audio, no video, and no frames
+ * are drawn in SVG and stepped in JavaScript. Idle in the UI plays a silent
+ * clip; these poses stay for every other state. No audio, and no frames
  * from animation/mp4.
  */
 

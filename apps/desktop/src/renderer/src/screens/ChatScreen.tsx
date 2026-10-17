@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { StarSurf, starStateFor } from '@surf/ui'
-import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import type { CatalogModel, ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import { formatModelSize } from '../../../shared/model-label'
+import { FIRST_RUN_CHAT_MODEL_IDS } from '../../../shared/starter-model'
 import { quoteChipLabel } from '../../../shared/quote'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
@@ -65,6 +67,12 @@ export function ChatScreen({
   tabSuggestionsOff = [],
   onRegenerate,
   animateMascot = true,
+  downloadBusyId = null,
+  downloadProgress = {},
+  setupError = null,
+  onDownloadModel,
+  onCancelDownload,
+  onImportLocal,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -110,12 +118,22 @@ export function ChatScreen({
   tabSuggestionsOff?: string[]
   onRegenerate?: (messageId: string) => void
   animateMascot?: boolean
+  downloadBusyId?: string | null
+  downloadProgress?: Record<string, number>
+  setupError?: string | null
+  onDownloadModel?: (id: string) => void
+  onCancelDownload?: () => void
+  onImportLocal?: () => void
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
   const [over, setOver] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
+  const starters = FIRST_RUN_CHAT_MODEL_IDS.flatMap((id) => {
+    const model = status.models.find((item) => item.id === id)
+    return model ? [model] : []
+  })
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
   const searching = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'reading'))
@@ -211,16 +229,30 @@ export function ChatScreen({
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-8">
           {messages.length === 0 ? (
             <div className="mx-auto flex max-w-lg flex-col items-center pt-16 text-center">
-              <StarSurf state={starStateFor(reading ? 'working' : mood)} size={220} />
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">{agentName}</h1>
-              <p className="mt-2 text-[15px] leading-relaxed text-[var(--muted)]">
-                {agentNote || 'Ask here. Files you attach stay on this computer.'}
-              </p>
-              <div className="mt-6 flex flex-wrap justify-center gap-2">
-                {PROMPTS.map((p) => (
-                  <button key={p} type="button" className="btn btn-ghost" onClick={() => submit(p)}>{p}</button>
-                ))}
-              </div>
+              {!chatReady && starters.length > 0 && onDownloadModel && onCancelDownload && onImportLocal ? (
+                <StarterModelCard
+                  models={starters}
+                  busyId={downloadBusyId}
+                  progress={downloadProgress}
+                  error={setupError}
+                  onDownload={onDownloadModel}
+                  onCancel={onCancelDownload}
+                  onImport={onImportLocal}
+                />
+              ) : (
+                <>
+                  <StarSurf state={starStateFor(reading ? 'working' : mood)} size={220} />
+                  <h1 className="mt-2 text-3xl font-semibold tracking-tight">{agentName}</h1>
+                  <p className="mt-2 text-[15px] leading-relaxed text-[var(--muted)]">
+                    {agentNote || 'Ask here. Files you attach stay on this computer.'}
+                  </p>
+                  <div className="mt-6 flex flex-wrap justify-center gap-2">
+                    {PROMPTS.map((p) => (
+                      <button key={p} type="button" className="btn btn-ghost" onClick={() => submit(p)}>{p}</button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
@@ -316,6 +348,78 @@ export function ChatScreen({
       </div>
       {preview && <Preview preview={preview} onClose={onClosePreview} />}
     </section>
+  )
+}
+
+function starterName(model: CatalogModel): string {
+  if (model.id === 'qwen3.5-2b-q4_k_m') return 'Qwen 2B'
+  if (model.id === 'qwen3.5-4b-q4_k_m') return 'Qwen 4B'
+  if (model.id === 'qwen3.5-9b-q4_k_m') return 'Qwen 9B'
+  return model.label
+}
+
+function ramNote(gb: number): string {
+  const ram = Number.isInteger(gb) ? String(gb) : String(gb)
+  return `needs ${ram} GB RAM`
+}
+
+function StarterModelCard({
+  models,
+  busyId,
+  progress,
+  error,
+  onDownload,
+  onCancel,
+  onImport,
+}: {
+  models: CatalogModel[]
+  busyId: string | null
+  progress: Record<string, number>
+  error: string | null
+  onDownload: (id: string) => void
+  onCancel: () => void
+  onImport: () => void
+}) {
+  const active = busyId ? models.find((model) => model.id === busyId) : undefined
+  const percent = active ? Math.max(0, Math.min(100, Math.round((progress[active.id] ?? 0) * 100))) : 0
+  return (
+    <div className="card w-full px-5 py-5 text-left" data-model-setup="yes">
+      <h1 className="text-2xl font-semibold tracking-tight">Download a model to start</h1>
+      <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+        Pick a size. The file stays on this computer, and chat works after it is ready.
+      </p>
+      <ul className="mt-4 flex flex-col gap-3">
+        {models.map((model) => {
+          const busy = busyId === model.id
+          return (
+            <li key={model.id} className="flex items-center justify-between gap-3" data-model-option={model.id}>
+              <div>
+                <div className="text-sm font-semibold">Download {starterName(model)}</div>
+                <div className="text-xs text-[var(--muted)]">
+                  <span data-model-size={model.id}>{formatModelSize(model.sizeBytes)}</span>
+                  {' · '}
+                  <span data-model-ram={model.id}>{ramNote(model.minRamGb)}</span>
+                </div>
+              </div>
+              {busy ? (
+                <button className="btn btn-ghost" type="button" data-cancel-download={model.id} onClick={onCancel}>
+                  Cancel {percent}%
+                </button>
+              ) : (
+                <button className="btn btn-primary" type="button" data-download-model={model.id} onClick={() => onDownload(model.id)}>
+                  Download
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      {active && <div className="progress mt-3"><b style={{ width: `${percent}%` }} /></div>}
+      <button className="btn btn-ghost mt-4" type="button" data-import-gguf="yes" onClick={onImport}>
+        Use a GGUF file on this computer
+      </button>
+      {error && <p className="mt-3 text-sm" data-model-setup-error="yes">{error}</p>}
+    </div>
   )
 }
 

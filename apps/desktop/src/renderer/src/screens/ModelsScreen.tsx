@@ -35,6 +35,7 @@ export function ModelsScreen({
   busyId,
   error,
   onDownload,
+  onCancel,
   onSelect,
 }: {
   status: ModelStatus
@@ -42,6 +43,7 @@ export function ModelsScreen({
   busyId: string | null
   error: string | null
   onDownload: (id: string) => void
+  onCancel: () => void
   onSelect: (id: string) => void
 }) {
   const chats = chatModels(status)
@@ -63,6 +65,7 @@ export function ModelsScreen({
           detailsOpen={open}
           onToggleDetails={() => setOpen((value) => !value)}
           onDownload={onDownload}
+          onCancel={onCancel}
           onSelect={onSelect}
         />
         {code.length > 0 && (
@@ -78,6 +81,7 @@ export function ModelsScreen({
             detailsOpen={codeOpen}
             onToggleDetails={() => setCodeOpen((value) => !value)}
             onDownload={onDownload}
+            onCancel={onCancel}
             onSelect={onSelect}
           />
         )}
@@ -96,6 +100,7 @@ export function ModelPanel({
   detailsOpen,
   onToggleDetails,
   onDownload,
+  onCancel,
   onSelect,
   heading = 'Models',
   intro,
@@ -109,6 +114,7 @@ export function ModelPanel({
   detailsOpen: boolean
   onToggleDetails: () => void
   onDownload: (id: string) => void
+  onCancel: () => void
   onSelect: (id: string) => void
   heading?: string
   intro?: string
@@ -157,12 +163,16 @@ export function ModelPanel({
                 <div>
                   <div className="text-sm font-semibold">{model.label}</div>
                   <div className="text-xs text-[var(--muted)]">{heading === 'Code' ? codeModelLine(model) : modelChoiceLabel(model)}</div>
-                  <div className="text-xs text-[var(--muted)]">{model.fitMark ? fitMarkLabel(model.fitMark) : model.recommended ? 'Fits this computer' : model.fitsRam ? 'Also fits' : 'Needs more memory'}</div>
+                  {heading === 'Code' && (
+                    <div className="text-xs text-[var(--muted)]">{model.fitMark ? fitMarkLabel(model.fitMark) : model.recommended ? 'Fits this computer' : model.fitsRam ? 'Also fits' : 'Needs more memory'}</div>
+                  )}
                   {heading === 'Code' && model.note && <div className="mt-1 text-xs text-[var(--muted)]">{model.note}</div>}
                 </div>
-                {model.installed ? <span className="pill pill-ok"><i />Installed</span> : (
-                  <button className="btn btn-primary" type="button" disabled={busy || status.offlineOnly} onClick={() => onDownload(model.id)}>
-                    {busy ? `${pct}%` : 'Download'}
+                {model.installed ? <span className="pill pill-ok"><i />Installed</span> : busy ? (
+                  <button className="btn btn-ghost" type="button" data-cancel-download={model.id} onClick={onCancel}>Cancel</button>
+                ) : (
+                  <button className="btn btn-primary" type="button" data-download-model={model.id} onClick={() => onDownload(model.id)}>
+                    Download
                   </button>
                 )}
               </div>

@@ -12,6 +12,7 @@ import { verify as edVerify } from 'node:crypto'
 import { join } from 'node:path'
 import { ed25519PublicKey } from './pack-verify.js'
 import { surfEnv } from './surf-env.js'
+import { clipWords, NOTES_LIMIT } from '../../shared/reply-text.js'
 import {
   parseReleaseTag,
   planUpdate,
@@ -59,7 +60,7 @@ export async function fetchReleases(fetchImpl: typeof fetch = fetch): Promise<Re
       tag: row.tag_name ?? '',
       version: parsed.version,
       prerelease: Boolean(row.prerelease) || parsed.prerelease,
-      notes: (row.body ?? '').slice(0, 500),
+      notes: clipWords(row.body ?? '', NOTES_LIMIT),
       assets: (row.assets ?? [])
         .filter((asset) => asset.name && asset.browser_download_url)
         .map((asset) => ({ name: asset.name as string, url: asset.browser_download_url as string })),

@@ -23,6 +23,43 @@ import { ActivationScreen } from './screens/ActivationScreen'
 import { PacksScreen } from './screens/PacksScreen'
 import { UpdateBanner } from './screens/UpdateBanner'
 
+const FORMATTED_REPLY = [
+  '## Sorting a list',
+  '',
+  'Use **stable** sort when the original order matters. Call `items.slice()` before you sort.',
+  '',
+  '- Keep the original list',
+  '- Return a new one',
+  '- Check the length first',
+  '',
+  '1. Copy the items',
+  '2. Sort the copy',
+  '3. Return it',
+  '',
+  '```js',
+  'function sorted(items) {',
+  '  const copy = items.slice()',
+  '  return copy.sort()',
+  '}',
+  '```',
+  '',
+  '| Step | What it does |',
+  '| --- | --- |',
+  '| Copy | Leaves the input alone |',
+  '| Sort | Orders the copy |',
+  '',
+  '$$E = mc^2$$',
+  '',
+  'Read the [notes](https://example.com/sort).',
+].join('\n')
+
+const CONTINUED_REPLY = [
+  'A long answer stops on a finished sentence when the length limit is reached.',
+  'The last word stays whole, and you can keep going from that sentence.',
+  '',
+  'The next part would cover how the copy is sorted, how ties keep their order, and how an empty list is returned unchanged.',
+].join('\n')
+
 function fromStored(message: StoredMessage): UiMsg {
   const all = message.versions ?? []
   if (message.role !== 'assistant' || all.length < 2) return { ...message, tools: [] }
@@ -221,6 +258,29 @@ export default function App() {
     } catch (e) {
       setStreaming(false)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, pending: false, error: true, text: (e as Error).message } : msg)))
+    }
+  }
+
+  async function continueReply(messageId: string) {
+    const current = messages.find((msg) => msg.id === messageId)
+    if (!current || current.role !== 'assistant' || current.pending || streaming || !current.canContinue) return
+    const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
+    setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, pending: true, canContinue: false, error: false } : msg)))
+    setStreaming(true)
+    try {
+      const res = await api.chat.send({
+        conversationId,
+        text: 'Continue.',
+        agentId: boundAgent,
+        allowWeb: Boolean(settings?.webSearchAllowed && chatWeb && !settings.offlineOnly),
+        docScope: scope,
+        continueMessageId: messageId,
+      })
+      setConversationId(res.conversationId)
+    } catch (e) {
+      setStreaming(false)
+      setError((e as Error).message)
+      setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, pending: false, canContinue: true } : msg)))
     }
   }
 
@@ -471,6 +531,35 @@ export default function App() {
         setMessages([
           { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
           { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 2B' },
+        ])
+        return
+      }
+      if (scene === 'formatted' || scene === 'continued') {
+        const formatted = scene === 'formatted'
+        const id = '44444444-4444-4444-8444-444444444444'
+        setAgentId('code')
+        setView('chat')
+        setPreview(null)
+        setFiles([])
+        setConversationId(id)
+        setConversations([{
+          id,
+          title: formatted ? 'Sorting a list' : 'Stable sort',
+          agentId: 'code',
+          updatedAt: Date.now(),
+          preview: formatted ? 'Use stable sort when order matters.' : 'A long answer stops on a finished sentence.',
+        }])
+        setMessages([
+          { id: '55555555-5555-4555-8555-555555555555', role: 'user', text: formatted ? 'How do I sort a list without changing the original?' : 'Explain stable sort in detail.', sources: [], tools: [] },
+          {
+            id: '66666666-6666-4666-8666-666666666666',
+            role: 'assistant',
+            text: formatted ? FORMATTED_REPLY : CONTINUED_REPLY,
+            sources: [],
+            tools: [],
+            modelId: 'Qwen 2B',
+            canContinue: !formatted,
+          },
         ])
         return
       }
@@ -888,6 +977,7 @@ export default function App() {
           tabSuggestionsOff={settings.tabSuggestionsOff}
           animateMascot={settings.animateMascot !== false}
           onRegenerate={(id) => { void regenerate(id) }}
+          onContinue={(id) => { void continueReply(id) }}
           onStop={agentId === 'code' ? () => {
             const pending = messages.find((msg) => msg.pending && msg.role === 'assistant')
             if (pending && !pending.id.startsWith('p-')) void api.chat.cancel(pending.id)

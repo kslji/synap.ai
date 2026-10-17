@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { step11Cases } from './step11-cases.js'
-import { evalQuestions } from './step11-questions.js'
+import { evalQuestions, everydayVisible } from './step11-questions.js'
+import { finishReply, replyShapeOk } from '../../shared/reply-text.js'
 
 test('step 11 cases are real and all pass', () => {
   const questions = evalQuestions()
@@ -21,4 +22,13 @@ test('step 11 cases are real and all pass', () => {
   for (const row of everyday) process.stdout.write(`everyday ${row.id} ${row.fields.ok ? 'pass' : 'fail'}\n`)
   const passed = everyday.filter((row) => row.fields.ok).length
   process.stdout.write(`everyday ${passed}/${everyday.length} pass\n`)
+  let shapePass = 0
+  for (const item of questions.filter((question) => question.domain === 'everyday')) {
+    const visible = everydayVisible(item)
+    const ok = visible == null || replyShapeOk(finishReply(visible, false).text)
+    if (ok) shapePass += 1
+    process.stdout.write(`shape ${item.id} ${ok ? 'pass' : 'fail'}\n`)
+  }
+  process.stdout.write(`shape ${shapePass}/${questions.filter((question) => question.domain === 'everyday').length} pass\n`)
+  assert.equal(shapePass, questions.filter((question) => question.domain === 'everyday').length)
 })

@@ -3,6 +3,7 @@
  * system voice. It is not uploaded and it is not written to a log.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
+import { clipWords, SPEAK_LIMIT } from '../../shared/reply-text.js'
 
 export const NO_VOICE = 'No system voice is available on this computer.'
 
@@ -15,7 +16,7 @@ function powershellQuote(text: string): string {
 }
 
 export function speakArgs(platform: NodeJS.Platform, text: string): { file: string; args: string[] } | null {
-  const clean = text.replace(/\s+/g, ' ').trim().slice(0, 4000)
+  const clean = clipWords(text, SPEAK_LIMIT)
   if (!clean) return null
   if (platform === 'darwin') return { file: 'say', args: [clean] }
   if (platform === 'win32') {

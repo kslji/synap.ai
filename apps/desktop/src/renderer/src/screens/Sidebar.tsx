@@ -5,6 +5,7 @@ import { useMascotActivity } from '../mascot-activity'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
 import { labelFromAgentId } from '../../../shared/chat-title'
+import { clipWords, SIDEBAR_PREVIEW_LIMIT, SIDEBAR_TITLE_LIMIT } from '../../../shared/reply-text'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
@@ -119,10 +120,10 @@ export function Sidebar({
                 <span className="chat-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold">{chat.title}</span>
-                    <span className="agent-tag" data-agent-tag="yes">{label}</span>
+                    <span className="min-w-0 text-sm font-semibold leading-snug">{clipWords(chat.title, SIDEBAR_TITLE_LIMIT)}</span>
+                    <span className="agent-tag shrink-0" data-agent-tag="yes">{label}</span>
                   </span>
-                  <span className="block truncate text-xs text-[var(--muted)]">{chat.preview || when(chat.updatedAt)}</span>
+                  <span className="mt-0.5 block text-xs leading-snug text-[var(--muted)]">{chat.preview ? clipWords(chat.preview, SIDEBAR_PREVIEW_LIMIT) : when(chat.updatedAt)}</span>
                 </span>
               </button>
               <button type="button" className="icon-quiet shrink-0" aria-label={`Delete ${chat.title}`} data-tip="Delete" data-delete-chat={chat.id} onClick={() => onDelete(chat.id)}>

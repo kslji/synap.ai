@@ -216,9 +216,8 @@ a { color: var(--accent-text); }
 }
 .shell-title-text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  white-space: normal;
 }
 .shell-title-dot { color: var(--muted); font-weight: 500; }
 .agent-tag {

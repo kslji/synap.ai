@@ -10,6 +10,7 @@ export const ChatSendReq = z.object({
   allowWeb: z.boolean().default(false),
   docScope: z.enum(['chat', 'all']).default('chat'),
   replaceMessageId: z.string().uuid().optional(),
+  continueMessageId: z.string().uuid().optional(),
 })
 
 export const SettingsPatch = z.object({

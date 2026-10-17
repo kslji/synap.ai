@@ -3,6 +3,7 @@
  * Lines also go to a small rotating file under userData/logs.
  */
 import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { clipWords, NOTIFY_LIMIT } from '../../shared/reply-text.js'
 import { join } from 'node:path'
 import type { EventEmitter } from 'node:events'
 
@@ -104,12 +105,12 @@ export function installProcessGuards(log: FileLog, notify: (message: string) => 
     const error = record('uncaughtException', err)
     if (isBenign(error) || dialogShown) return
     dialogShown = true
-    try { notify(friendly) } catch { /* no display */ }
+    try { notify(clipWords(friendly, NOTIFY_LIMIT)) } catch { /* no display */ }
   })
   process.on('unhandledRejection', (reason) => {
     const error = record('unhandledRejection', reason)
     if (isBenign(error) || dialogShown) return
     dialogShown = true
-    try { notify(friendly) } catch { /* no display */ }
+    try { notify(clipWords(friendly, NOTIFY_LIMIT)) } catch { /* no display */ }
   })
 }

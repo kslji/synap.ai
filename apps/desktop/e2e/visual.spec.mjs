@@ -91,6 +91,53 @@ test('theme switch sits to the right of Dark mode in light and dark', async () =
   }
 })
 
+async function replyShot(theme, scene, name) {
+  const { app, page, dir } = await launch({}, { theme })
+  try {
+    await page.setViewportSize({ width: 1100, height: 980 })
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await page.evaluate((next) => window.__surfDemo && window.__surfDemo(next), scene)
+    const reply = page.locator('[data-assistant-message="yes"]')
+    await expect(reply).toBeVisible()
+    const text = await reply.innerText()
+    expect(text).not.toContain('```')
+    expect(text).not.toContain('###')
+    expect(text).not.toContain('**')
+    expect(text).not.toContain('\uFFFD')
+    if (scene === 'formatted') {
+      await expect(reply.locator('h2')).toHaveText('Sorting a list')
+      await expect(reply.locator('ul li')).toHaveCount(3)
+      await expect(reply.locator('ol li')).toHaveCount(3)
+      await expect(reply.locator('strong')).toHaveText('stable')
+      await expect(reply.locator('[data-code-block="yes"]')).toBeVisible()
+      await expect(reply.locator('[data-copy-code="yes"]')).toHaveText('Copy')
+      await expect(reply.locator('[data-token="keyword"]').first()).toHaveText('const')
+      await expect(reply.locator('table')).toContainText('Leaves the input alone')
+      await expect(reply.locator('[data-latex="yes"]')).toContainText('mc')
+      await expect(reply.locator('a[href="https://example.com/sort"]')).toBeVisible()
+      await expect(reply.locator('[data-continue="yes"]')).toHaveCount(0)
+    } else {
+      await expect(reply).toContainText('finished sentence')
+      await expect(reply).toContainText('unchanged.')
+      await expect(reply.locator('[data-continue="yes"]')).toHaveText('Continue')
+    }
+    await expect(reply).toHaveScreenshot(name)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+test('formatted replies render in light and dark', async () => {
+  await replyShot('light', 'formatted', 'formatted-reply-light.png')
+  await replyShot('dark', 'formatted', 'formatted-reply-dark.png')
+})
+
+test('a length-limited reply ends on a sentence and offers Continue', async () => {
+  await replyShot('light', 'continued', 'continue-reply-light.png')
+  await replyShot('dark', 'continued', 'continue-reply-dark.png')
+})
+
 test('chat header is the agent chip and title, and device control is refused', async () => {
   const { app, page, dir } = await launch({})
   try {

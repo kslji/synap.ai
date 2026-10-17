@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
-import { BlobMascot, blobStateFor } from '@surf/ui'
+import { BlobMascot, blobStateFor, Markdown } from '@surf/ui'
+import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { messagePlaceholder, newChatTitle } from '../../../shared/chat-title'
@@ -67,6 +68,7 @@ export function ChatScreen({
   tabSuggestions = false,
   tabSuggestionsOff = [],
   onRegenerate,
+  onContinue,
   animateMascot = true,
 }: {
   messages: UiMsg[]
@@ -109,6 +111,7 @@ export function ChatScreen({
   tabSuggestions?: boolean
   tabSuggestionsOff?: string[]
   onRegenerate?: (messageId: string) => void
+  onContinue?: (messageId: string) => void
   animateMascot?: boolean
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
@@ -255,7 +258,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onOpenFolder={onOpenProject} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onContinue={onContinue} onOpenFolder={onOpenProject} />)}
             </div>
           )}
         </div>
@@ -373,7 +376,7 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onOpenFolder }: { msg: UiMsg; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onOpenFolder?: () => void }) {
+function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder }: { msg: UiMsg; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void }) {
   const [versionAt, setVersionAt] = useState<number | null>(null)
   const [wink, setWink] = useState(false)
   const history = msg.versions ?? []
@@ -409,10 +412,21 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
           <div className={msg.pending ? 'stream-caret' : ''} data-model-error={msg.error ? 'yes' : 'no'}>
             <FileAnswerBody text={shown} sources={msg.sources} onOpen={(path) => { void window.surf.files.open(path) }} />
           </div>
-        ) : (
-          <div className={`whitespace-pre-wrap text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
-            <CitedText text={shown || (msg.pending && !msg.phase ? 'Thinking' : '')} sources={msg.sources} onOpen={onOpenCitation} />
+        ) : shown ? (
+          <div className={msg.pending ? 'stream-caret' : ''} data-model-error={msg.error ? 'yes' : 'no'} data-reply-markdown="yes">
+            <Markdown
+              compact
+              source={msg.pending ? streamingMarkdown(shown) : balanceMarkdown(shown)}
+              renderText={(text) => <CitedText text={text} sources={msg.sources} onOpen={onOpenCitation} />}
+            />
           </div>
+        ) : (
+          <div className={`text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
+            {msg.pending && !msg.phase ? 'Thinking' : ''}
+          </div>
+        )}
+        {msg.canContinue && !msg.pending && onContinue && (
+          <button type="button" className="btn btn-ghost mt-3" data-continue="yes" onClick={() => onContinue(msg.id)}>Continue</button>
         )}
         {msg.error && msg.smallerModelId && (
           <button className="btn btn-ghost mt-2" type="button" data-switch-smaller="yes" onClick={() => onSwitchSmaller(msg.smallerModelId!)}>
@@ -607,7 +621,7 @@ async function toggleSpeak(text: string, setSpeaking: (on: boolean) => void): Pr
   speakStop = stop
   setSpeaking(true)
   try {
-    const spoken = text.replace(/\s+/g, ' ').trim().slice(0, 8000)
+    const spoken = clipWords(text, SPEAK_LIMIT)
     if (!spoken) return ''
     const synth = window.speechSynthesis
     const voices = synth ? await voicesOf(synth) : []

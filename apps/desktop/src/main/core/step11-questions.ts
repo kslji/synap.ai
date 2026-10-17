@@ -29,7 +29,8 @@ import { classifyShotUse } from './vision/intent.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { servesAgent } from '../../shared/model-label.js'
 import { handle } from './calculator.worker.js'
-import { mathJob, phraseMath, routeTurn } from './chat-route.js'
+import { DEVICE_REPLY, mathJob, phraseMath, routeTurn } from './chat-route.js'
+import { finishReply, replyShapeOk } from '../../shared/reply-text.js'
 import type { Step11Row } from './step11-cases.js'
 
 export type QuestionDomain = 'coding' | 'splitting' | 'run-fix' | 'screenshots' | 'fresh' | 'finance' | 'legal' | 'no-fabrication' | 'everyday'
@@ -258,10 +259,24 @@ function answerMatches(item: EvalQuestion): boolean {
   return scoreFabrication(item)
 }
 
+/** The reply a person would see for an everyday question, when this suite can produce one. */
+export function everydayVisible(item: EvalQuestion): string | null {
+  if (item.domain !== 'everyday') return null
+  if (item.expect === 'device') return DEVICE_REPLY
+  if (item.expect !== 'math') return null
+  const plan = routeTurn({ text: item.question, webChip: false, online: true, offlineOnly: false, hasFolder: false })
+  if (plan.kind !== 'math' || plan.math?.kind !== 'calc') return null
+  const ran = handle({ id: 1, kind: 'calc', expression: plan.math.expression })
+  if (!ran.ok) return null
+  return phraseMath(plan.math.label, ran.result, '')
+}
+
 /** Calculator, model, or the honest device reply. These do not call a model. */
 function scoreEveryday(item: EvalQuestion): boolean {
   const base = { text: item.question, webChip: false as const, online: true, offlineOnly: false, hasFolder: false }
   const plan = routeTurn(base)
+  const visible = everydayVisible(item)
+  if (visible != null && !replyShapeOk(finishReply(visible, false).text)) return false
   if (item.expect === 'model') return plan.kind === 'model' && mathJob(item.question) == null
   if (item.expect === 'device') {
     return plan.kind === 'device' && routeTurn({ ...base, hasFolder: true }).kind === 'device'

@@ -20,7 +20,7 @@ export const NO_MODEL_MESSAGE =
 
 const LEAD = /^(?:please\s+)?(?:can you\s+)?(?:what(?:'s|s| is)?|calculate|compute|how much is)\s+/i
 const EXPR = /^[\d\s.+\-*/%^()]+$/
-const DEVICE = /\b(take control|control (?:my|this|the) (?:laptop|computer|mac|pc|machine)|on my (?:laptop|computer)|click (?:the |on )|move the mouse|press (?:the )?(?:key|button)|open (?:finder|terminal|safari|chrome)|type (?:this|that) for me|do this on my computer|control the (?:mouse|keyboard|screen))\b/i
+const DEVICE = /\b(?:take control|control (?:my |this |the )?(?:laptop|computer|mac|pc|machine)|on my (?:laptop|computer)|click (?:the |on )|move the mouse|press (?:the )?(?:key|button)|open (?:finder|terminal|safari|chrome)|open (?:my |the |some )?files|type (?:this|that) for me|do this on my computer|control the (?:mouse|keyboard|screen))\b/i
 const FILES = /\b(?:edit|change|refactor|fix|rename|delete|update|modify|rewrite)\b[^.]{0,48}\b(?:file|files|folder|project|repo|codebase)\b|\b(?:in|inside) (?:this|the|my) (?:project|repo|folder|codebase)\b|\bopen (?:a |the )?(?:project )?folder\b|\blook at [^.]+\.(?:ts|tsx|js|jsx|py|go|rs|java|cpp|c|h)\b/i
 const FRESH = /\b(latest|today|tonight|yesterday|this week|right now|current(?:ly)?|breaking|news|headline|weather|price|prices|stock|who won)\b|\b20(?:2[4-9]|[3-9]\d)\b/i
 

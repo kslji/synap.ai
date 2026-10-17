@@ -146,7 +146,7 @@ a { color: var(--accent-text); }
   box-shadow: 0 18px 40px rgba(20, 20, 20, 0.28);
 }
 :root[data-theme="dark"] .account-menu { background: #2a2733; }
-.account-menu button {
+.account-menu button:not(.toggle) {
   display: flex;
   width: 100%;
   align-items: center;
@@ -160,9 +160,9 @@ a { color: var(--accent-text); }
   font-size: 14px;
   cursor: pointer;
 }
-.account-menu button svg { flex: none; opacity: 0.9; }
-.account-menu button:hover, .account-menu button.is-on { background: rgba(255, 255, 255, 0.08); }
-.account-menu button:disabled { opacity: 0.55; cursor: not-allowed; }
+.account-menu button:not(.toggle) svg { flex: none; opacity: 0.9; }
+.account-menu button:not(.toggle):hover, .account-menu button:not(.toggle).is-on { background: rgba(255, 255, 255, 0.08); }
+.account-menu button:not(.toggle):disabled { opacity: 0.55; cursor: not-allowed; }
 .account-row, .account-label {
   display: flex;
   align-items: center;
@@ -183,7 +183,15 @@ a { color: var(--accent-text); }
   min-width: 0;
   white-space: nowrap;
 }
-.account-row > .toggle { flex: 0 0 auto; margin-left: auto; }
+.account-row > .toggle {
+  width: 42px;
+  min-width: 42px;
+  max-width: 42px;
+  height: 26px;
+  flex: 0 0 42px;
+  margin-left: auto;
+  padding: 0;
+}
 .account-agent {
   margin: 0;
   padding: 4px 10px 8px;

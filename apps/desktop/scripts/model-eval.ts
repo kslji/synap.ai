@@ -27,7 +27,7 @@ import {
   type ModelAnswerRow,
   type MmprojMeasure,
 } from '../src/main/core/model-eval.ts'
-import { evalQuestions, fabricationCase, financeAnswerOk, settleFabrication } from '../src/main/core/step11-questions.ts'
+import { evalQuestions, fabricationCase, financeAnswerOk, scoreEvalQuestions, settleFabrication } from '../src/main/core/step11-questions.ts'
 import { LlamaServer } from '../src/main/core/sidecar-manager.ts'
 import { ensureModel, registryEntries } from './model-weights.mjs'
 import { availableRamGb, watchRss } from './rss.ts'
@@ -204,6 +204,14 @@ function blank(id: string, sha256: string, reason: string): MeasuredModel {
   }
 }
 
+function reportEveryday(): boolean {
+  const rows = scoreEvalQuestions().filter((row) => row.id.startsWith('q-everyday-'))
+  for (const row of rows) process.stdout.write(`everyday ${row.id} ${row.fields.ok ? 'pass' : 'fail'}\n`)
+  const passed = rows.filter((row) => row.fields.ok).length
+  process.stdout.write(`everyday ${passed}/${rows.length} pass\n`)
+  return rows.length > 0 && passed === rows.length
+}
+
 async function main(): Promise<void> {
   const gatePath = option('gate')
   const limits = thresholds()
@@ -218,6 +226,7 @@ async function main(): Promise<void> {
     return
   }
 
+  let failed = !reportEveryday()
   if (!existsSync(serverBin())) throw new Error('llama-server is not installed. Run node apps/desktop/scripts/fetch-sidecars.mjs')
   const mode = option('mode') === 'full' ? 'full' : 'subset'
   const ids = (option('models') ?? 'qwen3.5-2b-q4_k_m').split(',').map((item) => item.trim()).filter(Boolean)
@@ -226,7 +235,6 @@ async function main(): Promise<void> {
   const wantVision = flag('mmproj')
   const free = availableRamGb()
   const models: MeasuredModel[] = []
-  let failed = false
 
   for (const id of ids) {
     const weights = registryEntries([id]).find((row) => row.kind === 'weights')

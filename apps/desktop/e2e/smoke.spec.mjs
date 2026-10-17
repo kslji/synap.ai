@@ -27,6 +27,17 @@ test('chat, settings, usage, and cache open without a model', async () => {
     await expect(page.locator('[data-download-model]')).toHaveCount(0)
     await expect(page.locator('textarea')).toBeEnabled()
     await expect(page.locator('textarea')).toHaveAttribute('placeholder', 'Message Code…')
+    await expect(page.locator('header')).not.toContainText('Which model should I pick?')
+    await page.locator('[data-account-menu="yes"]').click()
+    await expect(page.locator('[data-theme-row="yes"] .theme-label')).toHaveText('Dark mode')
+    const lightBoxes = await page.locator('[data-theme-row="yes"]').evaluate((el) => {
+      const label = el.querySelector('.theme-label').getBoundingClientRect()
+      const toggle = el.querySelector('button.toggle').getBoundingClientRect()
+      return { labelRight: label.right, toggleLeft: toggle.left, toggleWidth: toggle.width }
+    })
+    expect(lightBoxes.toggleLeft).toBeGreaterThanOrEqual(lightBoxes.labelRight - 1)
+    expect(lightBoxes.toggleWidth).toBeLessThanOrEqual(46)
+    await page.locator('[data-account-menu="yes"]').click()
     const blob = page.locator('[data-blob-mascot="yes"]').first()
     await expect(blob).toBeVisible()
     await expect(blob.locator('svg')).toBeVisible()

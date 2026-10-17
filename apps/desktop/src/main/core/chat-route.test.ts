@@ -75,9 +75,20 @@ test('the worldwide banner is added only when web pages were used', () => {
 })
 
 test('device control is an honest refusal and file work asks for a folder', () => {
-  assert.equal(wantsDeviceControl('take control of my laptop'), true)
-  const device = routeTurn({ text: 'please control my computer and open Finder', webChip: false, online: true, offlineOnly: false, hasFolder: true })
-  assert.equal(device.kind, 'device')
+  const asks = [
+    'control the laptop',
+    'open files',
+    'take control of the Mac or PC',
+    'take control of my laptop',
+    'please control my computer and open Finder',
+  ]
+  for (const text of asks) {
+    assert.equal(wantsDeviceControl(text), true, text)
+    for (const hasFolder of [false, true]) {
+      const device = routeTurn({ text, webChip: false, online: true, offlineOnly: false, hasFolder })
+      assert.equal(device.kind, 'device', `${text} folder=${hasFolder}`)
+    }
+  }
   assert.match(DEVICE_REPLY, /isn't available yet/)
   assert.doesNotMatch(DEVICE_REPLY, /I (opened|clicked|moved|typed)/)
   const folder = routeTurn({ text: 'edit the file in this project', webChip: false, online: true, offlineOnly: false, hasFolder: false })
@@ -85,4 +96,6 @@ test('device control is an honest refusal and file work asks for a folder', () =
   assert.match(FOLDER_PROMPT, /open a project folder/i)
   const ready = routeTurn({ text: 'edit the file in this project', webChip: false, online: true, offlineOnly: false, hasFolder: true })
   assert.equal(ready.kind, 'model')
+  assert.equal(wantsDeviceControl('edit the file in this project'), false)
+  assert.equal(wantsDeviceControl('open a project folder'), false)
 })

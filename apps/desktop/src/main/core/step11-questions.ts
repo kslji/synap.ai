@@ -28,9 +28,11 @@ import { decideWeb, wantsFresh } from './web-decision.js'
 import { classifyShotUse } from './vision/intent.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { servesAgent } from '../../shared/model-label.js'
+import { handle } from './calculator.worker.js'
+import { mathJob, phraseMath, routeTurn } from './chat-route.js'
 import type { Step11Row } from './step11-cases.js'
 
-export type QuestionDomain = 'coding' | 'splitting' | 'run-fix' | 'screenshots' | 'fresh' | 'finance' | 'legal' | 'no-fabrication'
+export type QuestionDomain = 'coding' | 'splitting' | 'run-fix' | 'screenshots' | 'fresh' | 'finance' | 'legal' | 'no-fabrication' | 'everyday'
 
 export interface EvalQuestion {
   id: string
@@ -215,6 +217,25 @@ export function evalQuestions(): EvalQuestion[] {
   add('no-fabrication', 'money-kept', 'A rupee amount that appears in the source is kept.', 'keep-money')
   add('no-fabrication', 'stale-not-live', 'A cached row must not be described as the current price.', 'block')
 
+  const everyday: [string, string, string][] = [
+    ['what-is-2-plus-2', 'what is 2+2', 'math'],
+    ['what-2-plus-2', 'what 2+2', 'math'],
+    ['whats-2-plus-2', "what's 2+2?", 'math'],
+    ['whats-plain-2-plus-2', 'whats 2+2', 'math'],
+    ['how-much-is-2-plus-2', 'how much is 2 + 2', 'math'],
+    ['calculate-2-plus-2', 'calculate 2 + 2', 'math'],
+    ['bare-2-plus-2', '2+2', 'math'],
+    ['hello', 'hello', 'model'],
+    ['explain-variable', 'Explain what a variable is in one sentence.', 'model'],
+    ['capital-of-france', 'What is the capital of France?', 'model'],
+    ['js-add', 'Write a JavaScript function that adds two numbers.', 'model'],
+    ['control-laptop', 'control the laptop', 'device'],
+    ['open-files', 'open files', 'device'],
+    ['take-control-mac-pc', 'take control of the Mac or PC', 'device'],
+    ['take-control-laptop', 'take control of my laptop', 'device'],
+  ]
+  for (const [id, question, expect] of everyday) add('everyday', id, question, expect)
+
   return questions
 }
 
@@ -233,7 +254,24 @@ function answerMatches(item: EvalQuestion): boolean {
   if (item.domain === 'fresh') return scoreFresh(item)
   if (item.domain === 'finance') return scoreFinance(item)
   if (item.domain === 'legal') return scoreLegal(item)
+  if (item.domain === 'everyday') return scoreEveryday(item)
   return scoreFabrication(item)
+}
+
+/** Calculator, model, or the honest device reply. These do not call a model. */
+function scoreEveryday(item: EvalQuestion): boolean {
+  const base = { text: item.question, webChip: false as const, online: true, offlineOnly: false, hasFolder: false }
+  const plan = routeTurn(base)
+  if (item.expect === 'model') return plan.kind === 'model' && mathJob(item.question) == null
+  if (item.expect === 'device') {
+    return plan.kind === 'device' && routeTurn({ ...base, hasFolder: true }).kind === 'device'
+  }
+  if (item.expect !== 'math' || plan.kind !== 'math' || plan.math?.kind !== 'calc') return false
+  if (plan.math.expression.replace(/\s+/g, '') !== '2+2') return false
+  const ran = handle({ id: 1, kind: 'calc', expression: plan.math.expression })
+  if (!ran.ok || ran.result !== '4') return false
+  const phrase = phraseMath(plan.math.label, ran.result, 'I think it might be five.')
+  return phrase.includes('4') && !/Unable to find|worldwide sources/i.test(phrase)
 }
 
 function scoreCoding(item: EvalQuestion): boolean {

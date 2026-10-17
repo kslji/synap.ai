@@ -14,7 +14,6 @@ import { FileAnswerBody, FilePermissionCard } from './FilePermissions'
 import { CodeEditor } from './CodeEditor'
 import { CodeShots, type CodeShot } from './CodeShots'
 import { Preview } from './LibraryScreen'
-import { ModelGuideButton } from './ModelGuide'
 import { FOLDER_PROMPT } from '../../../main/core/chat-route'
 
 function folderName(root: string): string {
@@ -41,7 +40,6 @@ export function ChatScreen({
   agentNote,
   title,
   modelLabel,
-  modelGuide = false,
   tourAttach,
   onSend,
   shots = [],
@@ -83,7 +81,6 @@ export function ChatScreen({
   agentNote?: string
   title?: string
   modelLabel: string
-  modelGuide?: boolean
   tourAttach: boolean
   onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[]) => void
   shots?: CodeShot[]
@@ -192,7 +189,6 @@ export function ChatScreen({
             <span className="shell-title-dot" aria-hidden="true">·</span>
             <span className="shell-title-text" data-chat-title="yes">{displayTitle}</span>
           </div>
-          {modelGuide && <ModelGuideButton />}
         </header>
         {project && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-2" data-code-project="yes">

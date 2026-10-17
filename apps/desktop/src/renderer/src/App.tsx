@@ -150,6 +150,29 @@ export default function App() {
 
   useEffect(() => {
     window.__surfNav = (next) => setView(next)
+    window.__surfShowCite = (payload) => {
+      setView('chat')
+      setPreview(null)
+      setFiles([])
+      setMessages([
+        { id: 'u-codepack', role: 'user', text: payload.question, sources: [], tools: [] },
+        {
+          id: 'a-codepack',
+          role: 'assistant',
+          tools: [],
+          text: payload.answer,
+          sources: [{
+            kind: 'document',
+            title: payload.citation,
+            url: payload.url,
+            pack: payload.citation,
+            version: payload.version,
+            excerpt: payload.excerpt,
+            locator: payload.heading,
+          }],
+        },
+      ])
+    }
     void refresh().catch((e: unknown) => setError((e as Error).message))
     const frames = createFrameBatcher<ChatEvent>(
       (events) => {
@@ -1063,6 +1086,10 @@ export default function App() {
           }}
           onRemove={(id) => {
             void api.packs.remove(id).then(() => api.packs.list()).then((rows) => { setDemoPacks(null); setPacks(rows) }).catch((e: unknown) => setError((e as Error).message))
+          }}
+          onRefresh={() => {
+            if (demoPacks) return
+            void api.packs.list().then(setPacks).catch(() => undefined)
           }}
         />
       )}

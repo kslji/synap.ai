@@ -1,7 +1,7 @@
 /**
  * In-app Code knowledge pack. The folder lives in the app's private data directory.
  * The manifest is signature-checked before anything in it is trusted.
- * Pack bytes come later; an empty file list is a valid stub.
+ * An empty file list is a valid stub. The shipped pack lists its files.
  */
 import { verify as edVerify } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -18,6 +18,16 @@ export const CodePackManifest = z.object({
   min_app_version: z.string(),
   signing_key_id: z.string(),
   notes: z.string().optional(),
+  /** Attribution rows copied from the signed manifest. Chunk text stays behind the licence gate. */
+  sources: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    version: z.string(),
+    licence: z.string(),
+    url: z.string(),
+    attribution: z.string(),
+  })).default([]),
+  chunk_count: z.number().int().nonnegative().optional(),
   files: z.array(z.object({
     name: z.string(),
     size: z.number().int().nonnegative(),

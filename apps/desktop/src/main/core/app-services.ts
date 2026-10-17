@@ -36,6 +36,11 @@ import { readAgentName } from './agent-names.js'
 import { detectHardware, chatThreads } from './hardware.js'
 import { defaultForAgent, mmprojDestName, parseRegistry, pick, servesAgent, smallerChatModel, type ModelEntry, type ModelRegistry } from './model-registry.js'
 import { codePackDir, loadCodePack } from './code-pack.js'
+import { bundledCodePackDir } from './code-pack-install.js'
+import { codePackIndexProgress } from './code-pack-index.js'
+import { ensureCitations } from './code-pack-prompt.js'
+import { codePackListing } from './code-pack-status.js'
+import { prepareCodePackTurn, stepCodePackIndex } from './code-pack-turn.js'
 import { derivePackKey, devBypassEnabled, gatePackDecrypt, licenceAllowsUse } from './licence.js'
 import { createLicenceApi } from './licence-service.js'
 import { adoptFromFolder, adoptRows, adoptVerified } from './adopt-model.js'
@@ -251,6 +256,7 @@ export async function createServices(): Promise<Services> {
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; draft: string; cache: number; server: LlamaServer } | null = null
   let lastModelUse = Date.now()
   let modelBusy = 0
+  let codeIndexRunning = false
   let prefixKey: string | null = null
   let prefixModelId: string | null = null
   let draftRuntime = false
@@ -984,6 +990,28 @@ export async function createServices(): Promise<Services> {
     })
     if (loaded.status === 'invalid') console.warn('[surf] code pack skipped:', loaded.message)
     if (codeGate.status === 'locked') console.warn('[surf] code pack skipped:', codeGate.message)
+    const packTurn = codeGate.status === 'ready'
+      ? await prepareCodePackTurn({
+        userData: app.getPath('userData'),
+        bundledDir: bundledCodePackDir(app.isPackaged, process.resourcesPath, app.getAppPath()),
+        keys: trustedPackKeys(),
+        allowed: true,
+        projectRoot: root,
+        question: req.text,
+        maxChars: 2400,
+        embedQuery: async (text) => {
+          const embedder = await codeEmbedder()
+          if (!embedder) return null
+          const [vec] = await embedder.embedQueries([text])
+          return vec ?? null
+        },
+      })
+      : { reference: '', citations: [], hits: [], answerOverride: null }
+    if (packTurn.answerOverride) {
+      await emitText(win, messageId, packTurn.answerOverride)
+      finish(conversationId, messageId, userMessageId, win, packTurn.answerOverride, packTurn.citations, 'answer')
+      return
+    }
     await withModel(async () => {
       const settings = readSettings()
       const reg = registry()
@@ -1144,6 +1172,7 @@ export async function createServices(): Promise<Services> {
         },
         reviewPlan: mode === 'ask' ? () => waitPlan(messageId, signal) : undefined,
         onRememberCommand: (command) => writeAllowed(root, command),
+        reference: packTurn.reference || undefined,
       }, history)
       } finally {
         acceptAllEdits.delete(messageId)
@@ -1165,9 +1194,13 @@ export async function createServices(): Promise<Services> {
         ramMb: null,
         cpuPercent: null,
       })
-      await emitText(win, messageId, result.answer)
-      finish(conversationId, messageId, userMessageId, win, result.answer, [], 'answer')
+      const answer = result.kind === 'chat' && result.stopped === 'finish'
+        ? ensureCitations(result.answer, packTurn.hits)
+        : result.answer
+      await emitText(win, messageId, answer)
+      finish(conversationId, messageId, userMessageId, win, answer, packTurn.citations, 'answer')
     })
+    kickCodePackIndex()
   }
 
   async function answerFromFiles(question: string, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow): Promise<boolean> {
@@ -2980,11 +3013,50 @@ export async function createServices(): Promise<Services> {
     return { signedIn: true, email: session.email, deviceId: session.deviceId }
   }
 
+  function kickCodePackIndex(): void {
+    if (codeIndexRunning) return
+    codeIndexRunning = true
+    void (async () => {
+      try {
+        const embedder = await codeEmbedder()
+        if (!embedder) return
+        for (let n = 0; n < 40; n++) {
+          if (inflight.size > 0 || modelBusy > 0) return
+          await stepCodePackIndex({
+            userData: app.getPath('userData'),
+            keys: trustedPackKeys(),
+            allowed: await licences.allowsUse(),
+            embedder,
+            busy: () => inflight.size > 0 || modelBusy > 0,
+          })
+          const progress = codePackIndexProgress()
+          if (progress.state !== 'indexing') return
+        }
+      } catch (error) {
+        console.warn('[surf] code pack index:', (error as Error).message)
+      } finally {
+        codeIndexRunning = false
+      }
+    })()
+  }
+
   async function listPacks(): Promise<PackRow[]> {
-    const installed = await readInstalled(packsRoot())
-    const byId = new Map(installed.map((row) => [row.id, row]))
+    const emb = registry().models.find((model) => model.role === 'embedding')
+    const embedderReady = Boolean(emb && await installed(emb.file, emb.size_bytes))
+    const code = await codePackListing({
+      userData: app.getPath('userData'),
+      bundledDir: bundledCodePackDir(app.isPackaged, process.resourcesPath, app.getAppPath()),
+      keys: trustedPackKeys(),
+      allowed: await licences.allowsUse(),
+      embedderReady,
+    })
+    if (embedderReady && code.installed && code.indexState !== 'blocked' && code.indexState !== 'ready' && code.indexState !== 'error') {
+      kickCodePackIndex()
+    }
+    const installedRows = await readInstalled(packsRoot())
+    const byId = new Map(installedRows.map((row) => [row.id, row]))
     const ids = new Set<string>([...byId.keys(), ...catalogCache.map((pack) => pack.id)])
-    return [...ids].map((id) => {
+    const remoteRows = [...ids].filter((id) => id !== 'code').map((id) => {
       const local = byId.get(id)
       const remote = catalogCache.find((pack) => pack.id === id)
       const state = packState.get(id)
@@ -3002,6 +3074,7 @@ export async function createServices(): Promise<Services> {
         error: state?.error ?? null,
       }
     })
+    return [code, ...remoteRows]
   }
 
   async function installRemote(pack: RemotePack, previous: string | null): Promise<void> {

@@ -725,6 +725,15 @@ export interface PackRow {
   syncedAt: number | null
   progress: number | null
   error: string | null
+  /** Code pack: bytes of the signed files. Omitted for other packs. */
+  sizeBytes?: number | null
+  sources?: { title: string; version: string; licence: string; url: string }[]
+  /** 0 to 1 while EmbeddingGemma builds the local cache. */
+  indexProgress?: number | null
+  indexState?: 'pending' | 'indexing' | 'ready' | 'off' | 'error' | 'blocked'
+  updatedAt?: string | null
+  /** Plain status when the pack is missing, invalid, or locked. */
+  note?: string | null
 }
 
 /** One opened project. The index lives in the app private data folder, not in the project. */

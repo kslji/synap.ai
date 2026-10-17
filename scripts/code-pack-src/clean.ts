@@ -116,9 +116,16 @@ function dropBlock(html: string, tag: string): string {
 }
 
 function stripTags(value: string): string {
-  let out = value.replace(/<[^>]*>/g, '')
-  while (/<script/i.test(out) || /<style/i.test(out)) {
-    out = out.replace(/<script/gi, '').replace(/<style/gi, '')
+  let out = ''
+  let i = 0
+  while (i < value.length) {
+    if (value.charCodeAt(i) !== 60) {
+      out += value[i]
+      i++
+      continue
+    }
+    const end = value.indexOf('>', i + 1)
+    i = end < 0 ? i + 1 : end + 1
   }
   return out
 }

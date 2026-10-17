@@ -127,7 +127,9 @@ export default function App() {
 
   const syncPreview = useRef<SyncChip | null>(null)
   const syncDemoTimer = useRef<number | null>(null)
+  const refreshEpoch = useRef(0)
   const refresh = useCallback(async () => {
+    const epoch = refreshEpoch.current
     const [st, se, conv, auth, listed, lic] = await Promise.all([
       api.models.status(),
       api.settings.get(),
@@ -136,6 +138,7 @@ export default function App() {
       api.packs.list(),
       api.licence.status(),
     ])
+    if (epoch !== refreshEpoch.current) return st
     setStatus(syncPreview.current ? { ...st, sync: syncPreview.current } : st)
     setSettings(se)
     setConversations(conv)
@@ -564,6 +567,7 @@ export default function App() {
 
   useEffect(() => {
     window.__surfDemo = (scene) => {
+      refreshEpoch.current += 1
       setConvertJob(null)
       setFillJob(null)
       setUpdateOffer(null)

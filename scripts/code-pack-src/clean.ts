@@ -1,11 +1,10 @@
 /** Turn upstream markup into markdown-ish text for the Code pack chunker. */
 
 export function htmlToMarkdown(html: string): string {
-  let text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+  let text = dropBlock(html, 'script')
+  text = dropBlock(text, 'style')
+  text = dropBlock(text, 'nav')
+  text = dropBlock(text, 'footer')
   text = text.replace(/<h([1-4])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, body: string) => {
     const title = stripTags(body).trim()
     return title ? `\n\n${'#'.repeat(Number(level))} ${title}\n\n` : '\n'
@@ -97,17 +96,42 @@ export function texiToMarkdown(texi: string): string {
     .trim()
 }
 
+function dropBlock(html: string, tag: string): string {
+  let out = html
+  const open = `<${tag}`
+  const close = `</${tag}`
+  for (let n = 0; n < 32; n++) {
+    const start = out.toLowerCase().indexOf(open)
+    if (start < 0) break
+    const from = start + open.length
+    const end = out.toLowerCase().indexOf(close, from)
+    if (end < 0) {
+      out = `${out.slice(0, start)}${out.slice(from)}`
+      continue
+    }
+    const after = out.indexOf('>', end + close.length)
+    out = `${out.slice(0, start)}${out.slice(after < 0 ? end + close.length : after + 1)}`
+  }
+  return out
+}
+
 function stripTags(value: string): string {
-  return value.replace(/<[^>]+>/g, '')
+  let out = value.replace(/<[^>]*>/g, '')
+  while (/<script/i.test(out) || /<style/i.test(out)) {
+    out = out.replace(/<script/gi, '').replace(/<style/gi, '')
+  }
+  return out
 }
 
 function decode(value: string): string {
-  return value
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'")
+  const named: Record<string, string> = {
+    '&nbsp;': ' ',
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&#x27;': "'",
+  }
+  return value.replace(/&(?:nbsp|amp|lt|gt|quot|#39|#x27);/g, (entity) => named[entity] ?? entity)
 }

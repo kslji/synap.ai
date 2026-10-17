@@ -46,11 +46,20 @@ export function chunkByHeading(markdown: string, maxChars = 1800): ChunkDraft[] 
 }
 
 function clean(text: string): string {
-  return text
-    .replace(/<!--[\s\S]*?-->/g, '')
+  return dropComments(text)
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+function dropComments(text: string): string {
+  let out = text
+  while (out.includes('<!--')) {
+    const start = out.indexOf('<!--')
+    const end = out.indexOf('-->', start + 4)
+    out = end < 0 ? `${out.slice(0, start)}${out.slice(start + 4)}` : `${out.slice(0, start)}${out.slice(end + 3)}`
+  }
+  return out
 }
 
 function splitLong(text: string, maxChars: number): string[] {

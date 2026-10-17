@@ -339,12 +339,16 @@ async function downloadArchive(source: SourceSpec): Promise<Buffer> {
   throw new Error(`${source.id} archive: ${last}`)
 }
 
+function isGitHubApi(url: string): boolean {
+  try { return new URL(url).hostname === 'api.github.com' } catch { return false }
+}
+
 async function fetchBytes(url: string): Promise<Buffer> {
   let last = 'fetch failed'
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const headers: Record<string, string> = { 'User-Agent': 'synap-code-pack' }
-      if (url.includes('api.github.com')) headers.Accept = 'application/vnd.github+json'
+      if (isGitHubApi(url)) headers.Accept = 'application/vnd.github+json'
       const response = await fetch(url, { headers, redirect: 'follow' })
       if (response.status === 404) throw new Error(`404 ${url}`)
       if (!response.ok) throw new Error(`${response.status} ${url}`)

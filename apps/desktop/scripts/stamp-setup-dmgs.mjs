@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -18,18 +18,28 @@ const sizes = [
   ['9b', 'qwen3.5-9b-q4_k_m'],
 ]
 
-function archOf(dir) {
-  if (dir.includes('arm64')) return 'arm64'
-  if (dir.includes('x64')) return 'x64'
-  return process.arch === 'arm64' ? 'arm64' : 'x64'
+function bundleArch(app) {
+  const macOs = join(app, 'Contents', 'MacOS')
+  const binName = readdirSync(macOs).find((name) => !name.startsWith('.'))
+  if (!binName) return null
+  const archs = execFileSync('lipo', ['-archs', join(macOs, binName)], { encoding: 'utf8' })
+  if (archs.includes('arm64')) return 'arm64'
+  if (/x86_64|x64/.test(archs)) return 'x64'
+  return null
 }
 
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
 const apps = []
-for (const dir of readdirSync(dist, { withFileTypes: true })) {
-  if (!dir.isDirectory() || !dir.name.startsWith('mac')) continue
-  const app = join(dist, dir.name, 'Synap.surf.app')
-  if (existsSync(app)) apps.push({ app, arch: archOf(dir.name) })
+if (existsSync(dist)) {
+  for (const dir of readdirSync(dist, { withFileTypes: true })) {
+    if (!dir.isDirectory() || !dir.name.startsWith('mac')) continue
+    const folder = join(dist, dir.name)
+    const name = readdirSync(folder).find((entry) => entry.endsWith('.app'))
+    if (!name) continue
+    const app = join(folder, name)
+    const arch = bundleArch(app)
+    if (arch) apps.push({ app, arch })
+  }
 }
 if (!apps.length) {
   console.error('no Mac app under dist')
@@ -41,7 +51,7 @@ for (const { app, arch } of apps) {
     const stage = join(tmpdir(), `surf-dmg-${arch}-${token}`)
     rmSync(stage, { recursive: true, force: true })
     mkdirSync(stage, { recursive: true })
-    const staged = join(stage, 'Synap.surf.app')
+    const staged = join(stage, basename(app))
     cpSync(app, staged, { recursive: true })
     writeFileSync(join(staged, 'Contents', 'Resources', 'setup-model.json'), `${JSON.stringify({ model })}\n`)
     try { execFileSync('xattr', ['-cr', staged], { stdio: 'inherit' }) } catch { /* quarantine bits are optional */ }

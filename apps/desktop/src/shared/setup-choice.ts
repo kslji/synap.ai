@@ -289,6 +289,48 @@ export function setupErrorCopy(error: {
 
 export const SETUP_TOKENS = TOKENS
 
+/** Screenshot harness only. Counts are the registry size and a measured sample, passed through the same formatters. */
+export function setupShot(kind: 'progress' | 'paused' | 'offline' | 'disk' | 'checksum' | 'ram'): SetupSnapshot {
+  const total = 1_280_835_840
+  const done = 412_000_000
+  const rate = byteRate([{ at: 0, bytes: 0 }, { at: 2000, bytes: 16_400_000 }])
+  const base: SetupSnapshot = {
+    phase: 'downloading',
+    modelId: 'qwen3.5-2b-q4_k_m',
+    modelName: 'Qwen 2B',
+    source: 'installer',
+    ramGb: null,
+    done,
+    total,
+    bytesPerSecond: rate,
+    error: null,
+  }
+  if (kind === 'progress') return base
+  if (kind === 'paused') return { ...base, phase: 'paused', bytesPerSecond: null }
+  if (kind === 'offline') return { ...base, phase: 'error', bytesPerSecond: null, error: { code: 'offline' } }
+  if (kind === 'disk') {
+    return {
+      ...base,
+      phase: 'error',
+      done: 0,
+      bytesPerSecond: null,
+      error: { code: 'disk', requiredBytes: requiredFreeBytes(total), freeBytes: 200_000_000 },
+    }
+  }
+  if (kind === 'checksum') return { ...base, phase: 'error', done: total, bytesPerSecond: null, error: { code: 'checksum' } }
+  return {
+    phase: 'error',
+    modelId: 'qwen3.5-9b-q4_k_m',
+    modelName: 'Qwen 9B',
+    source: 'installer',
+    ramGb: 4,
+    done: 0,
+    total: 5_680_522_464,
+    bytesPerSecond: null,
+    error: { code: 'ram', ramGb: 4, needRamGb: 16, suggestId: 'qwen3.5-2b-q4_k_m', suggestName: 'Qwen 2B' },
+  }
+}
+
 export interface SetupErrorView {
   code: 'offline' | 'disk' | 'checksum' | 'ram' | 'http'
   requiredBytes?: number | null

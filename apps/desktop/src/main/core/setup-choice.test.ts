@@ -18,6 +18,7 @@ import {
   requiredFreeBytes,
   setupCatalog,
   setupErrorCopy,
+  setupShot,
   suggestSmaller,
 } from '../../shared/setup-choice.js'
 
@@ -153,6 +154,26 @@ test('a file already adopted is kept, and a bundled file is copied', () => {
     catalog,
   })
   assert.equal(bundled.action, 'copy')
+})
+
+test('each screenshot fixture is the state it is named for', () => {
+  const progress = setupShot('progress')
+  assert.equal(progress.phase, 'downloading')
+  assert.equal(progress.error, null)
+  assert.equal(progress.done, 412_000_000)
+  assert.equal(progress.total, 1_280_835_840)
+  assert.equal(progress.bytesPerSecond, 8_200_000)
+  assert.equal(formatByteCount(progress.done), '412 MB')
+  assert.equal(formatByteRate(progress.bytesPerSecond ?? 0), '8.2 MB/s')
+  assert.ok(progress.done > 0 && progress.done < progress.total)
+  assert.equal(setupShot('paused').phase, 'paused')
+  assert.equal(setupShot('paused').bytesPerSecond, null)
+  assert.equal(setupShot('offline').error?.code, 'offline')
+  assert.equal(setupShot('disk').error?.code, 'disk')
+  assert.equal(setupShot('disk').error?.freeBytes, 200_000_000)
+  assert.equal(setupShot('checksum').error?.code, 'checksum')
+  assert.equal(setupShot('ram').error?.code, 'ram')
+  assert.equal(setupShot('ram').error?.needRamGb, 16)
 })
 
 test('speed needs two samples and is computed from them', () => {

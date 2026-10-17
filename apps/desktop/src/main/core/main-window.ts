@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { IPC, type AuthStatus, type BenchmarkResult, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeCompleteReq, type CodeCompleteResult, type CodeEditorFile, type CodeEditorText, type CodeProjectStatus, type CodeStorageUsage, type CodeVisionCaptureResult, type CodeVisionSaveResult, type ConversationSummary, type DeviceInfo, type DevWebRunReq, type DevWebRunResult, type DocumentResult, type FileDecideReq, type FileFolderGrant, type FileGrantReq, type FileIndexLimits, type FileIndexLimitsReq, type FileOsDenialKind, type FileSuggestFolder, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage, type UpdateOffer, type UsageReport, type WebCacheStatus } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, FileDecideReq as FileDecideBody, FileGrantReq as FileGrantBody, FileLimitsReq, FileOsKind, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
+import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DevWebRun, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, FileDecideReq as FileDecideBody, FileGrantReq as FileGrantBody, FileLimitsReq, FileOsKind, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, SpeechWav, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
 import { surfEnv } from './surf-env.js'
 import { NO_VOICE, startSpeak, stopSpeak } from './speech.js'
 
@@ -197,6 +197,10 @@ export interface Services {
     pause(id: string): Promise<void>
     resume(id: string): Promise<void>
   }
+  speech: {
+    prepare(): Promise<{ status: 'granted' | 'denied' | 'prompt' | 'unknown' }>
+    transcribe(wav: Buffer): Promise<{ ok: boolean; text: string; note: string }>
+  }
   lifecycle: {
     releaseWindow(): void
   }
@@ -357,6 +361,15 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.speechStop, (e) => {
     assertTrusted(e)
     stopSpeak()
+  })
+  handle(IPC.speechPrepare, (e) => {
+    assertTrusted(e)
+    return s.speech.prepare()
+  })
+  handle(IPC.speechTranscribe, (e, raw) => {
+    assertTrusted(e)
+    const body = SpeechWav.parse(raw)
+    return s.speech.transcribe(Buffer.from(body.wavBase64, 'base64'))
   })
 }
 

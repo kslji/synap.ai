@@ -1,6 +1,6 @@
 import React, { type MouseEvent } from 'react'
 
-function beginDownload(event: MouseEvent<HTMLAnchorElement>, os: 'mac' | 'windows', onStart?: (os: 'mac' | 'windows') => void) {
+export function beginDownload(event: MouseEvent<HTMLAnchorElement>, os: 'mac' | 'windows', onStart?: (os: 'mac' | 'windows') => void) {
   event.preventDefault()
   onStart?.(os)
   const link = document.createElement('a')

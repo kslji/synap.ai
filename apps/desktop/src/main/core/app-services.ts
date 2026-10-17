@@ -41,7 +41,8 @@ import { createLicenceApi } from './licence-service.js'
 import { adoptFromFolder, adoptRows, adoptVerified } from './adopt-model.js'
 import { accountsBlocked, devModeEnabled, isModelSiteUrl, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
-import { LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
+import { FIRST_RUN_CHAT_MODEL_IDS, LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
+import { setupCatalog } from '../../shared/setup-choice.js'
 import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
@@ -72,7 +73,8 @@ import { commandRisk } from './code-agent/permission.js'
 import { runSplitTask } from './code-agent/split.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
-import { downloadVerified } from './model-download.js'
+import { downloadVerified, readFreeBytes } from './model-download.js'
+import { createSetupController } from './setup-controller.js'
 import { NOTHING_HEARD, osMicStatus, SPEECH_FAILED, SPEECH_MODEL_MISSING, SPEECH_MODEL_OFFLINE, SPEECH_PROGRAM_MISSING } from './dictation.js'
 import { resolveWhisperCli, transcribeFile } from './dictation-run.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
@@ -497,6 +499,7 @@ export async function createServices(): Promise<Services> {
       ...reachNow(settings.offlineOnly),
       offlineOnly: settings.offlineOnly,
       onboardingComplete: settings.onboardingComplete,
+      holdSetup: Boolean(surfEnv('CAPTURE_DIR')),
       chatPersistence: store.mode,
       devWeb: devWebEnabled(),
       ...(devWebEnabled() ? { devApiUrl: apiBase(settings) } : {}),
@@ -515,6 +518,10 @@ export async function createServices(): Promise<Services> {
   }
 
   async function chooseChat(reg: ModelRegistry, preferredId: string, agentId = 'general'): Promise<ModelEntry | null> {
+    if (agentId === 'code' && (FIRST_RUN_CHAT_MODEL_IDS as readonly string[]).includes(preferredId)) {
+      const picked = withLocal(reg).models.find((m) => m.id === preferredId && m.role === 'chat')
+      if (picked && await installed(picked.file, picked.size_bytes)) return picked
+    }
     const chats = withLocal(reg).models.filter((m) => m.role === 'chat' && servesAgent(m, agentId))
     const ready = async (m: ModelEntry) => installed(m.file, m.size_bytes)
     if (preferredId) {
@@ -2011,6 +2018,8 @@ export async function createServices(): Promise<Services> {
 
   const seenAdopt = new Map<string, string>()
   let adoptChain: Promise<void> = Promise.resolve()
+  let lastSetupModel: string | null = null
+  let lastSetupFile: string | null = null
 
   function downloadsDir(): string {
     const override = surfEnv('DOWNLOADS_DIR')?.trim()
@@ -2088,6 +2097,61 @@ export async function createServices(): Promise<Services> {
     }
   }
 
+  function readSetupText(path: string): string | null {
+    try { return readFileSync(path, 'utf8') } catch { return null }
+  }
+
+  function setupMarkerText(): string | null {
+    const packaged = join(process.resourcesPath, 'setup-model.json')
+    const dev = join(app.getAppPath(), 'resources', 'setup-model.json')
+    return readSetupText(packaged) ?? readSetupText(dev)
+  }
+
+  function bundledModelPath(file: string): string | null {
+    const candidates = [
+      join(process.resourcesPath, 'bundled-model', file),
+      join(app.getAppPath(), 'resources', 'bundled-model', file),
+    ]
+    return candidates.find((path) => existsSync(path)) ?? null
+  }
+
+  const setupChoicePath = () => join(app.getPath('userData'), 'setup-choice.json')
+
+  const setupApi = createSetupController({
+    ramGb: () => hw.totalRamGb,
+    markerText: setupMarkerText,
+    overrideText: () => readSetupText(setupChoicePath()),
+    writeOverride: (modelId) => {
+      mkdirSync(app.getPath('userData'), { recursive: true })
+      writeFileSync(setupChoicePath(), JSON.stringify({ model: modelId }), { mode: 0o600 })
+    },
+    linkModelId: () => lastSetupModel,
+    catalog: () => setupCatalog(registry().models),
+    isInstalled: async (model) => installed(model.file, model.sizeBytes),
+    adopt: async (preferredId) => {
+      await queueAdopt(preferredId, lastSetupFile)
+      const catalog = setupCatalog(registry().models)
+      const order = [preferredId, ...catalog.map((model) => model.id).filter((id) => id !== preferredId)]
+      for (const id of order) {
+        const model = catalog.find((item) => item.id === id)
+        if (model && await installed(model.file, model.sizeBytes)) return id
+      }
+      return null
+    },
+    bundled: (model) => bundledModelPath(model.file) != null,
+    bundledSource: (model) => bundledModelPath(model.file),
+    spec: (model) => ({ url: model.url, dest: join(modelsDir(), model.file), size: model.sizeBytes, sha256: model.sha256 }),
+    saveChoice: (modelId) => {
+      const settings = readSettings()
+      writeSettings({ ...settings, chatModelId: modelId, codeModelId: modelId, onboardingComplete: true })
+    },
+    offlineOnly: () => readSettings().offlineOnly,
+    freeBytes: (dir) => readFreeBytes(dir),
+    emit: (snapshot) => {
+      for (const win of BrowserWindow.getAllWindows()) safeSend(win, IPC.setupEvent, snapshot)
+    },
+  })
+
   const services: Services = {
     chat: {
       async send(req, win) {
@@ -2159,12 +2223,15 @@ export async function createServices(): Promise<Services> {
       prepare: prepareMicrophone,
       transcribe: transcribeRecording,
     },
-    adoptLocal: () => queueAdopt(null, null),
+    adoptLocal: () => queueAdopt(lastSetupModel, lastSetupFile),
     applySetupLink(raw: string): string | null {
       const parsed = parseSetupLink(raw)
+      lastSetupModel = parsed.modelId
+      lastSetupFile = parsed.filePath
       void queueAdopt(parsed.modelId, parsed.filePath)
       return parsed.modelId
     },
+    setup: setupApi,
     conversations: {
       list: async () => store.list(),
       open: async (id) => store.open(id),

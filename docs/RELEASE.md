@@ -36,7 +36,7 @@ CI sets `SURF_SMOKE=1` and launches the built binary. That opens an encrypted da
 
 ## Dev mode and the licence screen
 
-Dev mode is the default until a release flag is set. The app opens on the chat screen, the licence activation screen stays in the code but does not run, and the app does not call `api.synap.surf`. Pack sync and licence refresh stay off. Settings shows a Dev mode badge. The sidebar chip follows the real sync state and does not say Dev mode. The only `synap.surf` link in dev mode opens the public site in the system browser so a model file can be saved there. `/buy` and the API stay blocked.
+Dev mode is the default until a release flag is set. The app opens on the chat screen, the licence activation screen stays in the code but does not run, and the app does not call `api.synap.surf`. Pack sync and licence refresh stay off. Settings shows a Dev mode badge. The sidebar chip follows the real sync state and does not say Dev mode, and Settings and Packs show "Dev mode, sync off." The first open with no chat model still downloads the chosen Qwen file; after that, dev mode opens on the chat screen. The only `synap.surf` link in dev mode opens the public site in the system browser so a model file can be saved there. `/buy` and the API stay blocked.
 
 Turn the licence gate back on with one of these:
 
@@ -50,9 +50,11 @@ Turn the licence gate back on with one of these:
 
 ## Model files
 
-The website downloads Qwen 2B, 4B, and 9B from the Hugging Face URLs, sizes, and SHA-256 values in `apps/desktop/resources/models.registry.json`. The Mac and Windows installers are the same for every size. The model file is not inside the disk image or the `.exe`.
+The website offers one installer per Qwen size: 2B, 4B, and 9B, Q4_K_M, from the URLs, sizes, and SHA-256 values in `apps/desktop/resources/models.registry.json`. The small installers do not contain the model. A separate offline installer contains the 2B file (1,280,835,840 bytes). A tag builds that pair (`.dmg` and `.exe`) and publishes it beside the small installers. Each finished file must stay under GitHub's 2 GiB asset limit.
 
-On launch the app looks in the Downloads folder for those exact file names. It also accepts `synap://setup?model=<registry id>&file=<absolute path>`. A file is moved into the app models folder only after its SHA-256 matches the registry. A mismatch stays where it is. If nothing matches, chat says to get a model from synap.surf and opens that page in the browser. The app does not download a model itself.
+The size is written inside the app as `setup-model.json`. On macOS the release job stamps that file into a copy of the app and makes one disk image per size, because dragging the app out of a disk image drops the disk-image name. On Windows the NSIS script reads the installer file name (`-2b`, `-4b`, `-9b`, `-offline-2b`) and writes the same file. A `synap://setup?model=` link is only a fallback, because an unsigned app is not the handler until it has been opened once.
+
+On first open the app downloads that model into the app data folder, outside the bundle, so an update does not fetch it again. It shows bytes and speed, can pause, and resumes after a dropped connection or a restart. It checks the SHA-256 before it keeps the file, then opens the Code chat. If a matching file is already in Downloads, that file is verified and used. Nothing named, and RAM unreadable, means 2B. Otherwise the choice follows RAM the same way as the model tier: under 8 GB is 2B, 8 GB is 4B, 16 GB and above is 9B. A chosen size that does not fit shows that, and offers the largest smaller size that does. The offline 2B installer copies its bundled file and does not need the network.
 
 ## How to turn on signing later
 

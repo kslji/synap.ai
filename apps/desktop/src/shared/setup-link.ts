@@ -66,7 +66,7 @@ function absolutePath(value: string): string | null {
   return null
 }
 
-/** Known model id, or Qwen 2B when a link omitted one. The app does not download it. */
+/** Known model id, or Qwen 2B when a link omitted one. The first open downloads that file. */
 export function resolveSetupModel(input: string | null | undefined): string {
   return parseSetupModel(input) ?? STARTER_CHAT_MODEL_ID
 }

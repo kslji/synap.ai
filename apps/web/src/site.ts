@@ -43,12 +43,18 @@ export const BUNDLED_ASSETS: ReleaseAsset[] = [
 /** The only link that opens the releases index. Download buttons never use it. */
 export const ALL_DOWNLOADS_URL = 'https://github.com/kslji/synap.ai/releases'
 
-/** Qwen chat rows from models.registry.json. Sizes are decimal GB of size_bytes. */
+/** Decimal gigabytes from a byte count. 1280835840 is 1.28 GB. */
+export function formatModelSize(bytes: number): string {
+  return `${(bytes / 1_000_000_000).toFixed(2)} GB`
+}
+
+/** Qwen chat rows from models.registry.json. The button downloads an installer, not the model. */
 export const SETUP_MODELS = [
   {
     id: 'qwen3.5-2b-q4_k_m',
+    token: '2b',
     name: 'Qwen 2B',
-    size: '1.28 GB',
+    size: formatModelSize(1280835840),
     ramGb: 4,
     file: 'Qwen3.5-2B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf',
@@ -57,8 +63,9 @@ export const SETUP_MODELS = [
   },
   {
     id: 'qwen3.5-4b-q4_k_m',
+    token: '4b',
     name: 'Qwen 4B',
-    size: '2.74 GB',
+    size: formatModelSize(2740937888),
     ramGb: 8,
     file: 'Qwen3.5-4B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf',
@@ -67,8 +74,9 @@ export const SETUP_MODELS = [
   },
   {
     id: 'qwen3.5-9b-q4_k_m',
+    token: '9b',
     name: 'Qwen 9B',
-    size: '5.68 GB',
+    size: formatModelSize(5680522464),
     ramGb: 16,
     file: 'Qwen3.5-9B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf',
@@ -118,11 +126,50 @@ export function downloadHrefs(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'o
   return { mac, win, intel }
 }
 
+/** A per-size or offline installer. The plain Mac and Windows files do not carry a size. */
+export function isSizedInstaller(name: string): boolean {
+  return /-(?:offline-2b|2b|4b|9b)\.(dmg|exe|zip)$/i.test(name)
+}
+
+export function releaseVersion(assets: ReleaseAsset[]): string | null {
+  for (const asset of assets) {
+    const match = /Synap\.surf-(\d+\.\d+\.\d+)-/.exec(asset.name)
+    if (match) return match[1]
+  }
+  return null
+}
+
+export function releaseDownloadBase(assets: ReleaseAsset[]): string | null {
+  const url = assets.find((asset) => asset.url.includes('/releases/download/'))?.url
+  if (!url) return null
+  const cut = url.lastIndexOf('/')
+  return cut > 0 ? url.slice(0, cut) : null
+}
+
+export function sizedInstallerHref(
+  assets: ReleaseAsset[],
+  os: 'mac' | 'windows' | 'other',
+  arch: 'arm64' | 'x64',
+  token: '2b' | '4b' | '9b' | 'offline-2b',
+): string {
+  const targetOs = os === 'windows' ? 'windows' : 'mac'
+  const targetArch = targetOs === 'windows' ? 'x64' : arch
+  const ext = targetOs === 'windows' ? 'exe' : 'dmg'
+  const pool = assets.length ? assets : BUNDLED_ASSETS
+  const version = releaseVersion(pool) ?? releaseVersion(BUNDLED_ASSETS)
+  if (!version) return ''
+  const name = `Synap.surf-${version}-${targetArch}-${token}.${ext}`
+  const found = pool.find((asset) => asset.name === name) ?? BUNDLED_ASSETS.find((asset) => asset.name === name)
+  if (found) return found.url
+  const base = releaseDownloadBase(pool) ?? releaseDownloadBase(BUNDLED_ASSETS)
+  return base ? `${base}/${name}` : ''
+}
+
 export function pickDownload(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'other', arch: 'arm64' | 'x64'): ReleaseAsset | null {
   if (os === 'other') return null
   const ext = os === 'mac' ? '.dmg' : '.exe'
   const token = os === 'windows' ? 'x64' : arch
-  return assets.find((asset) => asset.name.endsWith(ext) && asset.name.includes(token) && !asset.name.endsWith('.blockmap')) ?? null
+  return assets.find((asset) => asset.name.endsWith(ext) && asset.name.includes(token) && !asset.name.endsWith('.blockmap') && !isSizedInstaller(asset.name)) ?? null
 }
 
 export function allowSubmit(now: number, last: number | null, minGapMs = 30_000): boolean {

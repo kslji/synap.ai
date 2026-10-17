@@ -88,6 +88,14 @@ export interface Services {
     importLocal(path: string | null, win: BrowserWindow): Promise<{ id: string } | null>
     benchmark(modelId: string): Promise<BenchmarkResult>
   }
+  setup: {
+    state(): Promise<import('../../shared/setup-choice.js').SetupSnapshot>
+    start(): Promise<void>
+    pause(): void
+    resume(): Promise<void>
+    retry(): Promise<void>
+    useSmaller(modelId: string): Promise<void>
+  }
   conversations: {
     list(): Promise<ConversationSummary[]>
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
@@ -232,6 +240,12 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
     return s.models.importLocal(path, win)
   })
   handle(IPC.modelsBenchmark, (e, raw) => { assertTrusted(e); return s.models.benchmark(ModelId.parse(raw)) })
+  handle(IPC.setupState, (e) => { assertTrusted(e); return s.setup.state() })
+  handle(IPC.setupStart, (e) => { assertTrusted(e); return s.setup.start() })
+  handle(IPC.setupPause, (e) => { assertTrusted(e); s.setup.pause() })
+  handle(IPC.setupResume, (e) => { assertTrusted(e); return s.setup.resume() })
+  handle(IPC.setupRetry, (e) => { assertTrusted(e); return s.setup.retry() })
+  handle(IPC.setupUseSmaller, (e, raw) => { assertTrusted(e); return s.setup.useSmaller(ModelId.parse(raw)) })
   handle(IPC.conversationsList, (e) => { assertTrusted(e); return s.conversations.list() })
   handle(IPC.conversationsOpen, (e, raw) => { assertTrusted(e); return s.conversations.open(ConversationId.parse(raw)) })
   handle(IPC.conversationsDelete, (e, raw) => { assertTrusted(e); return s.conversations.remove(ConversationId.parse(raw)) })

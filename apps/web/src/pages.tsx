@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { Cpu } from 'lucide-react'
 import { BlobMascot, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
-import { DownloadButtons } from './download-buttons'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, type ReleaseListItem } from './site'
+import { beginDownload } from './download-buttons'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, sizedInstallerHref, type ReleaseListItem } from './site'
 
 export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -218,24 +218,25 @@ function webglRenderer(): string {
 }
 
 export const MAC_STEPS = [
-  'Open the download when it finishes.',
+  'Open the disk image when it finishes.',
   'Drag Synap.surf into Applications.',
-  'If macOS blocks the app, choose Open Anyway in Privacy & Security. You only do this once.',
+  'Open Synap.surf. If macOS blocks it, go to System Settings, then Privacy & Security, and click Open Anyway. You only do this once.',
+  'The model downloads on its own. Leave that screen up until it finishes.',
 ]
 
 export const WINDOWS_STEPS = [
   'Open the installer when it finishes.',
-  'If Windows asks, choose More info, then Run anyway.',
+  'If SmartScreen says Windows protected your PC, click More info, then Run anyway.',
   'Finish the prompts. You only do this once.',
+  'The model downloads on its own the first time the app opens.',
 ]
 
 export function DownloadCard() {
   const initial = detectClient({ ua: typeof navigator === 'undefined' ? '' : navigator.userAgent })
   const initialArch = initial.os === 'mac' ? initial.arch : 'arm64'
-  const baked = downloadHrefs(BUNDLED_ASSETS, initial.os, initialArch)
   const [os, setOs] = useState(initial.os)
   const [arch, setArch] = useState(initialArch)
-  const [links, setLinks] = useState(baked)
+  const [assetPool, setAssetPool] = useState(BUNDLED_ASSETS)
   const [started, setStarted] = useState<'mac' | 'windows' | null>(null)
   const preferIntel = useRef(false)
 
@@ -261,15 +262,15 @@ export function DownloadCard() {
       const nextArch = preferIntel.current ? 'x64' : client.os === 'mac' ? client.arch : 'arm64'
       setOs(client.os)
       setArch(nextArch)
-      setLinks(downloadHrefs(assets, client.os, nextArch))
+      setAssetPool(assets)
     }
     void load()
     return () => { gone = true }
   }, [])
 
-  const macHref = arch === 'x64' ? links.intel : links.mac
-  const macHere = os === 'mac' && arch !== 'x64'
-  const winHere = os === 'windows'
+  function beginSizeDownload(event: Parameters<typeof beginDownload>[0], which: 'mac' | 'windows') {
+    beginDownload(event, which, setStarted)
+  }
 
   return (
     <div className="mt-5 flex flex-col gap-2 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
@@ -278,42 +279,50 @@ export function DownloadCard() {
           <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
           <div>
             <p className="text-sm font-semibold">Pick a size</p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Download the model, then the app. Every size uses the same installer.</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Each button downloads the app. The model downloads on its own the first time you open it.</p>
           </div>
         </div>
         <div className="mt-3 flex flex-col gap-2">
-          {SETUP_MODELS.map((model) => (
-            <a
-              key={model.id}
-              href={model.url}
-              download={model.file}
-              data-setup-model={model.id}
-              className="model-choice"
-            >
-              <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
-              <span>
-                <span className="font-semibold">{model.name}</span>
-                <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                  <span data-model-size={model.id}>{model.size}</span>
-                  {' · '}
-                  <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+          {SETUP_MODELS.map((model) => {
+            const href = sizedInstallerHref(assetPool, os === 'other' ? 'mac' : os, arch, model.token)
+            const label = os === 'windows' ? 'Windows' : arch === 'x64' ? 'Intel Mac' : 'Mac'
+            return (
+              <a
+                key={model.id}
+                href={href}
+                data-setup-model={model.id}
+                data-setup-installer={model.token}
+                className="model-choice"
+                onClick={(event) => beginSizeDownload(event, os === 'windows' ? 'windows' : 'mac')}
+              >
+                <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
+                <span>
+                  <span className="font-semibold">{model.name}</span>
+                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                    <span data-model-size={model.id}>{model.size}</span>
+                    {' · '}
+                    <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+                    {' · '}
+                    {label}
+                  </span>
                 </span>
-              </span>
-            </a>
-          ))}
+              </a>
+            )
+          })}
         </div>
       </div>
-      <DownloadButtons
-        mac={macHref}
-        win={links.win}
-        macLabel={`Download for Mac${macHere ? ' · this computer' : arch === 'x64' ? ' · Intel' : ''}`}
-        winLabel={`Download for Windows${winHere ? ' · this computer' : ''}`}
-        macSuggested={macHere}
-        winSuggested={winHere}
-        onStart={setStarted}
-      />
-      <button type="button" className="self-start text-xs text-[var(--muted)] underline" data-download-intel="yes" onClick={() => { preferIntel.current = true; setArch('x64') }}>
+      <a
+        className="self-start text-sm text-[var(--accent-text)]"
+        href={sizedInstallerHref(assetPool, os === 'other' ? 'mac' : os, arch, 'offline-2b')}
+        data-offline-installer="yes"
+      >
+        Offline installer (2B, ~1.3 GB)
+      </a>
+      <button type="button" className="self-start text-xs text-[var(--muted)] underline" data-download-intel="yes" onClick={() => { preferIntel.current = true; setOs('mac'); setArch('x64') }}>
         Intel Mac?
+      </button>
+      <button type="button" className="self-start text-xs text-[var(--muted)] underline" data-download-other-os="yes" onClick={() => setOs(os === 'windows' ? 'mac' : 'windows')}>
+        {os === 'windows' ? 'Mac installer' : 'Windows installer'}
       </button>
       <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
       {started && (

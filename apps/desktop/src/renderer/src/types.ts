@@ -15,7 +15,7 @@ function copyPlan(plan: CodePlanView): CodePlanView {
   return { status: plan.status, steps, undos: plan.undos.map((undo) => ({ stepId: undo.stepId, title: undo.title })) }
 }
 
-export type View = 'onboarding' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs' | 'usage'
+export type View = 'onboarding' | 'setup' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs' | 'usage'
 
 export interface UiMsg {
   id: string

@@ -37,7 +37,7 @@ export function HomePage() {
                 Code runs on your laptop.
               </h1>
               <p className="mt-5 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
-                {product.tagline} Code plans a change, edits files, and runs the project’s tests. Each finished step can be undone. Chats and files stay on this computer. You pick a Qwen model on this site, then open the app.
+                {product.tagline} Code plans a change, edits files, and runs the project’s tests. Each finished step can be undone. Chats and files stay on this computer. You pick a Qwen model on this site. The app downloads it the first time you open it.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <a className="btn btn-primary no-underline" href="#download">Download the app</a>
@@ -82,7 +82,7 @@ export function HomePage() {
           </div>
         </Section>
 
-        <Section id="download" title="Pick a model, then the app" lede="Qwen 2B, Qwen 4B, and Qwen 9B are all available. The file size and the memory note come from the model list.">
+        <Section id="download" title="Pick a model, then the app" lede="Qwen 2B, Qwen 4B, and Qwen 9B. Each button downloads the app. The model downloads on its own the first time you open it. The size and the memory note come from the model list.">
           <div className="card mt-8 px-6 py-6">
             <DownloadCard />
             <BetaUnsignedNote />

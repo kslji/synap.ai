@@ -14,6 +14,8 @@ import { AgentsScreen, ChatsScreen, HomeScreen } from './screens/HomeScreen'
 import { activeChatModel, activeCodeModel, ModelsScreen } from './screens/ModelsScreen'
 import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
+import { SetupScreen, setupShot } from './screens/SetupScreen'
+import type { SetupSnapshot } from '../../shared/setup-choice'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { UsagePanel } from './screens/UsageStorage'
 import { createFrameBatcher } from '../../shared/stream-batch'
@@ -100,6 +102,8 @@ export default function App() {
   const [shots, setShots] = useState<CodeShot[]>([])
   const [streaming, setStreaming] = useState(false)
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
+  const [setupLive, setSetupLive] = useState<SetupSnapshot | null>(null)
+  const [setupPreview, setSetupPreview] = useState<SetupSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
@@ -188,9 +192,35 @@ export default function App() {
   useEffect(() => {
     if (!status || !licence || booted.current) return
     booted.current = true
+    const hasChat = status.models.some((model) => model.role === 'chat' && model.installed)
+    if (!status.holdSetup && !hasChat) {
+      setView('setup')
+      return
+    }
     if (licence.state === 'dev') setView('chat')
     else if (status.onboardingComplete) setView('home')
   }, [status, licence])
+
+  useEffect(() => {
+    if (view !== 'setup' || setupPreview) return
+    const off = api.setup.onEvent((snapshot) => {
+      setSetupLive(snapshot)
+      if (snapshot.phase === 'done') {
+        setAgentId('code')
+        setView('chat')
+        void refresh()
+      }
+    })
+    void api.setup.state().then((snapshot) => {
+      setSetupLive(snapshot)
+      if (snapshot.phase === 'done') {
+        setAgentId('code')
+        setView('chat')
+      }
+    }).catch(() => undefined)
+    void api.setup.start().catch(() => undefined)
+    return off
+  }, [api, refresh, view, setupPreview])
 
   useEffect(() => {
     if (agentId !== 'code') return
@@ -547,6 +577,7 @@ export default function App() {
       if (syncDemoTimer.current != null) window.clearTimeout(syncDemoTimer.current)
       syncDemoTimer.current = null
       syncPreview.current = null
+      setSetupPreview(null)
       if (scene === 'sync-idle' || scene === 'sync-syncing' || scene === 'sync-synced' || scene === 'sync-failed' || scene === 'sync-offline') {
         const show = (syncing: boolean, failed: boolean, mode: 'online' | 'offline') => {
           const next = demoSync({ mode, osOnline: true, syncing, failed })
@@ -561,6 +592,12 @@ export default function App() {
           show(true, false, 'online')
           syncDemoTimer.current = window.setTimeout(() => show(false, false, 'online'), 80)
         }
+        return
+      }
+      if (scene === 'setup-progress' || scene === 'setup-paused' || scene === 'setup-offline' || scene === 'setup-disk' || scene === 'setup-checksum' || scene === 'setup-ram') {
+        const kind = scene.slice('setup-'.length) as 'progress' | 'paused' | 'offline' | 'disk' | 'checksum' | 'ram'
+        setSetupPreview(setupShot(kind))
+        setView('setup')
         return
       }
       if (scene === 'home') {
@@ -896,6 +933,7 @@ export default function App() {
   const shownPacks = demoPacks ?? packs
   const devMode = licence.state === 'dev'
   const screen: View = devMode && view === 'onboarding' ? 'chat' : view
+  const setupShown = setupPreview ?? setupLive
 
   if (screen === 'signin') {
     return (
@@ -912,6 +950,33 @@ export default function App() {
             await refresh()
             setView('settings')
           }}
+        />
+      </div>
+    )
+  }
+
+  if (screen === 'setup') {
+    const snapshot = setupShown ?? {
+      phase: 'checking' as const,
+      modelId: '',
+      modelName: '',
+      source: 'default' as const,
+      ramGb: status.ramGb > 0 ? status.ramGb : null,
+      done: 0,
+      total: 0,
+      bytesPerSecond: null,
+      error: null,
+    }
+    return (
+      <div className="h-full" data-ready="yes" data-screen="setup">
+        <SetupScreen
+          snapshot={snapshot}
+          theme={settings.theme}
+          onTheme={chooseTheme}
+          onPause={() => { void api.setup.pause() }}
+          onResume={() => { void api.setup.resume() }}
+          onRetry={() => { void api.setup.retry() }}
+          onUseSmaller={(modelId) => { void api.setup.useSmaller(modelId) }}
         />
       </div>
     )

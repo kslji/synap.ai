@@ -2,7 +2,7 @@
  * Preload (sandboxed, contextIsolation on). Exposes window.surf — never ipcRenderer itself.
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type FileIndexEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
+import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type FileIndexEvent, type LibraryEvent, type ModelEvent, type SetupSnapshot } from '../shared/ipc-contract'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T) => cb(payload)
@@ -21,6 +21,15 @@ const api: SurfApi = {
     benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
     download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
+  },
+  setup: {
+    state: () => ipcRenderer.invoke(IPC.setupState),
+    start: () => ipcRenderer.invoke(IPC.setupStart),
+    pause: () => ipcRenderer.invoke(IPC.setupPause),
+    resume: () => ipcRenderer.invoke(IPC.setupResume),
+    retry: () => ipcRenderer.invoke(IPC.setupRetry),
+    useSmaller: (modelId) => ipcRenderer.invoke(IPC.setupUseSmaller, modelId),
+    onEvent: (cb) => subscribe<SetupSnapshot>(IPC.setupEvent, cb),
   },
   packs: {
     list: () => ipcRenderer.invoke(IPC.packsList),

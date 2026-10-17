@@ -62,7 +62,7 @@ export function DocsPage() {
           <section id="model" aria-labelledby="model-title">
             <h2 id="model-title" className="text-2xl font-semibold">Pick a model on this website</h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">
-              Choose Qwen 2B, Qwen 4B, or Qwen 9B on the home page. The file downloads from the model host. When you open Synap.surf, it looks in Downloads for that file, checks it, and moves it in. The app does not download the model itself.
+              Choose Qwen 2B, Qwen 4B, or Qwen 9B on the home page. Each button downloads the app. The model downloads on its own the first time you open it. If that same file is already in Downloads and the check matches, the app uses it.
             </p>
             <p className="mt-3"><a href="/#download">Go to the model list</a></p>
           </section>

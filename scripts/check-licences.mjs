@@ -72,7 +72,8 @@ function walkFiles(dir, out) {
 
 const assets = []
 for (const dir of ['animation', 'apps', 'packages', 'resources']) walkFiles(join(root, dir), assets)
-const audio = assets.filter((path) => /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(path))
+// Test fixtures are not shipped, so a wav used only by a unit test is not a package asset.
+const audio = assets.filter((path) => /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(path) && !/[\\/]fixtures[\\/]/.test(path))
 const packagedClips = assets.filter((path) => /animation\/mp4\/.+\.mp4$/i.test(path) && path.includes(`${join('apps', 'desktop', 'out')}`))
 const builder = readFileSync(join(root, 'apps/desktop/electron-builder.cjs'), 'utf8')
 if (!builder.includes('!**/*.mp4') || /from:\s*'animation\/mp4'/.test(builder)) bad.push('electron-builder packages a reference clip')

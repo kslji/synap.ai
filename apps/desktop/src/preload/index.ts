@@ -19,6 +19,7 @@ const api: SurfApi = {
   models: {
     status: () => ipcRenderer.invoke(IPC.modelsStatus),
     benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
+    download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
   },
   packs: {
@@ -137,6 +138,8 @@ const api: SurfApi = {
   speech: {
     speak: (text) => ipcRenderer.invoke(IPC.speechSpeak, text),
     stop: () => ipcRenderer.invoke(IPC.speechStop),
+    prepare: () => ipcRenderer.invoke(IPC.speechPrepare),
+    transcribe: (req) => ipcRenderer.invoke(IPC.speechTranscribe, req),
   },
 }
 

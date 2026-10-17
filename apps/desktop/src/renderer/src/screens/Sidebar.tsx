@@ -4,6 +4,7 @@ import { BlobMascot, type ThemeChoice } from '@surf/ui'
 import { useMascotActivity } from '../mascot-activity'
 import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
+import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
 import { labelFromAgentId } from '../../../shared/chat-title'
 import { clipWords, SIDEBAR_PREVIEW_LIMIT, SIDEBAR_TITLE_LIMIT } from '../../../shared/reply-text'
 import { SURF_CHIP_IDLE, surfChipStep, surfChipText, surfChipTone, type SurfChipHold } from '../../../shared/surf-chip'
@@ -89,7 +90,7 @@ export function Sidebar({
     return () => window.clearTimeout(timer)
   }, [sync?.state])
   const phase = hold.phase
-  const text = surfChipText(phase)
+  const text = surfChipText(phase, mascotName)
   const tone = surfChipTone(phase, theme === 'dark' ? 'dark' : 'light')
   useEffect(() => { setName(mascotName) }, [mascotName])
   const needle = query.trim().toLowerCase()
@@ -124,12 +125,12 @@ export function Sidebar({
           className="mascot-name"
           data-mascot-name="yes"
           data-mascot-rename="yes"
-          aria-label="Mascot name"
+          aria-label="Bot name"
           value={name}
-          maxLength={40}
+          maxLength={BOT_NAME_LIMIT}
           onChange={(event) => setName(event.target.value)}
-          onBlur={() => {
-            const next = name.trim() || mascotName
+          onBlur={(event) => {
+            const next = cleanMascotName(event.currentTarget.value)
             setName(next)
             if (next !== mascotName) onMascotName(next)
           }}
@@ -145,7 +146,7 @@ export function Sidebar({
                 <span className="chat-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <span className="min-w-0 text-sm font-semibold leading-snug">{clipWords(chat.title, SIDEBAR_TITLE_LIMIT)}</span>
+                    <span className="min-w-0 text-sm font-semibold leading-snug" data-chat-title="yes">{clipWords(chat.title, SIDEBAR_TITLE_LIMIT)}</span>
                     <span className="agent-tag shrink-0" data-agent-tag="yes">{label}</span>
                   </span>
                   <span className="mt-0.5 block text-xs leading-snug text-[var(--muted)]">{chat.preview ? clipWords(chat.preview, SIDEBAR_PREVIEW_LIMIT) : when(chat.updatedAt)}</span>

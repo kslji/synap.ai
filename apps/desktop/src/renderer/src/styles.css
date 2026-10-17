@@ -246,6 +246,42 @@ a { color: var(--accent-text); }
   line-height: 1.35;
   white-space: normal;
 }
+.bot-name {
+  min-width: 0;
+  max-width: 16rem;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+.bot-name.is-edit {
+  width: 9rem;
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 2px 8px;
+  outline: 2px solid var(--accent-text);
+}
+.bot-name:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.assistant-name {
+  margin: 2px 0 6px 2px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.2;
+}
 .shell-title-dot { color: var(--muted); font-weight: 500; }
 .agent-tag {
   flex: none;

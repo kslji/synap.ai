@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { go, launch } from './launch.mjs'
 
 async function expectSwitchBesideLabel(page) {
@@ -175,21 +176,103 @@ test('the Surf chip shows idle, syncing, synced, failed, and offline', async () 
   }
 })
 
-test('chat header is the agent chip and title, and device control is refused', async () => {
+test('chat header is the bot name and agent badge, and device control is refused', async () => {
   const { app, page, dir } = await launch({})
   try {
+    await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Surf')
+    await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
     await expect(page.locator('header')).not.toContainText('Which model should I pick?')
     await page.locator('textarea').fill('take control of my Mac and open files')
     await page.getByRole('button', { name: 'Send' }).click()
     const reply = page.locator('[data-assistant-message="yes"]')
     await expect(reply).toContainText("isn't available yet", { timeout: 20_000 })
     await expect(reply).not.toContainText('I opened')
-    await expect(page.locator('[data-chat-title="yes"]')).toHaveText('take control of my Mac and open files')
+    await expect(reply.locator('[data-assistant-name="yes"]')).toHaveText('Surf')
+    await expect(page.locator('[data-user-message="yes"]')).toHaveText('take control of my Mac and open files')
+    await expect(page.locator('[data-chat-row].is-on')).toContainText('take control')
     await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
+    await expect(page.locator('header')).not.toContainText('take control')
     await expect(page.locator('header')).not.toContainText('Which model should I pick?')
     await expect(reply).toHaveScreenshot('device-control-reply.png')
   } finally {
     await app.close()
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the header bot name renames, persists, and falls back to Surf', async () => {
+  test.setTimeout(120_000)
+  for (const theme of ['light', 'dark']) {
+    const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' })
+    try {
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      const header = page.locator('header')
+      await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Surf')
+      await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
+      await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Surf')
+      await expect(page.locator('textarea')).toHaveAttribute('placeholder', 'Message Surf…')
+      await expect(header).not.toContainText('what is 2+2')
+      await expect(header).toHaveScreenshot(`header-surf-${theme}.png`)
+
+      await page.locator('[data-bot-name="yes"]').click()
+      const editor = page.locator('[data-bot-name-edit="yes"]')
+      await editor.fill('Harbor')
+      await editor.press('End')
+      await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
+      await expect(header).toHaveScreenshot(`header-edit-${theme}.png`)
+      await editor.press('Enter')
+      await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Harbor')
+      await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
+      await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Harbor')
+      await expect(page.locator('textarea')).toHaveAttribute('placeholder', 'Message Harbor…')
+      await expect(page.locator('[data-sync-chip="yes"]')).toHaveAttribute('data-sync-label', 'Offline')
+      await expect.poll(() => JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).mascotName).toBe('Harbor')
+      await expect(header).toHaveScreenshot(`header-renamed-${theme}.png`)
+
+      if (theme === 'light') {
+        await page.locator('[data-bot-name="yes"]').click()
+        await page.locator('[data-bot-name-edit="yes"]').fill('Tide')
+        await page.locator('[data-bot-name-edit="yes"]').press('Escape')
+        await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Harbor')
+        await expect(page.locator('[data-bot-name-edit="yes"]')).toHaveCount(0)
+
+        await page.locator('[data-bot-name="yes"]').click()
+        await page.locator('[data-bot-name-edit="yes"]').fill('')
+        await page.locator('[data-bot-name-edit="yes"]').press('Enter')
+        await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Surf')
+        await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Surf')
+        await expect.poll(() => JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).mascotName).toBe('Surf')
+
+        await page.locator('[data-bot-name="yes"]').click()
+        await page.locator('[data-bot-name-edit="yes"]').fill('x'.repeat(40))
+        await expect(page.locator('[data-bot-name-edit="yes"]')).toHaveValue('x'.repeat(32))
+        await page.locator('[data-bot-name-edit="yes"]').press('Enter')
+        await expect(page.locator('[data-bot-name="yes"]')).toHaveText('x'.repeat(32))
+        await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('x'.repeat(32))
+
+        await go(page, 'settings')
+        const field = page.locator('[data-bot-name-field="yes"]')
+        await expect(field).toHaveValue('x'.repeat(32))
+        await field.fill('   ')
+        await field.blur()
+        await expect(field).toHaveValue('Surf')
+        await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Surf')
+        await field.fill('Lumen')
+        await field.blur()
+        await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Lumen')
+        await expect.poll(() => JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).mascotName).toBe('Lumen')
+        await page.locator('[data-settings-nav="network"]').click()
+        await page.locator('[data-network-settings="yes"] [data-network-mode="online"]').click()
+        await expect(page.locator('[data-sync-chip="yes"]')).toHaveAttribute('data-sync-state', 'idle')
+        await expect(page.locator('[data-sync-chip="yes"]')).toHaveAttribute('data-sync-label', 'Lumen')
+        await go(page, 'chat')
+        await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Lumen')
+        await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
+        await expect(page.locator('textarea')).toHaveAttribute('placeholder', 'Message Lumen…')
+      }
+    } finally {
+      await app.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   }
 })

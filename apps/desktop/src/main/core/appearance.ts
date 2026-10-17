@@ -4,13 +4,15 @@ export const ACCENTS = ['orange', 'blue', 'indigo', 'navy'] as const
 export const DENSITIES = ['compact', 'comfortable', 'relaxed'] as const
 export const DEFAULT_MASCOT_NAME = 'Surf'
 export const DEFAULT_MASCOT_COLOR = '#f2740f'
+/** Saved bot name. About one short name, not a sentence. */
+export const BOT_NAME_LIMIT = 32
 
 export type AccentId = (typeof ACCENTS)[number]
 export type DensityId = (typeof DENSITIES)[number]
 
 export function cleanMascotName(value: unknown): string {
   if (typeof value !== 'string') return DEFAULT_MASCOT_NAME
-  const name = value.replace(/\s+/g, ' ').trim().slice(0, 40)
+  const name = value.replace(/\s+/g, ' ').trim().slice(0, BOT_NAME_LIMIT)
   return name || DEFAULT_MASCOT_NAME
 }
 

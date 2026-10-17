@@ -42,6 +42,13 @@ test('the Surf chip is idle, orange while syncing, then Synced, then Surf again'
   const idle = surfChipStep(synced, 'uptodate', NOW + SYNCED_HOLD_MS)
   assert.equal(idle.phase, 'idle')
   assert.equal(surfChipText(idle.phase), 'Surf')
+  assert.equal(surfChipText('idle', 'Harbor'), 'Harbor')
+  assert.equal(surfChipText('syncing', 'Harbor'), 'Harbor')
+  assert.equal(surfChipText('synced', '  Harbor  '), 'Harbor · Synced')
+  assert.equal(surfChipText('failed', 'Harbor'), 'Sync failed')
+  assert.equal(surfChipText('offline', 'Harbor'), 'Offline')
+  assert.equal(surfChipText('idle', '   '), 'Surf')
+  assert.equal(surfChipText('synced', 'N'.repeat(40)), `${'N'.repeat(32)} · Synced`)
 })
 
 test('a failed or offline sync is not shown as Synced', () => {

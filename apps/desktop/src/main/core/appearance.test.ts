@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cleanMascotColor, cleanMascotName, DEFAULT_MASCOT_COLOR, DEFAULT_MASCOT_NAME } from './appearance.js'
+import { BOT_NAME_LIMIT, cleanMascotColor, cleanMascotName, DEFAULT_MASCOT_COLOR, DEFAULT_MASCOT_NAME } from './appearance.js'
 
-test('the default mascot name is Surf', () => {
+test('the default bot name is Surf, and an empty or overlong name is cleaned', () => {
   assert.equal(DEFAULT_MASCOT_NAME, 'Surf')
+  assert.equal(BOT_NAME_LIMIT, 32)
   assert.equal(cleanMascotName(''), 'Surf')
+  assert.equal(cleanMascotName('   '), 'Surf')
   assert.equal(cleanMascotName('  Pip  '), 'Pip')
   assert.equal(cleanMascotName(null), 'Surf')
   assert.equal(cleanMascotName('Surf Bot'), 'Surf Bot')
+  assert.equal(cleanMascotName(`  ${'H'.repeat(80)}  `), 'H'.repeat(32))
 })
 
 test('mascot colour is a saved hex and anything else stays orange', () => {

@@ -12,6 +12,8 @@ test('a new chat is named after its agent until a real title exists', () => {
   assert.equal(isPlaceholderTitle('Hello'), false)
   assert.equal(isPlaceholderTitle('New Harbor ferry'), false)
   assert.equal(messagePlaceholder('Code'), 'Message Code…')
+  assert.equal(messagePlaceholder('Surf'), 'Message Surf…')
+  assert.equal(messagePlaceholder('Harbor'), 'Message Harbor…')
   assert.equal(labelFromAgentId('code'), 'Code')
   assert.equal(labelFromAgentId('marine'), 'Marine')
   assert.equal(labelFromAgentId(''), 'General')

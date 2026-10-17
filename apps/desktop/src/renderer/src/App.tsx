@@ -1000,7 +1000,8 @@ export default function App() {
           chatWeb={chatWeb}
           agentName={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.name ?? 'Code'}
           agentNote={agents.find((agent) => agent.id === (conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId))?.notes}
-          title={conversations.find((chat) => chat.id === conversationId)?.title}
+          botName={settings.mascotName || 'Surf'}
+          onBotName={(mascotName) => { void patch({ mascotName }) }}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           onSend={(t, images) => { void send(t, images) }}

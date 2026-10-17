@@ -4,7 +4,8 @@ import { BlobMascot, blobStateFor, Markdown } from '@surf/ui'
 import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
 import type { ChunkPreview, CodeProjectStatus, DocScope, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
-import { messagePlaceholder, newChatTitle } from '../../../shared/chat-title'
+import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
+import { messagePlaceholder } from '../../../shared/chat-title'
 import { friendlyNameFromId } from '../../../shared/model-label'
 import { quoteChipLabel } from '../../../shared/quote'
 import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
@@ -39,7 +40,8 @@ export function ChatScreen({
   chatWeb,
   agentName,
   agentNote,
-  title,
+  botName = 'Surf',
+  onBotName,
   modelLabel,
   tourAttach,
   onSend,
@@ -81,7 +83,8 @@ export function ChatScreen({
   chatWeb: boolean
   agentName: string
   agentNote?: string
-  title?: string
+  botName?: string
+  onBotName?: (name: string) => void
   modelLabel: string
   tourAttach: boolean
   onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[]) => void
@@ -182,15 +185,15 @@ export function ChatScreen({
     onSend(t, images)
   }
 
-  const displayTitle = title?.trim() || newChatTitle(agentName)
+  const bot = cleanMascotName(botName)
   return (
     <section className="flex min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-center px-6 py-4">
-          <div className="shell-title" data-chat-agent={agentName} title={status.onlineReason} data-online-reason={status.onlineReason}>
+          <div className="shell-title" data-chat-header="yes" data-chat-agent={agentName} title={status.onlineReason} data-online-reason={status.onlineReason}>
+            <BlobMascot variant="avatar" state="idle" size={28} animate={animateMascot} label={bot} />
+            <BotNameField name={bot} onSave={(next) => onBotName?.(next)} />
             <span className="agent-tag" data-agent-pill="yes">{agentName}</span>
-            <span className="shell-title-dot" aria-hidden="true">·</span>
-            <span className="shell-title-text" data-chat-title="yes">{displayTitle}</span>
           </div>
         </header>
         {project && (
@@ -258,7 +261,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onContinue={onContinue} onOpenFolder={onOpenProject} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} botName={bot} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onContinue={onContinue} onOpenFolder={onOpenProject} />)}
             </div>
           )}
         </div>
@@ -325,7 +328,7 @@ export function ChatScreen({
               <textarea
                 className="field min-h-[44px]"
                 rows={1}
-                placeholder={messagePlaceholder(agentName)}
+                placeholder={messagePlaceholder(bot)}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onPaste={(e) => {
@@ -376,7 +379,69 @@ function ScopeButton({ current, id, onScope, children }: { current: DocScope; id
   )
 }
 
-function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder }: { msg: UiMsg; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void }) {
+function BotNameField({ name, onSave }: { name: string; onSave: (name: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(name)
+  const cancelRef = useRef(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { setDraft(name) }, [name])
+  useEffect(() => {
+    if (!editing) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [editing])
+  function commit(value: string) {
+    const next = cleanMascotName(value)
+    setDraft(next)
+    setEditing(false)
+    if (next !== name) onSave(next)
+  }
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="bot-name"
+        data-bot-name="yes"
+        aria-label={`Bot name, ${name}. Click to rename.`}
+        onClick={() => { cancelRef.current = false; setDraft(name); setEditing(true) }}
+      >
+        {name}
+      </button>
+    )
+  }
+  return (
+    <input
+      ref={inputRef}
+      className="bot-name is-edit"
+      data-bot-name-edit="yes"
+      aria-label="Bot name"
+      value={draft}
+      maxLength={BOT_NAME_LIMIT}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          cancelRef.current = true
+          commit(event.currentTarget.value)
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          cancelRef.current = true
+          setDraft(name)
+          setEditing(false)
+        }
+      }}
+      onBlur={(event) => {
+        if (cancelRef.current) {
+          cancelRef.current = false
+          return
+        }
+        commit(event.currentTarget.value)
+      }}
+    />
+  )
+}
+
+function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder }: { msg: UiMsg; botName: string; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void }) {
   const [versionAt, setVersionAt] = useState<number | null>(null)
   const [wink, setWink] = useState(false)
   const history = msg.versions ?? []
@@ -395,6 +460,7 @@ function Bubble({ msg, live, burst, latestId, caret, modelLabel, animateMascot, 
     <div className="msg-in flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
       <div className="pt-1"><BlobMascot variant="avatar" state={blobStateFor(creature)} size={44} animate={animateMascot} wink={wink} caret={msg.pending ? caret : null} /></div>
       <div className="min-w-0 flex-1">
+      <div className="assistant-name" data-assistant-name="yes">{botName}</div>
       <div className="assistant-card">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'files' && !msg.fileAsk && <div className="mb-1 text-sm text-[var(--muted)]" data-file-searching="yes">Searching your files…</div>}

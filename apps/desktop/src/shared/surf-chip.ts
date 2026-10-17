@@ -58,11 +58,12 @@ export function surfChipTone(phase: SurfChipPhase, theme: 'light' | 'dark'): Sur
   return null
 }
 
-export function surfChipText(phase: SurfChipPhase): string {
-  if (phase === 'synced') return `${SURF_NAME} · Synced`
+export function surfChipText(phase: SurfChipPhase, name = SURF_NAME): string {
+  const label = name.replace(/\s+/g, ' ').trim().slice(0, 32) || SURF_NAME
+  if (phase === 'synced') return `${label} · Synced`
   if (phase === 'failed') return 'Sync failed'
   if (phase === 'offline') return 'Offline'
-  return SURF_NAME
+  return label
 }
 
 function channel(hex: string, index: number): number {

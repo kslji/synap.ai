@@ -43,7 +43,7 @@ export function step11Cases(): Step11Row[] {
     ['  tide   bot  ', 'tide bot'],
     ['', 'Surf'],
     [null, 'Surf'],
-    ['x'.repeat(80), 'x'.repeat(40)],
+    ['x'.repeat(80), 'x'.repeat(32)],
     ['Grok Bot', 'Grok Bot'],
   ]
   for (const [input, expected] of names) check(`name-${String(input).slice(0, 12)}`, cleanMascotName(input) === expected)

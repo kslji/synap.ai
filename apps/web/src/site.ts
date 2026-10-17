@@ -131,9 +131,56 @@ export function downloadHrefs(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'o
   return { mac, win, intel }
 }
 
-/** Older per-size or offline installer names. The plain Mac and Windows files do not carry a size. */
+export interface OfflinePackage {
+  name: string
+  bytes: number
+  url: string
+  host: 'github' | 'huggingface'
+  os: 'mac' | 'windows'
+  arch: 'arm64' | 'x64'
+  token: '2b' | '4b' | '9b'
+  modelBytes: number
+}
+
+export function offlineCatalogUrl(assets: ReleaseAsset[]): string | null {
+  return assets.find((asset) => asset.name === 'offline-packages.json')?.url ?? null
+}
+
+export function parseOfflinePackages(body: unknown): OfflinePackage[] {
+  if (!Array.isArray(body)) return []
+  return body.filter((item): item is OfflinePackage => {
+    if (!item || typeof item !== 'object') return false
+    const row = item as Partial<OfflinePackage>
+    return typeof row.name === 'string' && typeof row.bytes === 'number' && row.bytes > 0
+      && typeof row.url === 'string' && row.url.startsWith('https://')
+      && (row.host === 'github' || row.host === 'huggingface')
+      && (row.os === 'mac' || row.os === 'windows')
+      && (row.arch === 'arm64' || row.arch === 'x64')
+      && (row.token === '2b' || row.token === '4b' || row.token === '9b')
+      && typeof row.modelBytes === 'number'
+  })
+}
+
+export function pickOfflinePackage(packages: readonly OfflinePackage[], os: 'mac' | 'windows', arch: 'arm64' | 'x64', token: '2b' | '4b' | '9b'): OfflinePackage | undefined {
+  return packages.find((item) => item.os === os && item.arch === arch && item.token === token)
+}
+
+/** The small installer for this computer. The model still downloads on first open. */
+export function smallInstallerHref(hrefs: { mac: string; win: string; intel: string }, os: 'mac' | 'windows' | 'other', arch: 'arm64' | 'x64'): string {
+  if (os === 'windows') return hrefs.win
+  if (os === 'mac' && arch === 'x64') return hrefs.intel
+  return hrefs.mac
+}
+
+/** A published zip uses its measured size. Before that, the label is the model bytes only. */
+export function offlineSizeLabel(pkg: OfflinePackage | undefined, modelBytes: number): { bytesLabel: string; href: string | null } {
+  if (pkg?.url && pkg.bytes > 0) return { bytesLabel: formatModelSize(pkg.bytes), href: pkg.url }
+  return { bytesLabel: `${formatModelSize(modelBytes)} of models`, href: null }
+}
+
+/** Older per-size names, and the offline zips. The plain Mac and Windows files do not carry a size. */
 export function isSizedInstaller(name: string): boolean {
-  return /-(?:offline-2b|2b|4b|9b)\.(dmg|exe|zip)$/i.test(name)
+  return /-(?:offline-2b|(?:2b|4b|9b)(?:-offline)?)\.(dmg|exe|zip)$/i.test(name)
 }
 
 export function pickDownload(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'other', arch: 'arm64' | 'x64'): ReleaseAsset | null {

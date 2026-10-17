@@ -45,10 +45,14 @@ export function SetupScreen({
       : snapshot.phase === 'paused'
         ? 'The part that already arrived is kept. Resume continues from there.'
         : snapshot.phase === 'checking'
-          ? 'Looking at free space and any copy already in Downloads.'
-          : chatPending
-            ? 'Qwen and the search model download together. Chat opens when both check out.'
-            : 'The search model is downloading. Chat opens when it checks out.'
+          ? (snapshot.localCopy
+            ? 'Checking the models that came with this installer.'
+            : 'Looking at free space and any copy already in Downloads.')
+          : snapshot.localCopy
+            ? 'Copying Qwen and the search model from this installer. Chat opens when both check out.'
+            : chatPending
+              ? 'Qwen and the search model download together. Chat opens when both check out.'
+              : 'The search model is downloading. Chat opens when it checks out.'
 
   return (
     <main className="relative flex h-full items-center justify-center bg-[var(--bg)] px-6" data-screen="setup" data-setup-phase={snapshot.phase} data-setup-model={snapshot.modelId} data-mascot-state={mascot}>

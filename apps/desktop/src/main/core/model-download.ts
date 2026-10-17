@@ -2,7 +2,8 @@
  * Model file transfer (main process): resumable, verified (size + SHA-256),
  * atomic (".part" renamed only after the hash matches).
  * The file lands in the app data folder, outside the bundle, so an update does not fetch it again.
- * The default installer does not contain the model. The offline 2B installer copies one local file.
+ * The small installer does not contain a model. An offline zip copies the Qwen file
+ * and the search model out of resources/setup-models.
  * In Electron prefer `net.fetch` (uses the OS proxy settings) — same API as global fetch used here.
  */
 import { createHash } from 'node:crypto'

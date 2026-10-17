@@ -3,7 +3,7 @@ import { Cpu } from 'lucide-react'
 import { BlobMascot, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { beginDownload, DownloadButtons } from './download-buttons'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, releaseAssets, SETUP_MODELS, type ReleaseListItem } from './site'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, offlineCatalogUrl, offlineSizeLabel, parseOfflinePackages, pickOfflinePackage, releaseAssets, SEARCH_MODEL_BYTES, SETUP_MODELS, smallInstallerHref, type OfflinePackage, type ReleaseListItem } from './site'
 
 export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -231,12 +231,25 @@ export const WINDOWS_STEPS = [
   'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and the search model finish.',
 ]
 
+export const MAC_OFFLINE_STEPS = [
+  'Open the zip when it finishes.',
+  'Open Synap.surf. If macOS blocks it, go to System Settings, then Privacy & Security, scroll to Security, and click Open Anyway. You only do this once.',
+  'Chat opens. The model is already in the app, so nothing downloads.',
+]
+
+export const WINDOWS_OFFLINE_STEPS = [
+  'Extract the zip when it finishes.',
+  'Open SynapSurf.exe. If SmartScreen says Windows protected your PC, click More info, then Run anyway.',
+  'Chat opens. The model is already in the app, so nothing downloads.',
+]
+
 export function DownloadCard() {
   const initial = detectClient({ ua: typeof navigator === 'undefined' ? '' : navigator.userAgent })
   const [os, setOs] = useState(initial.os)
   const [arch, setArch] = useState<'arm64' | 'x64'>(initial.os === 'mac' ? initial.arch : 'arm64')
   const [assetPool, setAssetPool] = useState(BUNDLED_ASSETS)
-  const [started, setStarted] = useState<'mac' | 'windows' | null>(null)
+  const [offlinePackages, setOfflinePackages] = useState<OfflinePackage[]>([])
+  const [started, setStarted] = useState<null | { os: 'mac' | 'windows'; offline: boolean }>(null)
 
   useEffect(() => {
     let gone = false
@@ -256,10 +269,19 @@ export function DownloadCard() {
           if (live.some((asset) => asset.name.endsWith('.dmg') || asset.name.endsWith('.exe'))) assets = live
         }
       } catch { /* the baked installer URLs stay in the buttons */ }
+      let packages: OfflinePackage[] = []
+      const catalog = offlineCatalogUrl(assets)
+      if (catalog) {
+        try {
+          const response = await fetch(catalog)
+          if (response.ok) packages = parseOfflinePackages(await response.json())
+        } catch { /* the row still shows the model bytes */ }
+      }
       if (gone) return
       setOs(client.os)
       setArch(client.os === 'mac' ? client.arch : 'arm64')
       setAssetPool(assets)
+      setOfflinePackages(packages)
     }
     void load()
     return () => { gone = true }
@@ -281,44 +303,62 @@ export function DownloadCard() {
           winLabel="Download for Windows"
           macSuggested={macSuggested}
           winSuggested={winSuggested}
-          onStart={setStarted}
+          onStart={(next) => setStarted({ os: next, offline: false })}
         />
         <a
           className={intel ? 'btn btn-primary no-underline' : 'btn btn-ghost no-underline'}
           href={hrefs.intel}
           data-download-intel="yes"
-          onClick={(event) => beginDownload(event, 'mac', setStarted)}
+          onClick={(event) => beginDownload(event, 'mac', (next) => setStarted({ os: next, offline: false }))}
         >
           Download for Intel Mac
         </a>
       </div>
       <div data-model-list="yes">
-        <p className="text-sm font-semibold">Sizes in the app</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Each size is the Qwen file plus a 309.9 MB search model. These are not separate downloads.</p>
+        <p className="text-sm font-semibold">Sizes</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Each size is the Qwen file plus a 309.9 MB search model. Download is the small installer, and the model downloads on first open. Offline installer is one zip that already includes both files.</p>
         <ul className="mt-3 flex flex-col gap-2">
-          {SETUP_MODELS.map((model) => (
-            <li key={model.id} className="model-choice" data-setup-model={model.id}>
-              <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
-              <span>
-                <span className="font-semibold">{model.name}</span>
-                <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                  <span data-model-size={model.id}>{model.size}</span>
-                  {' · '}
-                  <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
-                  <span className="mt-0.5 block" data-model-parts={model.id}>{model.parts}</span>
+          {SETUP_MODELS.map((model) => {
+            const clientOs = os === 'windows' ? 'windows' : 'mac'
+            const clientArch = os === 'windows' ? 'x64' : arch
+            const smallHref = smallInstallerHref(hrefs, clientOs, clientArch)
+            const offline = offlineSizeLabel(pickOfflinePackage(offlinePackages, clientOs, clientArch, model.token), model.sizeBytes + SEARCH_MODEL_BYTES)
+            return (
+              <li key={model.id} className="model-choice" data-setup-model={model.id}>
+                <span className="icon-tile" aria-hidden="true"><Cpu size={16} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold">{model.name}</span>
+                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                    <span data-model-size={model.id}>{model.size}</span>
+                    {' · '}
+                    <span data-model-ram={model.id}>needs {model.ramGb} GB RAM</span>
+                    <span className="mt-0.5 block" data-model-parts={model.id}>{model.parts}</span>
+                  </span>
+                  <span className="mt-2 flex flex-wrap items-center gap-2">
+                    <a className="btn btn-ghost no-underline" href={smallHref} data-download-size={model.id} onClick={(event) => beginDownload(event, clientOs, (next) => setStarted({ os: next, offline: false }))}>Download</a>
+                    {offline.href ? (
+                      <a className="btn btn-ghost no-underline" href={offline.href} data-offline={model.token} data-offline-size={model.token} onClick={(event) => beginDownload(event, clientOs, (next) => setStarted({ os: next, offline: true }))}>
+                        Offline installer · {offline.bytesLabel}
+                      </a>
+                    ) : (
+                      <span data-offline={model.token} data-offline-size={model.token}>Offline installer · {offline.bytesLabel}</span>
+                    )}
+                  </span>
                 </span>
-              </span>
-            </li>
-          ))}
+              </li>
+            )
+          })}
         </ul>
       </div>
       <a className="self-start text-xs text-[var(--muted)]" href={ALL_DOWNLOADS_URL}>All downloads</a>
       {started && (
-        <div className="card mt-2 px-4 py-4" data-download-started={started}>
+        <div className="card mt-2 px-4 py-4" data-download-started={started.os} data-offline-start={started.offline ? 'yes' : 'no'}>
           <BlobMascot state="guiding" size={72} label="Pip" />
           <p className="mt-2 text-sm font-semibold">Your download has started</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-[var(--muted)]">
-            {(started === 'mac' ? MAC_STEPS : WINDOWS_STEPS).map((step) => <li key={step}>{step}</li>)}
+            {(started.offline
+              ? (started.os === 'mac' ? MAC_OFFLINE_STEPS : WINDOWS_OFFLINE_STEPS)
+              : (started.os === 'mac' ? MAC_STEPS : WINDOWS_STEPS)).map((step) => <li key={step}>{step}</li>)}
           </ol>
         </div>
       )}

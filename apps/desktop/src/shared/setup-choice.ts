@@ -357,6 +357,8 @@ export interface SetupSnapshot {
   total: number
   bytesPerSecond: number | null
   error: SetupErrorView | null
+  /** True while the files are copied out of an offline zip. */
+  localCopy?: boolean
 }
 
 const EMBED_BYTES = 309_855_520

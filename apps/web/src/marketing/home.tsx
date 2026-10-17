@@ -82,7 +82,7 @@ export function HomePage() {
           </div>
         </Section>
 
-        <Section id="download" title="Download the app" lede="One installer for your computer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app. Each size below includes the search model.">
+        <Section id="download" title="Download the app" lede="One installer for your computer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app. Each size also has an offline installer with the search model already inside.">
           <div className="card mt-8 px-6 py-6">
             <DownloadCard />
             <BetaUnsignedNote />

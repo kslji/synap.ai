@@ -73,7 +73,8 @@ import { commandRisk } from './code-agent/permission.js'
 import { runSplitTask } from './code-agent/split.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
-import { copyVerified, downloadVerified, fileMatches, readFreeBytes } from './model-download.js'
+import { bundledSourcePath, readBundledManifest } from './bundled-models.js'
+import { copyVerified, downloadVerified, DownloadError, fileMatches, readFreeBytes } from './model-download.js'
 import { createSetupController } from './setup-controller.js'
 import { NOTHING_HEARD, osMicStatus, SPEECH_FAILED, SPEECH_MODEL_MISSING, SPEECH_MODEL_OFFLINE, SPEECH_PROGRAM_MISSING } from './dictation.js'
 import { resolveWhisperCli, transcribeFile } from './dictation-run.js'
@@ -2220,6 +2221,13 @@ export async function createServices(): Promise<Services> {
     },
     offlineOnly: () => readSettings().offlineOnly,
     freeBytes: (dir) => readFreeBytes(dir),
+    bundled: async () => readBundledManifest(process.resourcesPath, registry().models),
+    copyBundled: async (file, size, sha256, onProgress) => {
+      const source = bundledSourcePath(process.resourcesPath, file)
+      if (!source) throw new DownloadError('checksum', 'The installer model path is not a file name.')
+      mkdirSync(modelsDir(), { recursive: true })
+      await copyVerified(source, { dest: join(modelsDir(), file), size, sha256 }, onProgress)
+    },
     emit: (snapshot) => {
       for (const win of BrowserWindow.getAllWindows()) safeSend(win, IPC.setupEvent, snapshot)
     },

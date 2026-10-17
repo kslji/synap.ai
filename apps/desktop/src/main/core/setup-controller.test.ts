@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { DownloadError } from './model-download.js'
+import { buildBundledManifest } from '../../shared/offline-pack.js'
 import { createSetupController, type SetupHost, type SetupSnapshot } from './setup-controller.js'
 import type { SetupEmbed, SetupModel } from '../../shared/setup-choice.js'
 
@@ -43,6 +44,8 @@ function host(over: Partial<SetupHost> & { ram?: number } = {}): { host: SetupHo
     embeddingReady: () => { ready.push('ready') },
     installedSetupId: async () => null,
     anyChatInstalled: async () => false,
+    bundled: async () => null,
+    copyBundled: async () => undefined,
     offlineOnly: () => false,
     freeBytes: async () => 10_000,
     emit: (snapshot) => { events.push(snapshot) },
@@ -213,5 +216,96 @@ test('offline mode does not start a download', async () => {
   const setup = createSetupController(built.host)
   await setup.choose(two.id)
   assert.equal(built.events.at(-1)?.error?.code, 'offline')
+  assert.deepEqual(built.saved, [])
+})
+
+test('an offline zip copies both files and opens chat only after both succeed', async () => {
+  const copied: string[] = []
+  const built = host({
+    offlineOnly: () => true,
+    bundled: async () => buildBundledManifest(two, embed),
+    copyBundled: async (file, _size, _sha, onProgress) => {
+      copied.push(file)
+      onProgress(1, 1)
+    },
+    download: async () => { throw new Error('downloaded') },
+  })
+  const setup = createSetupController(built.host)
+  const seen = setup.state()
+  await setup.start()
+  const snapshot = await seen
+  assert.deepEqual(copied, [two.file, embed.file])
+  assert.deepEqual(built.downloads, [])
+  assert.deepEqual(built.saved, [two.id])
+  assert.deepEqual(built.ready, ['ready'])
+  assert.equal(snapshot.phase, 'done')
+  assert.equal(built.events.some((event) => event.phase === 'pick'), false)
+  const names = built.events.find((event) => event.phase === 'downloading')?.files.map((file) => file.name)
+  assert.deepEqual(names, ['Qwen 2B', 'Search model'])
+  assert.equal(built.events.find((event) => event.localCopy)?.localCopy, true)
+})
+
+test('a bundled copy that fails the search model does not open chat', async () => {
+  const built = host({
+    bundled: async () => buildBundledManifest(two, embed),
+    copyBundled: async (file, _size, _sha, onProgress) => {
+      if (file === embed.file) throw new DownloadError('checksum', 'sha256 mismatch - file deleted, retry')
+      onProgress(1, 1)
+    },
+  })
+  const setup = createSetupController(built.host)
+  await setup.start()
+  assert.equal(built.events.at(-1)?.phase, 'error')
+  assert.equal(built.events.at(-1)?.error?.code, 'checksum')
+  assert.deepEqual(built.saved, [])
+  assert.deepEqual(built.ready, [])
+})
+
+test('a tampered offline manifest is ignored and nothing is copied', async () => {
+  const copied: string[] = []
+  const tampered = buildBundledManifest(two, embed)
+  tampered.files[0] = { ...tampered.files[0], sha256: 'not-the-registry' }
+  const built = host({
+    bundled: async () => tampered,
+    copyBundled: async (file) => { copied.push(file) },
+  })
+  const setup = createSetupController(built.host)
+  await setup.start()
+  assert.deepEqual(copied, [])
+  assert.equal(built.events.at(-1)?.phase, 'pick')
+  assert.deepEqual(built.saved, [])
+})
+
+test('a later launch copies the search model from the zip and keeps the chosen chat model', async () => {
+  const copied: string[] = []
+  const built = host({
+    isInstalled: async (file) => file === two.file,
+    anyChatInstalled: async () => true,
+    bundled: async () => buildBundledManifest(two, embed),
+    copyBundled: async (file, _size, _sha, onProgress) => {
+      copied.push(file)
+      onProgress(file.length, file.length)
+    },
+  })
+  const setup = createSetupController(built.host)
+  await setup.repair()
+  assert.deepEqual(copied, [embed.file])
+  assert.deepEqual(built.saved, [])
+  assert.deepEqual(built.downloads, [])
+  assert.deepEqual(built.ready, ['ready'])
+  assert.equal(built.events.at(-1)?.phase, 'done')
+})
+
+test('an offline zip reports a full disk before it copies', async () => {
+  const copied: string[] = []
+  const built = host({
+    freeBytes: async () => 10,
+    bundled: async () => buildBundledManifest(two, embed),
+    copyBundled: async (file) => { copied.push(file) },
+  })
+  const setup = createSetupController(built.host)
+  await setup.start()
+  assert.equal(built.events.at(-1)?.error?.code, 'disk')
+  assert.deepEqual(copied, [])
   assert.deepEqual(built.saved, [])
 })

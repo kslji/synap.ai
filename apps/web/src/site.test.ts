@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DownloadButtons } from './download-buttons.tsx'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, formatModelSize, isSizedInstaller, newestPublishableRelease, pickDownload, releaseAssets, SETUP_MODELS } from './site.ts'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, footerLinks, formKey, formatModelSize, isSizedInstaller, newestPublishableRelease, offlineSizeLabel, pickDownload, pickOfflinePackage, releaseAssets, SEARCH_MODEL_BYTES, SETUP_MODELS, smallInstallerHref } from './site.ts'
 
 test('contact email falls back to the placeholder', () => {
   assert.equal(contactEmail(''), 'contact@example.com')
@@ -108,17 +108,44 @@ test('the download page is one installer, and the sizes are a reference list', (
   assert.match(page, /Privacy & Security/)
   assert.match(page, /More info, then Run anyway/)
   assert.match(home, /inside the app/)
+  assert.match(page, /Offline installer/)
+  assert.match(page, /data-download-size=\{model\.id\}/)
+  assert.match(page, /data-offline=\{model\.token\}/)
   assert.doesNotMatch(page, /href=\{model\.url\}/)
   assert.doesNotMatch(page, /data-setup-installer/)
-  assert.doesNotMatch(page, /Offline installer/)
   assert.doesNotMatch(page, /Open Synap and start/)
   assert.doesNotMatch(page, /synap:\/\/setup/)
   assert.doesNotMatch(page, /Q4_K_M|GGUF|>3\.5</)
   const mixed = [
     ...BUNDLED_ASSETS,
     { name: 'Synap.surf-0.1.0-arm64-2b.dmg', url: 'https://example.invalid/2b.dmg' },
+    { name: 'Synap.surf-0.2.0-arm64-2b-offline.zip', url: 'https://example.invalid/2b-offline.zip' },
+    { name: 'Synap.surf-0.2.0-x64-9b-offline.zip', url: 'https://example.invalid/9b-offline.zip' },
   ]
   assert.equal(pickDownload(mixed, 'mac', 'arm64')?.name, 'Synap.surf-0.1.0-arm64.dmg')
   assert.equal(isSizedInstaller('Synap.surf-0.1.0-arm64-2b.dmg'), true)
   assert.equal(isSizedInstaller('Synap.surf-0.1.0-arm64.dmg'), false)
+  assert.equal(isSizedInstaller('Synap.surf-0.2.0-arm64-2b-offline.zip'), true)
+  assert.equal(isSizedInstaller('Synap.surf-0.2.0-x64-9b-offline.zip'), true)
+  const hrefs = downloadHrefs(BUNDLED_ASSETS, 'mac', 'arm64')
+  assert.match(smallInstallerHref(hrefs, 'mac', 'arm64'), /\.dmg$/)
+  assert.match(smallInstallerHref(hrefs, 'mac', 'x64'), /\.dmg$/)
+  assert.match(smallInstallerHref(hrefs, 'windows', 'x64'), /\.exe$/)
+  assert.equal(offlineSizeLabel(undefined, 1_280_835_840 + SEARCH_MODEL_BYTES).bytesLabel, '1.59 GB of models')
+  assert.equal(offlineSizeLabel(undefined, 2_740_937_888 + SEARCH_MODEL_BYTES).bytesLabel, '3.05 GB of models')
+  assert.equal(offlineSizeLabel(undefined, 5_680_522_464 + SEARCH_MODEL_BYTES).bytesLabel, '5.99 GB of models')
+  assert.equal(offlineSizeLabel(undefined, SEARCH_MODEL_BYTES).href, null)
+  const published = {
+    name: 'Synap.surf-0.2.0-arm64-2b-offline.zip',
+    bytes: 1_700_000_000,
+    url: 'https://github.com/kslji/synap.ai/releases/download/v0.2.0/Synap.surf-0.2.0-arm64-2b-offline.zip',
+    host: 'github' as const,
+    os: 'mac' as const,
+    arch: 'arm64' as const,
+    token: '2b' as const,
+    modelBytes: 1_590_691_360,
+  }
+  assert.equal(pickOfflinePackage([published], 'mac', 'arm64', '2b')?.bytes, 1_700_000_000)
+  assert.equal(offlineSizeLabel(published, published.modelBytes).bytesLabel, '1.70 GB')
+  assert.equal(offlineSizeLabel(published, published.modelBytes).href, published.url)
 })

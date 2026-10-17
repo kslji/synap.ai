@@ -1,9 +1,9 @@
-# Surf Bot motion
+# Pip
 
-The app draws the star from `packages/ui` and steps an original face (eyes, blink, mouth) plus squash-and-stretch in JavaScript. It is silent. There is no mute control because nothing plays audio.
+Pip is the orange blob drawn in `packages/ui`. One SVG, a spline body and two pill eyes, is stepped with `requestAnimationFrame`. It is silent. There is no mute control because nothing plays audio.
 
-Idle breathes and blinks. Thinking looks up. Searching scans. Success hops with a squash and a stretch. Error shakes and frowns. A tap plays one of hop, spin, or wink, chosen from a random seed. `prefers-reduced-motion: reduce` and the animate setting both hold a still frame.
+The moods are idle, thinking, working, happy, oops, searching, reading, writing, permission, typing, offline, sleepy, benchmark, wink, guiding, notification, and dizzy. `error` uses the oops pose. `success` and `done` use the happy pose. A poke squashes the body. Three quick pokes make Pip dizzy. `prefers-reduced-motion: reduce` keeps the motion and lowers the amplitude, and it skips sparkles. Turning animation off holds one frame.
 
-`animation/mp4` is a style reference for mood, energy, timing, length, and colour. It is not in this checkout. If clips are added later, leave watermarks on them. Do not crop, trace, or reuse frames. The desktop build does not package this folder: `electron-builder` only ships `out/**`, and a unit test rejects an `mp4` import or an `animation/mp4` extra resource.
+The stylesheet records thinking at 2.2s and searching at 0.7s. The other moods are not fixed-length clips. There is no video folder and no audio file. The desktop build does not package `animation/` or any mp4.
 
-The motions that ship are listed in `manifest.json` and `packages/ui/src/mascot.ts`.
+The moods that ship are listed in `manifest.json` and `packages/ui/src/mascot.ts`. The default orange is `#ffc27a` at the top and `#f2740f` at the bottom. Offline mixes that orange with grey. The installed icon stays the default orange.

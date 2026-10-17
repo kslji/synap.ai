@@ -1,19 +1,30 @@
 {
+  "name": "Pip",
   "audio": false,
   "shipReferenceClips": false,
   "engine": "svg",
-  "referenceDir": "animation/mp4",
-  "referenceNote": "Style reference only. This checkout has no mp4 files. Do not crop, trace, reuse frames, or remove watermarks. The app build does not package this folder.",
   "states": {
-    "idle": { "id": "idle", "className": "is-idle", "durationMs": 3600, "kind": "svg" },
-    "searching": { "id": "searching", "className": "is-searching", "durationMs": 700, "kind": "svg" },
-    "thinking": { "id": "thinking", "className": "is-thinking", "durationMs": 2200, "kind": "svg" },
-    "success": { "id": "success", "className": "is-success", "durationMs": 900, "kind": "svg" },
-    "error": { "id": "error", "className": "is-error", "durationMs": 550, "kind": "svg" }
+    "idle": { "id": "idle", "className": "is-idle", "durationMs": 0 },
+    "thinking": { "id": "thinking", "className": "is-thinking", "durationMs": 2200 },
+    "working": { "id": "working", "className": "is-working", "durationMs": 0 },
+    "happy": { "id": "happy", "className": "is-happy", "durationMs": 0 },
+    "oops": { "id": "oops", "className": "is-oops", "durationMs": 0 },
+    "searching": { "id": "searching", "className": "is-searching", "durationMs": 700 },
+    "reading": { "id": "reading", "className": "is-reading", "durationMs": 0 },
+    "writing": { "id": "writing", "className": "is-writing", "durationMs": 0 },
+    "permission": { "id": "permission", "className": "is-permission", "durationMs": 0 },
+    "typing": { "id": "typing", "className": "is-typing", "durationMs": 0 },
+    "offline": { "id": "offline", "className": "is-offline", "durationMs": 0 },
+    "sleepy": { "id": "sleepy", "className": "is-sleepy", "durationMs": 0 },
+    "benchmark": { "id": "benchmark", "className": "is-benchmark", "durationMs": 0 },
+    "wink": { "id": "wink", "className": "is-wink", "durationMs": 0 },
+    "guiding": { "id": "guiding", "className": "is-guiding", "durationMs": 0 },
+    "notification": { "id": "notification", "className": "is-notification", "durationMs": 0 },
+    "dizzy": { "id": "dizzy", "className": "is-dizzy", "durationMs": 0 }
   },
   "clicks": [
-    { "id": "click-hop", "className": "is-click-hop", "durationMs": 800, "kind": "svg" },
-    { "id": "click-spin", "className": "is-click-spin", "durationMs": 900, "kind": "svg" },
-    { "id": "click-spark", "className": "is-click-spark", "durationMs": 1000, "kind": "svg" }
+    { "id": "poke-squash", "className": "is-poke-squash", "durationMs": 0 },
+    { "id": "poke-dizzy", "className": "is-poke-dizzy", "durationMs": 0 },
+    { "id": "wink", "className": "is-wink", "durationMs": 0 }
   ]
 }

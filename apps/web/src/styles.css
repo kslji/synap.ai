@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@surf/ui/tokens.css";
 @import "@surf/ui/components.css";
+@import "./marketing.css";
 
 html { scroll-behavior: smooth; }
 body {

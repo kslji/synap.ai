@@ -26,7 +26,7 @@ Desktop version **0.2.0**.
 
 ## Animations
 
-Idle is the live blob in `packages/ui/src/BlobMascot.tsx`, not a clip. Nothing from `animation/mp4` is packaged. No reference clips were in `animation/mp4`, so none were watermark-inspected. Timings in `animation/manifest.json` are idle 3.6s, searching 0.7s, thinking 2.2s, success 0.9s, error 0.55s, and taps 0.8s / 0.9s / 1.0s. No audio files were added. The window pauses the animation while it is hidden.
+Pip is the live blob in `packages/ui/src/BlobMascot.tsx`, not a clip. `animation/manifest.json` lists the blob moods. The stylesheet still records thinking at 2.2s and searching at 0.7s. The other moods are not fixed-length clips. A poke squashes the body, and three quick pokes make Pip dizzy. No audio files were added. The build does not package an mp4. The window pauses the animation while it is hidden.
 
 ## Eval
 

@@ -26,7 +26,7 @@ for (const ref of refs) {
 }
 const js = readdirSync(join(distPath, 'assets')).filter((name) => name.endsWith('.js'))
 const bundle = js.map((name) => readFileSync(join(distPath, 'assets', name), 'utf8')).join('\n')
-for (const route of ['/privacy', '/security', '/contribute', '/terms', '/buy', '/agents/']) {
+for (const route of ['/privacy', '/security', '/contribute', '/terms', '/buy', '/agents/', '/docs', '/pricing', '/features', '/about', '/contact']) {
   if (!bundle.includes(route)) {
     console.error('bundle missing route', route)
     missing += 1
@@ -46,12 +46,12 @@ for (const id of readdirSync(agentsRoot)) {
     missing += 1
   }
 }
-if (!bundle.includes('Qwen3.5 vs Gemma 4')) {
-  console.error('bundle missing the Code model guide')
+if (!bundle.includes('Pricing coming soon')) {
+  console.error('bundle missing the pricing notice')
   missing += 1
 }
-if (!bundle.includes('data-agent-blog')) {
-  console.error('bundle missing the agent blog section')
+if (bundle.includes('lokMind') || bundle.includes('$0.99') || bundle.includes('$1.59') || bundle.includes('$3.59')) {
+  console.error('bundle contains placeholder marketing copy')
   missing += 1
 }
 if (!bundle.includes('data-agent-card')) {

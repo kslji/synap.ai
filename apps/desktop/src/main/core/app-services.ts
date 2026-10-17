@@ -180,6 +180,10 @@ interface WebPiece {
 
 const WEB_FLOOR = 0.42
 
+function keywordPieces<T extends { text: string }>(rows: T[]): Array<T & { cosine: number; vec: Float32Array }> {
+  return rows.slice(0, 4).map((piece) => ({ ...piece, cosine: 0, vec: new Float32Array() }))
+}
+
 function chatSampling(model: ModelEntry): Record<string, number> | undefined {
   if (!surfEnv('EVAL')) return model.sampling
   return { ...EVAL_SAMPLING }
@@ -854,10 +858,13 @@ export async function createServices(): Promise<Services> {
     if (!pieces.length) return { pieces: [], ignored }
     if (!(await embeddingVerified())) {
       noteKeywordSearch(win, messageId)
-      return { pieces: pieces.slice(0, 4), ignored }
+      return { pieces: keywordPieces(pieces), ignored }
     }
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb) return { pieces: pieces.slice(0, 4), ignored }
+    if (!emb) {
+      noteKeywordSearch(win, messageId)
+      return { pieces: keywordPieces(pieces), ignored }
+    }
     const embedServer = await ensure('embed', emb, 2048)
     const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
     const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
@@ -899,10 +906,10 @@ export async function createServices(): Promise<Services> {
     if (!pieces.length) return { pieces: [], ignored, keywords: false }
     if (!(await embeddingVerified())) {
       if (!readSettings().offlineOnly) queueSearchModelRepair()
-      return { pieces: pieces.slice(0, 4), ignored, keywords: true }
+      return { pieces: keywordPieces(pieces), ignored, keywords: true }
     }
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb) return { pieces: pieces.slice(0, 4), ignored, keywords: true }
+    if (!emb) return { pieces: keywordPieces(pieces), ignored, keywords: true }
     const embedServer = await ensure('embed', emb, 2048)
     const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
     const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))

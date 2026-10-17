@@ -280,9 +280,20 @@ async function captureShots(win: BrowserWindow, dir: string): Promise<void> {
   }
   for (const theme of ['light', 'dark'] as const) {
     win.setBackgroundColor(theme === 'dark' ? '#0a0a0a' : '#fafafa')
+    // Set the saved theme. Clicking [data-theme-choice] is wrong: the sidebar
+    // control toggles, and writing the document attribute alone leaves the
+    // switch highlighting the previous setting.
     await win.webContents.executeJavaScript(`
-      document.querySelector('[data-theme-choice=${JSON.stringify(theme)}]')?.click();
-      document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+      new Promise((resolve) => {
+        const theme = ${JSON.stringify(theme)};
+        if (typeof window.__surfTheme === 'function') window.__surfTheme(theme);
+        else document.documentElement.dataset.theme = theme;
+        const start = Date.now();
+        (function check() {
+          if (document.documentElement.dataset.theme === theme || Date.now() - start > 2000) resolve(document.documentElement.dataset.theme || '');
+          else setTimeout(check, 20);
+        })();
+      })
     `)
     await sleep(250)
     await go('onboarding')

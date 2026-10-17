@@ -262,6 +262,11 @@ export default function App() {
     }
   }
 
+  window.__surfTheme = (next: ThemeChoice) => {
+    persistThemeChoice(next)
+    void patch({ theme: next })
+  }
+
   async function patch(p: SettingsPatch) {
     if (p.theme) persistThemeChoice(p.theme)
     setSettings((current) => (current ? { ...current, ...p } : current))

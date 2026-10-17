@@ -46,6 +46,16 @@ function walk(dir, out = []) {
   return out
 }
 
+/**
+ * A staged file is the CLI itself, a shared library, or the licence.
+ * Linux/macOS ship `lib*.so`/`lib*.dylib`; the Windows zip ships plain `*.dll`
+ * (`whisper.dll`, `ggml.dll`), so the `.dll` suffix must be kept too or the
+ * exe fails to load with 0xC0000135 (DLL not found).
+ */
+export function isNeededFile(name, exeName) {
+  return name === exeName || name.startsWith('lib') || name.endsWith('.dll') || name === 'LICENSE'
+}
+
 function stageBinary(root, platform, dest) {
   const exeName = EXE(platform)
   const files = walk(root)
@@ -70,8 +80,7 @@ function stageBinary(root, platform, dest) {
       continue
     }
     if (!info.isFile()) continue
-    const needed = name === exeName || name.startsWith('lib') || name === 'LICENSE'
-    if (!needed) continue
+    if (!isNeededFile(name, exeName)) continue
     cpSync(from, join(dest, name))
   }
   const staged = join(dest, exeName)

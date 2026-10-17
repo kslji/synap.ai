@@ -18,16 +18,13 @@ export function FeaturesPage() {
               <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Qwen 2B, Qwen 4B, and Qwen 9B. You download the file from this website. The app checks it and moves it in.</p>
             </article>
             <article className="card px-5 py-5">
-              <h3 className="text-xl font-semibold">Three agents you can use</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">General for everyday questions. Code for checked steps you can undo. Assistant for mail and calendar drafts, and it asks before it sends or deletes.</p>
-            </article>
-            <article className="card px-5 py-5" id="assistant">
-              <h3 className="text-xl font-semibold">Assistant</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Drafts email, checks a calendar, and reaches Slack or Drive only after you connect them. It asks before it sends or deletes anything. Mail and calendar connectors are not in this beta.</p>
+              <h3 className="text-xl font-semibold">Code</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">The agent in this build. It plans a change, edits files, and runs the project’s tests. Finished steps can be undone. It is not for trading or high-frequency trading.</p>
+              <a className="mt-3 inline-block text-sm font-semibold" href="/agents/code">Read about Code</a>
             </article>
             <article className="card px-5 py-5">
               <h3 className="text-xl font-semibold">Coming soon</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Marine, Pilot, and Construction are listed as coming soon. They do not open yet.</p>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">General, Assistant, Marine, Pilot, and Construction are coming soon. They do not open in this build.</p>
             </article>
             <article className="card px-5 py-5">
               <h3 className="text-xl font-semibold">Network choice</h3>

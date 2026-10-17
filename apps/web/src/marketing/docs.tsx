@@ -1,6 +1,7 @@
 import { agents } from '../../../../packages/shared/src/agent-catalog'
 import { BUNDLED_ASSETS } from '../site'
 import { MAC_STEPS, WINDOWS_STEPS } from '../pages'
+import { leadWithCode, websiteAgentState } from './site-agents'
 import { Shell } from './shell'
 
 const JUMP = [
@@ -69,12 +70,15 @@ export function DocsPage() {
           <section id="agents" aria-labelledby="agents-title">
             <h2 id="agents-title" className="text-2xl font-semibold">Agents</h2>
             <ul className="mt-4 flex flex-col gap-3">
-              {agents.map((agent) => (
-                <li key={agent.id} className="card px-4 py-4" data-agent-card={agent.id}>
-                  <div className="font-semibold">{agent.name}{agent.status !== 'available' ? ` · ${agent.status === 'beta' ? 'Beta' : 'Coming soon'}` : ''}</div>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{agent.description}</p>
-                </li>
-              ))}
+              {leadWithCode(agents).map((agent) => {
+                const state = websiteAgentState(agent.id)
+                return (
+                  <li key={agent.id} className="card px-4 py-4" data-agent-card={agent.id} data-site-agent={state}>
+                    <div className="font-semibold">{agent.name} · {state === 'ready' ? 'In this build' : 'Coming soon'}</div>
+                    <p className="mt-1 text-sm text-[var(--muted)]">{agent.description}</p>
+                  </li>
+                )
+              })}
             </ul>
           </section>
 

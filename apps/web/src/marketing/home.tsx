@@ -32,16 +32,16 @@ export function HomePage() {
         <section className="hero-wash">
           <div className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-10 md:grid-cols-[1.1fr_0.9fr]">
             <div>
-              <p className="pill">On your computer</p>
+              <p className="pill">Code is in this build</p>
               <h1 className="mt-4 text-5xl font-semibold leading-[1.05] tracking-tight md:text-6xl">
-                An AI app that runs on your laptop.
+                Code runs on your laptop.
               </h1>
               <p className="mt-5 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
-                {product.tagline} Chats, files, and knowledge packs stay on this computer. You pick a Qwen model on this site, then open the app.
+                {product.tagline} Code plans a change, edits files, and runs the project’s tests. Each finished step can be undone. Chats and files stay on this computer. You pick a Qwen model on this site, then open the app.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <a className="btn btn-primary no-underline" href="#download">Download the app</a>
-                <a className="btn btn-ghost no-underline" href="#agents">See the agents</a>
+                <a className="btn btn-ghost no-underline" href="/agents/code">Read about Code</a>
               </div>
             </div>
             <div className="flex justify-center">
@@ -61,7 +61,7 @@ export function HomePage() {
           </div>
         </section>
 
-        <Section id="agents" kicker="Agents" title="The agents in the app" lede="General, Code, and Assistant are in this build. Marine, Pilot, and Construction are coming soon, the same way the app shows them.">
+        <Section id="agents" kicker="Agents" title="Code is the agent you can use" lede="General, Assistant, Marine, Pilot, and Construction are coming soon. They are listed here, and they do not open yet.">
           <AgentSuite />
         </Section>
 

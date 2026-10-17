@@ -25,7 +25,7 @@ export function CodeAgentPage() {
         <section className="hero-wash">
           <div className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-10 md:grid-cols-[1.1fr_0.9fr]">
             <div>
-              <p className="pill">Beta</p>
+              <p className="pill">Available</p>
               <h1 className="mt-4 text-5xl font-semibold leading-[1.05] tracking-tight">Code, on this computer.</h1>
               <p className="mt-5 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
                 Code splits a big task into small checked steps. It can plan, edit, and run the project’s tests. Each finished step can be undone. It is not for trading or high-frequency trading.

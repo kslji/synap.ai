@@ -36,11 +36,16 @@ jobs:
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs
+      - name: Fetch whisper.cpp
+        working-directory: apps/desktop
+        run: node scripts/fetch-whisper.mjs
       - name: Fetch OCR language data
         working-directory: apps/desktop
         run: node scripts/fetch-tessdata.mjs
       - name: Document index unit tests
         run: npm run test:unit -w @surf/desktop
+        env:
+          SURF_WHISPER_LIVE: '1'
       - name: Typecheck and build the desktop app
         run: npm run build -w @surf/desktop
 

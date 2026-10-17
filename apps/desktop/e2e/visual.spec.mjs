@@ -76,6 +76,7 @@ test('chat, settings, and usage snapshots', async () => {
 test('theme switch sits to the right of Dark mode in light and dark', async () => {
   const { app, page, dir } = await launch({})
   try {
+    await go(page, 'chat')
     await page.locator('[data-account-menu="yes"]').click()
     await expect(page.locator('[data-account-panel="yes"]')).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
@@ -146,6 +147,7 @@ test('the Surf chip shows idle, syncing, synced, failed, and offline', async () 
     const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' })
     try {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await go(page, 'chat')
       await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Surf')
       const chip = page.locator('[data-sync-chip="yes"]')
       const scenes = [
@@ -179,6 +181,7 @@ test('the Surf chip shows idle, syncing, synced, failed, and offline', async () 
 test('chat header is the bot name and agent badge, and device control is refused', async () => {
   const { app, page, dir } = await launch({})
   try {
+    await go(page, 'chat')
     await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Surf')
     await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
     await expect(page.locator('header')).not.toContainText('Which model should I pick?')
@@ -206,6 +209,7 @@ test('the message box is an attach menu, a field, a mic, and send', async () => 
     const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' })
     try {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await go(page, 'chat')
       const row = page.locator('[data-composer="yes"]')
       await expect(page.getByText('This chat', { exact: true })).toHaveCount(0)
       await expect(page.getByText('All chats', { exact: true })).toHaveCount(0)
@@ -248,12 +252,65 @@ test('the message box is an attach menu, a field, a mic, and send', async () => 
   }
 })
 
+test('the microphone shows Pip listening and types into the box', async () => {
+  test.setTimeout(120_000)
+  for (const theme of ['light', 'dark']) {
+    const { app, page, dir } = await launch({ SURF_E2E_MIC_TEXT: 'four knots' }, { theme, mascotName: 'Surf' }, [
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+    ])
+    try {
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await go(page, 'chat')
+      await page.locator('[data-mic="yes"]').click()
+      await expect(page.locator('[data-mic-state="listening"]')).toBeVisible()
+      await expect(page.locator('[data-listening="yes"]')).toBeVisible()
+      await expect(page.locator('[data-blob-state="listening"]').first()).toBeVisible()
+      await expect(page).toHaveScreenshot(`mic-listening-${theme}.png`)
+      await page.waitForTimeout(900)
+      await page.locator('[data-mic-state="listening"]').click()
+      await expect(page.locator('textarea')).toHaveValue('four knots', { timeout: 15_000 })
+      await expect(page.locator('[data-mic-state="idle"]')).toBeVisible()
+    } finally {
+      await app.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+})
+
+test('the microphone explains a denied permission and a missing microphone', async () => {
+  const denied = await launch({ SURF_E2E_MIC: 'denied' })
+  try {
+    await go(denied.page, 'chat')
+    await denied.page.locator('[data-mic="yes"]').click()
+    await expect(denied.page.locator('[data-mic-note="yes"]')).toContainText('Microphone access is turned off')
+    await expect(denied.page.locator('[data-mic-state="listening"]')).toHaveCount(0)
+    await expect(denied.page.locator('textarea')).toHaveValue('')
+  } finally {
+    await denied.app.close()
+    rmSync(denied.dir, { recursive: true, force: true })
+  }
+
+  const missing = await launch({})
+  try {
+    await go(missing.page, 'chat')
+    await missing.page.locator('[data-mic="yes"]').click()
+    await expect(missing.page.locator('[data-mic-note="yes"]')).toContainText('No microphone was found')
+    await expect(missing.page.locator('[data-listening="yes"]')).toHaveCount(0)
+    await expect(missing.page.locator('textarea')).toHaveValue('')
+  } finally {
+    await missing.app.close()
+    rmSync(missing.dir, { recursive: true, force: true })
+  }
+})
+
 test('the header bot name renames, persists, and falls back to Surf', async () => {
   test.setTimeout(120_000)
   for (const theme of ['light', 'dark']) {
     const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' })
     try {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await go(page, 'chat')
       const header = page.locator('header')
       const pill = page.locator('[data-chat-header="yes"]')
       await expect(page.locator('[data-bot-name="yes"]')).toHaveText('Surf')

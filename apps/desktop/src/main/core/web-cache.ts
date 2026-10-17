@@ -178,7 +178,7 @@ export function saveCitedPassages(
 
 const SEARCH_K = 30
 
-export function searchSavedWeb(db: DB, query: string, qvec: Float32Array, conversationId: string | null, topN = 5): { top: SavedWebHit[]; decision: GateDecision } {
+export function searchSavedWeb(db: DB, query: string, qvec: Float32Array | null, conversationId: string | null, topN = 5): { top: SavedWebHit[]; decision: GateDecision } {
   const allowed = allowSet(db, conversationId)
   if (allowed && allowed.size === 0) return { top: [], decision: 'insufficient' }
   const hits = new Map<number, SavedWebHit>()
@@ -203,14 +203,16 @@ export function searchSavedWeb(db: DB, query: string, qvec: Float32Array, conver
       get(row.id).bm25Rank = rank++
     }
   } catch { /* vector search still runs */ }
-  const vec = db.prepare(`SELECT passage_id AS id, distance FROM web_vec WHERE embedding MATCH ? AND k = ${SEARCH_K}`)
-    .all(Buffer.from(qvec.buffer, qvec.byteOffset, qvec.byteLength)) as { id: number; distance: number }[]
-  let vecRank = 0
-  for (const row of vec) {
-    if (allowed && !allowed.has(row.id)) continue
-    const hit = get(row.id)
-    hit.vecRank = vecRank++
-    hit.cosine = 1 - row.distance
+  if (qvec) {
+    const vec = db.prepare(`SELECT passage_id AS id, distance FROM web_vec WHERE embedding MATCH ? AND k = ${SEARCH_K}`)
+      .all(Buffer.from(qvec.buffer, qvec.byteOffset, qvec.byteLength)) as { id: number; distance: number }[]
+    let vecRank = 0
+    for (const row of vec) {
+      if (allowed && !allowed.has(row.id)) continue
+      const hit = get(row.id)
+      hit.vecRank = vecRank++
+      hit.cosine = 1 - row.distance
+    }
   }
   const meta = db.prepare('SELECT title, domain, text, url, fetched_at AS fetchedAt, published FROM web_passages WHERE id = ?')
   for (const hit of hits.values()) {
@@ -233,7 +235,7 @@ export function searchSavedWeb(db: DB, query: string, qvec: Float32Array, conver
     const now = Date.now()
     for (const hit of top) mark.run(now, hit.chunkId)
   }
-  return { top, decision: documentGate(query, top) }
+  return { top, decision: qvec ? documentGate(query, top) : top.length ? 'borderline' : 'insufficient' }
 }
 
 function allowSet(db: DB, conversationId: string | null): Set<number> | null {

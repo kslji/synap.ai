@@ -2,7 +2,7 @@
  * Preload (sandboxed, contextIsolation on). Exposes window.surf — never ipcRenderer itself.
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type FileIndexEvent, type LibraryEvent, type ModelEvent } from '../shared/ipc-contract'
+import { IPC, type SurfApi, type ChatEvent, type CodeProjectStatus, type DocumentEvent, type FileIndexEvent, type LibraryEvent, type ModelEvent, type SetupSnapshot } from '../shared/ipc-contract'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T) => cb(payload)
@@ -18,8 +18,20 @@ const api: SurfApi = {
   },
   models: {
     status: () => ipcRenderer.invoke(IPC.modelsStatus),
+    download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
+  },
+  setup: {
+    state: () => ipcRenderer.invoke(IPC.setupState),
+    start: () => ipcRenderer.invoke(IPC.setupStart),
+    choose: (modelId) => ipcRenderer.invoke(IPC.setupChoose, modelId),
+    useFile: (modelId) => ipcRenderer.invoke(IPC.setupUseFile, modelId),
+    repair: () => ipcRenderer.invoke(IPC.setupRepair),
+    pause: () => ipcRenderer.invoke(IPC.setupPause),
+    resume: () => ipcRenderer.invoke(IPC.setupResume),
+    retry: () => ipcRenderer.invoke(IPC.setupRetry),
+    onEvent: (cb) => subscribe<SetupSnapshot>(IPC.setupEvent, cb),
   },
   packs: {
     list: () => ipcRenderer.invoke(IPC.packsList),
@@ -137,6 +149,8 @@ const api: SurfApi = {
   speech: {
     speak: (text) => ipcRenderer.invoke(IPC.speechSpeak, text),
     stop: () => ipcRenderer.invoke(IPC.speechStop),
+    prepare: () => ipcRenderer.invoke(IPC.speechPrepare),
+    transcribe: (req) => ipcRenderer.invoke(IPC.speechTranscribe, req),
   },
 }
 

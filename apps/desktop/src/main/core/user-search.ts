@@ -16,7 +16,7 @@ export interface UserHit extends Hit {
 
 const K = 30
 
-export function searchUser(db: DB, query: string, qvec: Float32Array, conversationId: string | null, topN = 5): { top: UserHit[]; decision: GateDecision } {
+export function searchUser(db: DB, query: string, qvec: Float32Array | null, conversationId: string | null, topN = 5): { top: UserHit[]; decision: GateDecision } {
   const allowed = allowSet(db, conversationId)
   if (allowed && allowed.size === 0) return { top: [], decision: 'insufficient' }
   const hits = new Map<number, UserHit>()
@@ -41,14 +41,16 @@ export function searchUser(db: DB, query: string, qvec: Float32Array, conversati
       get(row.id).bm25Rank = rank++
     }
   } catch { /* odd punctuation: vector search still runs */ }
-  const vec = db.prepare(`SELECT chunk_id AS id, distance FROM chunk_vectors WHERE embedding MATCH ? AND k = ${K}`)
-    .all(Buffer.from(qvec.buffer, qvec.byteOffset, qvec.byteLength)) as { id: number; distance: number }[]
-  let vecRank = 0
-  for (const row of vec) {
-    if (allowed && !allowed.has(row.id)) continue
-    const hit = get(row.id)
-    hit.vecRank = vecRank++
-    hit.cosine = 1 - row.distance
+  if (qvec) {
+    const vec = db.prepare(`SELECT chunk_id AS id, distance FROM chunk_vectors WHERE embedding MATCH ? AND k = ${K}`)
+      .all(Buffer.from(qvec.buffer, qvec.byteOffset, qvec.byteLength)) as { id: number; distance: number }[]
+    let vecRank = 0
+    for (const row of vec) {
+      if (allowed && !allowed.has(row.id)) continue
+      const hit = get(row.id)
+      hit.vecRank = vecRank++
+      hit.cosine = 1 - row.distance
+    }
   }
   const meta = db.prepare(
     `SELECT c.text, c.heading, c.locator_kind AS locatorKind, c.locator_label AS locatorLabel, c.page_start AS pageStart,
@@ -78,7 +80,7 @@ export function searchUser(db: DB, query: string, qvec: Float32Array, conversati
     hit.rrf = rrfScore([hit.bm25Rank, hit.vecRank])
   }
   const top = [...hits.values()].sort((a, b) => b.rrf - a.rrf).slice(0, topN)
-  return { top, decision: documentGate(query, top) }
+  return { top, decision: qvec ? documentGate(query, top) : top.length ? 'borderline' : 'insufficient' }
 }
 
 function allowSet(db: DB, conversationId: string | null): Set<number> | null {

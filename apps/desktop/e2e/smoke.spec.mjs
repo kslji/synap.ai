@@ -17,6 +17,8 @@ test('licence lock shows the activation screen when dev mode is off', async () =
 test('chat, settings, usage, and cache open without a model', async () => {
   const { app, page, dir } = await launch({}, { animateMascot: true })
   try {
+    await expect(page.locator('[data-ready="yes"][data-screen="setup"]')).toBeVisible()
+    await go(page, 'chat')
     await expect(page.locator('[data-ready="yes"][data-screen="chat"]')).toBeVisible()
     await expect(page.locator('[data-screen="activate"]')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Buy a licence' })).toHaveCount(0)

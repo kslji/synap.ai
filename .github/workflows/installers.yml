@@ -46,7 +46,14 @@ jobs:
         run: |
           node scripts/fetch-sidecars.mjs --platform=darwin --arch=arm64
           node scripts/fetch-sidecars.mjs --platform=darwin --arch=x64
+          node scripts/fetch-whisper.mjs --platform=darwin --arch=arm64
+          node scripts/fetch-whisper.mjs --platform=darwin --arch=x64
           node scripts/fetch-tessdata.mjs
+      - name: On-device transcription
+        working-directory: apps/desktop
+        env:
+          SURF_WHISPER_LIVE: '1'
+        run: npx tsx --test src/main/core/dictation.test.ts
       - name: Build disk images
         run: npm run dist:mac -w @surf/desktop
         env:
@@ -258,7 +265,13 @@ jobs:
         shell: bash
         run: |
           node scripts/fetch-sidecars.mjs
+          node scripts/fetch-whisper.mjs
           node scripts/fetch-tessdata.mjs
+      - name: On-device transcription
+        working-directory: apps/desktop
+        env:
+          SURF_WHISPER_LIVE: '1'
+        run: npx tsx --test src/main/core/dictation.test.ts
       - name: Build the NSIS installer
         run: npm run dist:win -w @surf/desktop
         env:
@@ -327,6 +340,13 @@ jobs:
             apps/desktop/dist/*.blockmap
             apps/desktop/dist/SIZES.txt
           if-no-files-found: error
+      # The unpacked app is the payload for the offline zips. Pull requests do not upload it.
+      - uses: actions/upload-artifact@v4
+        if: github.ref_type == 'tag'
+        with:
+          name: payload-win-x64
+          path: apps/desktop/dist/win-unpacked
+          if-no-files-found: error
 
   linux:
     runs-on: ubuntu-24.04
@@ -353,6 +373,7 @@ jobs:
         working-directory: apps/desktop
         run: |
           node scripts/fetch-sidecars.mjs
+          node scripts/fetch-whisper.mjs
           node scripts/fetch-tessdata.mjs
       - name: Build the AppImage
         run: npm run dist:linux -w @surf/desktop

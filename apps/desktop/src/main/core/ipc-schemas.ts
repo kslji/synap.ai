@@ -157,6 +157,10 @@ export const StorageClearReq = z.object({
 }).strict()
 export const StorageCategoryId = z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs', 'shots'])
 
+export const SpeechWav = z.object({
+  wavBase64: z.string().min(1).max(2_800_000),
+}).strict()
+
 export const CodeFileSave = z.object({
   path: z.string().min(1).max(4096),
   text: z.string().max(600_000),

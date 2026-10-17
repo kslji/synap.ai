@@ -24,8 +24,139 @@ jobs:
     uses: ./.github/workflows/installers.yml
     secrets: inherit
 
-  publish:
+  # Offline zips run only on a tag. A pull request does not download the GGUF files.
+  # A zip under 2 GiB stays in the artifact. A larger zip is uploaded to Hugging Face
+  # and removed, so the GitHub Release never receives it.
+  offline-windows:
     needs: installers
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_OFFLINE_REPO: ${{ vars.HF_OFFLINE_REPO || 'kslji/synap-surf-offline' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Hugging Face upload library
+        run: |
+          python3 -m venv "$RUNNER_TEMP/hf-venv"
+          "$RUNNER_TEMP/hf-venv/bin/pip" install -U "huggingface_hub"
+          "$RUNNER_TEMP/hf-venv/bin/python" -c "import huggingface_hub"
+          echo "$RUNNER_TEMP/hf-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v4
+        with:
+          name: payload-win-x64
+          path: payload/win
+      - name: Pack 2B, 4B, and 9B
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          app="$(find "$GITHUB_WORKSPACE/payload/win" -name SynapSurf.exe -printf '%h\n' -quit)"
+          if [ -z "${app}" ]; then
+            echo "payload has no SynapSurf.exe"
+            find "$GITHUB_WORKSPACE/payload/win" -maxdepth 3 -type d -print || true
+            exit 1
+          fi
+          out="$RUNNER_TEMP/offline"
+          mkdir -p "$out"
+          for token in 2b 4b 9b; do
+            npx tsx scripts/pack-offline-zip.ts \
+              --app "$app" \
+              --os windows \
+              --arch x64 \
+              --token "$token" \
+              --version "$version" \
+              --tag "${GITHUB_REF_NAME}" \
+              --out "$out" \
+              --catalog "$out/offline-packages-win.json"
+            rm -rf "$out/.models-$token" "$RUNNER_TEMP/models-$token"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-offline-win
+          path: ${{ runner.temp }}/offline
+          if-no-files-found: error
+
+  offline-mac:
+    needs: installers
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    timeout-minutes: 180
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_OFFLINE_REPO: ${{ vars.HF_OFFLINE_REPO || 'kslji/synap-surf-offline' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Hugging Face upload library
+        run: |
+          python3 -m venv "$RUNNER_TEMP/hf-venv"
+          "$RUNNER_TEMP/hf-venv/bin/pip" install -U "huggingface_hub"
+          "$RUNNER_TEMP/hf-venv/bin/python" -c "import huggingface_hub"
+          echo "$RUNNER_TEMP/hf-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer-macos
+          path: payload/mac
+      - name: Pack 2B, 4B, and 9B for both Mac architectures
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          out="$RUNNER_TEMP/offline"
+          mkdir -p "$out"
+          for arch in arm64 x64; do
+            zip="$(find "$GITHUB_WORKSPACE/payload/mac" -name "Synap.surf-*-${arch}.zip" ! -name '*offline*' -print -quit)"
+            if [ -z "${zip}" ]; then
+              echo "missing Mac app zip for $arch"
+              find "$GITHUB_WORKSPACE/payload/mac" -name '*.zip' -print || true
+              exit 1
+            fi
+            dest="$RUNNER_TEMP/app-$arch"
+            rm -rf "$dest"
+            mkdir -p "$dest"
+            ditto -x -k "$zip" "$dest"
+          done
+          for token in 2b 4b 9b; do
+            for arch in arm64 x64; do
+              app="$(find "$RUNNER_TEMP/app-$arch" -name '*.app' -maxdepth 3 -print -quit)"
+              if [ -z "${app}" ]; then
+                echo "zip has no app for $arch"
+                exit 1
+              fi
+              npx tsx scripts/pack-offline-zip.ts \
+                --app "$app" \
+                --os mac \
+                --arch "$arch" \
+                --token "$token" \
+                --version "$version" \
+                --tag "${GITHUB_REF_NAME}" \
+                --out "$out" \
+                --catalog "$out/offline-packages-mac.json" \
+                --models-dir "$RUNNER_TEMP/models-$token"
+            done
+            rm -rf "$RUNNER_TEMP/models-$token"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-offline-mac
+          path: ${{ runner.temp }}/offline
+          if-no-files-found: error
+
+  publish:
+    needs: [installers, offline-windows, offline-mac]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -33,6 +164,22 @@ jobs:
           path: release
           pattern: installer-*
           merge-multiple: true
+      - name: Merge offline package catalogs
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          rows = []
+          for path in sorted(glob.glob('release/offline-packages-*.json')):
+              with open(path, encoding='utf-8') as handle:
+                  body = json.load(handle)
+              if isinstance(body, list):
+                  rows.extend(body)
+              os.remove(path)
+          with open('release/offline-packages.json', 'w', encoding='utf-8') as handle:
+              json.dump(rows, handle, indent=2)
+              handle.write('\n')
+          print(f'offline packages: {len(rows)}')
+          PY
       - name: SHA256SUMS
         run: |
           cd release

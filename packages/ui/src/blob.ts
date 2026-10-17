@@ -91,7 +91,7 @@ const EXTRA: Record<Exclude<BlobMood, keyof typeof FILE_POSES>, Pose> = {
   guiding: { ...IDLE, tilt: -6, amp: 3, spd: 0.9, bob: 2.2, bs: 1.4, es: 1.05 },
   notification: { ...IDLE, es: 1.08, amp: 5, bob: 3.2, bs: 2.1 },
   dizzy: { ...IDLE, amp: 9, spd: 3.2, bob: 3, bs: 4, es: 1.16 },
-  listening: { ...IDLE, ehl: 1.16, ehr: 1.16, amp: 2.2, spd: 0.7, bob: 1.6, bs: 1.1, tilt: -8, es: 1.06 },
+  listening: { ...IDLE, ehl: 1.35, ehr: 1.35, amp: 2.4, spd: 0.8, bob: 2, bs: 1.2, tilt: -16, es: 1.12 },
 }
 
 const POSES: Record<BlobMood, Pose> = { ...FILE_POSES, ...EXTRA }

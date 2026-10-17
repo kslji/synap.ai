@@ -366,8 +366,8 @@ a { color: var(--accent-text); }
   margin-bottom: 4px;
 }
 .composer-icon.is-listening {
-  background: var(--accent-soft);
-  color: var(--accent-text);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 .mic-note {
   margin: 0 4px 8px;

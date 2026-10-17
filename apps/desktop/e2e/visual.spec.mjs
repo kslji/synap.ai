@@ -251,15 +251,12 @@ test('the message box is an attach menu, a field, a mic, and send', async () => 
 test('the microphone shows Pip listening and types into the box', async () => {
   test.setTimeout(120_000)
   for (const theme of ['light', 'dark']) {
-    const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' }, [
+    const { app, page, dir } = await launch({ SURF_E2E_MIC_TEXT: 'four knots' }, { theme, mascotName: 'Surf' }, [
       '--use-fake-device-for-media-stream',
       '--use-fake-ui-for-media-stream',
     ])
     try {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-      await page.evaluate(() => {
-        window.surf.speech.transcribe = async () => ({ ok: true, text: 'four knots', note: '' })
-      })
       await page.locator('[data-mic="yes"]').click()
       await expect(page.locator('[data-mic-state="listening"]')).toBeVisible()
       await expect(page.locator('[data-listening="yes"]')).toBeVisible()
@@ -277,27 +274,26 @@ test('the microphone shows Pip listening and types into the box', async () => {
 })
 
 test('the microphone explains a denied permission and a missing microphone', async () => {
-  const { app, page, dir } = await launch({})
+  const denied = await launch({ SURF_E2E_MIC: 'denied' })
   try {
-    await page.evaluate(() => {
-      window.surf.speech.prepare = async () => ({ status: 'denied' })
-    })
-    await page.locator('[data-mic="yes"]').click()
-    await expect(page.locator('[data-mic-note="yes"]')).toContainText('Microphone access is turned off')
-    await expect(page.locator('[data-mic-state="listening"]')).toHaveCount(0)
-    await expect(page.locator('textarea')).toHaveValue('')
-
-    await page.evaluate(() => {
-      window.surf.speech.prepare = async () => ({ status: 'granted' })
-      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('No microphone', 'NotFoundError'))
-    })
-    await page.locator('[data-mic="yes"]').click()
-    await expect(page.locator('[data-mic-note="yes"]')).toContainText('No microphone was found')
-    await expect(page.locator('[data-listening="yes"]')).toHaveCount(0)
-    await expect(page.locator('textarea')).toHaveValue('')
+    await denied.page.locator('[data-mic="yes"]').click()
+    await expect(denied.page.locator('[data-mic-note="yes"]')).toContainText('Microphone access is turned off')
+    await expect(denied.page.locator('[data-mic-state="listening"]')).toHaveCount(0)
+    await expect(denied.page.locator('textarea')).toHaveValue('')
   } finally {
-    await app.close()
-    rmSync(dir, { recursive: true, force: true })
+    await denied.app.close()
+    rmSync(denied.dir, { recursive: true, force: true })
+  }
+
+  const missing = await launch({})
+  try {
+    await missing.page.locator('[data-mic="yes"]').click()
+    await expect(missing.page.locator('[data-mic-note="yes"]')).toContainText('No microphone was found')
+    await expect(missing.page.locator('[data-listening="yes"]')).toHaveCount(0)
+    await expect(missing.page.locator('textarea')).toHaveValue('')
+  } finally {
+    await missing.app.close()
+    rmSync(missing.dir, { recursive: true, force: true })
   }
 })
 

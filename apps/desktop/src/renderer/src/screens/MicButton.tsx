@@ -11,6 +11,7 @@ import {
   micNote,
   MIN_SPEECH_SAMPLES,
   NOTHING_HEARD,
+  SPEECH_MODEL_MISSING,
   SPEECH_MODEL_OFFLINE,
 } from '../../../main/core/dictation'
 
@@ -93,6 +94,7 @@ export function MicButton({
       return
     }
     const ctx = new AudioContext()
+    if (ctx.state === 'suspended') await ctx.resume()
     const source = ctx.createMediaStreamSource(stream)
     const processor = ctx.createScriptProcessor(4096, 1, 1)
     const mute = ctx.createGain()
@@ -129,10 +131,13 @@ export function MicButton({
     }
     setBusy(true)
     try {
-      const ready = await ensureModel()
-      if (!ready) return
       const wav = encodeWavPcm16(pcm, 16000)
-      const result = await window.surf.speech.transcribe({ wavBase64: bytesToBase64(wav) })
+      let result = await window.surf.speech.transcribe({ wavBase64: bytesToBase64(wav) })
+      if (!result.ok && result.note === SPEECH_MODEL_MISSING) {
+        const ready = await ensureModel()
+        if (!ready) return
+        result = await window.surf.speech.transcribe({ wavBase64: bytesToBase64(wav) })
+      }
       if (result.ok && result.text) onTranscript(result.text)
       else if (result.note) publish(result.note, null)
     } catch (error) {

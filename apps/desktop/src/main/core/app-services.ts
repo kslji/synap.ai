@@ -2051,6 +2051,7 @@ export async function createServices(): Promise<Services> {
   }
 
   async function prepareMicrophone(): Promise<{ status: 'granted' | 'denied' | 'prompt' | 'unknown' }> {
+    if (surfEnv('E2E_DIR') && process.env.SURF_E2E_MIC === 'denied') return { status: 'denied' }
     try {
       const mapped = osMicStatus(systemPreferences.getMediaAccessStatus('microphone'))
       if (process.platform !== 'darwin' || mapped === 'granted' || mapped === 'denied') return { status: mapped }
@@ -2065,6 +2066,8 @@ export async function createServices(): Promise<Services> {
 
   async function transcribeRecording(wav: Buffer): Promise<{ ok: boolean; text: string; note: string }> {
     if (wav.length < 44 || wav.length > 2_100_000) return { ok: false, text: '', note: SPEECH_FAILED }
+    const canned = surfEnv('E2E_DIR') ? process.env.SURF_E2E_MIC_TEXT : ''
+    if (canned) return { ok: true, text: canned.slice(0, 200), note: '' }
     let model: ModelEntry
     try {
       model = pick(registry(), 'asr', hw.tier)

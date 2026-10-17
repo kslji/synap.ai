@@ -306,6 +306,15 @@ test('a news question with no fetched row does not call the model', async () => 
   assert.equal(kept.text.includes(UNABLE_NEWS), false)
 })
 
+function hostEndsWith(url: string, host: string): boolean {
+  try {
+    const name = new URL(url).hostname.toLowerCase()
+    return name === host || name.endsWith(`.${host}`)
+  } catch {
+    return false
+  }
+}
+
 function isSynapServer(url: string): boolean {
   try {
     const parsed = new URL(url)
@@ -322,11 +331,12 @@ test('general search reads a public page on this computer and never calls synap.
     const url = String(input)
     urls.push(url)
     if (isSynapServer(url)) throw new Error('server')
-    if (url.includes('wikipedia.org/w/api.php')) {
+    const path = (() => { try { return new URL(url).pathname } catch { return '' } })()
+    if (hostEndsWith(url, 'wikipedia.org') && path.startsWith('/w/api.php')) {
       return jsonResponse({ query: { search: [{ title: 'Electron (software)', snippet: 'Electron is a software framework.', timestamp: '2026-10-13T00:00:00Z' }] } })
     }
-    if (url.includes('hn.algolia.com')) return jsonResponse({ hits: [] })
-    if (url.includes('wikipedia.org/wiki/')) {
+    if (hostEndsWith(url, 'hn.algolia.com')) return jsonResponse({ hits: [] })
+    if (hostEndsWith(url, 'wikipedia.org') && path.startsWith('/wiki/')) {
       return new Response('<html><head><title>Electron (software)</title></head><body><article><p>Electron is a software framework for building desktop applications with web technology. It packages a browser and a Node runtime so the same page can run as a desktop app.</p></article></body></html>', { status: 200, headers: { 'content-type': 'text/html' } })
     }
     return new Response('no', { status: 404 })
@@ -340,7 +350,7 @@ test('general search reads a public page on this computer and never calls synap.
   })
   assert.ok(urls.length > 0)
   assert.ok(urls.every((url) => !isSynapServer(url)))
-  assert.ok(urls.some((url) => url.includes('wikipedia.org')))
+  assert.ok(urls.some((url) => hostEndsWith(url, 'wikipedia.org')))
   assert.ok(gathered.pages.some((page) => /Electron/.test(page.title) && /framework/.test(page.text)))
 })
 

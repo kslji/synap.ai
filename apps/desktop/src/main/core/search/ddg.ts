@@ -10,6 +10,15 @@ function clean(value: string): string {
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+function hostEndsWith(url: string, host: string): boolean {
+  try {
+    const name = new URL(url).hostname.toLowerCase()
+    return name === host || name.endsWith(`.${host}`)
+  } catch {
+    return false
+  }
+}
+
 export function parseDdgInstant(body: unknown): ConnectorHit[] {
   if (!body || typeof body !== 'object') return []
   const row = body as {
@@ -22,7 +31,7 @@ export function parseDdgInstant(body: unknown): ConnectorHit[] {
   const rows: ConnectorHit[] = []
   const abstractUrl = row.AbstractURL || ''
   const abstract = clean(row.Abstract || '')
-  if (abstract && abstractUrl.startsWith('http') && !abstractUrl.includes('duckduckgo.com/')) {
+  if (abstract && abstractUrl.startsWith('http') && !hostEndsWith(abstractUrl, 'duckduckgo.com')) {
     rows.push({
       source: row.AbstractSource || 'DuckDuckGo',
       title: clean(row.Heading || row.AbstractSource || abstract).slice(0, 180),
@@ -37,7 +46,7 @@ export function parseDdgInstant(body: unknown): ConnectorHit[] {
     for (const item of nested) {
       const url = item.FirstURL || ''
       const text = clean(item.Text || '')
-      if (!text || !url.startsWith('http') || url.includes('duckduckgo.com/')) continue
+      if (!text || !url.startsWith('http') || hostEndsWith(url, 'duckduckgo.com')) continue
       rows.push({ source: 'DuckDuckGo', title: text.slice(0, 180), url, snippet: text.slice(0, 500), published: null })
       if (rows.length >= 5) return rows
     }
@@ -59,11 +68,11 @@ export function parseDdgLite(html: string): ConnectorHit[] {
     if (rows.length >= 5) break
   }
   if (rows.length) return rows
-  const loose = /<a[^>]*href="(https?:\/\/(?!lite\.duckduckgo\.com|duckduckgo\.com)[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
+  const loose = /<a[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
   for (const match of html.matchAll(loose)) {
     const url = match[1].trim()
     const title = clean(match[2])
-    if (!title || title.length < 2) continue
+    if (!title || title.length < 2 || hostEndsWith(url, 'duckduckgo.com')) continue
     rows.push({ source: 'DuckDuckGo', title: title.slice(0, 180), url, snippet: '', published: null })
     if (rows.length >= 5) break
   }

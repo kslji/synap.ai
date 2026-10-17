@@ -56,7 +56,7 @@ export interface SyncChipInput {
   lastSyncAt: number | null
   refreshBy: string | null
   now: number
-  /** Dev mode does not sync packs or refresh a licence. */
+  /** Dev mode still blocks pack sync and licence refresh. It does not replace the chip label. */
   devMode?: boolean
 }
 
@@ -70,26 +70,12 @@ export interface SyncChipView {
   tooltip: string
   detail: string
   refreshWarning: string | null
-  /** False in dev mode so the chip does not append Offline, Online, or Auto. */
+  /** The sidebar chip uses colour. Settings still reads the label and detail. */
   showMode: boolean
 }
 
 export function syncChip(input: SyncChipInput): SyncChipView {
   const modeLabel = input.mode === 'offline' ? 'Offline' : input.mode === 'online' ? 'Online' : 'Auto'
-  if (input.devMode) {
-    return {
-      label: 'Dev mode, sync off',
-      state: 'offline',
-      mode: input.mode,
-      modeLabel,
-      packVersion: null,
-      lastSyncAt: null,
-      tooltip: 'Dev mode, sync off. Pack sync and licence refresh stay off until dev mode is turned off.',
-      detail: 'Dev mode, sync off. Last sync: not yet',
-      refreshWarning: null,
-      showMode: false,
-    }
-  }
   const blocked = input.mode === 'offline' || (input.mode === 'auto' && input.osOnline === false)
   const version = input.syncing && input.syncingVersion ? input.syncingVersion : input.packVersion
   let label = 'Up to date'
@@ -104,7 +90,7 @@ export function syncChip(input: SyncChipInput): SyncChipView {
     label = 'Sync failed, will retry'
     state = 'failed'
   }
-  const warning = licenceRefreshWarning({ mode: input.mode, refreshBy: input.refreshBy, now: input.now })
+  const warning = input.devMode ? null : licenceRefreshWarning({ mode: input.mode, refreshBy: input.refreshBy, now: input.now })
   const versionLine = version ? `Pack v${version}` : 'No pack installed'
   const when = input.lastSyncAt == null ? 'Last sync: not yet' : `Last sync: ${new Date(input.lastSyncAt).toISOString()}`
   const tooltip = [versionLine, when, warning].filter((line): line is string => Boolean(line)).join('\n')

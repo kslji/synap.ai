@@ -130,10 +130,37 @@ a { color: var(--accent-text); }
   box-shadow: 0 1px 2px rgba(28, 24, 40, 0.04);
   cursor: pointer;
 }
+.surf-chip.is-offline { color: var(--muted); }
+.surf-chip.is-syncing { animation: surf-chip-pulse 1.8s ease-out infinite; }
+.surf-chip button {
+  border: 0;
+  cursor: pointer;
+}
+.surf-chip .surf-chip-sync {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 4px 2px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+}
+.surf-chip .surf-chip-sync:disabled {
+  color: inherit;
+  cursor: default;
+  opacity: 1;
+}
+.surf-chip .chat-avatar { padding: 0; cursor: pointer; }
+@keyframes surf-chip-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 116, 15, 0.45); }
+  70% { box-shadow: 0 0 0 8px rgba(242, 116, 15, 0); }
+}
 .account-menu {
   position: absolute;
   left: 12px;
-  bottom: 68px;
+  bottom: calc(100% + 8px);
   z-index: 30;
   display: flex;
   width: 248px;
@@ -619,12 +646,12 @@ a { color: var(--accent-text); }
 .suggest-chip:hover, .model-choice:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .suggest-chip:active, .model-choice:active, .settings-nav-btn:active, .account-launch:active { transform: scale(0.98); }
 .btn:focus-visible, .chip-tab:focus-visible, .settings-nav-btn:focus-visible, .suggest-chip:focus-visible,
-.chat-row button:focus-visible, .account-menu button:focus-visible, .model-choice:focus-visible, .field:focus-visible {
+.chat-row button:focus-visible, .account-menu button:focus-visible, .surf-chip button:focus-visible, .model-choice:focus-visible, .field:focus-visible {
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .view-pane, .msg-in, .stream-caret::after, .skeleton, .progress.is-busy b { animation: none; }
+  .view-pane, .msg-in, .stream-caret::after, .skeleton, .progress.is-busy b, .surf-chip.is-syncing { animation: none; }
   .chat-row, .settings-nav-btn, .suggest-chip, .model-choice, .hw-tile, .stat-card, .account-launch, .btn { transition: none; }
 }
 .hw-grid {

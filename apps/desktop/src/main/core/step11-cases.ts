@@ -41,8 +41,8 @@ export function step11Cases(): Step11Row[] {
   const names: [unknown, string][] = [
     ['Surf Bot', 'Surf Bot'],
     ['  tide   bot  ', 'tide bot'],
-    ['', 'Surf Bot'],
-    [null, 'Surf Bot'],
+    ['', 'Surf'],
+    [null, 'Surf'],
     ['x'.repeat(80), 'x'.repeat(40)],
     ['Grok Bot', 'Grok Bot'],
   ]

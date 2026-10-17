@@ -223,7 +223,7 @@ const DEFAULT_SETTINGS: Settings = {
   idleUnloadMinutes: DEFAULT_IDLE_UNLOAD_MINUTES,
   speculativeDecoding: true,
   myRegion: '',
-  mascotName: 'Surf Bot',
+  mascotName: 'Surf',
   mascotColor: '#f2740f',
   accent: 'orange',
   density: 'comfortable',
@@ -3033,12 +3033,18 @@ export async function createServices(): Promise<Services> {
 
   async function syncPacks(force: boolean): Promise<void> {
     if (devMode) {
-      if (force) throw new Error('Pack sync is off in dev mode.')
+      if (force) {
+        syncFailed = true
+        throw new Error('Pack sync is off in dev mode.')
+      }
       return
     }
     const licence = await licences.status()
     if (!packAutoSyncAllowed({ state: licence.state, features: licence.features })) {
-      if (force) throw new Error('Knowledge pack updates are included with an active subscription.')
+      if (force) {
+        syncFailed = true
+        throw new Error('Knowledge pack updates are included with an active subscription.')
+      }
       return
     }
     if (syncing) return
@@ -3058,6 +3064,7 @@ export async function createServices(): Promise<Services> {
     })
     if (!allowed) {
       if (!force) return
+      syncFailed = true
       if (!session) throw new Error('Sign in to sync knowledge packs.')
       if (settings.offlineOnly || !online) throw new Error('Pack sync waits until you are online.')
       if (inflight.size > 0) throw new Error('Pack sync waits until the current chat finishes.')

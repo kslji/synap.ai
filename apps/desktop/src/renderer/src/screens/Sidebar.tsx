@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BarChart3, Bot, Folder, Home, LogOut, Moon, Package, Plus, Search, Settings, Trash2 } from 'lucide-react'
 import { BlobMascot, type ThemeChoice } from '@surf/ui'
 import { useMascotActivity } from '../mascot-activity'
@@ -6,6 +6,7 @@ import { agentCanChat } from '../../../../../../packages/shared/src/agents'
 import { agents } from '../../../../../../packages/shared/src/agent-catalog'
 import { labelFromAgentId } from '../../../shared/chat-title'
 import { clipWords, SIDEBAR_PREVIEW_LIMIT, SIDEBAR_TITLE_LIMIT } from '../../../shared/reply-text'
+import { SURF_CHIP_IDLE, surfChipStep, surfChipText, surfChipTone, type SurfChipHold } from '../../../shared/surf-chip'
 import type { ConversationSummary, SyncChip } from '../../../shared/ipc-contract'
 import type { View } from '../types'
 
@@ -38,6 +39,7 @@ export function Sidebar({
   onOpen,
   onDelete,
   onAgent,
+  onSync,
   sync,
 }: {
   view: View
@@ -59,6 +61,7 @@ export function Sidebar({
   onOpen: (id: string) => void
   onDelete: (id: string) => void
   onAgent: (id: string) => void
+  onSync: () => void
   sync?: SyncChip
 }) {
   const activity = useMascotActivity()
@@ -66,6 +69,28 @@ export function Sidebar({
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [name, setName] = useState(mascotName)
+  const opened = surfChipStep(SURF_CHIP_IDLE, sync?.state ?? 'uptodate', Date.now())
+  const [hold, setHold] = useState<SurfChipHold>(opened)
+  const holdRef = useRef(opened)
+  const stateRef = useRef(sync?.state ?? 'uptodate')
+  stateRef.current = sync?.state ?? 'uptodate'
+  useEffect(() => {
+    const now = Date.now()
+    const next = surfChipStep(holdRef.current, stateRef.current, now)
+    holdRef.current = next
+    setHold(next)
+    if (next.phase !== 'synced') return
+    const wait = Math.max(0, next.holdUntil - now)
+    const timer = window.setTimeout(() => {
+      const settled = surfChipStep(holdRef.current, stateRef.current, Date.now())
+      holdRef.current = settled
+      setHold(settled)
+    }, wait)
+    return () => window.clearTimeout(timer)
+  }, [sync?.state])
+  const phase = hold.phase
+  const text = surfChipText(phase)
+  const tone = surfChipTone(phase, theme === 'dark' ? 'dark' : 'light')
   useEffect(() => { setName(mascotName) }, [mascotName])
   const needle = query.trim().toLowerCase()
   const nameOf = (id: string) => agents.find((agent) => agent.id === id)?.name ?? labelFromAgentId(id)
@@ -134,25 +159,38 @@ export function Sidebar({
         })}
       </div>
       <div className="relative shrink-0 px-3 pb-4">
-        {sync && (
-          <p
-            className="mb-2 px-1 text-[11px] leading-snug text-[var(--muted)]"
-            data-sync-chip="yes"
-            data-sync-state={sync.state}
-            data-network-mode={sync.mode}
-            data-sync-label={sync.label}
-            title={sync.tooltip}
-            data-tour="online"
-            data-tour-target={tourId === 'online' ? 'yes' : 'no'}
+        <div
+          className={`account-launch surf-chip is-${phase}`}
+          style={tone ?? undefined}
+          data-sync-chip="yes"
+          data-sync-state={phase}
+          data-network-mode={sync?.mode ?? 'auto'}
+          data-sync-label={text}
+          title={sync?.tooltip}
+          data-tour="online"
+          data-tour-target={tourId === 'online' ? 'yes' : 'no'}
+        >
+          <button
+            type="button"
+            className="chat-avatar"
+            data-account-menu="yes"
+            aria-label="Account menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
           >
-            <span>{sync.label}</span>
-            {sync.showMode !== false && sync.modeLabel !== sync.label && <span data-network-mode-label="yes"> · {sync.modeLabel}</span>}
-          </p>
-        )}
-        <button type="button" className="account-launch" data-account-menu="yes" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
-          <span className="chat-avatar">{(mascotName || 'S').slice(0, 1).toUpperCase()}</span>
-          <span className="truncate text-sm font-semibold">{mascotName}</span>
-        </button>
+            {(mascotName || 'S').slice(0, 1).toUpperCase()}
+          </button>
+          <button
+            type="button"
+            className="surf-chip-sync"
+            data-sync-start="yes"
+            aria-live="polite"
+            disabled={phase === 'syncing'}
+            onClick={onSync}
+          >
+            {text}
+          </button>
+        </div>
         {menuOpen && (
           <div className="account-menu" data-account-panel="yes">
             {MENU.map((item) => {

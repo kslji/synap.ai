@@ -139,6 +139,41 @@ test('a length-limited reply ends on a sentence and offers Continue', async () =
   await replyShot('dark', 'continued', 'continue-reply-dark.png')
 })
 
+test('the Surf chip shows idle, syncing, synced, failed, and offline', async () => {
+  for (const theme of ['light', 'dark']) {
+    const { app, page, dir } = await launch({}, { theme, mascotName: 'Surf' })
+    try {
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await expect(page.locator('[data-mascot-name="yes"]')).toHaveValue('Surf')
+      const chip = page.locator('[data-sync-chip="yes"]')
+      const scenes = [
+        ['sync-idle', 'idle', 'Surf', `sync-idle-${theme}.png`, null],
+        ['sync-syncing', 'syncing', 'Surf', `sync-syncing-${theme}.png`, 'rgb(242, 116, 15)'],
+        ['sync-synced', 'synced', 'Surf · Synced', `sync-synced-${theme}.png`, 'rgb(21, 128, 61)'],
+        ['sync-failed', 'failed', 'Sync failed', `sync-failed-${theme}.png`, theme === 'dark' ? 'rgb(63, 18, 18)' : 'rgb(254, 242, 242)'],
+        ['sync-offline', 'offline', 'Offline', `sync-offline-${theme}.png`, null],
+      ]
+      for (const [scene, state, text, name, background] of scenes) {
+        await page.evaluate((next) => window.__surfDemo && window.__surfDemo(next), scene)
+        await expect(chip).toHaveAttribute('data-sync-state', state)
+        await expect(chip).toHaveAttribute('data-sync-label', text)
+        await expect(chip.locator('[data-sync-start="yes"]')).toHaveText(text)
+        await expect(page.locator('.shell-side')).not.toContainText('Dev mode')
+        await expect(page.locator('.shell-side')).not.toContainText('Surf Bot')
+        if (background) {
+          await expect.poll(() => chip.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(background)
+        }
+        const ink = await chip.locator('[data-sync-start="yes"]').evaluate((el) => getComputedStyle(el).color)
+        expect(ink).not.toBe(background)
+        await expect(chip).toHaveScreenshot(name)
+      }
+    } finally {
+      await app.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+})
+
 test('chat header is the agent chip and title, and device control is refused', async () => {
   const { app, page, dir } = await launch({})
   try {

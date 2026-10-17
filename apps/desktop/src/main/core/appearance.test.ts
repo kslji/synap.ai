@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cleanMascotColor, cleanMascotName, DEFAULT_MASCOT_COLOR, DEFAULT_MASCOT_NAME } from './appearance.js'
 
-test('mascot name stays Surf Bot unless the person renames it', () => {
-  assert.equal(cleanMascotName(''), DEFAULT_MASCOT_NAME)
+test('the default mascot name is Surf', () => {
+  assert.equal(DEFAULT_MASCOT_NAME, 'Surf')
+  assert.equal(cleanMascotName(''), 'Surf')
   assert.equal(cleanMascotName('  Pip  '), 'Pip')
-  assert.equal(cleanMascotName(null), DEFAULT_MASCOT_NAME)
+  assert.equal(cleanMascotName(null), 'Surf')
+  assert.equal(cleanMascotName('Surf Bot'), 'Surf Bot')
 })
 
 test('mascot colour is a saved hex and anything else stays orange', () => {

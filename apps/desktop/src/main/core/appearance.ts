@@ -2,7 +2,7 @@
 
 export const ACCENTS = ['orange', 'blue', 'indigo', 'navy'] as const
 export const DENSITIES = ['compact', 'comfortable', 'relaxed'] as const
-export const DEFAULT_MASCOT_NAME = 'Surf Bot'
+export const DEFAULT_MASCOT_NAME = 'Surf'
 export const DEFAULT_MASCOT_COLOR = '#f2740f'
 
 export type AccentId = (typeof ACCENTS)[number]

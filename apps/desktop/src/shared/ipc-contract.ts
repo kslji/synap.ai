@@ -449,7 +449,7 @@ export interface SyncChip {
   tooltip: string
   detail: string
   refreshWarning: string | null
-  /** False in dev mode. The chip then shows only its label. */
+  /** Settings still reads label and detail. The sidebar chip uses colour. */
   showMode?: boolean
 }
 

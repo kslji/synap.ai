@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { persistThemeChoice, BlobMascot, useMascotColorSetter, type ThemeChoice } from '@surf/ui'
 import { useMascotActivity } from './mascot-activity'
-import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, UpdateOffer } from '../../shared/ipc-contract'
+import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, DocScope, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
+import { syncChip } from '../../main/core/network-mode'
 import { applyEvent, type UiMsg, type View } from './types'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
 import { agentCanChat } from '../../../../../packages/shared/src/agents'
@@ -22,6 +23,24 @@ import { SignInScreen } from './screens/SignInScreen'
 import { ActivationScreen } from './screens/ActivationScreen'
 import { PacksScreen } from './screens/PacksScreen'
 import { UpdateBanner } from './screens/UpdateBanner'
+
+const DEMO_SYNC_AT = Date.parse('2026-10-17T12:00:00.000Z')
+
+function demoSync(input: { mode: 'offline' | 'online'; osOnline: boolean; syncing: boolean; failed: boolean }): SyncChip {
+  return syncChip({
+    mode: input.mode,
+    osOnline: input.osOnline,
+    syncing: input.syncing,
+    failed: input.failed,
+    packVersion: '2026.10.01',
+    syncingVersion: input.syncing ? '2026.10.09' : null,
+    lastSyncAt: input.syncing || input.failed ? null : DEMO_SYNC_AT,
+    refreshBy: null,
+    now: DEMO_SYNC_AT,
+  })
+}
+
+const SYNC_ERROR = /Pack sync is off in dev mode|Sign in to sync|Pack sync waits|metered connection|active subscription/
 
 const FORMATTED_REPLY = [
   '## Sorting a list',
@@ -105,6 +124,8 @@ export default function App() {
     setOffline(Boolean(status && (status.offlineOnly || !status.online)))
   }, [setOffline, status])
 
+  const syncPreview = useRef<SyncChip | null>(null)
+  const syncDemoTimer = useRef<number | null>(null)
   const refresh = useCallback(async () => {
     const [st, se, conv, auth, listed, lic] = await Promise.all([
       api.models.status(),
@@ -114,7 +135,7 @@ export default function App() {
       api.packs.list(),
       api.licence.status(),
     ])
-    setStatus(st)
+    setStatus(syncPreview.current ? { ...st, sync: syncPreview.current } : st)
     setSettings(se)
     setConversations(conv)
     setAccount(auth.signedIn && auth.email ? { email: auth.email, deviceId: auth.deviceId, plan: lic.plan } : null)
@@ -192,6 +213,22 @@ export default function App() {
   function chooseTheme(theme: ThemeChoice) {
     persistThemeChoice(theme)
     void patch({ theme })
+  }
+
+  async function syncFromChip() {
+    if (syncDemoTimer.current != null) window.clearTimeout(syncDemoTimer.current)
+    syncDemoTimer.current = null
+    syncPreview.current = null
+    const poll = window.setInterval(() => { void refresh().catch(() => undefined) }, 200)
+    try {
+      await api.packs.sync()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Sync failed'
+      if (!SYNC_ERROR.test(message)) setError(message)
+    } finally {
+      window.clearInterval(poll)
+      await refresh().catch(() => undefined)
+    }
   }
 
   async function patch(p: SettingsPatch) {
@@ -508,6 +545,25 @@ export default function App() {
       setConvertJob(null)
       setFillJob(null)
       setUpdateOffer(null)
+      if (syncDemoTimer.current != null) window.clearTimeout(syncDemoTimer.current)
+      syncDemoTimer.current = null
+      syncPreview.current = null
+      if (scene === 'sync-idle' || scene === 'sync-syncing' || scene === 'sync-synced' || scene === 'sync-failed' || scene === 'sync-offline') {
+        const show = (syncing: boolean, failed: boolean, mode: 'online' | 'offline') => {
+          const next = demoSync({ mode, osOnline: true, syncing, failed })
+          syncPreview.current = next
+          setStatus((current) => current && { ...current, sync: next })
+        }
+        if (scene === 'sync-idle') show(false, false, 'online')
+        else if (scene === 'sync-syncing') show(true, false, 'online')
+        else if (scene === 'sync-failed') show(false, true, 'online')
+        else if (scene === 'sync-offline') show(true, true, 'offline')
+        else {
+          show(true, false, 'online')
+          syncDemoTimer.current = window.setTimeout(() => show(false, false, 'online'), 80)
+        }
+        return
+      }
       if (scene === 'home') {
         setView('home')
         setConversations([
@@ -896,7 +952,7 @@ export default function App() {
         onView={setView}
         theme={settings.theme}
         onTheme={chooseTheme}
-        mascotName={settings.mascotName || 'Surf Bot'}
+        mascotName={settings.mascotName || 'Surf'}
         animateMascot={settings.animateMascot !== false}
         onMascotName={(mascotName) => { void patch({ mascotName }) }}
         onSignIn={() => setView('signin')}
@@ -911,6 +967,7 @@ export default function App() {
         onOpen={(id) => { void openConversation(id) }}
         onDelete={(id) => { void deleteConversation(id) }}
         onAgent={(id) => openAgent(id)}
+        onSync={() => { void syncFromChip() }}
         sync={status.sync}
       />
       <div key={screen} className="view-pane flex min-h-0 min-w-0 flex-1">
@@ -1063,7 +1120,7 @@ export default function App() {
               theme: 'light',
               accent: 'orange',
               density: 'comfortable',
-              mascotName: 'Surf Bot',
+              mascotName: 'Surf',
               mascotColor: '#f2740f',
               animateMascot: true,
               networkMode: 'auto',

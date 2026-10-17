@@ -1,7 +1,7 @@
 {
   "name": "General",
   "tagline": "Everyday questions, on this computer",
-  "description": "Chat, calculate, and look through the files you already have. Works after the model is downloaded, with or without a network.",
+  "description": "Chat, calculate, and look through the files you already have. Works on this computer, with or without a network.",
   "icon": "spark",
   "accent": "#F97316",
   "status": "available",

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Build the signed Code knowledge pack. See scripts/code-pack-src/README.md.
+set -e
+ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+cd "$ROOT/apps/desktop"
+exec npx tsx "$ROOT/scripts/code-pack-src/build.ts" "$@"

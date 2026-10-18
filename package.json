@@ -6,6 +6,7 @@
   "workspaces": [
     "apps/desktop",
     "apps/web",
+    "apps/ide",
     "packages/ui",
     "packages/shared"
   ],
@@ -15,6 +16,7 @@
   "scripts": {
     "dev:desktop": "npm run dev -w @surf/desktop",
     "dev:web": "npm run dev -w @surf/web",
+    "dev:ide": "npm run build --prefix packages/ui && npm run dev -w @surf/ide",
     "dev:search": "docker compose -f deploy/docker-compose.dev.yml up --build",
     "typecheck": "npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
     "build": "npm run build -w @surf/desktop && npm run build -w @surf/web",

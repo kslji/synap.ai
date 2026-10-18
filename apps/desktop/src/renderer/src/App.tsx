@@ -132,7 +132,9 @@ export default function App() {
 
   const syncPreview = useRef<SyncChip | null>(null)
   const syncDemoTimer = useRef<number | null>(null)
+  const refreshEpoch = useRef(0)
   const refresh = useCallback(async () => {
+    const epoch = refreshEpoch.current
     const [st, se, conv, auth, listed, lic] = await Promise.all([
       api.models.status(),
       api.settings.get(),
@@ -141,6 +143,7 @@ export default function App() {
       api.packs.list(),
       api.licence.status(),
     ])
+    if (epoch !== refreshEpoch.current) return st
     setStatus(syncPreview.current ? { ...st, sync: syncPreview.current } : st)
     setSettings(se)
     setConversations(conv)
@@ -155,6 +158,29 @@ export default function App() {
 
   useEffect(() => {
     window.__surfNav = (next) => setView(next)
+    window.__surfShowCite = (payload) => {
+      setView('chat')
+      setPreview(null)
+      setFiles([])
+      setMessages([
+        { id: 'u-codepack', role: 'user', text: payload.question, sources: [], tools: [] },
+        {
+          id: 'a-codepack',
+          role: 'assistant',
+          tools: [],
+          text: payload.answer,
+          sources: [{
+            kind: 'document',
+            title: payload.citation,
+            url: payload.url,
+            pack: payload.citation,
+            version: payload.version,
+            excerpt: payload.excerpt,
+            locator: payload.heading,
+          }],
+        },
+      ])
+    }
     void refresh().catch((e: unknown) => setError((e as Error).message))
     const frames = createFrameBatcher<ChatEvent>(
       (events) => {
@@ -591,6 +617,7 @@ export default function App() {
 
   useEffect(() => {
     window.__surfDemo = (scene) => {
+      refreshEpoch.current += 1
       setConvertJob(null)
       setFillJob(null)
       setUpdateOffer(null)
@@ -1150,6 +1177,10 @@ export default function App() {
           }}
           onRemove={(id) => {
             void api.packs.remove(id).then(() => api.packs.list()).then((rows) => { setDemoPacks(null); setPacks(rows) }).catch((e: unknown) => setError((e as Error).message))
+          }}
+          onRefresh={() => {
+            if (demoPacks) return
+            void api.packs.list().then(setPacks).catch(() => undefined)
           }}
         />
       )}

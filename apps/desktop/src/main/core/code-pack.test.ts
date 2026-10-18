@@ -28,6 +28,7 @@ test('a missing code pack is absent, and a signed stub manifest loads', async ()
       min_app_version: '0.1.0',
       signing_key_id: 'k-test',
       notes: 'placeholder',
+      sources: [],
       files: [],
     }
     const body = Buffer.from(JSON.stringify(manifest))

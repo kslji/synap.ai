@@ -1,0 +1,46 @@
+name: Code pack
+
+# Signs a new pack when you start this workflow by hand.
+# Pull requests do not run it, and they do not receive the secret.
+# They verify the committed pack in the desktop unit tests.
+on:
+  workflow_dispatch:
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Compiler tools for native prebuilds
+        run: sudo apt-get update && sudo apt-get install -y make g++
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "npm ci failed (attempt ${attempt})"
+            rm -rf node_modules
+          done
+          exit 1
+      - name: Build and sign
+        env:
+          CODE_PACK_SIGNING_KEY: ${{ secrets.CODE_PACK_SIGNING_KEY }}
+          CODE_PACK_SIGNING_KEY_ID: code-pack-1
+        run: |
+          set -euo pipefail
+          if [ -z "${CODE_PACK_SIGNING_KEY}" ]; then
+            echo "CODE_PACK_SIGNING_KEY is empty. Generate it with: cd apps/desktop && npx tsx ../../scripts/code-pack-src/keygen.ts"
+            echo "Add the public key to apps/desktop/resources/pack-keys.json as code-pack-1 before this workflow can verify the signature."
+            exit 1
+          fi
+          ./scripts/build-code-pack
+      - name: Upload the signed pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-pack
+          path: apps/desktop/resources/code-pack/

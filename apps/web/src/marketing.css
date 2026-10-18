@@ -66,6 +66,11 @@
     var(--bg);
 }
 
+/* 3D parallax in the hero. The mascot drifts further than the copy and against it,
+   which reads as depth. See useParallax in @surf/ui. */
+.hero-copy { --depth: 12px; }
+.hero-art { --depth: -26px; }
+
 .ink-panel {
   border-radius: 28px;
   background: #14120f;

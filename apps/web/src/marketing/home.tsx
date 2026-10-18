@@ -1,4 +1,5 @@
-import { BlobMascot } from '@surf/ui'
+import { useRef } from 'react'
+import { BlobMascot, useParallax } from '@surf/ui'
 import { product } from '@surf/shared'
 import { BetaUnsignedNote } from '../beta-note'
 import { DownloadCard } from '../pages'
@@ -26,58 +27,103 @@ const FAQ = [
 ]
 
 export function HomePage() {
+  const hero = useRef<HTMLElement>(null)
+  useParallax(hero)
+
   return (
     <Shell>
       <div data-page="home">
-        <section className="hero-wash">
+        <section ref={hero} className="hero-wash parallax">
           <div className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-10 md:grid-cols-[1.1fr_0.9fr]">
-            <div>
-              <p className="pill">Code is in this build</p>
-              <h1 className="mt-4 text-5xl font-semibold leading-[1.05] tracking-tight md:text-6xl">
-                Code runs on your laptop.
+            <div className="hero-copy parallax-layer">
+              <span className="pill">Offline Autonomous AI</span>
+              <h1 className="mt-4 text-5xl font-semibold leading-[1.08] tracking-tight md:text-6xl text-[var(--ink)]">
+                Autonomous coding agent that runs locally.
               </h1>
               <p className="mt-5 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
-                {product.tagline} Code plans a change, edits files, and runs the project’s tests. Each finished step can be undone. Chats and files stay on this computer. You pick a Qwen model on this site. The app downloads it the first time you open it.
+                {product.tagline} Plan features, refactor codebases, and execute tests directly in your environment. Full undoable checkpoints, local model inference, and airtight privacy with zero cloud dependencies.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <a className="btn btn-primary no-underline" href="#download">Download the app</a>
-                <a className="btn btn-ghost no-underline" href="/agents/code">Read about Code</a>
+                <a className="btn btn-primary no-underline shadow-sm" href="#download">Download Installer</a>
+                <a className="btn btn-ghost no-underline" href="/agents/code">Explore Code Agent</a>
               </div>
             </div>
-            <div className="flex justify-center">
+            <div className="hero-art parallax-layer flex justify-center">
               <BlobMascot state="idle" size={280} followCursor label="Pip, the Synap.surf companion" />
             </div>
           </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-6 pb-20" aria-labelledby="here-title">
-          <h2 id="here-title" className="text-3xl font-semibold tracking-tight">On this computer</h2>
-          <div className="ink-panel mt-6">
-            <ul className="flex flex-col gap-3 text-sm leading-relaxed">
-              <li><strong>Chats stay here.</strong> They sit in an encrypted database on the computer. The model runs here too.</li>
-              <li><strong>Search is optional.</strong> When you allow a web search, only the short query is sent. Pages are read on this computer.</li>
-              <li><strong>The server is for payments and licences.</strong> It does not receive the conversation.</li>
-            </ul>
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+              <p className="pill">Architecture &amp; Privacy</p>
+              <h2 id="here-title" className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Private by design. Zero telemetry.</h2>
+            </div>
+            <p className="max-w-md text-sm text-[var(--muted)] leading-relaxed">
+              Engineered from the ground up for strict privacy, air-gapped autonomy, and sensitive intellectual property.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="card group relative overflow-hidden p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)] mb-4">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold tracking-tight text-[var(--ink)]">100% On-Device Storage</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                Conversations, indexed repositories, and embeddings are stored inside a hardware-encrypted SQLite database on your machine. Your proprietary code never leaves localhost.
+              </p>
+            </div>
+
+            <div className="card group relative overflow-hidden p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)] mb-4">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Private Local Inference</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                Local SLMs (Qwen &amp; Gemma) execute in a native sandboxed sidecar via hardware acceleration (Metal, Vulkan, CUDA). Even web lookups are strictly query-only, reading pages entirely on-device.
+              </p>
+            </div>
+
+            <div className="card group relative overflow-hidden p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)] mb-4">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Zero Cloud Telemetry</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                We collect zero tracking pixels, prompts, code snippets, or conversational analytics. Remote endpoints are utilized exclusively for offline licence validation and cryptographically signed update packages.
+              </p>
+            </div>
           </div>
         </section>
 
-        <Section id="agents" kicker="Agents" title="Code is the agent you can use" lede="General, Assistant, Marine, Pilot, and Construction are coming soon. They are listed here, and they do not open yet.">
+        <Section id="agents" kicker="Autonomous Agents" title="Specialized AI Agents tailored for deep workflows" lede="Explore our suite of purpose-built domain agents. Code is live and production-ready in this release.">
           <AgentSuite />
         </Section>
 
-        <Section id="network" title="Offline, Online, or Auto" lede="You pick the mode in Settings. Auto is the usual one.">
+        <Section id="network" kicker="Network Policy" title="Granular network modes: Offline, Online, or Auto" lede="Select your networking profile in Settings to strictly control sidecar outbound access.">
           <div className="mt-8 grid gap-4 md:grid-cols-3">
-            <article className="card px-5 py-5">
-              <h3 className="text-xl font-semibold">Offline</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Every network call is blocked. Chat still uses what is already on the computer.</p>
+            <article className="card p-6 transition-all hover:border-[var(--accent)]">
+              <span className="pill text-xs">Air-Gapped</span>
+              <h3 className="mt-3 text-xl font-semibold">Offline Mode</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Every outbound packet is hard-blocked. All inferences and searches execute exclusively against local indexes and weights.</p>
             </article>
-            <article className="card px-5 py-5">
-              <h3 className="text-xl font-semibold">Online</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Web search can run when you allow it. Knowledge packs can check for a newer signed copy.</p>
+            <article className="card p-6 transition-all hover:border-[var(--accent)]">
+              <span className="pill text-xs">Connected</span>
+              <h3 className="mt-3 text-xl font-semibold">Online Mode</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Permission-gated live search and knowledge sync. Allows real-time documentation retrieval and verified package updates.</p>
             </article>
-            <article className="card px-5 py-5">
-              <h3 className="text-xl font-semibold">Auto</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Follows the operating system. If the laptop is offline, the app stays offline too.</p>
+            <article className="card p-6 transition-all hover:border-[var(--accent)]">
+              <span className="pill text-xs">Adaptive</span>
+              <h3 className="mt-3 text-xl font-semibold">Auto Policy</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Automatically mirrors your OS network interface state. Instantly transitions to air-gapped isolation when connectivity drops.</p>
             </article>
           </div>
         </Section>

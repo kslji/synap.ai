@@ -221,7 +221,7 @@ async function selfTest(): Promise<void> {
     ipcMain.removeHandler(IPC.modelsStatus)
     ipcMain.handle(IPC.modelsStatus, () => ({
       tier: 0, ramGb: 0, cpuModel: 'selftest', cores: 1, chatModelId: '', codeModelId: '', arch: process.arch, platform: process.platform, installed: [], downloading: null,
-      sidecars: { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }, models: [], online: false,
+      sidecars: { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }, speechModelId: '', models: [], online: false,
       onlineReason: 'Offline only is on',
       offlineOnly: true, onboardingComplete: true, chatPersistence: 'session',
     }))

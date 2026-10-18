@@ -365,6 +365,16 @@ a { color: var(--accent-text); }
 .shell-composer .send-btn {
   margin-bottom: 4px;
 }
+.composer-icon.is-listening {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.mic-note {
+  margin: 0 4px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .attach-menu { position: relative; flex: none; }
 .attach-panel {
   position: absolute;

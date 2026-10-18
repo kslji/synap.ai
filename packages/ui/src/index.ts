@@ -4,4 +4,4 @@ export { BLOB_SWATCHES, DEFAULT_BLOB_COLOR, blobStateFor, markSvg, paletteFor, r
 export { MascotColorProvider, useMascotColor, useMascotColorSetter } from './mascot-color'
 export { MASCOT_MANIFEST, motionScale, pickClick, shouldAnimate } from './mascot'
 export { ThemeSwitch } from './ThemeSwitch'
-export { THEME_STORAGE_KEY, applyThemeChoice, persistThemeChoice, readThemeChoice, type ThemeChoice } from './theme'
+export { THEME_STORAGE_KEY, applyThemeChoice, persistThemeChoice, readThemeChoice, themeSwitchChoice, type ThemeChoice } from './theme'

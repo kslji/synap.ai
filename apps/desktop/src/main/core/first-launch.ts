@@ -1,6 +1,6 @@
 /**
  * Which chat and embedding files a tier would use.
- * The desktop app does not download them. The website does.
+ * This only names the files. The first open downloads the Q4 chat file the installer asked for.
  * EmbeddingGemma 2 is the same file on every tier.
  */
 import { pick, type ModelEntry, type ModelRegistry } from './model-registry.js'

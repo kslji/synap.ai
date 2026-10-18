@@ -340,6 +340,13 @@ jobs:
             apps/desktop/dist/*.blockmap
             apps/desktop/dist/SIZES.txt
           if-no-files-found: error
+      # The unpacked app is the payload for the offline zips. Pull requests do not upload it.
+      - uses: actions/upload-artifact@v4
+        if: github.ref_type == 'tag'
+        with:
+          name: payload-win-x64
+          path: apps/desktop/dist/win-unpacked
+          if-no-files-found: error
 
   linux:
     runs-on: ubuntu-24.04

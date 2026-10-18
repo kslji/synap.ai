@@ -41,7 +41,8 @@ import { createLicenceApi } from './licence-service.js'
 import { adoptFromFolder, adoptRows, adoptVerified } from './adopt-model.js'
 import { accountsBlocked, devModeEnabled, isModelSiteUrl, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
-import { LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
+import { FIRST_RUN_CHAT_MODEL_IDS, LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
+import { keywordSearchNote, setupCatalog, setupEmbedding } from '../../shared/setup-choice.js'
 import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { MetricsLog } from './live/metrics-log.js'
@@ -72,7 +73,9 @@ import { commandRisk } from './code-agent/permission.js'
 import { runSplitTask } from './code-agent/split.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
-import { downloadVerified } from './model-download.js'
+import { bundledSourcePath, readBundledManifest } from './bundled-models.js'
+import { copyVerified, downloadVerified, DownloadError, fileMatches, readFreeBytes } from './model-download.js'
+import { createSetupController } from './setup-controller.js'
 import { NOTHING_HEARD, osMicStatus, SPEECH_FAILED, SPEECH_MODEL_MISSING, SPEECH_MODEL_OFFLINE, SPEECH_PROGRAM_MISSING } from './dictation.js'
 import { resolveWhisperCli, transcribeFile } from './dictation-run.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
@@ -178,6 +181,10 @@ interface WebPiece {
 
 const WEB_FLOOR = 0.42
 
+function keywordPieces<T extends { text: string }>(rows: T[]): Array<T & { cosine: number; vec: Float32Array }> {
+  return rows.slice(0, 4).map((piece) => ({ ...piece, cosine: 0, vec: new Float32Array() }))
+}
+
 function chatSampling(model: ModelEntry): Record<string, number> | undefined {
   if (!surfEnv('EVAL')) return model.sampling
   return { ...EVAL_SAMPLING }
@@ -247,6 +254,8 @@ export async function createServices(): Promise<Services> {
   const inflight = new Map<string, AbortController>()
   const decisions = new Map<string, (value: { allow: boolean; remember?: boolean; all?: boolean }) => void>()
   let downloading: { id: string; done: number; total: number } | null = null
+  let embeddingOk: boolean | null = null
+  let repairQueued = false
   let downloadAbort: AbortController | null = null
   let active: { role: 'chat' | 'embed'; modelId: string; mmproj: string; draft: string; cache: number; server: LlamaServer } | null = null
   let lastModelUse = Date.now()
@@ -441,6 +450,8 @@ export async function createServices(): Promise<Services> {
     const reg = withLocal(registry())
     const settings = readSettings()
     const recommended = pick(reg, 'chat', hw.tier)
+    const searchModelReady = await embeddingVerified()
+    if (!searchModelReady) queueSearchModelRepair()
     const models = await Promise.all(reg.models.map(async (m) => ({
       id: m.id,
       role: m.role,
@@ -451,7 +462,7 @@ export async function createServices(): Promise<Services> {
       sizeBytes: m.size_bytes,
       minRamGb: m.min_ram_gb,
       tiers: m.tiers,
-      installed: await installed(m.file, m.size_bytes),
+      installed: m.role === 'embedding' ? searchModelReady : await installed(m.file, m.size_bytes),
       recommended: m.id === recommended.id,
       fitsRam: m.role === 'embedding' || m.role === 'vad' || fits(m),
       file: m.file,
@@ -497,6 +508,8 @@ export async function createServices(): Promise<Services> {
       ...reachNow(settings.offlineOnly),
       offlineOnly: settings.offlineOnly,
       onboardingComplete: settings.onboardingComplete,
+      holdSetup: Boolean(surfEnv('CAPTURE_DIR')),
+      searchModelReady,
       chatPersistence: store.mode,
       devWeb: devWebEnabled(),
       ...(devWebEnabled() ? { devApiUrl: apiBase(settings) } : {}),
@@ -515,6 +528,10 @@ export async function createServices(): Promise<Services> {
   }
 
   async function chooseChat(reg: ModelRegistry, preferredId: string, agentId = 'general'): Promise<ModelEntry | null> {
+    if (agentId === 'code' && (FIRST_RUN_CHAT_MODEL_IDS as readonly string[]).includes(preferredId)) {
+      const picked = withLocal(reg).models.find((m) => m.id === preferredId && m.role === 'chat')
+      if (picked && await installed(picked.file, picked.size_bytes)) return picked
+    }
     const chats = withLocal(reg).models.filter((m) => m.role === 'chat' && servesAgent(m, agentId))
     const ready = async (m: ModelEntry) => installed(m.file, m.size_bytes)
     if (preferredId) {
@@ -655,7 +672,13 @@ export async function createServices(): Promise<Services> {
       }, ac.signal)
       if (!ac.signal.aborted) {
         send('done', file.size_bytes)
-        if (!vision && model.role === 'embedding') void fileSearch?.upgradeEmbeddings()
+        if (!vision && model.role === 'embedding') {
+          void fileSearch?.upgradeEmbeddings()
+          embeddingOk = true
+        } else if (model.role === 'chat') {
+          embeddingOk = null
+          queueSearchModelRepair()
+        }
       }
     } catch (e) {
       if (ac.signal.aborted || (e as Error).name === 'AbortError') {
@@ -735,7 +758,12 @@ export async function createServices(): Promise<Services> {
       onFile: noteFile,
       embed: (rows) => withModel(async () => {
         const emb = registry().models.find((m) => m.role === 'embedding')
-        if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('The search helper is not on this computer yet.')
+        if (!emb || !(await embeddingVerified())) {
+          if (!readSettings().offlineOnly) queueSearchModelRepair()
+          throw new Error(readSettings().offlineOnly
+            ? 'The search model is not on this computer, and this computer is offline, so this file cannot be indexed yet.'
+            : 'The search model is still downloading. This file will be searchable after it finishes.')
+        }
         const server = await ensure('embed', emb, 2048)
         return new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey })).embedDocs(rows)
       }),
@@ -768,7 +796,11 @@ export async function createServices(): Promise<Services> {
   })
 
   async function collectWeb(question: string, signal: AbortSignal, chatModel: ModelEntry, ctx: number, win: BrowserWindow, messageId: string, agentId = 'general'): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }> }> {
-    if (!searchFixtureEnabled()) return collectLocal(question, signal)
+    if (!searchFixtureEnabled()) {
+      const local = await collectLocal(question, signal)
+      if (local.keywords) noteKeywordSearch(win, messageId)
+      return { pieces: local.pieces, ignored: local.ignored }
+    }
     const current = readSettings()
     assertNetworkAllowed(current.offlineOnly)
     const server = await ensure('chat', chatModel, ctx, '', agentId)
@@ -825,8 +857,15 @@ export async function createServices(): Promise<Services> {
       }))
     })
     if (!pieces.length) return { pieces: [], ignored }
+    if (!(await embeddingVerified())) {
+      noteKeywordSearch(win, messageId)
+      return { pieces: keywordPieces(pieces), ignored }
+    }
     const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb || !(await installed(emb.file, emb.size_bytes))) throw new Error('The search helper is not on this computer yet.')
+    if (!emb) {
+      noteKeywordSearch(win, messageId)
+      return { pieces: keywordPieces(pieces), ignored }
+    }
     const embedServer = await ensure('embed', emb, 2048)
     const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
     const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
@@ -837,7 +876,7 @@ export async function createServices(): Promise<Services> {
     return { pieces: ranked, ignored }
   }
 
-  async function collectLocal(question: string, signal: AbortSignal): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }> }> {
+  async function collectLocal(question: string, signal: AbortSignal): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }>; keywords: boolean }> {
     const current = readSettings()
     assertNetworkAllowed(current.offlineOnly)
     const gathered = await gatherOnline({
@@ -865,23 +904,21 @@ export async function createServices(): Promise<Services> {
         cachedAt: page.cachedAt,
       }))
     })
-    if (!pieces.length) return { pieces: [], ignored }
-    const plain = pieces.slice(0, 4).map((piece) => ({ ...piece, cosine: 1, vec: new Float32Array() }))
-    const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb || !(await installed(emb.file, emb.size_bytes))) return { pieces: plain, ignored }
-    try {
-      const embedServer = await ensure('embed', emb, 2048)
-      const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-      const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
-      const [qvec] = await embedder.embedQueries([question])
-      const rankedAll = rankPassages(qvec, pieces.map((piece, i) => ({ ...piece, vec: vectors[i] ?? new Float32Array() })), 4)
-        .map((piece) => piece.downrank ? { ...piece, cosine: piece.cosine * 0.5 } : piece)
-      const ranked = rankedAll.filter((piece) => piece.cosine >= WEB_FLOOR)
-      return { pieces: ranked.length ? ranked : rankedAll.slice(0, 2), ignored }
-    } catch (error) {
-      console.warn('[surf] search ranking skipped:', (error as Error).message)
-      return { pieces: plain, ignored }
+    if (!pieces.length) return { pieces: [], ignored, keywords: false }
+    if (!(await embeddingVerified())) {
+      if (!readSettings().offlineOnly) queueSearchModelRepair()
+      return { pieces: keywordPieces(pieces), ignored, keywords: true }
     }
+    const emb = registry().models.find((m) => m.role === 'embedding')
+    if (!emb) return { pieces: keywordPieces(pieces), ignored, keywords: true }
+    const embedServer = await ensure('embed', emb, 2048)
+    const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
+    const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
+    const [qvec] = await embedder.embedQueries([question])
+    const ranked = rankPassages(qvec, pieces.map((piece, i) => ({ ...piece, vec: vectors[i] })), 4)
+      .filter((piece) => piece.cosine >= WEB_FLOOR)
+      .map((piece) => piece.downrank ? { ...piece, cosine: piece.cosine * 0.5 } : piece)
+    return { pieces: ranked, ignored, keywords: false }
   }
 
   function hasSavedWeb(conversationId: string | null): boolean {
@@ -1441,13 +1478,19 @@ export async function createServices(): Promise<Services> {
         const wantPacks = opened.length > 0
         const wantSaved = hasSavedWeb(scopeId)
         if (wantDocs || wantPacks || wantSaved) {
-          const emb = reg.models.find((m) => m.role === 'embedding')
-          if (!emb || !(await installed(emb.file, emb.size_bytes))) {
-            throw new Error('The search helper is not on this computer yet.')
+          const vectorsReady = await embeddingVerified()
+          let qvec: Float32Array | null = null
+          if (vectorsReady) {
+            const emb = reg.models.find((m) => m.role === 'embedding')
+            if (emb) {
+              const embedServer = await ensure('embed', emb, 2048)
+              const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
+              const [embedded] = await embedder.embedQueries([text])
+              qvec = embedded ?? null
+            }
+          } else {
+            noteKeywordSearch(win, messageId)
           }
-          const embedServer = await ensure('embed', emb, 2048)
-          const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-          const [qvec] = await embedder.embedQueries([text])
           const docFound = wantDocs && store.db
             ? searchUser(store.db, text, qvec, scopeId, 5)
             : { top: [] as UserHit[], decision: 'skip' as const }
@@ -2011,6 +2054,8 @@ export async function createServices(): Promise<Services> {
 
   const seenAdopt = new Map<string, string>()
   let adoptChain: Promise<void> = Promise.resolve()
+  let lastSetupModel: string | null = null
+  let lastSetupFile: string | null = null
 
   function downloadsDir(): string {
     const override = surfEnv('DOWNLOADS_DIR')?.trim()
@@ -2020,7 +2065,7 @@ export async function createServices(): Promise<Services> {
 
   async function takeLocalModels(preferredId: string | null, explicit: string | null): Promise<void> {
     try {
-      const rows = adoptRows(registry().models)
+      const rows = adoptRows(registry().models).filter((row) => !(FIRST_RUN_CHAT_MODEL_IDS as readonly string[]).includes(row.id))
       const dest = modelsDir()
       const found = new Map<string, boolean>()
       if (explicit) {
@@ -2087,6 +2132,102 @@ export async function createServices(): Promise<Services> {
       return { ok: false, text: '', note: SPEECH_FAILED }
     }
   }
+
+  function noteKeywordSearch(win: BrowserWindow, messageId: string): void {
+    const offline = readSettings().offlineOnly
+    if (!offline) queueSearchModelRepair()
+    sendEvent(win, { type: 'status', messageId, phase: 'keywords', note: keywordSearchNote(offline ? 'offline' : 'downloading') })
+  }
+
+  async function embeddingVerified(): Promise<boolean> {
+    if (embeddingOk !== null) return embeddingOk
+    const emb = registry().models.find((model) => model.role === 'embedding')
+    if (!emb) {
+      embeddingOk = false
+      return false
+    }
+    const ok = await fileMatches(join(modelsDir(), emb.file), emb.size_bytes, emb.sha256)
+    embeddingOk = ok
+    return ok
+  }
+
+  function queueSearchModelRepair(): void {
+    if (repairQueued || embeddingOk === true) return
+    if (readSettings().offlineOnly || surfEnv('CAPTURE_DIR')) return
+    repairQueued = true
+    void (async () => {
+      const chats = registry().models.filter((model) => model.role === 'chat')
+      const present = await Promise.all(chats.map((model) => installed(model.file, model.size_bytes)))
+      if (!present.some(Boolean)) {
+        repairQueued = false
+        return
+      }
+      if (await embeddingVerified()) return
+      try { await setupApi.repair() } catch { repairQueued = false }
+    })()
+  }
+
+  async function downloadsHas(file: string, size: number, sha256: string): Promise<boolean> {
+    const dir = downloadsDir()
+    if (!dir || !file) return false
+    return fileMatches(join(dir, file), size, sha256)
+  }
+
+  const setupApi = createSetupController({
+    ramGb: () => hw.totalRamGb,
+    catalog: () => setupCatalog(registry().models),
+    embedding: () => {
+      const row = setupEmbedding(registry().models)
+      if (!row) throw new Error('no embedding model')
+      return row
+    },
+    isInstalled: async (file, size, sha256) => {
+      if (!sha256) return installed(file, size)
+      const ok = await fileMatches(join(modelsDir(), file), size, sha256)
+      if (ok) {
+        const emb = registry().models.find((model) => model.role === 'embedding' && model.file === file)
+        if (emb) embeddingOk = true
+      }
+      return ok
+    },
+    inDownloads: (file, size, sha256) => downloadsHas(file, size, sha256),
+    takeDownloads: async (file, size, sha256, dest) => {
+      const dir = downloadsDir()
+      if (!dir) throw new Error('no internet')
+      mkdirSync(modelsDir(), { recursive: true })
+      await copyVerified(join(dir, file), { dest, size, sha256 })
+    },
+    spec: (step) => ({ url: step.url, dest: join(modelsDir(), step.file), size: step.sizeBytes, sha256: step.sha256 }),
+    saveChoice: (modelId) => {
+      const settings = readSettings()
+      writeSettings({ ...settings, chatModelId: modelId, codeModelId: modelId, onboardingComplete: true })
+    },
+    embeddingReady: () => { embeddingOk = true },
+    installedSetupId: async () => {
+      for (const model of setupCatalog(registry().models)) {
+        if (await installed(model.file, model.sizeBytes)) return model.id
+      }
+      return null
+    },
+    anyChatInstalled: async () => {
+      for (const model of registry().models) {
+        if (model.role === 'chat' && await installed(model.file, model.size_bytes)) return true
+      }
+      return false
+    },
+    offlineOnly: () => readSettings().offlineOnly,
+    freeBytes: (dir) => readFreeBytes(dir),
+    bundled: async () => readBundledManifest(process.resourcesPath, registry().models),
+    copyBundled: async (file, size, sha256, onProgress) => {
+      const source = bundledSourcePath(process.resourcesPath, file)
+      if (!source) throw new DownloadError('checksum', 'The installer model path is not a file name.')
+      mkdirSync(modelsDir(), { recursive: true })
+      await copyVerified(source, { dest: join(modelsDir(), file), size, sha256 }, onProgress)
+    },
+    emit: (snapshot) => {
+      for (const win of BrowserWindow.getAllWindows()) safeSend(win, IPC.setupEvent, snapshot)
+    },
+  })
 
   const services: Services = {
     chat: {
@@ -2159,12 +2300,15 @@ export async function createServices(): Promise<Services> {
       prepare: prepareMicrophone,
       transcribe: transcribeRecording,
     },
-    adoptLocal: () => queueAdopt(null, null),
+    adoptLocal: () => queueAdopt(lastSetupModel, lastSetupFile),
     applySetupLink(raw: string): string | null {
       const parsed = parseSetupLink(raw)
+      lastSetupModel = parsed.modelId
+      lastSetupFile = parsed.filePath
       void queueAdopt(parsed.modelId, parsed.filePath)
       return parsed.modelId
     },
+    setup: setupApi,
     conversations: {
       list: async () => store.list(),
       open: async (id) => store.open(id),

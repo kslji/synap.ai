@@ -537,6 +537,7 @@ function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animat
             onAdd={() => { void allowFolder(msg.fileAsk!, 'always', true) }}
           />
         )}
+        {msg.keywordNote && <div className="mb-1 text-sm text-[var(--muted)]" data-keyword-search="yes">{msg.keywordNote}</div>}
         {msg.sources.some((source) => source.filePath) && shown ? (
           <div className={msg.pending ? 'stream-caret' : ''} data-model-error={msg.error ? 'yes' : 'no'}>
             <FileAnswerBody text={shown} sources={msg.sources} onOpen={(path) => { void window.surf.files.open(path) }} />

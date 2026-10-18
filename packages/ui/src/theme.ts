@@ -18,6 +18,15 @@ export function applyThemeChoice(choice: ThemeChoice): void {
   document.documentElement.dataset.theme = choice === 'dark' ? 'dark' : 'light'
 }
 
+/**
+ * The painted theme wins. The switch can be given a stale value when the
+ * document theme was set without a matching settings update.
+ */
+export function themeSwitchChoice(applied: string | null | undefined, fallback: ThemeChoice): ThemeChoice {
+  if (applied === 'light' || applied === 'dark') return applied
+  return fallback === 'dark' ? 'dark' : 'light'
+}
+
 export function persistThemeChoice(choice: ThemeChoice): void {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, choice)

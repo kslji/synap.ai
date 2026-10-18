@@ -49,6 +49,7 @@ a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 }
 .model-choice:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .model-choice:active { transform: scale(0.98); }
+.model-choice[data-setup-model] { cursor: default; }
 .model-choice[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: var(--accent-soft);

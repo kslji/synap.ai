@@ -3,7 +3,9 @@ import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Sh
 import { product } from '@surf/shared'
 import { BLOB_SWATCHES, BlobMascot } from '@surf/ui'
 import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
-import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
+import { AUTO_MODE_SUMMARY, type CatalogModel, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
+import { FIRST_RUN_CHAT_MODEL_IDS } from '../../../shared/starter-model'
+import { formatByteCount } from '../../../shared/setup-choice'
 import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } from '../../../shared/hardware-label'
 import { friendlyModelName } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
@@ -157,7 +159,10 @@ export function SettingsScreen({
         </Group>}
         {category === 'models' && <Group title="Models">
           <div className="card px-4 py-4">
-            <ModelPanel status={status} chats={chats} />
+            <QwenSizes status={status} onPatch={onPatch} />
+            <div className="mt-6">
+              <ModelPanel status={status} chats={chats} />
+            </div>
             <div className="mt-6">
               <ModelPanel status={status} heading="Code" chats={code} />
             </div>
@@ -415,6 +420,63 @@ function CodeAgentSettings({ settings, onPatch }: { settings: Required<SettingsP
           onPatch({ tabSuggestionsOff: off })
         }}
       />
+    </div>
+  )
+}
+
+function QwenSizes({ status, onPatch }: { status: ModelStatus; onPatch: (p: SettingsPatch) => void }) {
+  const [note, setNote] = useState('')
+  const sizes = FIRST_RUN_CHAT_MODEL_IDS
+    .map((id) => status.models.find((model) => model.id === id))
+    .filter((model): model is CatalogModel => Boolean(model))
+  const embed = status.models.find((model) => model.role === 'embedding')
+  const knownRam = status.ramGb > 0
+
+  async function download(id: string) {
+    setNote('')
+    try {
+      await window.surf.models.download(id)
+      onPatch({ chatModelId: id, codeModelId: id })
+    } catch (error) {
+      setNote((error as Error).message)
+    }
+  }
+
+  return (
+    <div data-qwen-sizes="yes">
+      <h2 className="text-lg font-semibold tracking-tight">Qwen</h2>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Download another size, or switch to one already on this computer. The search model comes with it.</p>
+      <ul className="mt-3 flex flex-col gap-2">
+        {sizes.map((model) => {
+          const active = model.id === status.chatModelId && model.installed
+          const warning = knownRam && !model.fitsRam
+            ? `This model needs ${model.minRamGb} GB of memory. This computer has ${formatRamGb(status.ramGb)}.`
+            : null
+          return (
+            <li key={model.id} className="rounded-xl border border-[var(--line)] px-4 py-3" data-qwen-size={model.id}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">Qwen {model.paramsB}B</span>
+                {model.recommended && knownRam && <span className="pill">Recommended for your laptop</span>}
+              </div>
+              <p className="mt-1 text-xs text-[var(--muted)]">{formatByteCount(model.sizeBytes)} · needs {model.minRamGb} GB RAM</p>
+              {warning && <p className="mt-1 text-xs leading-relaxed" data-qwen-warning={model.id}>{warning}</p>}
+              <div className="mt-2">
+                {active ? <span className="text-xs font-semibold" data-qwen-active={model.id}>In use</span> : model.installed ? (
+                  <button className="btn btn-primary" type="button" data-qwen-use={model.id} onClick={() => onPatch({ chatModelId: model.id, codeModelId: model.id })}>Use</button>
+                ) : (
+                  <button className="btn btn-primary" type="button" data-qwen-download={model.id} onClick={() => { void download(model.id) }}>Download</button>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      {embed && (
+        <p className="mt-3 text-sm text-[var(--muted)]" data-embedding-status={embed.installed ? 'installed' : 'missing'}>
+          {embed.installed ? 'The search model is on this computer.' : 'The search model downloads with the model you pick. If it is missing or damaged later, the app downloads it again.'}
+        </p>
+      )}
+      {note && <p className="mt-2 text-sm" data-qwen-note="yes">{note}</p>}
     </div>
   )
 }

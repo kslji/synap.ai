@@ -3,6 +3,8 @@
  * Shared by main, preload and renderer. Deliberately has NO runtime dependencies so the sandboxed
  * preload can bundle it. Runtime validation lives in ipc-schemas.ts (main only, zod).
  */
+import type { SetupSnapshot } from './setup-choice'
+export type { SetupSnapshot }
 export const IPC = {
   chatSend: 'chat:send',
   chatCancel: 'chat:cancel',
@@ -12,6 +14,15 @@ export const IPC = {
   modelsCancel: 'models:cancel',
   modelsImportLocal: 'models:import-local',
   modelsEvent: 'models:event',
+  setupState: 'setup:state',
+  setupStart: 'setup:start',
+  setupChoose: 'setup:choose',
+  setupUseFile: 'setup:use-file',
+  setupRepair: 'setup:repair',
+  setupPause: 'setup:pause',
+  setupResume: 'setup:resume',
+  setupRetry: 'setup:retry',
+  setupEvent: 'setup:event',
   packsList: 'packs:list',
   packsSync: 'packs:sync',
   packsRemove: 'packs:remove',
@@ -231,7 +242,7 @@ export type ChatEvent =
   | { type: 'token'; messageId: string; text: string }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
-  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' }
+  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' | 'keywords'; note?: string }
   | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
   | { type: 'done'; messageId: string; gate: GateName; text?: string; canContinue?: boolean; budget?: {
     counter: string
@@ -418,6 +429,10 @@ export interface ModelStatus {
   onboardingComplete: boolean
   /** encrypted = SQLCipher chat.db. session = this launch only, because OS keychain was unavailable. */
   chatPersistence: 'encrypted' | 'session'
+  /** True during screenshot capture so the first-run download does not start. */
+  holdSetup?: boolean
+  /** False when the search model is missing or its checksum does not match. */
+  searchModelReady?: boolean
   /** True only when NODE_ENV=development or SYNAP_DEV_WEB=1. Omitted tools stay off. */
   devWeb?: boolean
   /** Search origin while dev web is on. Omitted in production builds. */
@@ -764,9 +779,21 @@ export interface SurfApi {
   }
   models: {
     status(): Promise<ModelStatus>
+    download(modelId: string): Promise<void>
     benchmark(modelId: string): Promise<BenchmarkResult>
     download(modelId: string): Promise<void>
     onEvent(cb: (e: ModelEvent) => void): () => void
+  }
+  setup: {
+    state(): Promise<SetupSnapshot>
+    start(): Promise<void>
+    choose(modelId: string): Promise<void>
+    useFile(modelId: string): Promise<void>
+    repair(): Promise<void>
+    pause(): Promise<void>
+    resume(): Promise<void>
+    retry(): Promise<void>
+    onEvent(cb: (snapshot: SetupSnapshot) => void): () => void
   }
   packs: {
     list(): Promise<PackRow[]>

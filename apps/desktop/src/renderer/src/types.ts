@@ -15,7 +15,7 @@ function copyPlan(plan: CodePlanView): CodePlanView {
   return { status: plan.status, steps, undos: plan.undos.map((undo) => ({ stepId: undo.stepId, title: undo.title })) }
 }
 
-export type View = 'onboarding' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs' | 'usage'
+export type View = 'onboarding' | 'setup' | 'home' | 'agents' | 'chats' | 'chat' | 'models' | 'settings' | 'library' | 'signin' | 'packs' | 'usage'
 
 export interface UiMsg {
   id: string
@@ -26,7 +26,9 @@ export interface UiMsg {
   error?: boolean
   smallerModelId?: string
   gate?: GateName
-  phase?: 'searching' | 'reading' | 'files'
+  phase?: 'searching' | 'reading' | 'files' | 'keywords'
+  /** Shown while the search model is downloading or the computer is offline. */
+  keywordNote?: string
   fileAsk?: FilePermissionPrompt | null
   tools: { name: string; input: string; output: string }[]
   steps?: CodeStepView[]
@@ -54,6 +56,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     startedAt: m.startedAt,
     elapsedMs: m.elapsedMs,
     modelId: m.modelId,
+    keywordNote: m.keywordNote,
     versions: m.versions ? [...m.versions] : undefined,
     fileAsk: m.fileAsk ?? null,
   }))
@@ -67,7 +70,10 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.streamed = true
     m.canContinue = false
   }
-  if (e.type === 'status') m.phase = e.phase
+  if (e.type === 'status') {
+    if (e.phase === 'keywords') m.keywordNote = e.note || m.keywordNote
+    else m.phase = e.phase
+  }
   if (e.type === 'file-ask') {
     m.fileAsk = e.prompt
     m.phase = 'files'

@@ -46,7 +46,7 @@ export function ftsQuery(q: string, minLen = 3): string {
   return terms.length ? terms.join(' OR ') : '""';
 }
 
-export function searchPack(name: string, db: DB, query: string, qvec: Float32Array, k = 30): Hit[] {
+export function searchPack(name: string, db: DB, query: string, qvec: Float32Array | null, k = 30): Hit[] {
   const hits = new Map<number, Hit>();
   const get = (id: number): Hit => {
     let h = hits.get(id);
@@ -56,9 +56,11 @@ export function searchPack(name: string, db: DB, query: string, qvec: Float32Arr
   const fts = db.prepare('SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT ?')
     .all(ftsQuery(query), k) as { id: number }[];
   fts.forEach((r, i) => { get(r.id).bm25Rank = i; });
-  const vec = db.prepare('SELECT chunk_id AS id, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?')
-    .all(Buffer.from(qvec.buffer, qvec.byteOffset, qvec.byteLength), k) as { id: number; distance: number }[];
-  vec.forEach((r, i) => { const h = get(r.id); h.vecRank = i; h.cosine = 1 - r.distance; });
+  if (qvec) {
+    const vec = db.prepare('SELECT chunk_id AS id, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ?')
+      .all(Buffer.from(qvec.buffer, qvec.byteOffset, qvec.byteLength), k) as { id: number; distance: number }[];
+    vec.forEach((r, i) => { const h = get(r.id); h.vecRank = i; h.cosine = 1 - r.distance; });
+  }
   const row = db.prepare('SELECT c.text, d.title, d.url FROM chunks c JOIN documents d ON d.id = c.doc_id WHERE c.id = ?');
   for (const h of hits.values()) {
     h.rrf = rrfScore([h.bm25Rank, h.vecRank]);
@@ -100,11 +102,12 @@ export function documentGate(query: string, hits: Hit[]): GateDecision {
   return gate(query, hits, DOC_TAU.latinCos, DOC_TAU.latinCov);
 }
 
-export function hybridSearch(packs: Record<string, DB>, query: string, qvec: Float32Array, topN = 6,
+export function hybridSearch(packs: Record<string, DB>, query: string, qvec: Float32Array | null, topN = 6,
   tau?: { cos: number; cov: number }): { top: Hit[]; decision: GateDecision } {
   const all = Object.entries(packs).flatMap(([n, db]) => searchPack(n, db, query, qvec));
   all.sort((a, b) => b.rrf - a.rrf);
   const top = all.slice(0, topN);
+  if (!qvec) return { top, decision: top.length ? 'borderline' : 'insufficient' };
   return { top, decision: gate(query, top, tau?.cos, tau?.cov) };
 }
 

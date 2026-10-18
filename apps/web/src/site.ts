@@ -43,12 +43,26 @@ export const BUNDLED_ASSETS: ReleaseAsset[] = [
 /** The only link that opens the releases index. Download buttons never use it. */
 export const ALL_DOWNLOADS_URL = 'https://github.com/kslji/synap.ai/releases'
 
-/** Qwen chat rows from models.registry.json. Sizes are decimal GB of size_bytes. */
+/** Decimal gigabytes from a byte count. 1280835840 is 1.28 GB. */
+export function formatModelSize(bytes: number): string {
+  return `${(bytes / 1_000_000_000).toFixed(2)} GB`
+}
+
+/** embeddinggemma-2-Q8_0.gguf from the model registry. 309855520 bytes is 309.9 MB. */
+export const SEARCH_MODEL_BYTES = 309_855_520
+
+export function formatSearchSize(bytes: number): string {
+  return `${(bytes / 1_000_000).toFixed(1)} MB`
+}
+
+/** Qwen chat rows from models.registry.json. Shown for reference. The installer does not contain a model. */
 export const SETUP_MODELS = [
   {
     id: 'qwen3.5-2b-q4_k_m',
+    token: '2b',
     name: 'Qwen 2B',
-    size: '1.28 GB',
+    size: formatModelSize(1280835840 + SEARCH_MODEL_BYTES),
+    parts: `${formatModelSize(1280835840)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
     ramGb: 4,
     file: 'Qwen3.5-2B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf',
@@ -57,8 +71,10 @@ export const SETUP_MODELS = [
   },
   {
     id: 'qwen3.5-4b-q4_k_m',
+    token: '4b',
     name: 'Qwen 4B',
-    size: '2.74 GB',
+    size: formatModelSize(2740937888 + SEARCH_MODEL_BYTES),
+    parts: `${formatModelSize(2740937888)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
     ramGb: 8,
     file: 'Qwen3.5-4B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf',
@@ -67,8 +83,10 @@ export const SETUP_MODELS = [
   },
   {
     id: 'qwen3.5-9b-q4_k_m',
+    token: '9b',
     name: 'Qwen 9B',
-    size: '5.68 GB',
+    size: formatModelSize(5680522464 + SEARCH_MODEL_BYTES),
+    parts: `${formatModelSize(5680522464)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
     ramGb: 16,
     file: 'Qwen3.5-9B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf',
@@ -76,11 +94,6 @@ export const SETUP_MODELS = [
     sizeBytes: 5680522464,
   },
 ] as const
-
-export function setupOpenLink(id: string): string {
-  const model = SETUP_MODELS.find((row) => row.id === id) ?? SETUP_MODELS[0]
-  return `synap://setup?model=${model.id}`
-}
 
 /** First non-draft release, including prereleases. GitHub's /releases/latest skips those. */
 export function newestPublishableRelease(releases: ReleaseListItem[]): ReleaseListItem | null {
@@ -118,11 +131,63 @@ export function downloadHrefs(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'o
   return { mac, win, intel }
 }
 
+export interface OfflinePackage {
+  name: string
+  bytes: number
+  url: string
+  host: 'github' | 'huggingface'
+  os: 'mac' | 'windows'
+  arch: 'arm64' | 'x64'
+  token: '2b' | '4b' | '9b'
+  modelBytes: number
+}
+
+export function offlineCatalogUrl(assets: ReleaseAsset[]): string | null {
+  return assets.find((asset) => asset.name === 'offline-packages.json')?.url ?? null
+}
+
+export function parseOfflinePackages(body: unknown): OfflinePackage[] {
+  if (!Array.isArray(body)) return []
+  return body.filter((item): item is OfflinePackage => {
+    if (!item || typeof item !== 'object') return false
+    const row = item as Partial<OfflinePackage>
+    return typeof row.name === 'string' && typeof row.bytes === 'number' && row.bytes > 0
+      && typeof row.url === 'string' && row.url.startsWith('https://')
+      && (row.host === 'github' || row.host === 'huggingface')
+      && (row.os === 'mac' || row.os === 'windows')
+      && (row.arch === 'arm64' || row.arch === 'x64')
+      && (row.token === '2b' || row.token === '4b' || row.token === '9b')
+      && typeof row.modelBytes === 'number'
+  })
+}
+
+export function pickOfflinePackage(packages: readonly OfflinePackage[], os: 'mac' | 'windows', arch: 'arm64' | 'x64', token: '2b' | '4b' | '9b'): OfflinePackage | undefined {
+  return packages.find((item) => item.os === os && item.arch === arch && item.token === token)
+}
+
+/** The small installer for this computer. The model still downloads on first open. */
+export function smallInstallerHref(hrefs: { mac: string; win: string; intel: string }, os: 'mac' | 'windows' | 'other', arch: 'arm64' | 'x64'): string {
+  if (os === 'windows') return hrefs.win
+  if (os === 'mac' && arch === 'x64') return hrefs.intel
+  return hrefs.mac
+}
+
+/** A published zip uses its measured size. Before that, the label is the model bytes only. */
+export function offlineSizeLabel(pkg: OfflinePackage | undefined, modelBytes: number): { bytesLabel: string; href: string | null } {
+  if (pkg?.url && pkg.bytes > 0) return { bytesLabel: formatModelSize(pkg.bytes), href: pkg.url }
+  return { bytesLabel: `${formatModelSize(modelBytes)} of models`, href: null }
+}
+
+/** Older per-size names, and the offline zips. The plain Mac and Windows files do not carry a size. */
+export function isSizedInstaller(name: string): boolean {
+  return /-(?:offline-2b|(?:2b|4b|9b)(?:-offline)?)\.(dmg|exe|zip)$/i.test(name)
+}
+
 export function pickDownload(assets: ReleaseAsset[], os: 'mac' | 'windows' | 'other', arch: 'arm64' | 'x64'): ReleaseAsset | null {
   if (os === 'other') return null
   const ext = os === 'mac' ? '.dmg' : '.exe'
   const token = os === 'windows' ? 'x64' : arch
-  return assets.find((asset) => asset.name.endsWith(ext) && asset.name.includes(token) && !asset.name.endsWith('.blockmap')) ?? null
+  return assets.find((asset) => asset.name.endsWith(ext) && asset.name.includes(token) && !asset.name.endsWith('.blockmap') && !isSizedInstaller(asset.name)) ?? null
 }
 
 export function allowSubmit(now: number, last: number | null, minGapMs = 30_000): boolean {

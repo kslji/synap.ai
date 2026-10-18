@@ -66,7 +66,7 @@ function cosine(query: ArrayLike<number>, embedding: Buffer, dim: number): numbe
 }
 
 /** Delta files store float32 blobs. They do not have the pack FTS or vec0 index. */
-export function searchDelta(name: string, db: DB, query: string, qvec: ArrayLike<number>, k = 8): Hit[] {
+export function searchDelta(name: string, db: DB, query: string, qvec: ArrayLike<number> | null, k = 8): Hit[] {
   const rows = db.prepare(
     `SELECT c.id AS id, c.text AS text, d.title AS title, d.url AS url, e.embedding AS embedding, e.dim AS dim
      FROM chunks c
@@ -76,7 +76,7 @@ export function searchDelta(name: string, db: DB, query: string, qvec: ArrayLike
   ).all(SCAN_CAP) as { id: number; text: string; title: string | null; url: string | null; embedding: Buffer; dim: number }[]
   const words = query.toLowerCase().split(/\W+/).filter((word) => word.length > 3)
   const ranked = rows.map((row) => {
-    const score = cosine(qvec, row.embedding, row.dim)
+    const score = qvec ? cosine(qvec, row.embedding, row.dim) : 0
     const hay = row.text.toLowerCase()
     const overlap = words.length ? words.filter((word) => hay.includes(word)).length / words.length : 0
     return { row, score, overlap }

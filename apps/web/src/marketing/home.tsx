@@ -38,7 +38,7 @@ export function HomePage() {
             <div className="hero-copy parallax-layer">
               <span className="pill">Offline Autonomous AI</span>
               <h1 className="mt-4 text-5xl font-semibold leading-[1.08] tracking-tight md:text-6xl text-[var(--ink)]">
-                Autonomous coding agent that runs locally.
+                Code runs on your laptop. Autonomous and local.
               </h1>
               <p className="mt-5 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
                 {product.tagline} Plan features, refactor codebases, and execute tests directly in your environment. Full undoable checkpoints, local model inference, and airtight privacy with zero cloud dependencies.
@@ -61,7 +61,7 @@ export function HomePage() {
               <h2 id="here-title" className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Private by design. Zero telemetry.</h2>
             </div>
             <p className="max-w-md text-sm text-[var(--muted)] leading-relaxed">
-              Engineered from the ground up for strict privacy, air-gapped autonomy, and sensitive intellectual property.
+              Engineered from the ground up for strict privacy, offline autonomy, and sensitive intellectual property.
             </p>
           </div>
 
@@ -111,7 +111,7 @@ export function HomePage() {
         <Section id="network" kicker="Network Policy" title="Granular network modes: Offline, Online, or Auto" lede="Select your networking profile in Settings to strictly control sidecar outbound access.">
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             <article className="card p-6 transition-all hover:border-[var(--accent)]">
-              <span className="pill text-xs">Air-Gapped</span>
+              <span className="pill text-xs">Fully Offline</span>
               <h3 className="mt-3 text-xl font-semibold">Offline Mode</h3>
               <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Every outbound packet is hard-blocked. All inferences and searches execute exclusively against local indexes and weights.</p>
             </article>
@@ -123,7 +123,7 @@ export function HomePage() {
             <article className="card p-6 transition-all hover:border-[var(--accent)]">
               <span className="pill text-xs">Adaptive</span>
               <h3 className="mt-3 text-xl font-semibold">Auto Policy</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Automatically mirrors your OS network interface state. Instantly transitions to air-gapped isolation when connectivity drops.</p>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">Automatically mirrors your OS network interface state. Instantly transitions to strict offline isolation when connectivity drops.</p>
             </article>
           </div>
         </Section>

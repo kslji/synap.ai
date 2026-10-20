@@ -55,20 +55,8 @@ export function formatSearchSize(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`
 }
 
-/** Qwen chat rows from models.registry.json. Shown for reference. The installer does not contain a model. */
+/** The one chat model from models.registry.json. Shown for reference. The installer does not contain a model. */
 export const SETUP_MODELS = [
-  {
-    id: 'qwen3.5-2b-q4_k_m',
-    token: '2b',
-    name: 'Qwen 2B',
-    size: formatModelSize(1280835840 + SEARCH_MODEL_BYTES),
-    parts: `${formatModelSize(1280835840)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
-    ramGb: 4,
-    file: 'Qwen3.5-2B-Q4_K_M.gguf',
-    url: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf',
-    sha256: 'aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223',
-    sizeBytes: 1280835840,
-  },
   {
     id: 'qwen3.5-4b-q4_k_m',
     token: '4b',
@@ -80,18 +68,6 @@ export const SETUP_MODELS = [
     url: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf',
     sha256: '00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4',
     sizeBytes: 2740937888,
-  },
-  {
-    id: 'qwen3.5-9b-q4_k_m',
-    token: '9b',
-    name: 'Qwen 9B',
-    size: formatModelSize(5680522464 + SEARCH_MODEL_BYTES),
-    parts: `${formatModelSize(5680522464)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
-    ramGb: 16,
-    file: 'Qwen3.5-9B-Q4_K_M.gguf',
-    url: 'https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf',
-    sha256: '03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8',
-    sizeBytes: 5680522464,
   },
 ] as const
 

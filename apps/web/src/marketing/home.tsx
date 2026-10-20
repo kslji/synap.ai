@@ -86,7 +86,7 @@ export function HomePage() {
               </div>
               <h3 className="text-lg font-semibold tracking-tight text-[var(--ink)]">Private Local Inference</h3>
               <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
-                Local SLMs (Qwen &amp; Gemma) execute in a native sandboxed sidecar via hardware acceleration (Metal, Vulkan, CUDA). Even web lookups are strictly query-only, reading pages entirely on-device.
+                A local Qwen model executes in a native sandboxed sidecar via hardware acceleration (Metal, Vulkan, CUDA). Even web lookups are strictly query-only, reading pages entirely on-device.
               </p>
             </div>
 
@@ -128,7 +128,7 @@ export function HomePage() {
           </div>
         </Section>
 
-        <Section id="download" title="Download the app" lede="One installer for your computer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app. Each size also has an offline installer with the search model already inside.">
+        <Section id="download" title="Download the app" lede="One installer for your computer. After you install, the app downloads one Qwen model that works on any laptop with 8 GB of memory or more. There is also an offline installer with the model and search model already inside.">
           <div className="card mt-8 px-6 py-6">
             <DownloadCard />
             <BetaUnsignedNote />

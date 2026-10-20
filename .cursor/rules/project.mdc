@@ -24,8 +24,8 @@ Source of truth: `docs/ARCHITECTURE-SHORT.md` (read first) and `docs/ARCHITECTUR
 - Never commit secrets. Keep `.env.example` complete and up to date; real values only in local `.env` (gitignored) or CI secrets. Only PUBLIC keys go in `resources/keys/`.
 
 ## Privacy (non-negotiable)
-- Chats, attachments, prompts and answers never leave the device. No prompt/answer text in logs, telemetry or crash reports - counts and timings only.
-- Telemetry is opt-in, off by default. Web search sends only the query to our own SearXNG proxy; pages are fetched and cleaned on the device. Server never logs query text.
+- On-device chats, attachments, prompts and answers never leave the device. The cloud chat gateway (`POST /api/v1/chat`, ADR 0005) is the one exception: it sends that user's prompt and windowed history to OpenRouter and stores history server-side, scoped by user id. No prompt/answer text in logs, telemetry or crash reports - counts and timings only.
+- Telemetry is opt-in, off by default. The SearXNG web-search proxy was removed (ADR 0005).
 - Respect "Offline-only" mode: no network calls at all (enforced in `net/offline-guard.ts`).
 
 ## Security

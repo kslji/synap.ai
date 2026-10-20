@@ -20,7 +20,7 @@ Day 4 of the plan. The desktop still answers from local documents first. When th
 On a laptop, prefer the development Compose file. It publishes SearXNG and the API on localhost only, with JSON search enabled and sign-in skipped. `npm run dev:web` is the marketing site. The search stack is:
 
 ```bash
-npm run dev:search
+npm run dev:api
 curl -s http://127.0.0.1:8000/v1/health
 ```
 

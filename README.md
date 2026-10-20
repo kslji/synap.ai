@@ -23,96 +23,19 @@ The website:
 npm run dev:web
 ```
 
-## Web search on your laptop
+## API and chat gateway on your laptop
 
-Production search stays on the VM until step 10. This path is for development only. It runs SearXNG (JSON format on) and the FastAPI API on localhost. The desktop app uses it when you start it with `npm run dev` (`NODE_ENV=development`). Packaged installers ignore it unless you set the variables below.
-
-`npm run dev:web` is still the marketing site. The local search stack is `npm run dev:search`.
-
-### Mac (Docker Desktop)
-
-1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and start it.
-2. From the repo root:
-
-```bash
-npm ci
-npm run dev:search
-```
-
-3. Wait until the API is healthy, then in a second terminal:
-
-```bash
-curl -s http://127.0.0.1:8000/v1/health
-npm run dev:desktop
-```
-
-4. In the app, leave **Offline only** off. Open **Settings**. The **Dev web search** card is there (it is hidden in a packaged build). Search, or fetch one `https` page. In chat you can also type `/web pier beacon` or `/fetch https://example.com/`. No account and no search quota on this local API.
-
-Stop the stack with Ctrl+C, then `docker compose -f deploy/docker-compose.dev.yml down`.
-
-### Windows (Docker Desktop)
-
-1. Install Docker Desktop and start it. Use PowerShell.
-2. From the repo root:
-
-```powershell
-npm ci
-npm run dev:search
-```
-
-3. In a second PowerShell window:
-
-```powershell
-curl.exe -s http://127.0.0.1:8000/v1/health
-npm run dev:desktop
-```
-
-4. Same Settings card and chat commands as on Mac. Ctrl+C stops Compose. Then:
-
-```powershell
-docker compose -f deploy/docker-compose.dev.yml down
-```
-
-Command Prompt uses the same `npm` and `docker compose` lines.
-
-### Without Docker
-
-Run the API with pip and point it at a SearXNG that has JSON enabled (`search.formats` includes `json`). That can be SearXNG on this machine (port 8080) or a public instance you trust. A public instance may log the query. The local container does not.
-
-Mac:
+`npm run dev:api` runs the FastAPI API in lite mode (in-memory stores) on `127.0.0.1:8000` with `deploy/docker-compose.dev.yml`. Set `OPENROUTER_API_KEY` in your shell first to enable `POST /api/v1/chat`; new dev accounts start with $2.00 of credit. Without Docker:
 
 ```bash
 cd services/api
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-export SURF_API_LITE=1
-export SURF_DEV_OPEN=1
-export SEARXNG_URL=http://127.0.0.1:8080/search
-export JWT_SECRET=dev-only-secret-change-me-at-least-32-bytes
-export JWT_AUDIENCE=authenticated
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+SURF_API_LITE=1 JWT_SECRET=dev-only-secret-change-me-at-least-32-bytes OPENROUTER_API_KEY=... \
+  python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Windows PowerShell, from `services\api`:
-
-```powershell
-py -3 -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:SURF_API_LITE = "1"
-$env:SURF_DEV_OPEN = "1"
-$env:SEARXNG_URL = "http://127.0.0.1:8080/search"
-$env:JWT_SECRET = "dev-only-secret-change-me-at-least-32-bytes"
-$env:JWT_AUDIENCE = "authenticated"
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Command Prompt uses `set SURF_API_LITE=1` (and the same names) instead of `$env:`.
-
-For a public SearXNG, set `SEARXNG_URL` to that instance's `/search` URL. If JSON is disabled, search returns 403.
-
-`SURF_DEV_OPEN=1` skips sign-in and the daily quota. It only works in lite mode (no `DATABASE_URL`). Do not set it on a public host.
+The SearXNG search proxy (`/v1/search`, `/v1/fetch`) was removed; see `docs/adr/0005-openrouter-gateway.md`.
 
 ### Desktop address
 

@@ -1,0 +1,1 @@
+TypeScript running in Electron's main process; uses Node `child_process.exec` for git commands and a custom sandbox wrapper (`sandbox.ts`) for arbitrary command execution; model output constrained via OpenAI-style function schemas, JSON Schema, and GBNF grammars.

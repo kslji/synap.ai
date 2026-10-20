@@ -1,0 +1,1 @@
+CLI tools that turn text files or web feeds into signed (and optionally encrypted) surf-pack bundles with EmbeddingGemma vectors stored in SQLite.

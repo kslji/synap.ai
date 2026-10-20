@@ -1,0 +1,7 @@
+Five cohesive, mostly stateless modules under `apps/desktop/src/main/core/live/`:
+- `metrics.ts` defines the `UsageSample` / `UsageReport` data shapes and pure functions (`appendSample`, `aggregateUsage`, `usageCsv`, `percentile`, `cpuPercent`) that normalize, aggregate, and serialize counts/timings without I/O.
+- `metrics-log.ts` wraps `metrics.ts` in a `MetricsLog` class that persists samples to JSON and appends one line per sample to a log file via Node `fs`.
+- `policy.ts` holds pure decision functions (keep-warm model selection, idle unload threshold, prompt-cache sizing, per-step route pairing, speculative decoding enablement) built on shared helpers from `../../../shared/code-ram.js`; it does not start processes or download files.
+- `index-queue.ts` provides a `BackgroundIndex` FIFO + urgent-priority queue that serializes work through an injected `indexOne(path)` callback, with `whenIdle` / `onIdle` hooks.
+- `storage.ts` exposes safe filesystem helpers (`assertInsideAppData`, `removeInside`, `treeBytes`, `fileBytes`) plus report builders for the Storage page, guarding against path traversal outside the app data directory.
+Dependency direction is inward: `metrics-log` depends on `metrics`; `policy` depends only on shared code-ram; `index-queue` and `storage` are standalone. No cross-imports between these five files except `metrics-log → metrics`.

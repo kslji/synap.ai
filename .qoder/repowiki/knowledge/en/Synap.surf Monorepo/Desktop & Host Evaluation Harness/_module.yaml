@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: harness_evals
+title: Desktop & Host Evaluation Harness
+scope:
+    - harness/
+source_files: []
+depends_on: []
+related_to:
+    - path: deploy_infra
+    - path: desktop_app/preload_shared_ipc

@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/document_chat_session
+title: Document Chat Session Core
+scope:
+    - apps/desktop/src/main/core/document-service.ts
+    - apps/desktop/src/main/core/chat-route.ts
+    - apps/desktop/src/main/core/session-store.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: host_server

@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/code_search_indexer
+title: Code Search Indexer
+scope:
+    - apps/desktop/src/main/core/code/
+source_files: []
+depends_on: []
+related_to: []

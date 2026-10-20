@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/system_runtime
+title: Main-Process System Runtime (Sidecar, Updater, IPC Contract)
+scope:
+    - apps/desktop/src/main/core/sidecar-manager.ts
+    - apps/desktop/src/main/core/updater.ts
+    - apps/desktop/src/main/core/ipc-contract.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: api_service
+    - path: desktop_app/preload_shared_ipc
+    - path: packs_builder

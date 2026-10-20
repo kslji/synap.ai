@@ -1,0 +1,5 @@
+- IPC channel identifiers are centralized as a single `as const` object (`IPC`) under `shared/ipc-contract.ts` and referenced everywhere instead of inline strings.
+- Every IPC method in the preload follows the same shape: a thin wrapper around `ipcRenderer.invoke(IPC.<channel>, payload)` that forwards arguments and return value without additional logic.
+- Long-running operations expose an `onEvent(cb)` subscription alongside their invoke methods, returning a cleanup function from the subscription callback.
+- Shared utility modules are colocated with a sibling `*.test.ts` file containing unit tests for the pure functions they export.
+- Request/response/event payloads are defined as TypeScript interfaces in `ipc-contract.ts` and imported by both preload and consumers, keeping the wire format type-safe across process boundaries.

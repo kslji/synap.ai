@@ -1,0 +1,4 @@
+- Pinned upstream sources are declared as `SourceSpec` entries in `catalog.ts` with explicit `version` tags/SHAs and a `licenceUrl` + `licenceIncludes` pair so the build verifies the licence text matches before inclusion.
+- Per-format content cleaning is dispatched via a `CleanKind` string literal union (`'md'|'rst'|'html'|'java'|'go'|'rust'|'texi'|'adoc'`) rather than type discrimination, with a switch/case in `clean.ts`.
+- CI scripts exit non-zero on any violation and print structured JSON diagnostics (e.g. `{ bad, audio, packagedClips }` or `{ npmNew, pipNew }`) for machine-readable failure reporting.
+- Allowlists for licences and advisories are kept as top-level JSON files (`licence-allow.json`, `audit-allow.json`) loaded at runtime, so new exceptions require an explicit commit rather than code changes.

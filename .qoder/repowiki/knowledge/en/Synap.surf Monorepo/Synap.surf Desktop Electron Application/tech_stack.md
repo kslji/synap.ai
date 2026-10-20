@@ -1,0 +1,1 @@
+Electron + Vite (via electron.vite.config.ts), TypeScript across all layers, Better-SQLite3 for local persistence, Playwright for e2e/visual regression, electron-builder for packaging, llama.cpp sidecars and whisper-cli as bundled native binaries.

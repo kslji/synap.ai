@@ -1,0 +1,1 @@
+FastAPI host that runs the marketing VPS auth/OTP platform and optionally proxies local Ollama chat sessions for the Surf desktop/browser agent.

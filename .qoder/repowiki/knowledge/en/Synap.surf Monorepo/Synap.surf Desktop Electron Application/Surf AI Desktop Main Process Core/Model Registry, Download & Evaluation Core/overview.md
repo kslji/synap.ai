@@ -1,0 +1,1 @@
+Main-process core for the model upgrade path: validating and selecting GGUF models from a signed registry, atomically downloading them with SHA-256 verification, and scoring them against a question bank.

@@ -1,0 +1,1 @@
+Main-process inline completion pipeline that debounces editor keystrokes, builds FIM/prefix prompts with snippet context, calls the local llama.cpp server, and returns cancellable suggestions.

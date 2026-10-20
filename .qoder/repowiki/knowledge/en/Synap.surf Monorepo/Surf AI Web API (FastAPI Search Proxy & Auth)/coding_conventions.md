@@ -1,0 +1,5 @@
+- Business-layer errors are raised as typed exceptions (`Problem`, `AuthError`, `LicenceError`) carrying `(status, code, detail, retry_after)` and converted to JSON by a single `@app.exception_handler(Problem)` plus dedicated `_*_problem` adapters.
+- Runtime dependencies are resolved at startup inside `lifespan` based on `app.state.lite`, swapping Postgres/Valkey backends for in-memory alternatives so route handlers stay backend-agnostic.
+- Authentication is enforced through FastAPI `Depends(current_user)` / `Depends(search_gate)` dependency functions rather than per-route checks, with `optional_user` used where auth is permitted but not required.
+- Request/response schemas are declared as Pydantic `BaseModel` classes with explicit `Field(...)` constraints (lengths, patterns, defaults) co-located near their handler.
+- Environment-driven configuration is read from `os.environ` / `ENV` at module level with documented default values (e.g. `SEARCH_PER_MIN`, `CACHE_TTL`, `ACTIVATION_LIMIT`), never via a config class.

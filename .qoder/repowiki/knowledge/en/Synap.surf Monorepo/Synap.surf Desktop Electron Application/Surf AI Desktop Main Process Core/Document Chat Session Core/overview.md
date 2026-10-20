@@ -1,0 +1,1 @@
+Main-process core for document conversion/filling and chat turn routing with encrypted or in-memory session persistence.

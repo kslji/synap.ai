@@ -1,0 +1,4 @@
+- Architectural decisions are recorded as sequentially numbered Markdown files under `docs/adr/` with a `# ADR NNNN — Title` heading.
+- Code samples under `docs/code-samples/` preserve original identifiers (e.g. `harbor-models/1`, `harbor-pack/1`) as a frozen verified record rather than being updated to match the current app's Surf AI naming.
+- Diagrams ship both the editable `.excalidraw` source and a rasterized `.png` copy in the same directory.
+- Documentation files use plain Markdown without front-matter or build tooling, serving as human-readable specs read directly from the repo.

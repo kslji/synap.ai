@@ -1,0 +1,5 @@
+- Each feature lives in its own `core/<feature>/` directory and exposes a service object constructed by `app-services.ts` rather than being imported directly by siblings.
+- Persistent state uses `openUserDb(path, randomBytes(32).toString('hex'), migrations)` — an encrypted SQLite database opened with a per-run key and migration array.
+- IPC handlers are registered centrally via `registerIpc(win, services)` and typed against the shared `IPC` enum exported from `shared/ipc-contract.js`.
+- Long-running native processes (llama-server sidecars) are started/stopped through `LlamaServer` with explicit `startupTimeoutMs` and log files under `userData/logs`.
+- Self-tests and fixtures live alongside source files as `<name>.test.ts` or `fixtures/` directories and assert on concrete numeric thresholds (cosine similarity, token counts, response shapes).

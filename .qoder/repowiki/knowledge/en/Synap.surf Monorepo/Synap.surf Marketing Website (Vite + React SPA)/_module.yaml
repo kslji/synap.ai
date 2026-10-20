@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: marketing_site
+title: Synap.surf Marketing Website (Vite + React SPA)
+scope:
+    - apps/web/
+source_files: []
+depends_on: []
+related_to:
+    - path: agents_catalog

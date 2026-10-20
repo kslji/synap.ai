@@ -1,0 +1,1 @@
+Builds the signed, offline-shippable Code pack of pinned documentation sources and provides CI scripts for licence/audit checks and unit test orchestration.

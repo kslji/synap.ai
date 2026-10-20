@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: desktop_app/renderer_screens
+title: Desktop Renderer UI & Screen Orchestration
+scope:
+    - apps/desktop/src/renderer/
+source_files: []
+depends_on: []
+related_to:
+    - path: desktop_app/preload_shared_ipc

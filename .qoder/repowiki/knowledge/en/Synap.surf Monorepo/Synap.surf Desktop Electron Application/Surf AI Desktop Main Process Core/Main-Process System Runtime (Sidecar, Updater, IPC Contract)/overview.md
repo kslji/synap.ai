@@ -1,0 +1,1 @@
+Electron main-process runtime services: lifecycle management of native sidecar binaries (llama-server), desktop app update orchestration, and the shared IPC type contract re-export.

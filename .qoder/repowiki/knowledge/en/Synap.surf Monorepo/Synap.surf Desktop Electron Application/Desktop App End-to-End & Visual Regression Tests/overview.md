@@ -1,0 +1,1 @@
+Playwright-based end-to-end and visual regression tests that launch the Surf desktop Electron app in isolation to verify UI, settings persistence, sync states, microphone flow, and model reply rendering.

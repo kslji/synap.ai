@@ -1,0 +1,2 @@
+- Long-running or blocking work (tool execution, file I/O, network calls) is offloaded through the sandbox/job layer rather than run on the event loop thread.
+- Shared mutable state (editor mode, permissions, system rules) is accessed via dedicated store modules instead of passing props between agent and completion layers.

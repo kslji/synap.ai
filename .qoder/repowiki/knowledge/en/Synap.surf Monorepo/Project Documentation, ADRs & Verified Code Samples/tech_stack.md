@@ -1,0 +1,1 @@
+Excalidraw + PNG exports for diagrams; TypeScript/Electron sample app under `docs/code-samples/ts/` (Node 22 target per harness docs); Python harness scripts (`harness/core/*.py`, `services/packs/build_pack.py`) drive evaluation against the real Electron app.

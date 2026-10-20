@@ -1,0 +1,1 @@
+Python 3 with `httpx` for the llama-server embedding HTTP API, `pynacl` (Ed25519 signing + NaCl secretbox encryption), and `sqlite-vec` for cosine-similarity vector search inside SQLite; manifests are JSON with SHA-256 file digests.

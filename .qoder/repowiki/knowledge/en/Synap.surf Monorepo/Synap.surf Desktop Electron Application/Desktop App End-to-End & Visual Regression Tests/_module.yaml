@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: desktop_app/e2e_tests
+title: Desktop App End-to-End & Visual Regression Tests
+scope:
+    - apps/desktop/e2e/
+source_files: []
+depends_on: []
+related_to: []

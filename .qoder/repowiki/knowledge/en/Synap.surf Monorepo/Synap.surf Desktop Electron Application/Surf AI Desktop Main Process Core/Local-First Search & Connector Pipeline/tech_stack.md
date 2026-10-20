@@ -1,0 +1,1 @@
+Node.js native modules only (`node:net` BlockList, `node:crypto` SHA-256); no HTTP library — uses the built-in `fetch`. Persistence is direct SQLite via the parent `../db.js` abstraction. User-Agent string `SynapSurf/0.1 (+https://synap.surf; on-device research)` identifies traffic.

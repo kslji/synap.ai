@@ -1,0 +1,1 @@
+React 19 + ReactDOM 19, Vite 7 as dev server/bundler, Tailwind CSS 4 via `@tailwindcss/vite`, TypeScript 5.9, Lucide icons, Fontsource Inter fonts; build targets a static site (`vite build`) producing an `out/` directory.

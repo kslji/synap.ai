@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/files_indexer
+title: Granted Folder File Indexer & Search Service
+scope:
+    - apps/desktop/src/main/core/files/
+source_files: []
+depends_on: []
+related_to: []

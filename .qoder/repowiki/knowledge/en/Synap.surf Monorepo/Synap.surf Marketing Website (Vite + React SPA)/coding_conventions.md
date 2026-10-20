@@ -1,0 +1,5 @@
+- Pages are plain React function components exported from per-route files and mounted directly inside `App.tsx` via path-to-component mapping rather than a router library.
+- Shared configuration and data (footer links, form roles, release assets, setup models) are declared as `as const` arrays or named exports in `site.ts` and consumed by multiple pages instead of being duplicated.
+- Environment-sensitive values such as `SITE_CONTACT_EMAIL` and `SITE_FORM_KEY` are read through accessor functions that default to `import.meta.env` and fall back to safe defaults.
+- Reusable page chrome (header, footer, draft banner, title wrapper) is factored into `SiteHeader`, `SiteFooter`, and the `Page` component in `pages.tsx`, with marketing pages reusing the lighter `Shell`/`Section`/`Faq`/`CtaBand` helpers from `marketing/shell.tsx`.
+- User-facing text is written in short, plain sentences without markup, and legal/disclaimer notices are surfaced via the `DRAFT` constant and inline disclaimer paragraphs.

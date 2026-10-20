@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/code_agent/completion_pipeline
+title: Inline Completion Pipeline
+scope:
+    - apps/desktop/src/main/core/code-agent/completion/
+source_files: []
+depends_on: []
+related_to: []

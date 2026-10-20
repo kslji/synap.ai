@@ -1,0 +1,1 @@
+Main-process search pipeline that routes questions to local layers, official public API connectors, and DuckDuckGo, composing finance/legal/news answers without fabricating data.

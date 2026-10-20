@@ -1,0 +1,1 @@
+Evaluation results are gated by `scripts/model-eval-full.sh`; missing mmproj measurements trigger a message directing developers to run that script and commit `harness/baselines/model-eval-full.json`.

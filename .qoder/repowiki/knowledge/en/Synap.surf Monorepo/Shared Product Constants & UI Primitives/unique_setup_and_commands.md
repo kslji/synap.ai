@@ -1,0 +1,1 @@
+Both packages share the same scripts: `pnpm build` runs `tsc -p tsconfig.json` and `pnpm typecheck` runs `tsc --noEmit`. There is no bundling step; consumers import directly from `./src/*.ts` via the `exports` map.

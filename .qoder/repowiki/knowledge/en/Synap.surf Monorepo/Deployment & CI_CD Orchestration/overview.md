@@ -1,0 +1,1 @@
+Defines the production Docker Compose stack (Caddy, API, Postgres, Valkey, SearXNG) and the GitHub Actions workflows for CI, release packaging, model evaluation, and security checks.

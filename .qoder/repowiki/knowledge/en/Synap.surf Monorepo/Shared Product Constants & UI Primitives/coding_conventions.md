@@ -1,0 +1,5 @@
+- Public constants are exported as `as const` objects to preserve literal types (e.g. `product`, `modelTiers`, `BLOB_SWATCHES`, `FILE_POSES`).
+- Domain data is validated at parse time by throwing descriptive `Error`s with the offending id/field embedded in the message (see `parseAgentFile`'s `requiredString` helper and status checks).
+- Each package exposes a single barrel `src/index.ts` that re-exports everything; internal modules are not imported by consumers directly.
+- CSS is shipped as raw files under `src/` and exposed via explicit `exports` entries (`./tokens.css`, `./components.css`) rather than being bundled into JS.
+- React components in @surf/ui pair a `.tsx` component file with a sibling `.css` stylesheet (e.g. `BlobMascot.tsx` + `blob.css`, `ThemeSwitch.tsx` + `components.css`) and keep shared logic in a co-located `.ts` module.

@@ -1,0 +1,1 @@
+Node.js `fs` / `path` / `crypto` APIs used directly (no third-party libraries); TypeScript-only module boundaries.

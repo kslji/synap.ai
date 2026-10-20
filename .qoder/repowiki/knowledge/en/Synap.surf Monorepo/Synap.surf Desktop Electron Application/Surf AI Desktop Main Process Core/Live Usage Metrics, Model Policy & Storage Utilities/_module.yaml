@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/live_metrics
+title: Live Usage Metrics, Model Policy & Storage Utilities
+scope:
+    - apps/desktop/src/main/core/live/
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,1 @@
+Prepares Code-agent screenshots by classifying intent, preprocessing images, running OCR fallbacks, and deciding whether to call the multimodal model or return a measured answer directly.

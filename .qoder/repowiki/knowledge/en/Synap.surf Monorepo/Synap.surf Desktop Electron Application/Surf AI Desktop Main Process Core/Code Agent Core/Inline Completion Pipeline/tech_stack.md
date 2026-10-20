@@ -1,0 +1,1 @@
+Node.js main-process code calling a sibling llama.cpp server process over HTTP (`/completion`, `/tokenize`) with Bearer-token auth; FIM markers `<think>` / `<|fim_prefix|>` / `<|fim_suffix|>` used for Qwen2.5-Coder/Qwen3.x coder models.

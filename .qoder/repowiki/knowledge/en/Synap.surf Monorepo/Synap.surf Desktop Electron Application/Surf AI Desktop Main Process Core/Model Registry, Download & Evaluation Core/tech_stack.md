@@ -1,0 +1,1 @@
+Zod schemas for registry validation; Node `node:crypto` + `node:stream` pipelines for streaming SHA-256 verification; `node:fs/promises.statfs` for free-disk checks; Electron's `net.fetch` is preferred at the call site but the module accepts a pluggable `fetchImpl`.

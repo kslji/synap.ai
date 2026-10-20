@@ -1,0 +1,5 @@
+- Screen routing is implemented as a string-typed `View` union in `types.ts` with conditional rendering branches in `App.tsx` instead of a client-side router.
+- IPC events are subscribed in `App` via `api.<domain>.onEvent(...)` handlers that update local React state, with cleanup returning unsubscribe functions.
+- Streaming chat responses are accumulated through the reducer `applyEvent` in `types.ts`, keyed by `messageId`, with pending messages created inline during send/retry flows.
+- Demo/test scenarios are driven by assigning to `window.__surfDemo(scene)` and `window.__surfNav(nextView)`, letting the main process inject synthetic state without changing component props.
+- Cross-component mascot behavior is exposed through the `MascotActivityProvider` context with setter methods (`setTask`, `setTyping`, `setPermission`, `setOffline`, `setCaret`) rather than direct prop drilling.

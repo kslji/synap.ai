@@ -1,0 +1,1 @@
+Monorepo wiring a local-first Electron desktop, FastAPI web API, marketing site, pack builder, shared packages, evaluation harness, and deployment stack under one npm workspaces tree.

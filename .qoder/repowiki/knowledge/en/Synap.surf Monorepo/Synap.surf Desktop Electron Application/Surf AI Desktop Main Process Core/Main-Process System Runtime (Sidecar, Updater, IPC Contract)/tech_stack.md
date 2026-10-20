@@ -1,0 +1,1 @@
+Node.js `child_process.spawn` for native binary management; `electron-updater` for signed macOS/Windows in-place updates; GitHub Releases API for release discovery; ed25519 signature verification via `node:crypto` for offline installers.

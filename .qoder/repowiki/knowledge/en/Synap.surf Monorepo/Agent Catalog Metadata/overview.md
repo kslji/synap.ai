@@ -1,0 +1,1 @@
+Declarative catalog of Surf.ai agent personas, each defined by a per-domain JSON manifest describing display metadata and availability status.

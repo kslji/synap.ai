@@ -1,0 +1,1 @@
+Two private npm packages — @surf/shared for product metadata and agent manifest types, and @surf/ui for React components (Markdown, Blob mascot, ThemeSwitch) plus theme/mascot utilities consumed by the app.

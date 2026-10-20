@@ -1,0 +1,1 @@
+Electron main process; Node.js child_process for spawning native sidecars; better-sqlite3-multiple-ciphers with FTS5 and sqlite-vec float[256] as the shared persistence layer across code/file indexing; worker_threads for the calculator; Tesseract OCR assets bundled under `resources/tessdata`.

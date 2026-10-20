@@ -1,0 +1,1 @@
+Scans, parses, and indexes project source code into a SQLite database with FTS5 keyword search and sqlite-vec embeddings for hybrid code retrieval.

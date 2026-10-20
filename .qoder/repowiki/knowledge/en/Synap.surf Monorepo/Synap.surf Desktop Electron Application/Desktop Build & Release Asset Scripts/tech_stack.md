@@ -1,0 +1,1 @@
+Node ESM scripts (`*.mjs`) using `undici` for HTTP retries, `jszip` for zip extraction, `child_process.execFileSync` for tar/curl/zip/cmake/git, and Python (`render-icons.py`) for icon generation; electron-builder hooks via CommonJS (`after-pack.cjs`).

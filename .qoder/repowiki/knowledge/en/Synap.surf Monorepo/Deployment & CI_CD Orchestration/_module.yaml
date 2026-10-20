@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: deploy_infra
+title: Deployment & CI/CD Orchestration
+scope:
+    - deploy/
+    - .github/workflows/
+source_files: []
+depends_on: []
+related_to:
+    - path: api_service
+    - path: harness_evals

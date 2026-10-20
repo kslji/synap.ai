@@ -1,0 +1,1 @@
+SQLite via `better-sqlite3-multiple-ciphers` with FTS5 (`unicode61` tokenizer) and sqlite-vec (`vec0` extension, 256-d Float32 L2 distance); tree-sitter WASM grammars loaded lazily through `web-tree-sitter`; `.gitignore` parsing via the `ignore` package.

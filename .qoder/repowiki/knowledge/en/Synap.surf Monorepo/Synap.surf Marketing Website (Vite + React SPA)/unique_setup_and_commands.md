@@ -1,0 +1,1 @@
+`npm run typecheck` first builds `packages/ui` and `packages/shared` before running `tsc --noEmit`; `npm run build` chains typecheck then `vite build`; `npm run dev` runs Vite with `server.fs.allow` pointing at the repo root so the glob loader can reach `../../../agents/*/blog/*.md`.

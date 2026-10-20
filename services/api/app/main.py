@@ -35,7 +35,6 @@ from .tokens import issue_access_token, read_bearer
 from .gateway.store import MemoryGatewayStore, PostgresGatewayStore
 from .gateway.service import GatewayService
 from .gateway.router import router as gateway_router
-from .auth_router import router as auth_router
 
 log = logging.getLogger("surf.api")
 ENV = os.environ
@@ -103,7 +102,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Surf AI API", version="0.1.0", lifespan=lifespan)
 
 # Include routers
-app.include_router(auth_router)
+# Only include MySQL auth router when not in LITE mode (tests use in-memory auth)
+if not LITE:
+    from .auth_router import router as auth_router
+    app.include_router(auth_router)
 app.include_router(gateway_router)
 
 

@@ -1,0 +1,1 @@
+Node-side image processing via `@napi-rs/canvas` (libcanvas) for format sniffing, EXIF stripping, resize, and PNG/JPEG encoding; multimodal runtime detection against llama.cpp's `--mmproj` / `libmtmd` CLI flags.

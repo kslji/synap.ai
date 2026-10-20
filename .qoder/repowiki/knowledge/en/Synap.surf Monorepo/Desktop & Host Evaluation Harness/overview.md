@@ -1,0 +1,1 @@
+End-to-end evaluation harness that runs unit checks against the local auth host and drives the desktop orchestrator through shared test suites, scoring transcripts and comparing results against baselines.

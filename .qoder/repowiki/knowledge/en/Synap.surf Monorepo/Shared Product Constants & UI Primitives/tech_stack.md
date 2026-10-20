@@ -1,0 +1,1 @@
+TypeScript 5.9.3, React 19 (peer dependency in @surf/ui), ESM-only packages built with plain `tsc` (no bundler). The blob mascot is a hand-written 12-point spline SVG animation engine with pose/state machines rather than an animation library.

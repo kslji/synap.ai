@@ -1,0 +1,1 @@
+The SQLite database is opened with SQLCipher when a `keyHex` is provided; if opening fails with `cannot open user.db (wrong key or corrupt file)` the service self-heals by deleting the db + WAL + SHM files and recreating it. Platform-specific name search requires either Spotlight enabled on macOS or Windows Search indexing configured on Windows.

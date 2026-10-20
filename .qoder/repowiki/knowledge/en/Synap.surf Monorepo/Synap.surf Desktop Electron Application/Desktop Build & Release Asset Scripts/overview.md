@@ -1,0 +1,1 @@
+Node/Python build helpers that download, stage, and package platform-specific binaries (llama.cpp sidecars, whisper-cli, tree-sitter WASM grammars) and produce offline installer zips for the desktop app.

@@ -1,0 +1,5 @@
+- External effects (file I/O, subprocess execution, network) are exposed through an injected host interface rather than imported directly, keeping the loop and completion service pure and testable.
+- User-facing actions go through `permission.decideApproval` with a `PermissionMode` ('ask' | 'auto') before execution, producing a gate decision of deny/ask/allow.
+- Each agent step is recorded by calling `pushStep(host, steps, { id, index, tool, status, title, detail })` with one of the stable statuses ('pending'|'running'|'ok'|'error'|'rejected'|'waiting'|'applied'), and streamed output is emitted incrementally via `onOutput` hooks.
+- Command strings are rejected at parse time if they contain shell metacharacters (`|&;<>$\``) or `..`, enforcing a single-program-with-arguments contract instead of a shell.
+- Token budgets are enforced centrally via `truncateToTokens` / `fitAgentMessages` from `../token-budget.js`, applied both to prompts before sending and to observations returned to the model.

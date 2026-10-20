@@ -1,0 +1,1 @@
+Electron main process with Node `fs`/`path` for file I/O, SQLCipher-backed SQLite (`DB` type) for persistent sessions, and typed IPC contracts (`ipc-contract.js`) for renderer communication.

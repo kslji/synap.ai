@@ -1,0 +1,5 @@
+- Each evaluator module exposes a `run_checks()` function returning a list of `{'id', 'ok', 'detail'}` rows, allowing `evals/gate.py` to compose them uniformly.
+- Test cases are declared as JSONL lines with `id`, `suite`, `weight`, `turns[].question`, and `expect` predicates (`contains`, `numeric`, `exact`, `citation`, `injection`, `absent`, `budget`) rather than imperative assertions.
+- Thresholds and suite-level minimums live in `suites/shared/thresholds.yaml` keyed by mode (`quick`/`full`), with per-suite overrides for `min_score` and `regression_tolerance`.
+- Subprocess invocations of desktop TS suites use a uniform pattern: `npx tsx <path>` with a fixed timeout, stderr/stdout capture, and a `SystemExit` wrapping the last 2000 chars of output on failure.
+- Electron-driven phases communicate via environment variables (`SURF_EVAL_CASES`, `SURF_EVAL_OUT`, `SURF_EVAL_FIXTURES`, `SURF_EVAL_DB_KEY`, `SURF_EVAL_REPORT`) written to a temp work directory created by `materialize_fixtures`.

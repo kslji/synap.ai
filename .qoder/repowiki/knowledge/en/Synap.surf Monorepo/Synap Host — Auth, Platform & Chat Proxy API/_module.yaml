@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: host_server
+title: Synap Host — Auth, Platform & Chat Proxy API
+scope:
+    - apps/host/
+source_files: []
+depends_on: []
+related_to:
+    - path: desktop_app/main_process_core/document_chat_session

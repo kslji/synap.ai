@@ -1,0 +1,2 @@
+- Workspace-scoped scripts are invoked through `npm run <script> -w @surf/<workspace>` from the root rather than direct package invocation.
+- Cross-workspace dependencies on product metadata and UI primitives go through the private `@surf/shared` and `@surf/ui` packages instead of path imports.

@@ -1,0 +1,1 @@
+Electron main-process entry that wires the sidecar, model registry, SQLite-backed indexing/search services, code-agent loop, and IPC contract into a single bootstrapped desktop app.

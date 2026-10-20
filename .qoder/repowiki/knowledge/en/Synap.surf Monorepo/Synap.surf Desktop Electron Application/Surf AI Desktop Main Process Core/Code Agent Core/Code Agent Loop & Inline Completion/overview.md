@@ -1,0 +1,1 @@
+Main-process implementation of the code agent's plan-act-observe loop, inline completion pipeline, and fix-loop diagnostics for editing projects under user approval.

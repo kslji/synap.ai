@@ -1,0 +1,4 @@
+- Long-running operations accept an `AbortSignal` from `LatestCall.run` and check `signal.aborted` between each async step to short-circuit stale requests.
+- External side effects (model calls, CodeIndex queries, filesystem writes) are wrapped in try/catch that translate failures into empty results while preserving abort semantics.
+- The service layer is decoupled from transport via the `CompletionHost` interface, with `runtime.ts` providing the sole concrete implementation.
+- Token budgets are enforced through explicit constants (`SNIPPET_TOKEN_BUDGET`, `MAX_SNIPPETS`, `MAX_SNIPPET_CHARS`) rather than ad-hoc limits.

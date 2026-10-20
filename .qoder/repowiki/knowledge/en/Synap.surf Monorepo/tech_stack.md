@@ -1,0 +1,1 @@
+npm workspaces (Node ≥22) for the Electron/React apps and shared packages; FastAPI + Uvicorn for Python services; Docker Compose for the dev/prod service stack; Electron 44 for the desktop build.

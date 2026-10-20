@@ -1,0 +1,1 @@
+Node.js main-process code communicating with a local llama.cpp inference server over HTTP; TypeScript throughout.

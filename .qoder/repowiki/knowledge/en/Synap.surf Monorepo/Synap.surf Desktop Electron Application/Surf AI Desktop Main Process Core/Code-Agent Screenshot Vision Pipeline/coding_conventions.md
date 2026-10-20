@@ -1,0 +1,4 @@
+- Intent classification uses small dedicated regex constants per category (`COMPARE`, `MOCKUP`, `CHANGE`, `ERROR`) matched against user text rather than a single monolithic matcher.
+- Pipeline stages are pure functions returning typed results (`PreparedImage`, `OcrRead`, `VisionOfferInput`) instead of mutating shared state, making them composable inside `prepareCodeVision`.
+- External capabilities (OCR reader, multimodal describer) are passed in as async callbacks on the input object, keeping the vision module free of I/O and testable with stubs.
+- Binary image handling goes through explicit header sniffing (`sniffImage`, `exifPresent`) before delegating to the canvas loader, rather than relying on magic-number libraries.

@@ -1,0 +1,1 @@
+Playwright Test (`@playwright/test`) with the `_electron` launcher running the actual Surf Electron binary; Node.js ESM modules (`.mjs`).

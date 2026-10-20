@@ -1,0 +1,1 @@
+Electron desktop app that bundles the main-process core, React renderer UI, preload IPC bridge, shared contracts, build/release scripts, and Playwright e2e tests into a single distributable.

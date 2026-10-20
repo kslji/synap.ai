@@ -1,0 +1,6 @@
+- Public APIs are exposed as factory functions returning plain objects (e.g. `createDocumentApi`) rather than classes, keeping state encapsulated in closures.
+- Database access is always done through prepared statements parameterized with `?`, never string interpolation of user values.
+- Storage backends are selected at runtime by branching on `this.db` being truthy, so every method has both an in-memory Map path and a SQL path.
+- Long-running operations emit progress via a local `emit(win, ...)` helper that wraps `safeSend` with `IPC.documentsEvent`, carrying `{progress, stage, done}` tuples.
+- User-facing error strings are thrown directly and caught upstream to be surfaced as IPC errors, rather than wrapped in custom exception types.
+- Text classification uses top-level regex constants (`DEVICE`, `FILES`, `FRESH`, `LEAD`, `EXPR`) matched against trimmed input instead of ad-hoc inline patterns.

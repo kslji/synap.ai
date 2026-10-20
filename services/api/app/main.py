@@ -101,7 +101,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Surf AI API", version="0.1.0", lifespan=lifespan)
 
-# Include gateway router
+# Include routers
+# Only include MySQL auth router when not in LITE mode (tests use in-memory auth)
+if not LITE:
+    from .auth_router import router as auth_router
+    app.include_router(auth_router)
 app.include_router(gateway_router)
 
 

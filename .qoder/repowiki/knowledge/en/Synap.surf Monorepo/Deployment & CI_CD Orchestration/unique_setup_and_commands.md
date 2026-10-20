@@ -1,0 +1,1 @@
+Local stack: `cd deploy && cp .env.example .env && docker compose up -d --build`. The CI validates both `deploy/docker-compose.yml` and `deploy/docker-compose.dev.yml` by running `docker compose ... config` against `.env.example`. Model-weighted evals cache `.surf-models/Qwen3.5-2B-Q4_K_M.gguf` keyed by the file id/sha256 produced by `apps/desktop/scripts/model-weights.mjs`.

@@ -1,0 +1,6 @@
+- Remote assets are pinned to a specific tag/commit constant (e.g. `TAG = 'b11514'` in `fetch-sidecars.mjs`, `WHISPER_TAG = 'b5454'` in `fetch-whisper.mjs`) rather than fetched from latest.
+- All network downloads go through `http-download.mjs`'s `withDownloadRetry` / `fetchDownload` helper instead of direct `fetch` calls, so retries and timeouts are centralized.
+- Each downloaded binary directory gets a JSON metadata file (`SIDECAR.json`, `WHISPER.json`) recording `tag`, `asset`, `url`, `sha256`, and `fetched` timestamp for provenance.
+- CLI entry points guard execution with `const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href; if (invokedDirectly) await main()` so modules can be both imported and run standalone.
+- Platform/arch selection is expressed as a map keyed by `${platform}-${arch}` strings (e.g. `'darwin-arm64'`, `'linux-x64'`) with explicit fallbacks per OS.
+- Errors thrown by packer scripts use a custom `OfflinePackError` carrying an integer `exitCode` so callers can distinguish usage errors (1) from resource shortages (2).

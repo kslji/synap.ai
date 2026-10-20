@@ -1,0 +1,1 @@
+React 18 with `createRoot` + `StrictMode`, Vite-style dev server (module import of `/src/main.tsx`), Tailwind-like utility classes via `@surf/ui`, Inter font via `@fontsource/inter`, CSP locked down in `index.html`.

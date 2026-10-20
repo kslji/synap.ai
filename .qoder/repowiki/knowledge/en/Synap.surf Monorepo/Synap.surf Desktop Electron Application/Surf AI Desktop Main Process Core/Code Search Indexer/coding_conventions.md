@@ -1,0 +1,5 @@
+- Language-specific behavior is expressed as declarative specs keyed by language id — `SPECS` in `parse.ts` maps each grammar to symbol/call node rules, and `GRAMMAR_FILES` in `languages.ts` maps language ids to wasm filenames.
+- Hard limits are centralized in `limits.ts` (e.g. `CODE_LIMITS.chunkWords`, `maxSymbolChars`, `maxCallsPerFile`) and consumed by scanners, parsers, and chunkers rather than being inlined.
+- Database mutations go through `db.prepare(...).run()` parameterized statements wrapped in `db.transaction(...)`, with foreign-key cascades handling cleanup of symbols/chunks when a file row is deleted.
+- Vector embeddings are persisted as raw `Float32Array` buffers converted via `vectorBytes()` before insertion into the sqlite-vec table, and retrieved as `distance` values later converted to cosine via `1 - distance`.
+- Search results combine BM25 and vector ranks using reciprocal rank fusion (`fuseRanks` + `rrfScore`) before applying a deterministic name/kind boost and stable sort.

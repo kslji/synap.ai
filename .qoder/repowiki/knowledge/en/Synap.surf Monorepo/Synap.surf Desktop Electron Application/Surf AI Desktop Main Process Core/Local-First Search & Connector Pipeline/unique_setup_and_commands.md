@@ -1,0 +1,1 @@
+Tests under this directory run against the main process DB and require the desktop app's test harness; `delta.test.ts`, `quote.test.ts`, `search.test.ts`, and `verify-answer.test.ts` exercise delta computation, quote parsing, full routing, and groundedness checks respectively.

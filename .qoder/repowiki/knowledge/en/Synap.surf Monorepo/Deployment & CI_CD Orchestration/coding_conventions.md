@@ -1,0 +1,5 @@
+- All container images are pinned by SHA-256 digest rather than mutable tags, with the human-readable version noted in a trailing comment.
+- Secrets and configuration live exclusively in `.env`/`.env.example`; service containers never bake secrets into images and only expose internal ports via `expose:` (no `ports:` mapping to the host except Caddy's 80/443).
+- GitHub Actions jobs install dependencies with a three-attempt retry loop around `npm ci` to absorb transient registry ECONNRESET errors before failing.
+- Long-running or flaky jobs (eval, e2e, visual, budget, model-eval, code-pack-eval) declare explicit `timeout-minutes` and run inside Xvfb with `DISPLAY=:99` when they need a GUI.
+- Large model artifacts are cached under `.surf-models` using a key derived from `scripts/model-weights.mjs --print <id>` output so caches stay valid across weight updates.

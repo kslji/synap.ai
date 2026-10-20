@@ -1,0 +1,1 @@
+Indexes and searches user-granted folders by extracting files into chunks, embedding them as vectors in SQLite, and answering file-related questions via FTS5 plus vector similarity.

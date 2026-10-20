@@ -1,0 +1,1 @@
+Node.js `node:fs` + `node:path` for filesystem ops, `better-sqlite3-multiple-ciphers` for encrypted SQLite storage, SQLite FTS5 virtual table for keyword search, SQLite `vec0` extension for vector similarity, and platform shelling out to `mdfind` (Spotlight) or PowerShell `System.Data.OleDb` against `SystemIndex` (Windows Search).

@@ -1,0 +1,1 @@
+FastAPI 0.115 + Uvicorn ASGI server behind Gunicorn (UvicornWorker); PyJWT RS256-style bearer tokens scoped by `scope=user|admin`; pydantic-settings for `.env` configuration; argon2-cffi for password hashing; httpx for Ollama/LiveKit calls; SQLite-backed persistence via `store.py`/`platform_store.py`.

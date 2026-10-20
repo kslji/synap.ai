@@ -1,0 +1,1 @@
+Python 3 harness driving an Electron desktop app (`@surf/desktop`) via `npm run eval:electron`; TypeScript suites under `apps/desktop/src/main/core/*-suite.ts` executed through `npx tsx`; YAML thresholds; JSONL case files; SQLite vec used by the host's Moss search.

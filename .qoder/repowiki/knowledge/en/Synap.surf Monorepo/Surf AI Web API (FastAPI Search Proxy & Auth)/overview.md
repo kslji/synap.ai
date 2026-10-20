@@ -1,0 +1,1 @@
+FastAPI service providing email OTP sign-in, device management, SearXNG search proxy, page fetching, signed pack catalog, and Stripe/Razorpay licence billing.

@@ -1,0 +1,5 @@
+- Every external HTTP call goes through `politeFetch` from `http.ts`, which centralizes URL allowlisting, per-host rate limiting, timeout, and error-to-null conversion rather than calling `fetch` directly.
+- Each connector function follows the same shape: build a URL with `encodeURIComponent`, call `politeFetch` with a host-specific `perMinute` budget, parse JSON/text defensively, normalize rows through the local `hit()` factory, and filter out nulls.
+- Domain-specific answer builders (finance, legal, news) funnel their output through a `publish*` helper that runs `verifyGroundedAnswer` and converts blocked claims into an `insufficient` gate instead of returning fabricated text.
+- Cached payloads are keyed by `sha256(kind + '\n' + region + '\n' + value)` and stored with separate TTLs per `CacheKind` ('search' vs 'page'), with automatic eviction of the oldest row when total bytes exceed `SEARCH_CACHE_CAP_BYTES`.
+- Blocked hosts are declared once in `blocked.ts` and applied uniformly via `dropBlocked<T extends { url: string }>(rows)` after every remote fetch, keeping Reddit/X/Twitter out of both connector results and DuckDuckGo hits.

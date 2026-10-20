@@ -1,0 +1,5 @@
+- Public data contracts are validated at runtime with Zod schemas (`ModelRegistry`, `ModelEntry`, `FileRef`) and exported as both the Zod type and a TS `type` alias via `z.infer`.
+- Errors carry a string `code` discriminant plus typed extra fields (e.g. `DownloadError.code` with `disk|checksum|network|http|size`) rather than ad-hoc error messages.
+- Long-running I/O accepts an optional `AbortSignal` and propagates `AbortError` through `isAbortError` / `abortError` helpers instead of throwing generic errors.
+- Atomic file writes use a `<dest>.part` temporary file written via stream `pipeline`, then renamed into place only after size and SHA-256 match.
+- Domain-specific behavior in eval is driven by lookup tables (`GLOSS`, `DOMAIN_RULES`, `SUBSET_TAKE`) rather than branching logic scattered across functions.

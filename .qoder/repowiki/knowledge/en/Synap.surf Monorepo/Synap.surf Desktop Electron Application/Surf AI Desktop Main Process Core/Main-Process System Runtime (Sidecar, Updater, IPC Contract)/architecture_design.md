@@ -1,0 +1,7 @@
+Three sibling utilities under `apps/desktop/src/main/core/` that are consumed by higher-level Electron bootstrappers:
+
+- `sidecar-manager.ts` — owns a `LlamaServer` class extending `EventEmitter`. It spawns the native `llama-server` binary via `node:child_process.spawn`, binds it to a random free port on `127.0.0.1` with a per-instance base64url API key, polls `/health` until ready, tails stdout/stderr into a bounded buffer, and auto-restarts crashed processes with exponential backoff (1s, 2s, 4s … up to 5 attempts). `resolveSidecar` resolves the platform/arch-specific binary path from either `process.resourcesPath` (packaged) or `<appRoot>/resources/bin/<platform>-<arch>` (dev).
+- `updater.ts` — two update paths: online updates go through `electron-updater` (`autoDownload=false`, `autoInstallOnAppQuit=true`) gated off in dev/EVAL/SMOKE; offline installs accept a user-picked installer + `.sig` file and verify it against an embedded ed25519 public key before opening it. Release metadata is fetched from GitHub Releases and filtered through `update-plan.js` (`planUpdate`, `parseReleaseTag`).
+- `ipc-contract.ts` — a thin re-export shim that centralizes IPC type definitions by re-exporting everything from `../../shared/ipc-contract.js`, keeping the main process and renderer on the same schema.
+
+Dependency direction is one-way outward: this module depends on Node APIs, Electron, `electron-updater`, and sibling core modules (`pack-verify`, `surf-env`, `update-plan`, `main-log`, `reply-text`); nothing inside this scope imports from the renderer or UI layers.

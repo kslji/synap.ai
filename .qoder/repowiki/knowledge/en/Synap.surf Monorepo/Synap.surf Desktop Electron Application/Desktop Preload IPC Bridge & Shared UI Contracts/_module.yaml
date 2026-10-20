@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: desktop_app/preload_shared_ipc
+title: Desktop Preload IPC Bridge & Shared UI Contracts
+scope:
+    - apps/desktop/src/preload/
+    - apps/desktop/src/shared/
+source_files: []
+depends_on: []
+related_to:
+    - path: desktop_app/main_process_core/system_runtime
+    - path: desktop_app/renderer_screens
+    - path: harness_evals

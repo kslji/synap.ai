@@ -1,0 +1,1 @@
+Root-level `npm ci` installs all workspaces; `npm run dev:desktop` starts the Electron app, `npm run dev:web` starts the marketing site, `npm run dev:search` brings up the local SearXNG+API stack via `deploy/docker-compose.dev.yml`, and `npm run eval` invokes `harness/run.sh quick` to run the evaluation harness.

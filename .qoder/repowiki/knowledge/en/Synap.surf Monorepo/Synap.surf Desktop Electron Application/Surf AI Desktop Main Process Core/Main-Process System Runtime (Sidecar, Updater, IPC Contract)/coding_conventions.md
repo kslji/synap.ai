@@ -1,0 +1,4 @@
+- Long-running native processes are modeled as `EventEmitter` subclasses exposing a typed `state` field (`stopped` | `starting` | `ready` | `crashed`) plus a `state` event emitted on every transition.
+- External HTTP fetches are parameterized with a `fetchImpl?: typeof fetch` default argument so callers can inject a mock implementation for tests.
+- Development-time feature toggles are checked via `surfEnv('EVAL')` / `surfEnv('SMOKE')` or `process.env.NODE_ENV === 'development'` rather than hard-coded flags, gating updater initialization and other features.
+- Platform-specific executable resolution branches on `process.platform === 'win32'` to append `.exe` and selects between `process.resourcesPath` (packaged) and `<appRoot>/resources/bin/<platform>-<arch>` (development).

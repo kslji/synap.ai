@@ -1,0 +1,1 @@
+React renderer entry and screen layer for the Synap.surf desktop app, wiring IPC state to view components (chat, library, models, settings, onboarding, etc.).

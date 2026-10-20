@@ -1,0 +1,1 @@
+Electron preload with `contextIsolation` enabled; IPC channels are plain string constants rather than an RPC framework, with runtime validation delegated to zod in a separate `ipc-schemas.ts` (main-only).

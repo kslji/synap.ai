@@ -1,0 +1,1 @@
+Main-process core that wires the plan-act-observe agent loop, inline completion pipeline, sandboxed tool execution, and project editing under user approval.

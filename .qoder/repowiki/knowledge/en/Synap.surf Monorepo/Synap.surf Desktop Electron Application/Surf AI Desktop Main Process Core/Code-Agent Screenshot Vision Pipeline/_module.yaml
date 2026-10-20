@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/vision
+title: Code-Agent Screenshot Vision Pipeline
+scope:
+    - apps/desktop/src/main/core/vision/
+source_files: []
+depends_on: []
+related_to: []

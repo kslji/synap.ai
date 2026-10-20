@@ -1,0 +1,6 @@
+- Route handlers declare request bodies as Pydantic `BaseModel` subclasses with `Field(min_length=..., max_length=...)` constraints rather than using FastAPI query/body validators inline.
+- Protected endpoints gate access through FastAPI `Depends(require_session)` or `Depends(require_user)` / `Depends(require_admin)` dependency functions instead of ad-hoc token checks.
+- Sensitive response payloads are passed through `_for_client(request, payload)` which calls `public_view.redact_public_payload` when the request does not originate from direct loopback.
+- External service calls (Ollama, LiveKit, Moss, vault, mail queue) are wrapped in try/except around boot and endpoint entry points so failures do not crash the process.
+- Audit events are recorded via `audit.append("<domain>.<action>", {...})` at the end of mutating handlers rather than inside the domain modules themselves.
+- Rate limiting is applied per-endpoint using `rate_limit(request, key, limit=..., window_seconds=...)` with keys derived from `client_bucket(request, ...)` or session-scoped strings like `f"chat:{session['sub']}"`.

@@ -1,0 +1,1 @@
+The renderer HTML loads `./theme-boot.js` before React so theme CSS variables are available at paint time; the dev server serves modules from `/src/main.tsx`.

@@ -1,0 +1,1 @@
+`scripts/fetch-sidecars.mjs`, `fetch-whisper.mjs`, `fetch-tree-sitter.mjs`, and `fetch-tessdata.mjs` must be run (or invoked from the build pipeline) before packaging to populate `resources/bin/*`, `resources/tessdata`, and `resources/tree-sitter`; `scripts/pack-offline-zip.ts` produces offline installer zips.

@@ -1,0 +1,6 @@
+- Cross-platform path handling goes through `paths.ts` helpers (`normalizePath`, `isInsideRoot`, `displayPath`, `pathStyleOf`) rather than direct `path.join`/`path.sep` usage.
+- All database mutations are pure functions that take a `FileDb` argument, keeping the SQLite layer stateless and testable from callers like `indexer.ts` and `service.ts`.
+- External I/O (filesystem, child-process spawning, embedder calls, sleep) is injected via dependency options on `IndexDeps` / `FileSearchDeps` so production code can be unit-tested without real disk or network access.
+- Long-running work is split into batches with explicit pacing constants (`INDEX_BATCH`, `INDEX_GAP_MS`, `WATCH_DEBOUNCE_MS`) and progress callbacks (`onProgress`) reporting `status` transitions (`idle` → `indexing` → `ready` | `paused` | `error`).
+- Permission checks are centralized: every file read or path exposure goes through `canReadPath` against the current grant roots plus `isExcluded`, never trusting raw paths from the filesystem.
+- Platform-specific behavior (Spotlight vs Windows Search vs walker, path style) is selected at runtime via flags passed through dependencies rather than module-level `process.platform` branches inside core logic.

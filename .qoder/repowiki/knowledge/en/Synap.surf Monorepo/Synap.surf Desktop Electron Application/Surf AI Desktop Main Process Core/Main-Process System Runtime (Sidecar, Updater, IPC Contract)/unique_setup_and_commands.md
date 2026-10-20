@@ -1,0 +1,1 @@
+Native sidecar binaries must be present at `<appRoot>/resources/bin/<platform>-<arch>/` during development or copied by electron-builder into `process.resourcesPath/bin` when packaged. Offline installer updates require a matching `.sig` file next to the installer and a `RELEASE_PUBKEY_HEX` compiled into the app.

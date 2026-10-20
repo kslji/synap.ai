@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/search_connectors
+title: Local-First Search & Connector Pipeline
+scope:
+    - apps/desktop/src/main/core/search/
+source_files: []
+depends_on: []
+related_to:
+    - path: api_service

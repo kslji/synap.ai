@@ -1,0 +1,5 @@
+- Each spec opens an isolated app via `launch(envOverrides, settingsOverrides, extraArgs)` and tears it down in a `finally` block that closes the app and deletes the temp directory with `rmSync(dir, { recursive: true, force: true })`.
+- DOM elements are located exclusively through stable `data-*` attributes (e.g. `[data-screen]`, `[data-sync-state]`, `[data-theme-row]`, `[data-composer]`, `[data-assistant-message]`) rather than CSS classes or text content.
+- Visual regression tests pair a `toHaveScreenshot(name.png)` call with a preceding assertion on the relevant `html[data-theme]` attribute so light/dark baselines live as separate files under `snapshots/`.
+- Test-scoped state is seeded through `window.__surfDemo(scene)` (for prebuilt chats/demo scenes) and `window.__surfNav` (via the exported `go` helper) instead of clicking navigation buttons.
+- Deterministic environment is enforced by writing a synthetic `settings.json` with fixed defaults (`onboardingComplete`, `theme`, `offlineOnly`, `animateMascot`, `mascotName`, `accent`, `density`) and overriding only what each test passes in.

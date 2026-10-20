@@ -1,0 +1,337 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: en-US
+branch: main
+nodes_managed: true
+exported_at: "2026-10-19T20:01:37Z"
+modules:
+    "":
+        dir_name: Synap.surf Monorepo
+        title: Synap.surf Monorepo
+        scope:
+            - README.md
+            - CONTRIBUTING.md
+            - SECURITY.md
+            - PRIVACY.md
+            - TERMS.md
+            - LOW-RAM-GUIDE.md
+            - AGENT-UPGRADE.md
+            - .gitignore
+            - .gitleaks.toml
+            - eslint.config.mjs
+            - pyrightconfig.json
+            - ruff.toml
+            - package.json
+            - package-lock.json
+            - build.txt
+            - .env.example
+            - LICENSE
+        source_files: []
+        children:
+            - agents_catalog
+            - api_service
+            - deploy_infra
+            - desktop_app
+            - docs
+            - harness_evals
+            - host_server
+            - marketing_site
+            - packs_builder
+            - scripts_tooling
+            - shared_packages
+        depends_on: []
+        related_to: []
+    agents_catalog:
+        dir_name: Agent Catalog Metadata
+        title: Agent Catalog Metadata
+        scope:
+            - agents/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: marketing_site
+    api_service:
+        dir_name: Surf AI Web API (FastAPI Search Proxy & Auth)
+        title: Surf AI Web API (FastAPI Search Proxy & Auth)
+        scope:
+            - services/api/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: deploy_infra
+            - path: desktop_app/main_process_core/model_lifecycle
+            - path: desktop_app/main_process_core/search_connectors
+            - path: desktop_app/main_process_core/system_runtime
+    deploy_infra:
+        dir_name: Deployment & CI_CD Orchestration
+        title: Deployment & CI/CD Orchestration
+        scope:
+            - deploy/
+            - .github/workflows/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: api_service
+            - path: harness_evals
+    desktop_app:
+        dir_name: Synap.surf Desktop Electron Application
+        title: Synap.surf Desktop Electron Application
+        scope:
+            - apps/desktop/
+        source_files: []
+        children:
+            - desktop_app/build_scripts_resources
+            - desktop_app/e2e_tests
+            - desktop_app/main_process_core
+            - desktop_app/preload_shared_ipc
+            - desktop_app/renderer_screens
+        depends_on: []
+        related_to: []
+    desktop_app/build_scripts_resources:
+        dir_name: Desktop Build & Release Asset Scripts
+        title: Desktop Build & Release Asset Scripts
+        scope:
+            - apps/desktop/scripts/
+            - apps/desktop/resources/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: scripts_tooling
+    desktop_app/e2e_tests:
+        dir_name: Desktop App End-to-End & Visual Regression Tests
+        title: Desktop App End-to-End & Visual Regression Tests
+        scope:
+            - apps/desktop/e2e/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core:
+        dir_name: Surf AI Desktop Main Process Core
+        title: Surf AI Desktop Main Process Core
+        scope:
+            - apps/desktop/src/main/
+        source_files: []
+        children:
+            - desktop_app/main_process_core/code_agent
+            - desktop_app/main_process_core/code_search_indexer
+            - desktop_app/main_process_core/document_chat_session
+            - desktop_app/main_process_core/files_indexer
+            - desktop_app/main_process_core/live_metrics
+            - desktop_app/main_process_core/model_lifecycle
+            - desktop_app/main_process_core/search_connectors
+            - desktop_app/main_process_core/system_runtime
+            - desktop_app/main_process_core/vision
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core/code_agent:
+        dir_name: Code Agent Core
+        title: Code Agent Core
+        scope:
+            - apps/desktop/src/main/core/code-agent/
+        source_files: []
+        children:
+            - desktop_app/main_process_core/code_agent/agent_loop
+            - desktop_app/main_process_core/code_agent/completion_pipeline
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core/code_agent/agent_loop:
+        dir_name: Code Agent Loop & Inline Completion
+        title: Code Agent Loop & Inline Completion
+        scope:
+            - apps/desktop/src/main/core/code-agent/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core/code_agent/completion_pipeline:
+        dir_name: Inline Completion Pipeline
+        title: Inline Completion Pipeline
+        scope:
+            - apps/desktop/src/main/core/code-agent/completion/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core/code_search_indexer:
+        dir_name: Code Search Indexer
+        title: Code Search Indexer
+        scope:
+            - apps/desktop/src/main/core/code/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core/document_chat_session:
+        dir_name: Document Chat Session Core
+        title: Document Chat Session Core
+        scope:
+            - apps/desktop/src/main/core/document-service.ts
+            - apps/desktop/src/main/core/chat-route.ts
+            - apps/desktop/src/main/core/session-store.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: host_server
+    desktop_app/main_process_core/files_indexer:
+        dir_name: Granted Folder File Indexer & Search Service
+        title: Granted Folder File Indexer & Search Service
+        scope:
+            - apps/desktop/src/main/core/files/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core/live_metrics:
+        dir_name: Live Usage Metrics, Model Policy & Storage Utilities
+        title: Live Usage Metrics, Model Policy & Storage Utilities
+        scope:
+            - apps/desktop/src/main/core/live/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    desktop_app/main_process_core/model_lifecycle:
+        dir_name: Model Registry, Download & Evaluation Core
+        title: Model Registry, Download & Evaluation Core
+        scope:
+            - apps/desktop/src/main/core/model-registry.ts
+            - apps/desktop/src/main/core/model-download.ts
+            - apps/desktop/src/main/core/model-eval.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: api_service
+    desktop_app/main_process_core/search_connectors:
+        dir_name: Local-First Search & Connector Pipeline
+        title: Local-First Search & Connector Pipeline
+        scope:
+            - apps/desktop/src/main/core/search/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: api_service
+    desktop_app/main_process_core/system_runtime:
+        dir_name: Main-Process System Runtime (Sidecar, Updater, IPC Contract)
+        title: Main-Process System Runtime (Sidecar, Updater, IPC Contract)
+        scope:
+            - apps/desktop/src/main/core/sidecar-manager.ts
+            - apps/desktop/src/main/core/updater.ts
+            - apps/desktop/src/main/core/ipc-contract.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: api_service
+            - path: desktop_app/preload_shared_ipc
+            - path: packs_builder
+    desktop_app/main_process_core/vision:
+        dir_name: Code-Agent Screenshot Vision Pipeline
+        title: Code-Agent Screenshot Vision Pipeline
+        scope:
+            - apps/desktop/src/main/core/vision/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    desktop_app/preload_shared_ipc:
+        dir_name: Desktop Preload IPC Bridge & Shared UI Contracts
+        title: Desktop Preload IPC Bridge & Shared UI Contracts
+        scope:
+            - apps/desktop/src/preload/
+            - apps/desktop/src/shared/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: desktop_app/main_process_core/system_runtime
+            - path: desktop_app/renderer_screens
+            - path: harness_evals
+    desktop_app/renderer_screens:
+        dir_name: Desktop Renderer UI & Screen Orchestration
+        title: Desktop Renderer UI & Screen Orchestration
+        scope:
+            - apps/desktop/src/renderer/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: desktop_app/preload_shared_ipc
+    docs:
+        dir_name: Project Documentation, ADRs & Verified Code Samples
+        title: Project Documentation, ADRs & Verified Code Samples
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    harness_evals:
+        dir_name: Desktop & Host Evaluation Harness
+        title: Desktop & Host Evaluation Harness
+        scope:
+            - harness/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: deploy_infra
+            - path: desktop_app/preload_shared_ipc
+    host_server:
+        dir_name: Synap Host — Auth, Platform & Chat Proxy API
+        title: Synap Host — Auth, Platform & Chat Proxy API
+        scope:
+            - apps/host/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: desktop_app/main_process_core/document_chat_session
+    marketing_site:
+        dir_name: Synap.surf Marketing Website (Vite + React SPA)
+        title: Synap.surf Marketing Website (Vite + React SPA)
+        scope:
+            - apps/web/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: agents_catalog
+    packs_builder:
+        dir_name: Knowledge Pack Builder & Delta Generator
+        title: Knowledge Pack Builder & Delta Generator
+        scope:
+            - services/packs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: desktop_app/main_process_core/system_runtime
+    scripts_tooling:
+        dir_name: Code Pack Builder & Dev Tooling Scripts
+        title: Code Pack Builder & Dev Tooling Scripts
+        scope:
+            - scripts/
+            - animation/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: desktop_app/build_scripts_resources
+    shared_packages:
+        dir_name: Shared Product Constants & UI Primitives
+        title: Shared Product Constants & UI Primitives
+        scope:
+            - packages/shared/
+            - packages/ui/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

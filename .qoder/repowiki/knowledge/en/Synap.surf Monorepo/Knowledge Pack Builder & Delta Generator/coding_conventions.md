@@ -1,0 +1,5 @@
+- Embedding model parameters are centralized in a module-level `SPEC` dict (id, model, native_dim, dim, pooling, normalize, query_prefix, doc_template) rather than scattered literals.
+- Signing keys are read exclusively from environment variables (`PACK_SIGNING_KEY_HEX`, `PACK_CONTENT_KEY_HEX`) and validated to be exactly 64 hex characters before use.
+- Each script prepends sibling `api` and `harness` directories onto `sys.path` before importing `core.pack_gate.assert_can_sign`, keeping cross-package imports explicit at the top of the file.
+- Manifests are built as Python dicts, serialized with `json.dumps(sort_keys=True)`, written to disk, then signed with `nacl.signing.SigningKey`, and the resulting signature bytes are written to a sibling `manifest.sig` file.
+- Vector embeddings are truncated to `SPEC["dim"]` (256) and L2-normalized after retrieval, with a `RuntimeError("zero embedding")` guard when the norm is zero.

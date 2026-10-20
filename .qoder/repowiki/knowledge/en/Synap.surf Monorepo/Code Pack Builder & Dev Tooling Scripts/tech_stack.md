@@ -1,0 +1,1 @@
+TypeScript (ESM) build script using Node built-ins (`crypto`, `child_process`, `fs`, `path`) plus `fetch`; Ed25519 signing for pack manifests; SQLite via the app's `code-pack-store` module; Python licence scanner; `npm audit` + `pip_audit` for vulnerability scanning.

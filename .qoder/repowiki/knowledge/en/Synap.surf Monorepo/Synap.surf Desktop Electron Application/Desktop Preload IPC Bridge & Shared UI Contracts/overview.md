@@ -1,0 +1,1 @@
+Electron preload bridge exposing a sandboxed window.surf API to the renderer, plus shared TypeScript contracts and pure-utility modules used by both main and renderer.

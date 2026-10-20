@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: desktop_app/main_process_core
+title: Surf AI Desktop Main Process Core
+scope:
+    - apps/desktop/src/main/
+source_files: []
+depends_on: []
+related_to: []

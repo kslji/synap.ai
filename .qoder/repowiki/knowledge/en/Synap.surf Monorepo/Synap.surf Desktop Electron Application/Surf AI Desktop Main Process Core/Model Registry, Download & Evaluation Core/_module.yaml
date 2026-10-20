@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: desktop_app/main_process_core/model_lifecycle
+title: Model Registry, Download & Evaluation Core
+scope:
+    - apps/desktop/src/main/core/model-registry.ts
+    - apps/desktop/src/main/core/model-download.ts
+    - apps/desktop/src/main/core/model-eval.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: api_service

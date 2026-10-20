@@ -1,0 +1,1 @@
+Core utilities for the desktop app's live usage metrics collection and aggregation, per-step model selection policy, background indexing queue, and safe local storage reporting.

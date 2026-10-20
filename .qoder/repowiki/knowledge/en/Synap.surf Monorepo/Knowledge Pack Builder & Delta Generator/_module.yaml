@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: packs_builder
+title: Knowledge Pack Builder & Delta Generator
+scope:
+    - services/packs/
+source_files: []
+depends_on: []
+related_to:
+    - path: desktop_app/main_process_core/system_runtime

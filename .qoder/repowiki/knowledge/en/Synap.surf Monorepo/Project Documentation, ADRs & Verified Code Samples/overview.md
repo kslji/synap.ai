@@ -1,0 +1,1 @@
+Repository documentation including architecture docs, architectural decision records, verified Electron/TypeScript code samples, diagrams, and evaluation harness fixtures.

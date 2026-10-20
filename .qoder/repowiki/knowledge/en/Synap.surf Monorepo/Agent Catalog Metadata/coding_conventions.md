@@ -1,0 +1,3 @@
+- Each agent persona is represented by a single `agent.json` file colocated in its own directory under `agents/`.
+- Manifests follow a fixed schema with string fields `name`, `tagline`, `description`, `icon`, `accent`, `status`, integer `order`, and optional `notes`.
+- Niche domain agents use the shared description pattern mentioning a signed knowledge pack yet to be published, while core agents describe on-device capabilities.

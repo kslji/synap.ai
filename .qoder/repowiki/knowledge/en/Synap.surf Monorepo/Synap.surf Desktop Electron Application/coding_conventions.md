@@ -1,0 +1,4 @@
+- IPC messages are declared once in `src/shared/ipc-contract.ts` and consumed by both main and renderer, keeping request/response types in sync.
+- Payloads sent over IPC are validated against JSON Schemas in `src/main/core/ipc-schemas.ts` on the main side before processing.
+- Native or heavy work (OCR, speech, calculator, embedding) is offloaded to worker threads or external sidecar processes rather than running in the renderer.
+- Platform-specific native binaries are resolved at runtime via the `resources/bin/<platform>` directory structure produced by the fetch scripts.

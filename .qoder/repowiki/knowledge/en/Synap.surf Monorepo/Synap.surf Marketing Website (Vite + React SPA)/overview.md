@@ -1,0 +1,1 @@
+Client-side marketing and documentation site for Synap.surf, built with Vite/React, routing static pages and agent landing pages from the shared catalog.

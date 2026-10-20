@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: scripts_tooling
+title: Code Pack Builder & Dev Tooling Scripts
+scope:
+    - scripts/
+    - animation/
+source_files: []
+depends_on: []
+related_to:
+    - path: desktop_app/build_scripts_resources

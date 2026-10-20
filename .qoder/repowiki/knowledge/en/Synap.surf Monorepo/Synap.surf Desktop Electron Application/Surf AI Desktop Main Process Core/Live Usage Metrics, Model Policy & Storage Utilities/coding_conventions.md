@@ -1,0 +1,4 @@
+- Pure decision and aggregation functions take a single input object with named fields rather than positional arguments, making policy calls self-documenting.
+- Numeric inputs are normalized through small helpers (`nonNeg`, `round1`, `num`, `clampIdleMinutes`) that clamp, round, or coerce values before they enter business logic.
+- Path safety is enforced by resolving real paths and rejecting anything that escapes the app data directory, throwing a descriptive error instead of returning a boolean.
+- I/O wrappers (e.g. `MetricsLog`) keep all persistence logic inside the class while delegating computation to pure functions in sibling modules.

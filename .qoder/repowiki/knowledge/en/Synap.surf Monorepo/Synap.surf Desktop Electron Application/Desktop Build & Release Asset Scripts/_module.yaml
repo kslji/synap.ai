@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: desktop_app/build_scripts_resources
+title: Desktop Build & Release Asset Scripts
+scope:
+    - apps/desktop/scripts/
+    - apps/desktop/resources/
+source_files: []
+depends_on: []
+related_to:
+    - path: scripts_tooling

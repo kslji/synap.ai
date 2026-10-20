@@ -7,6 +7,8 @@
     "LicenseRef-LICENSE",
     "python-dateutil",
     "LGPL-3.0-only",
-    "MPL-1.1"
+    "MPL-1.1",
+    "email-validator",
+    "Unlicense"
   ]
 }

@@ -11,14 +11,11 @@ import { parseRegistry } from './model-registry.js'
 
 const registry = parseRegistry(JSON.parse(readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../../../resources/models.registry.json'), 'utf8')))
 
-test('first launch picks the chat model for the RAM tier and skips when both files are present', () => {
+test('first launch uses the one chat model on every tier and skips when both files are present', () => {
   const none = () => false
-  assert.equal(firstLaunchPlan({ tier: 0, registry, installed: none }).chat.id, 'qwen3.5-2b-q4_k_m')
-  assert.equal(firstLaunchPlan({ tier: 1, registry, installed: none }).chat.id, 'qwen3.5-4b-q4_k_m')
-  assert.equal(firstLaunchPlan({ tier: 2, registry, installed: none }).chat.id, 'qwen3.5-9b-q4_k_m')
-  assert.equal(firstLaunchPlan({ tier: 3, registry, installed: none }).chat.id, 'qwen3.5-9b-q4_k_m')
   for (const tier of [0, 1, 2, 3]) {
     const plan = firstLaunchPlan({ tier, registry, installed: none })
+    assert.equal(plan.chat.id, 'qwen3.5-4b-q4_k_m')
     assert.equal(plan.embed.id, 'embeddinggemma-2-text-q8_0')
     assert.equal(plan.skip, false)
   }

@@ -30,11 +30,11 @@ export const ModelEntry = FileRef.extend({
   min_llama_cpp_build: z.number().int().optional(), // e.g. 11452 = first llama.cpp release with gemma-embedding2
   mmproj: FileRef.optional(),
   min_ram_gb: z.number(),
-  /** Measured process peak, when we have one. 4B and 9B Code models are still unmeasured. */
+  /** Measured process peak, when we have one. */
   peak_ram_gb: z.number().positive().optional(),
   ram_measured: z.boolean().optional(),
   tiers: z.array(z.number().int().min(0).max(3)),
-  /** When set, only these agents may use the file. Omitted entries stay on General and Assistant. */
+  /** When set, only these agents may use the file. Omitted entries serve every agent. */
   agents: z.array(z.string()).optional(),
   /** Agents that auto-select this file when the user has not picked. */
   default_for: z.array(z.string()).optional(),
@@ -66,10 +66,10 @@ export function parseRegistry(json: unknown): ModelRegistry {
   return reg;
 }
 
-/** Code-only rows carry `agents`. Older rows stay on General and Assistant. */
+/** Rows with `agents` (such as the draft) serve only those agents. Every other chat row serves every agent. */
 export function servesAgent(model: { agents?: string[] }, agentId: string): boolean {
   if (model.agents && model.agents.length > 0) return model.agents.includes(agentId);
-  return agentId !== 'code';
+  return true;
 }
 
 /** Local name for an mmproj file. Several models ship `mmproj-F16.gguf` with different bytes. */

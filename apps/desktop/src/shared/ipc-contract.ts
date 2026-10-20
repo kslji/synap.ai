@@ -410,7 +410,7 @@ export interface ModelStatus {
   cpuModel: string
   cores: number
   chatModelId: string
-  /** First-run model from synap://setup, or the Qwen 2B default when no link arrived. */
+  /** First-run model from synap://setup, or the generic Qwen 4B model when no link arrived. */
   setupModelId?: string
   /** Code agent selection. The smallest Code model when the user has not picked. */
   codeModelId: string

@@ -113,8 +113,8 @@ export function evalQuestions(): EvalQuestion[] {
   add('coding', 'fit-2b', 'On an 8 GB laptop, is the default Qwen3.5 2B code model recommended?', 'recommended')
   add('coding', 'fit-4b-small', 'On a 4 GB laptop, does a model that needs 16 GB fit?', 'too-big')
   add('coding', 'fit-9b', 'On a 16 GB laptop, does a Qwen row that needs 16 GB fit?', 'fits')
-  add('coding', 'registry-code', 'Does the code agent list only registry rows whose agents include code?', 'code-only')
-  add('coding', 'registry-general', 'Does a chat row with no agents list stay off the code agent?', 'not-code')
+  add('coding', 'registry-code', 'Does the code agent use the same registry chat model as every other agent?', 'code-only')
+  add('coding', 'registry-general', 'Does the draft row stay off the code agent and General?', 'not-code')
 
   const splits: [string, string][] = [
     ['What does start do?', 'chat'],
@@ -295,11 +295,11 @@ function scoreCoding(item: EvalQuestion): boolean {
   if (item.expect === 'fits') return codeFitMark({ family: 'qwen', minRamGb: 16, defaultFor: [] }, 16) === 'fits'
   if (item.expect === 'code-only') {
     const code = registry.models.filter((model) => model.role === 'chat' && servesAgent(model.agents, 'code'))
-    return code.length > 0 && code.every((model) => model.agents?.includes('code'))
+    return code.length === 1 && servesAgent(code[0].agents, 'general')
   }
   if (item.expect === 'not-code') {
-    const general = registry.models.find((model) => model.role === 'chat' && !model.agents)
-    return general != null && servesAgent(general.agents, 'code') === false && servesAgent(general.agents, 'general') === true
+    const draft = registry.models.find((model) => model.role === 'chat' && model.agents?.includes('draft'))
+    return draft != null && servesAgent(draft.agents, 'code') === false && servesAgent(draft.agents, 'general') === false
   }
   const command = item.question.match(/"([^"]+)"/)?.[1] ?? ''
   const kind = item.question.match(/as a (test|lint|typecheck) check/)?.[1]

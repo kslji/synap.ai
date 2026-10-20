@@ -1,12 +1,15 @@
 import { FIRST_RUN_CHAT_MODEL_IDS, STARTER_CHAT_MODEL_ID } from './starter-model'
 
+/** Old links named a size. There is one model now, so every size alias opens it. */
 const ALIAS: Record<string, string> = {
-  'qwen3.5-2b': 'qwen3.5-2b-q4_k_m',
-  'qwen3.5-4b': 'qwen3.5-4b-q4_k_m',
-  'qwen3.5-9b': 'qwen3.5-9b-q4_k_m',
-  '2b': 'qwen3.5-2b-q4_k_m',
-  '4b': 'qwen3.5-4b-q4_k_m',
-  '9b': 'qwen3.5-9b-q4_k_m',
+  'qwen3.5-2b': STARTER_CHAT_MODEL_ID,
+  'qwen3.5-4b': STARTER_CHAT_MODEL_ID,
+  'qwen3.5-9b': STARTER_CHAT_MODEL_ID,
+  'qwen3.5-2b-q4_k_m': STARTER_CHAT_MODEL_ID,
+  'qwen3.5-9b-q4_k_m': STARTER_CHAT_MODEL_ID,
+  '2b': STARTER_CHAT_MODEL_ID,
+  '4b': STARTER_CHAT_MODEL_ID,
+  '9b': STARTER_CHAT_MODEL_ID,
 }
 
 export interface SetupLink {
@@ -66,7 +69,7 @@ function absolutePath(value: string): string | null {
   return null
 }
 
-/** Known model id, or Qwen 2B when a link omitted one. The first open downloads that file. */
+/** Known model id, or the generic model when a link omitted one. The first open downloads that file. */
 export function resolveSetupModel(input: string | null | undefined): string {
   return parseSetupModel(input) ?? STARTER_CHAT_MODEL_ID
 }

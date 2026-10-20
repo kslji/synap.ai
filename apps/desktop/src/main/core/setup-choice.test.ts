@@ -15,7 +15,6 @@ import {
   keywordSearchNote,
   planEmbeddingRepair,
   planFirstRun,
-  recommendSetupModel,
   requiredFreeBytes,
   setupCatalog,
   setupChoices,
@@ -29,53 +28,36 @@ const catalog = setupCatalog(registry.models)
 const embedding = setupEmbedding(registry.models)
 if (!embedding) throw new Error('registry has no embedding model')
 
-test('the setup catalog is the three Q4_K_M Qwen files, plus EmbeddingGemma', () => {
-  assert.deepEqual(catalog.map((model) => model.token), ['2b', '4b', '9b'])
-  assert.equal(catalog[0].sizeBytes, 1_280_835_840)
-  assert.equal(formatByteCount(catalog[0].sizeBytes), '1.28 GB')
-  assert.equal(formatByteCount(catalog[1].sizeBytes), '2.74 GB')
-  assert.equal(formatByteCount(catalog[2].sizeBytes), '5.68 GB')
+test('the setup catalog is the one Qwen 4B file, plus EmbeddingGemma', () => {
+  assert.deepEqual(catalog.map((model) => model.id), ['qwen3.5-4b-q4_k_m'])
+  assert.equal(catalog[0].name, 'Qwen 4B')
+  assert.equal(catalog[0].minRamGb, 8)
+  assert.equal(formatByteCount(catalog[0].sizeBytes), '2.74 GB')
   assert.equal(embedding.name, 'Search model')
   assert.equal(embedding.sizeBytes, 309_855_520)
   assert.equal(formatByteCount(embedding.sizeBytes), '309.9 MB')
-})
-
-test('recommendation follows RAM, and unknown RAM is 2B with no tag', () => {
-  assert.equal(recommendSetupModel(null, catalog).id, 'qwen3.5-2b-q4_k_m')
-  assert.equal(recommendSetupModel(null, catalog).source, 'default')
-  assert.equal(recommendSetupModel(0, catalog).source, 'default')
-  assert.equal(recommendSetupModel(4, catalog).id, 'qwen3.5-2b-q4_k_m')
-  assert.equal(recommendSetupModel(8, catalog).id, 'qwen3.5-4b-q4_k_m')
-  assert.equal(recommendSetupModel(7.6, catalog).id, 'qwen3.5-4b-q4_k_m')
-  assert.equal(recommendSetupModel(16, catalog).id, 'qwen3.5-9b-q4_k_m')
-  assert.equal(recommendSetupModel(32, catalog).id, 'qwen3.5-9b-q4_k_m')
   assert.equal(tierFor(4, 0, false), 0)
   assert.equal(tierFor(8, 0, false), 1)
   assert.equal(tierFor(16, 0, false), 2)
-  const unknown = setupChoices(catalog, null, [], embedding.sizeBytes)
-  assert.equal(unknown.every((choice) => !choice.recommended), true)
-  assert.equal(unknown.every((choice) => choice.warning == null), true)
-  const eight = setupChoices(catalog, 8, [], embedding.sizeBytes)
-  assert.equal(eight.find((choice) => choice.id === 'qwen3.5-4b-q4_k_m')?.recommended, true)
-  assert.equal(eight.find((choice) => choice.id === 'qwen3.5-2b-q4_k_m')?.recommended, false)
-  assert.equal(eight.find((choice) => choice.id === 'qwen3.5-9b-q4_k_m')?.recommended, false)
 })
 
-test('a size that needs more memory stays selectable and shows a warning', () => {
-  const choices = setupChoices(catalog, 8, ['qwen3.5-2b-q4_k_m'], embedding.sizeBytes)
-  const nine = choices.find((choice) => choice.id === 'qwen3.5-9b-q4_k_m')
-  assert.equal(nine?.warning, 'This model needs 16 GB of memory. This computer has 8 GB.')
-  assert.equal(choices.find((choice) => choice.id === 'qwen3.5-4b-q4_k_m')?.warning, null)
-  assert.equal(choices.find((choice) => choice.id === 'qwen3.5-2b-q4_k_m')?.inDownloads, true)
-  const tight = setupChoices(catalog, 4, [], embedding.sizeBytes)
-  assert.match(tight.find((choice) => choice.id === 'qwen3.5-4b-q4_k_m')?.warning ?? '', /needs 8 GB/)
-  assert.match(tight.find((choice) => choice.id === 'qwen3.5-4b-q4_k_m')?.warning ?? '', /has 4 GB/)
+test('the one choice warns below 8 GB and stays downloadable', () => {
+  const unknown = setupChoices(catalog, null, [], embedding.sizeBytes)
+  assert.equal(unknown.length, 1)
+  assert.equal(unknown[0].warning, null)
+  assert.equal(unknown[0].withSearchBytes, catalog[0].sizeBytes + embedding.sizeBytes)
+  assert.equal(setupChoices(catalog, 7.6, [], embedding.sizeBytes)[0].warning, null)
+  assert.equal(setupChoices(catalog, 16, [], embedding.sizeBytes)[0].warning, null)
+  const tight = setupChoices(catalog, 4, ['qwen3.5-4b-q4_k_m'], embedding.sizeBytes)
+  assert.match(tight[0].warning ?? '', /needs 8 GB/)
+  assert.match(tight[0].warning ?? '', /has 4 GB/)
+  assert.equal(tight[0].inDownloads, true)
   assert.equal(formatRamGb(7.6), '7.6 GB')
 })
 
-test('EmbeddingGemma is always in the plan, and an oversize choice is not blocked', () => {
+test('EmbeddingGemma is always in the plan', () => {
   const plan = planFirstRun({
-    chosenId: 'qwen3.5-9b-q4_k_m',
+    chosenId: 'qwen3.5-4b-q4_k_m',
     useDownloads: false,
     freeBytes: 20_000_000_000,
     chatInstalled: false,
@@ -93,7 +75,7 @@ test('EmbeddingGemma is always in the plan, and an oversize choice is not blocke
 
 test('a Downloads copy is offered as a copy, and disk space covers every file still needed', () => {
   const adopted = planFirstRun({
-    chosenId: 'qwen3.5-2b-q4_k_m',
+    chosenId: 'qwen3.5-4b-q4_k_m',
     useDownloads: true,
     freeBytes: 20_000_000_000,
     chatInstalled: false,
@@ -106,7 +88,7 @@ test('a Downloads copy is offered as a copy, and disk space covers every file st
   assert.equal(adopted.action, 'run')
   assert.deepEqual(adopted.steps.map((step) => step.action), ['copy', 'copy'])
   const chatOnly = planFirstRun({
-    chosenId: 'qwen3.5-2b-q4_k_m',
+    chosenId: 'qwen3.5-4b-q4_k_m',
     useDownloads: true,
     freeBytes: 20_000_000_000,
     chatInstalled: false,
@@ -118,7 +100,7 @@ test('a Downloads copy is offered as a copy, and disk space covers every file st
   })
   assert.deepEqual(chatOnly.steps.map((step) => step.action), ['copy', 'ready'])
   const bothReady = planFirstRun({
-    chosenId: 'qwen3.5-2b-q4_k_m',
+    chosenId: 'qwen3.5-4b-q4_k_m',
     useDownloads: false,
     freeBytes: 0,
     chatInstalled: true,
@@ -145,7 +127,7 @@ test('a Downloads copy is offered as a copy, and disk space covers every file st
   assert.equal(disk.requiredBytes, requiredFreeBytes(catalog[0].sizeBytes + embedding.sizeBytes))
   assert.equal(disk.freeBytes, free)
   const copy = setupErrorCopy({ code: 'disk', requiredBytes: disk.requiredBytes, freeBytes: free })
-  assert.match(copy.body, /1\.67 GB/)
+  assert.match(copy.body, /3\.2 GB/)
   assert.match(copy.body, /200 MB/)
   const offline = setupErrorCopy({ code: 'offline' })
   assert.doesNotMatch(offline.body, /offline installer/i)
@@ -155,21 +137,20 @@ test('a Downloads copy is offered as a copy, and disk space covers every file st
 test('each screenshot fixture is the state it is named for', () => {
   const pick = setupShot('pick')
   assert.equal(pick.phase, 'pick')
-  assert.equal(pick.choices.find((choice) => choice.id === 'qwen3.5-4b-q4_k_m')?.recommended, true)
-  assert.match(pick.choices.find((choice) => choice.id === 'qwen3.5-9b-q4_k_m')?.warning ?? '', /16 GB/)
-  assert.equal(pick.choices.find((choice) => choice.id === 'qwen3.5-2b-q4_k_m')?.inDownloads, true)
+  assert.deepEqual(pick.choices.map((choice) => choice.id), ['qwen3.5-4b-q4_k_m'])
+  assert.equal(pick.choices[0]?.inDownloads, true)
   const progress = setupShot('progress')
   assert.equal(progress.phase, 'downloading')
   assert.equal(progress.error, null)
-  assert.equal(progress.files[0]?.name, 'Qwen 2B')
+  assert.equal(progress.files[0]?.name, 'Qwen 4B')
   assert.equal(progress.files[0]?.state, 'active')
   assert.equal(progress.files[0]?.done, 412_000_000)
   assert.equal(progress.files[1]?.name, 'Search model')
   assert.equal(progress.files[1]?.state, 'waiting')
   assert.equal(progress.files[1]?.total, 309_855_520)
   assert.equal(progress.done, 412_000_000)
-  assert.equal(progress.total, 1_280_835_840 + 309_855_520)
-  assert.equal(formatByteCount(progress.total), '1.59 GB')
+  assert.equal(progress.total, 2_740_937_888 + 309_855_520)
+  assert.equal(formatByteCount(progress.total), '3.05 GB')
   assert.equal(progress.bytesPerSecond, 8_200_000)
   assert.equal(formatByteCount(progress.done), '412 MB')
   assert.equal(formatByteRate(progress.bytesPerSecond ?? 0), '8.2 MB/s')
@@ -178,7 +159,7 @@ test('each screenshot fixture is the state it is named for', () => {
   assert.equal(setupShot('offline').error?.code, 'offline')
   assert.equal(setupShot('disk').error?.code, 'disk')
   assert.equal(setupShot('disk').error?.freeBytes, 200_000_000)
-  assert.equal(setupShot('disk').error?.requiredBytes, requiredFreeBytes(1_280_835_840 + 309_855_520))
+  assert.equal(setupShot('disk').error?.requiredBytes, requiredFreeBytes(2_740_937_888 + 309_855_520))
   assert.equal(setupShot('checksum').error?.code, 'checksum')
 })
 
@@ -209,13 +190,11 @@ test('a later launch repairs only the search model', () => {
   assert.equal(ready.action, 'done')
 })
 
-test('Qwen 2B plus the search model fits in one GitHub release asset', () => {
+test('Qwen 4B plus the search model is over one GitHub release asset', () => {
   const pair = bundledModelBytes(catalog[0].sizeBytes, embedding.sizeBytes)
-  assert.equal(pair, 1_590_691_360)
-  assert.equal(fitsGitHubAsset(pair), true)
-  assert.equal(GITHUB_ASSET_LIMIT_BYTES - pair, 556_792_288)
-  assert.equal(fitsGitHubAsset(bundledModelBytes(catalog[1].sizeBytes, embedding.sizeBytes)), false)
-  assert.equal(fitsGitHubAsset(bundledModelBytes(catalog[2].sizeBytes, embedding.sizeBytes)), false)
+  assert.equal(pair, 3_050_793_408)
+  assert.equal(fitsGitHubAsset(pair), false)
+  assert.equal(fitsGitHubAsset(GITHUB_ASSET_LIMIT_BYTES - 1), true)
 })
 
 test('keyword search is named only while the search model is downloading or the computer is offline', () => {

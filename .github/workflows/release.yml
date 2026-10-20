@@ -66,7 +66,7 @@ jobs:
           fi
           out="$RUNNER_TEMP/offline"
           mkdir -p "$out"
-          for token in 2b 4b 9b; do
+          for token in 4b; do
             npx tsx scripts/pack-offline-zip.ts \
               --app "$app" \
               --os windows \
@@ -129,7 +129,7 @@ jobs:
             mkdir -p "$dest"
             ditto -x -k "$zip" "$dest"
           done
-          for token in 2b 4b 9b; do
+          for token in 4b; do
             for arch in arm64 x64; do
               app="$(find "$RUNNER_TEMP/app-$arch" -name '*.app' -maxdepth 3 -print -quit)"
               if [ -z "${app}" ]; then

@@ -76,7 +76,7 @@ def run_electron(cases: list[dict], work: Path, phase: str, mode: str) -> dict:
         "SURF_EVAL_FIXTURES": str(work / "fixtures"),
         "SURF_EVAL_DB_KEY": os.urandom(32).hex(),
         "SURF_EVAL_REPORT": str(ROOT / "harness" / "reports" / "latest.json"),
-        "SURF_EVAL_CHAT_MODEL": env.get("SURF_EVAL_CHAT_MODEL", "qwen3.5-2b-q4_k_m"),
+        "SURF_EVAL_CHAT_MODEL": env.get("SURF_EVAL_CHAT_MODEL", "qwen3.5-4b-q4_k_m"),
         "SURF_EVAL_FORCE_ONLINE": "1",
         "SURF_EVAL_METRICS": mode,
         "SURF_MODELS_DIR": env.get("SURF_MODELS_DIR", str(Path.home() / "surf-models")),
@@ -249,7 +249,7 @@ def main() -> int:
     report = {
         "ok": ok,
         "mode": args.mode,
-        "chat_model": os.environ.get("SURF_EVAL_CHAT_MODEL", "qwen3.5-2b-q4_k_m"),
+        "chat_model": os.environ.get("SURF_EVAL_CHAT_MODEL", "qwen3.5-4b-q4_k_m"),
         "elapsed_s": round(time.time() - started, 1),
         "suites": suites,
         "scored": scored,

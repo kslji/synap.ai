@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download the Qwen3.5-2B and EmbeddingGemma 2 GGUFs listed in the model registry."""
+"""Download the Qwen3.5-4B and EmbeddingGemma 2 GGUFs listed in the model registry."""
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WANT = {"qwen3.5-2b-q4_k_m", "embeddinggemma-2-text-q8_0"}
+WANT = {"qwen3.5-4b-q4_k_m", "embeddinggemma-2-text-q8_0"}
 
 
 def main() -> None:

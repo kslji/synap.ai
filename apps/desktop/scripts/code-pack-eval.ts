@@ -113,8 +113,8 @@ async function main(): Promise<void> {
     process.stderr.write(`retrieval missed ${retrievalMisses.map((row) => row.question.id).join(',')}\n`)
   }
 
-  const modelId = 'qwen3.5-2b-q4_k_m'
-  const modelFile = option('model') ?? join(option('dir') ?? process.env.SURF_MODELS_DIR ?? join(repo, '.surf-models'), 'Qwen3.5-2B-Q4_K_M.gguf')
+  const modelId = 'qwen3.5-4b-q4_k_m'
+  const modelFile = option('model') ?? join(option('dir') ?? process.env.SURF_MODELS_DIR ?? join(repo, '.surf-models'), 'Qwen3.5-4B-Q4_K_M.gguf')
   const skipModel = process.argv.includes('--retrieval-only')
   const rows: Row[] = []
   if (!skipModel) {

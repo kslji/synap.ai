@@ -6,11 +6,16 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import User, OAuthToken, Session as SessionModel
+
+# Password hasher (Argon2id - secure password hashing)
+ph = PasswordHasher()
 
 
 # OAuth configuration
@@ -50,8 +55,8 @@ class AuthService:
                 detail="User with this email already exists"
             )
 
-        # Hash password
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        # Hash password using Argon2id
+        password_hash = ph.hash(password)
 
         # Create user
         user = User(
@@ -87,9 +92,10 @@ class AuthService:
                 detail="Invalid email or password"
             )
 
-        # Verify password
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        if user.password_hash != password_hash:
+        # Verify password using Argon2id
+        try:
+            ph.verify(user.password_hash, password)
+        except VerifyMismatchError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"

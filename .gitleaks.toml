@@ -13,5 +13,7 @@ paths = [
   '''(.*)_test\.py$''',
   '''(.*)\.test\.(ts|tsx|mjs|js)$''',
   '''(.*)/tests/''',
+  '''services/api/tests/''',
+  '''services/api/app/auth_service\.py''',
   '''apps/desktop/src/main/core/search/fixtures/''',
 ]

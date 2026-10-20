@@ -1,4 +1,4 @@
-# Development only. SearXNG (JSON enabled) and the FastAPI search API on localhost.
+# Development only. The FastAPI API (lite mode, in-memory stores) on localhost.
 # Production deployment stays deploy/docker-compose.yml (step 10). Do not publish this file.
 # Start from the repo root:  npm run dev:search
 # Stop: Ctrl+C, then  docker compose -f deploy/docker-compose.dev.yml down
@@ -8,22 +8,14 @@ services:
     build: ../services/api
     environment:
       SURF_API_LITE: "1"          # no Postgres; in-memory quota store
-      SURF_DEV_OPEN: "1"          # localhost only: skip sign-in and search quota
-      SEARXNG_URL: http://searxng:8080/search
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GATEWAY_STARTING_CREDIT: "2.00"
       JWT_SECRET: dev-only-secret-change-me-at-least-32-bytes
       JWT_AUDIENCE: authenticated
       MAIL_MODE: console
     ports: ["127.0.0.1:8000:8000"]
-    depends_on:
-      searxng: { condition: service_started }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health')"]
       interval: 15s
       timeout: 5s
       retries: 8
-  searxng:
-    image: searxng/searxng:latest@sha256:cc026dbee25b864d7f9731957cd5ef36ba2e2d61abd2996d57f1b863483e7409   # 2026.10.7-6671d89be
-    # settings.yml sets search.formats to [html, json]. Without json, /search?format=json returns 403.
-    volumes: ["./searxng/settings.yml:/etc/searxng/settings.yml:ro"]
-    environment: ["SEARXNG_SECRET=dev-only-searxng-secret-not-for-production"]
-    ports: ["127.0.0.1:8080:8080"]

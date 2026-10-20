@@ -15,18 +15,11 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_started }
-      searxng: { condition: service_started }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health')"]
       interval: 15s
       timeout: 5s
       retries: 8
-    restart: unless-stopped
-  searxng:
-    image: searxng/searxng:latest@sha256:cc026dbee25b864d7f9731957cd5ef36ba2e2d61abd2996d57f1b863483e7409   # 2026.10.7-6671d89be
-    volumes: ["./searxng/settings.yml:/etc/searxng/settings.yml:ro"]
-    environment: ["SEARXNG_SECRET=${SEARXNG_SECRET}"]
-    expose: ["8080"]            # never published - only the API talks to it
     restart: unless-stopped
   valkey:
     image: valkey/valkey:8@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2   # 8.1.10

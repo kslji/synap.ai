@@ -1,23 +1,22 @@
-"""Surf AI API: login, devices, pack catalog, and a SearXNG proxy.
+"""Surf AI API: login, devices, pack catalog, licences, and the OpenRouter chat gateway.
 
-Privacy: search query text is never stored. Page text is returned to the device
-and not written to Postgres. Access tokens are minted at email login. `sub` is
-the device id so search rate limits stay per device.
+Access tokens are minted at email login: `sub` is the device id, `uid` the user id.
+POST /api/v1/chat bills each user from their own balance (see app/gateway and ADR 0005).
+Prompt and answer text are never logged; they are stored only in that user's chat history.
 """
+import asyncio
 import datetime as dt
-import hashlib
 import hmac
 import json
 import logging
 import os
 import pathlib
-import time
 from contextlib import asynccontextmanager
 from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .auth_store import AuthError, MemoryAuth, PostgresAuth
@@ -28,26 +27,24 @@ from .licences import verify_razorpay, verify_stripe
 from .limiter import MemoryLimiter, RedisLimiter
 from .mailer import make_mail
 from .content_key import sealed_for_user
+from .gateway import service as gateway
+from .gateway.openrouter import OpenRouterClient, OpenRouterError, pricing_loop, sync_interval
+from .gateway.store import MemoryGatewayStore, PostgresGatewayStore
 from .pack_catalog import catalog, verify_download
-from .pages import fetch_one
-from .ssrf import SsrfBlocked
 from .tokens import issue_access_token, read_bearer
 
 log = logging.getLogger("surf.api")
 ENV = os.environ
 REGISTRY = json.loads((pathlib.Path(__file__).parent / "models.registry.json").read_text())
 LITE = ENV.get("SURF_API_LITE") == "1" or not ENV.get("DATABASE_URL")
-CACHE_TTL = int(ENV.get("SEARCH_CACHE_TTL", "600"))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.lite = LITE
     app.state.pg = None
-    app.state.audit: list[dict] = []
-    app.state.memory_cache: dict[str, tuple[float, dict]] = {}
-    per_min = int(ENV.get("SEARCH_PER_MIN", "10"))
-    per_day = int(ENV.get("SEARCH_PER_DAY", "100"))
+    per_min = int(ENV.get("CHAT_PER_MIN", "20"))
+    per_day = int(ENV.get("CHAT_PER_DAY", "500"))
     if LITE:
         app.state.kv = None
         app.state.limiter = MemoryLimiter(per_min, per_day)
@@ -63,17 +60,28 @@ async def lifespan(app: FastAPI):
     if LITE:
         app.state.auth = MemoryAuth()
         app.state.licences = MemoryLicences()
+        app.state.gateway = MemoryGatewayStore()
     else:
         app.state.auth = PostgresAuth(app.state.pg)
         await app.state.auth.ensure_schema()
         app.state.licences = PostgresLicences(app.state.pg)
         await app.state.licences.ensure_schema()
+        app.state.gateway = PostgresGatewayStore(app.state.pg)
+        await app.state.gateway.ensure_schema()
     app.state.activation_limiter = ActivationWindow(
         int(ENV.get("ACTIVATION_LIMIT", "8")),
         int(ENV.get("ACTIVATION_WINDOW", "600")),
     )
     app.state.http = httpx.AsyncClient(timeout=8)
+    app.state.openrouter_http = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
+    app.state.openrouter = OpenRouterClient(app.state.openrouter_http, ENV.get("OPENROUTER_API_KEY"), ENV.get("OPENROUTER_BASE_URL"))
+    sync_task = None
+    if app.state.openrouter.configured and sync_interval() > 0:
+        sync_task = asyncio.create_task(pricing_loop(app.state.openrouter, app.state.gateway, sync_interval()))
     yield
+    if sync_task is not None:
+        sync_task.cancel()
+    await app.state.openrouter_http.aclose()
     await app.state.http.aclose()
     if app.state.kv is not None:
         await app.state.kv.aclose()
@@ -110,40 +118,10 @@ async def rate_limit(request: Request, user: dict = Depends(current_user)) -> di
     status, retry = await app.state.limiter.hit(str(user["sub"]))
     if status != "ok":
         code = "rate_limited" if status == "rate_limited" else "quota_exceeded"
-        detail = "too many searches this minute" if status == "rate_limited" else "daily web-search quota used"
+        detail = "too many chat requests this minute" if status == "rate_limited" else "daily chat quota used"
         raise Problem(429, code, detail, retry_after=retry or 60)
     request.state.user = user
     return user
-
-
-def dev_bypass(lite: bool, flag: str | None) -> bool:
-    """Local laptop only. A database-backed server never skips auth, even if the flag is set."""
-    return bool(lite) and flag == "1"
-
-
-_dev_open_logged = False
-
-
-def dev_open() -> bool:
-    global _dev_open_logged
-    enabled = dev_bypass(bool(getattr(app.state, "lite", False)), ENV.get("SURF_DEV_OPEN"))
-    if enabled and not _dev_open_logged:
-        _dev_open_logged = True
-        log.warning("SURF_DEV_OPEN: /v1/search and /v1/fetch skip sign-in and quota. Localhost only.")
-    return enabled
-
-
-async def search_gate(request: Request, authorization: str = Header(default="")) -> dict:
-    if dev_open():
-        user = {"sub": "dev", "typ": "access"}
-        request.state.user = user
-        return user
-    user = await current_user(authorization)
-    return await rate_limit(request, user)
-
-
-def allow_hosts() -> set[str]:
-    return {item.strip().lower() for item in ENV.get("FETCH_ALLOW_HOSTS", "").split(",") if item.strip()}
 
 
 @app.get("/v1/health")
@@ -163,12 +141,6 @@ async def health():
             out["valkey"] = "ok" if await app.state.kv.ping() else "error"
         except Exception as exc:  # noqa: BLE001
             out["valkey"] = f"error: {exc.__class__.__name__}"
-    try:
-        base = ENV["SEARXNG_URL"].rsplit("/", 1)[0]
-        response = await app.state.http.get(base + "/healthz")
-        out["searxng"] = "ok" if response.status_code == 200 else f"http {response.status_code}"
-    except Exception as exc:  # noqa: BLE001
-        out["searxng"] = f"error: {exc.__class__.__name__}"
     ok = all(value.startswith("ok") or value in {"skipped", "memory"} for value in out.values())
     return JSONResponse({"status": "ok" if ok else "degraded", **out}, status_code=200 if ok else 503)
 
@@ -347,123 +319,6 @@ async def pack_download(path: str, exp: int, sig: str):
     return FileResponse(full)
 
 
-class SearchIn(BaseModel):
-    query: str | None = Field(default=None, max_length=300)
-    q: str | None = Field(default=None, max_length=300)
-    k: int = Field(default=8, ge=1, le=8)
-    niche: str | None = Field(default=None, max_length=64)
-    domains: list[str] = Field(default_factory=list, max_length=8)
-    lang: str = "en"
-    time_range: str | None = Field(default=None, pattern="^(day|month|year)$")
-    agent_id: str | None = None
-
-    def text(self) -> str:
-        value = (self.query or self.q or "").strip()
-        if not value:
-            raise Problem(422, "invalid_query", "query is empty")
-        return value[:300]
-
-
-def cache_key(text: str, body: SearchIn) -> str:
-    raw = json.dumps({
-        "q": text.casefold(), "k": body.k, "d": sorted(body.domains),
-        "l": body.lang, "t": body.time_range, "n": body.niche,
-    }, sort_keys=True)
-    return "search:" + hashlib.sha256(raw.encode()).hexdigest()
-
-
-def host_of(url: str) -> str:
-    from urllib.parse import urlsplit
-    return (urlsplit(url).hostname or "").lower()
-
-
-@app.post("/v1/search")
-async def search(body: SearchIn, user: dict = Depends(search_gate)):
-    text = body.text()
-    started = time.perf_counter()
-    key = cache_key(text, body)
-    cached = await read_cache(key)
-    if cached is not None:
-        results = filter_domains(cached, body.domains)[:body.k]
-        await remember(user, body.agent_id, len(results), int((time.perf_counter() - started) * 1000), "ok")
-        return {"results": results, "latency_ms": int((time.perf_counter() - started) * 1000), "cached": True}
-    params = {"q": text, "format": "json", "language": body.lang, "safesearch": 1, "pageno": 1}
-    if body.time_range:
-        params["time_range"] = body.time_range
-    if body.niche:
-        params["q"] = f"{text} {body.niche}".strip()
-    try:
-        response = await app.state.http.get(ENV["SEARXNG_URL"], params=params)
-        response.raise_for_status()
-        raw = response.json().get("results", [])
-        status = "ok"
-    except (httpx.HTTPError, ValueError):
-        raw, status = [], "upstream_error"
-    results = []
-    for item in raw:
-        url = item.get("url") or ""
-        if not url.startswith("http://") and not url.startswith("https://"):
-            continue
-        results.append({
-            "title": item.get("title") or url,
-            "url": url,
-            "snippet": (item.get("content") or "")[:500],
-            "published": item.get("publishedDate"),
-        })
-    results = filter_domains(results, body.domains)[:body.k]
-    if status == "ok":
-        await write_cache(key, results)
-    latency = int((time.perf_counter() - started) * 1000)
-    await remember(user, body.agent_id, len(results), latency, status)
-    if status != "ok":
-        raise Problem(502, "search_unavailable", "web search upstream failed", retry_after=10)
-    return {"results": results, "latency_ms": latency, "cached": False}
-
-
-def filter_domains(results: list[dict], domains: list[str]) -> list[dict]:
-    if not domains:
-        return results
-    suffixes = [item.lower().lstrip(".") for item in domains]
-    kept = []
-    for item in results:
-        host = host_of(item.get("url") or "")
-        if any(host == suffix or host.endswith("." + suffix) for suffix in suffixes):
-            kept.append(item)
-    return kept
-
-
-async def read_cache(key: str) -> list[dict] | None:
-    if app.state.kv is not None:
-        raw = await app.state.kv.get(key)
-        if not raw:
-            return None
-        return json.loads(raw)
-    hit = app.state.memory_cache.get(key)
-    if not hit or hit[0] < time.time():
-        return None
-    return hit[1]
-
-
-async def write_cache(key: str, results: list[dict]) -> None:
-    if app.state.kv is not None:
-        await app.state.kv.set(key, json.dumps(results), ex=CACHE_TTL)
-        return
-    app.state.memory_cache[key] = (time.time() + CACHE_TTL, results)
-
-
-async def remember(user: dict, agent_id: str | None, count: int, latency: int, status: str) -> None:
-    # privacy_mode is always true: query_text is not a column we fill.
-    record = {"result_count": count, "latency_ms": latency, "status": status, "agent_id": agent_id, "query_text": None}
-    if app.state.lite:
-        app.state.audit.append(record)
-        return
-    async with app.state.pg.connection() as conn:
-        await conn.execute(
-            "insert into search_requests(privacy_mode, agent_id, result_count, latency_ms, status) values (true,%s,%s,%s,%s)",
-            (agent_id, count, latency, status),
-        )
-
-
 class LicenceActivateIn(BaseModel):
     device_id_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     key: str | None = Field(default=None, max_length=80)
@@ -639,39 +494,35 @@ async def razorpay_webhook(request: Request):
     return _deliver_key(result)
 
 
-class FetchIn(BaseModel):
-    urls: list[str] = Field(min_length=1, max_length=5)
+class ChatIn(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=100_000)
+    stream: bool = False
 
 
-@app.post("/v1/fetch")
-async def fetch_pages(body: FetchIn, user: dict = Depends(search_gate)):
-    chunks = []
-    errors = []
-    sanitizer = []
-    ignored = []
-    allow = allow_hosts()
-    for url in body.urls:
-        try:
-            page = await fetch_one(app.state.http, url, allow)
-        except SsrfBlocked as exc:
-            errors.append({"url": url, "code": exc.reason})
-            continue
-        except (httpx.HTTPError, OSError):
-            errors.append({"url": url, "code": "fetch"})
-            continue
-        sanitizer.append({"url": page["url"], "report": page.get("sanitizer") or {}})
-        for item in page.get("ignored") or []:
-            ignored.append({"url": page["url"], "score": item.get("score", 0), "flags": item.get("flags") or []})
-        if not page["parts"]:
-            errors.append({"url": url, "code": "empty"})
-            continue
-        for part in page["parts"]:
-            chunks.append({
-                "url": page["url"],
-                "title": page["title"],
-                "published": page["published"],
-                "text": part,
-                "injection": page.get("injection") or {"action": "keep", "score": 0, "flags": []},
-            })
-    await remember(user, None, len(chunks), 0, "ok")
-    return {"chunks": chunks, "errors": errors, "sanitizer": sanitizer, "ignored": ignored}
+async def gateway_user(request: Request, authorization: str = Header(default="")) -> str:
+    """The bearer token must map to a real user row. That user id scopes balance, history, and billing."""
+    claims = await current_user(authorization)
+    user_id = str(claims.get("uid") or "")
+    if not user_id or not await app.state.auth.user_by_id(user_id):
+        raise Problem(401, "invalid_token", "invalid token")
+    await rate_limit(request, claims)
+    request.state.user_id = user_id
+    log.info("chat request user_id=%s", user_id)
+    return user_id
+
+
+@app.post("/api/v1/chat")
+async def chat(body: ChatIn, user_id: str = Depends(gateway_user)):
+    client = app.state.openrouter
+    if not client.configured:
+        raise Problem(503, "gateway_unconfigured", "The chat gateway has no OpenRouter key.")
+    try:
+        prep = await gateway.prepare(app.state.gateway, user_id, body.model, body.message, body.stream)
+        if body.stream:
+            return StreamingResponse(gateway.stream(app.state.gateway, client, prep), media_type="text/event-stream")
+        return await gateway.complete(app.state.gateway, client, prep)
+    except gateway.GatewayProblem as exc:
+        raise Problem(exc.status, exc.code, exc.detail) from exc
+    except OpenRouterError as exc:
+        raise Problem(502, "upstream_error", f"OpenRouter returned HTTP {exc.status}", retry_after=5) from exc

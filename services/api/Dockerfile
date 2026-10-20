@@ -2,6 +2,8 @@ FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+ENV TIKTOKEN_CACHE_DIR=/srv/tiktoken
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 COPY app ./app
 RUN useradd -r -u 10001 api
 USER api

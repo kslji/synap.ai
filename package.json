@@ -15,7 +15,7 @@
   "scripts": {
     "dev:desktop": "npm run dev -w @surf/desktop",
     "dev:web": "npm run dev -w @surf/web",
-    "dev:search": "docker compose -f deploy/docker-compose.dev.yml up --build",
+    "dev:api": "docker compose -f deploy/docker-compose.dev.yml up --build",
     "typecheck": "npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
     "build": "npm run build -w @surf/desktop && npm run build -w @surf/web",
     "build:web": "npm run build -w @surf/web",

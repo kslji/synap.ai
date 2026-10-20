@@ -6,7 +6,7 @@ psycopg-pool==3.3.3
 redis==8.1.0
 pydantic==2.14.0
 pyjwt==2.15.1
-trafilatura==2.0.0
 argon2-cffi==23.1.0
 alembic==1.16.5
 pynacl==1.6.2
+tiktoken==0.14.0

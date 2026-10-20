@@ -86,9 +86,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install search API
+      - name: Install API
         run: python -m pip install -r services/api/requirements.txt -r services/api/requirements-dev.txt
-      - name: Search API tests
+      - name: API tests
         working-directory: services/api
         run: python -m pytest
       - name: Alembic head

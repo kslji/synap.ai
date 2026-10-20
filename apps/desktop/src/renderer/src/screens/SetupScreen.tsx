@@ -33,7 +33,7 @@ export function SetupScreen({
     : snapshot.phase === 'paused'
       ? 'Paused'
       : picking
-        ? 'Choose a model'
+        ? 'Download the model'
         : snapshot.phase === 'checking'
           ? 'Checking this computer'
           : `Setting up ${snapshot.modelName || 'Qwen'}`
@@ -41,7 +41,7 @@ export function SetupScreen({
   const note = errorCopy
     ? errorCopy.body
     : picking
-      ? 'Pick Qwen 2B, 4B, or 9B. The search model downloads with it.'
+      ? 'One model works on every laptop with 8 GB of memory or more. The search model downloads with it.'
       : snapshot.phase === 'paused'
         ? 'The part that already arrived is kept. Resume continues from there.'
         : snapshot.phase === 'checking'
@@ -67,11 +67,8 @@ export function SetupScreen({
         {picking && (
           <ul className="mt-4 flex flex-col gap-2">
             {snapshot.choices.map((choice) => (
-              <li key={choice.id} className="rounded-xl border border-[var(--line)] px-4 py-3" data-setup-choice={choice.id} data-recommended={choice.recommended ? 'yes' : 'no'}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold">{choice.name}</span>
-                  {choice.recommended && <span className="pill" data-setup-recommended="yes">Recommended for your laptop</span>}
-                </div>
+              <li key={choice.id} className="rounded-xl border border-[var(--line)] px-4 py-3" data-setup-choice={choice.id}>
+                <div className="text-sm font-semibold">{choice.name}</div>
                 <p className="mt-1 text-xs text-[var(--muted)]" data-setup-size={choice.id}>
                   {formatByteCount(choice.withSearchBytes)} · needs {choice.minRamGb} GB RAM
                 </p>

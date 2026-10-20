@@ -7,7 +7,7 @@
  */
 import { evalQuestions, type EvalQuestion, type QuestionDomain } from './step11-questions.js'
 
-export const FULL_MODEL_IDS = ['qwen3.5-2b-q4_k_m', 'qwen3.5-4b-q4_k_m', 'qwen3.5-9b-q4_k_m'] as const
+export const FULL_MODEL_IDS = ['qwen3.5-4b-q4_k_m'] as const
 
 const SUBSET_TAKE: { domain: QuestionDomain; count: number }[] = [
   { domain: 'coding', count: 10 },
@@ -23,8 +23,8 @@ const GLOSS: Record<string, string> = {
   'coding:recommended': 'the model is the recommended fit',
   'coding:too-big': 'the model does not fit the laptop',
   'coding:fits': 'the model fits the laptop',
-  'coding:code-only': 'only rows for the code agent',
-  'coding:not-code': 'a general row stays off the code agent',
+  'coding:code-only': 'the code agent shares the one chat model',
+  'coding:not-code': 'the draft row stays off the code agent',
   'splitting:chat': 'no code change: what something does, or explain a file',
   'splitting:edit': 'quick fix, typo, one-line, or just change, and only one file',
   'splitting:plan': 'two different files, even for a rename; also migrate, refactor, across, and then, or step by step',

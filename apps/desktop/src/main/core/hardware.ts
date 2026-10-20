@@ -1,10 +1,11 @@
 /**
  * Hardware detection + tier selection (main process). os gives RAM/CPU; systeminformation gives GPUs/VRAM.
- * Tiers (see ARCHITECTURE.md section 11):
- *   0: < 8 GB RAM      -> Qwen3.5-2B   (fallback, limited quality)
- *   1: 8-15 GB         -> Qwen3.5-4B
- *   2: 16-31 GB        -> Qwen3.5-9B
- *   3: >= 32 GB or GPU with >= 12 GB VRAM -> Qwen3.5-9B with larger context / whisper large-v3-turbo
+ * Every tier runs the same chat model, Qwen3.5-4B Q4_K_M (needs 8 GB RAM). See docs/adr/0004-single-chat-model.md.
+ * Tiers only size the context window and the speech model:
+ *   0: < 8 GB RAM      -> below the 8 GB minimum; 8K context
+ *   1: 8-15 GB         -> 8K context
+ *   2: 16-31 GB        -> 16K context
+ *   3: >= 32 GB or GPU with >= 12 GB VRAM -> 16K context / whisper large-v3-turbo
  */
 import os from 'node:os';
 import si from 'systeminformation';

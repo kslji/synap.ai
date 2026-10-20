@@ -16,6 +16,7 @@ import { TOUR } from './tour'
 import { Onboarding } from './screens/Onboarding'
 import { SetupScreen } from './screens/SetupScreen'
 import { setupShot, type SetupSnapshot } from '../../shared/setup-choice'
+import { STARTER_CHAT_MODEL_ID } from '../../shared/starter-model'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { UsagePanel } from './screens/UsageStorage'
 import { createFrameBatcher } from '../../shared/stream-batch'
@@ -669,7 +670,7 @@ export default function App() {
         ])
         setMessages([
           { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
-          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 2B' },
+          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 4B' },
         ])
         return
       }
@@ -696,7 +697,7 @@ export default function App() {
             text: formatted ? FORMATTED_REPLY : CONTINUED_REPLY,
             sources: [],
             tools: [],
-            modelId: 'Qwen 2B',
+            modelId: 'Qwen 4B',
             canContinue: !formatted,
           },
         ])
@@ -711,7 +712,7 @@ export default function App() {
         setConversations([])
         setStatus((current) => current && {
           ...current,
-          models: current.models.map((model) => model.id === 'qwen3.5-2b-q4_k_m' ? { ...model, installed: true } : model),
+          models: current.models.map((model) => model.id === STARTER_CHAT_MODEL_ID ? { ...model, installed: true } : model),
         })
         return
       }

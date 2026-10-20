@@ -221,14 +221,14 @@ export const MAC_STEPS = [
   'Open the disk image when it finishes.',
   'Drag Synap.surf into Applications.',
   'Open Synap.surf. If macOS blocks it, go to System Settings, then Privacy & Security, scroll to Security, and click Open Anyway. You only do this once.',
-  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and the search model finish.',
+  'Click Download. Leave that screen up until Qwen and the search model finish.',
 ]
 
 export const WINDOWS_STEPS = [
   'Open the installer when it finishes.',
   'If SmartScreen says Windows protected your PC, click More info, then Run anyway.',
   'Finish the prompts. You only do this once.',
-  'Pick Qwen 2B, 4B, or 9B and click Download. Leave that screen up until Qwen and the search model finish.',
+  'Click Download. Leave that screen up until Qwen and the search model finish.',
 ]
 
 export const MAC_OFFLINE_STEPS = [
@@ -294,7 +294,7 @@ export function DownloadCard() {
 
   return (
     <div className="mt-5 flex flex-col gap-3 md:mt-0" data-download-page="yes" data-download-guess={os === 'mac' ? `mac-${arch}` : os}>
-      <p className="text-sm leading-relaxed text-[var(--muted)]">One installer. After you install, you pick Qwen 2B, Qwen 4B, or Qwen 9B inside the app.</p>
+      <p className="text-sm leading-relaxed text-[var(--muted)]">One installer. After you install, the app downloads one Qwen model that works on any laptop with 8 GB of memory or more.</p>
       <div className="flex flex-wrap gap-2">
         <DownloadButtons
           mac={hrefs.mac}
@@ -315,8 +315,8 @@ export function DownloadCard() {
         </a>
       </div>
       <div data-model-list="yes">
-        <p className="text-sm font-semibold">Sizes</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">Each size is the Qwen file plus a 309.9 MB search model. Download is the small installer, and the model downloads on first open. Offline installer is one zip that already includes both files.</p>
+        <p className="text-sm font-semibold">Model</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">The model is the Qwen file plus a 309.9 MB search model. Download is the small installer, and the model downloads on first open. Offline installer is one zip that already includes both files.</p>
         <ul className="mt-3 flex flex-col gap-2">
           {SETUP_MODELS.map((model) => {
             const clientOs = os === 'windows' ? 'windows' : 'mac'

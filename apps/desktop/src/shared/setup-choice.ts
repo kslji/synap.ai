@@ -1,7 +1,6 @@
 /**
- * First open: the person picks Qwen 2B, 4B, or 9B. EmbeddingGemma is fetched
- * with that file. RAM only marks a recommendation and a warning. A size that
- * needs more memory stays selectable.
+ * First open: one generic Qwen model (Qwen3.5 4B, needs 8 GB RAM) downloads with
+ * EmbeddingGemma. There is no size picker. RAM below the minimum only shows a warning.
  */
 import { FIRST_RUN_CHAT_MODEL_IDS } from './starter-model'
 
@@ -88,23 +87,6 @@ function tokenFor(id: string): SetupModel['token'] | null {
   return null
 }
 
-/** 8 GB and 16 GB stickers often report a little under that. Same cuts as tierFor. */
-export function ramBand(ramGb: number): '4gb' | '8gb' | '16gb' {
-  if (ramGb >= 15) return '16gb'
-  if (ramGb >= 7.3) return '8gb'
-  return '4gb'
-}
-
-export function recommendSetupModel(ramGb: number | null, catalog: readonly SetupModel[]): { id: string; source: 'ram' | 'default' } {
-  const fallback = catalog.find((model) => model.token === '2b') ?? catalog[0]
-  if (!fallback) throw new Error('no setup model')
-  if (ramGb == null || !Number.isFinite(ramGb) || ramGb <= 0) return { id: fallback.id, source: 'default' }
-  const band = ramBand(ramGb)
-  const token = band === '16gb' ? '9b' : band === '8gb' ? '4b' : '2b'
-  const picked = catalog.find((model) => model.token === token) ?? fallback
-  return { id: picked.id, source: 'ram' }
-}
-
 /** An 8 GB machine often reports about 7.5 GB. 0.8 GB covers that without treating 4 GB as 8 GB. */
 export function ramFits(minRamGb: number, ramGb: number): boolean {
   return minRamGb <= ramGb + 0.8
@@ -117,14 +99,12 @@ export interface SetupChoiceView {
   /** Qwen file plus the search model. This is the download the person waits for. */
   withSearchBytes: number
   minRamGb: number
-  recommended: boolean
   warning: string | null
   inDownloads: boolean
 }
 
 export function setupChoices(catalog: readonly SetupModel[], ramGb: number | null, downloadsIds: readonly string[], embedBytes = 0): SetupChoiceView[] {
   const known = ramGb != null && Number.isFinite(ramGb) && ramGb > 0
-  const recommended = recommendSetupModel(known ? ramGb : null, catalog)
   const extra = Number.isFinite(embedBytes) && embedBytes > 0 ? embedBytes : 0
   return catalog.map((model) => {
     const tight = known && !ramFits(model.minRamGb, ramGb)
@@ -134,7 +114,6 @@ export function setupChoices(catalog: readonly SetupModel[], ramGb: number | nul
       sizeBytes: model.sizeBytes,
       withSearchBytes: model.sizeBytes + extra,
       minRamGb: model.minRamGb,
-      recommended: recommended.source === 'ram' && model.id === recommended.id,
       warning: tight ? `This model needs ${model.minRamGb} GB of memory. This computer has ${formatRamGb(ramGb)}.` : null,
       inDownloads: downloadsIds.includes(model.id),
     }
@@ -267,7 +246,7 @@ export function byteRate(samples: readonly { at: number; bytes: number }[]): num
   return (gained * 1000) / elapsed
 }
 
-/** Decimal units, from the byte count. GB keeps two decimals so 1280835840 is 1.28 GB. */
+/** Decimal units, from the byte count. GB keeps two decimals so 2740937888 is 2.74 GB. */
 export function formatByteCount(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return ''
   if (bytes < 1000) return `${Math.round(bytes)} B`
@@ -365,17 +344,17 @@ const EMBED_BYTES = 309_855_520
 
 /** Screenshot harness only. Counts are the registry sizes, passed through the same formatters. */
 export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'disk' | 'checksum'): SetupSnapshot {
-  const chatTotal = 1_280_835_840
+  const chatTotal = 2_740_937_888
   const done = 412_000_000
   const rate = byteRate([{ at: 0, bytes: 0 }, { at: 2000, bytes: 16_400_000 }])
   const files: SetupFileView[] = [
-    { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', role: 'chat', done, total: chatTotal, state: 'active' },
+    { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', role: 'chat', done, total: chatTotal, state: 'active' },
     { id: 'embeddinggemma-2-text-q8_0', name: 'Search model', role: 'embedding', done: 0, total: EMBED_BYTES, state: 'waiting' },
   ]
   const base: SetupSnapshot = {
     phase: 'downloading',
-    modelId: 'qwen3.5-2b-q4_k_m',
-    modelName: 'Qwen 2B',
+    modelId: 'qwen3.5-4b-q4_k_m',
+    modelName: 'Qwen 4B',
     ramGb: 8,
     choices: [],
     files,
@@ -395,9 +374,7 @@ export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'di
       total: 0,
       bytesPerSecond: null,
       choices: [
-        { id: 'qwen3.5-2b-q4_k_m', name: 'Qwen 2B', sizeBytes: chatTotal, withSearchBytes: chatTotal + EMBED_BYTES, minRamGb: 4, recommended: false, warning: null, inDownloads: true },
-        { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', sizeBytes: 2_740_937_888, withSearchBytes: 2_740_937_888 + EMBED_BYTES, minRamGb: 8, recommended: true, warning: null, inDownloads: false },
-        { id: 'qwen3.5-9b-q4_k_m', name: 'Qwen 9B', sizeBytes: 5_680_522_464, withSearchBytes: 5_680_522_464 + EMBED_BYTES, minRamGb: 16, recommended: false, warning: 'This model needs 16 GB of memory. This computer has 8 GB.', inDownloads: false },
+        { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', sizeBytes: chatTotal, withSearchBytes: chatTotal + EMBED_BYTES, minRamGb: 8, warning: null, inDownloads: true },
       ],
     }
   }

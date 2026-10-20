@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 import { rmSync } from 'node:fs'
 import { launch } from './launch.mjs'
 
-test('launch opens chat, then the cached Qwen 2B streams a reply', async () => {
-  test.skip(!process.env.SURF_MODELS_DIR, 'Qwen 2B weights are not cached')
+test('launch opens chat, then the cached Qwen 4B streams a reply', async () => {
+  test.skip(!process.env.SURF_MODELS_DIR, 'Qwen 4B weights are not cached')
   test.setTimeout(360_000)
   const { app, page, dir } = await launch({ SURF_MODELS_DIR: process.env.SURF_MODELS_DIR })
   try {

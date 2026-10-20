@@ -25,13 +25,13 @@ test('verifyFile accepts a matching hash and rejects a different file', async ()
   }
 })
 
-test('registry lists the 2B Q4 file and a separate mmproj name', () => {
-  const rows = registryEntries(['qwen3.5-2b-q4_k_m'], { mmproj: true })
+test('registry lists the 4B Q4 file and a separate mmproj name', () => {
+  const rows = registryEntries(['qwen3.5-4b-q4_k_m'], { mmproj: true })
   const weights = rows.find((row) => row.kind === 'weights')
   const vision = rows.find((row) => row.kind === 'mmproj')
-  assert.equal(weights?.file, 'Qwen3.5-2B-Q4_K_M.gguf')
-  assert.equal(weights?.sha256, 'aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223')
-  assert.equal(weights?.sizeBytes, 1280835840)
-  assert.equal(vision?.file, 'qwen3.5-2b-q4_k_m--mmproj-F16.gguf')
+  assert.equal(weights?.file, 'Qwen3.5-4B-Q4_K_M.gguf')
+  assert.equal(weights?.sha256, '00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4')
+  assert.equal(weights?.sizeBytes, 2740937888)
+  assert.equal(vision?.file, 'qwen3.5-4b-q4_k_m--mmproj-F16.gguf')
   assert.notEqual(vision?.sha256, weights?.sha256)
 })

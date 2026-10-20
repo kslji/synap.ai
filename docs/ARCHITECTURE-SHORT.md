@@ -19,7 +19,7 @@ This is the **short version** (about 20 pages). It covers what you need to under
 2. **Private by design.** Chats and documents stay on the laptop in an encrypted database. The server never sees your prompts. Web search goes through our own private search proxy, and the laptop fetches the pages itself.
 3. **Grounded answers.** The app finds sources first and checks that they are relevant (the **relevance gate**). The model must cite them as [S1], [S2] and so on. If the sources are weak, the app shows a polite refusal (or searches the web when online).
 4. **Numbers are computed, not guessed.** Arithmetic and unit conversions go to a sandboxed **calculator tool**.
-5. **Small models, used carefully.** Qwen3.5 4B or 9B runs on normal laptops. A **token budget** keeps every request inside the model's working memory.
+5. **One small model, used carefully.** Qwen3.5 4B runs on any laptop with 8 GB of RAM or more (ADR 0004). A **token budget** keeps every request inside the model's working memory.
 6. **Same machinery for every niche.** An agent is just a signed *manifest* (prompt, tools, rules) plus signed packs. There is no new code per niche.
 
 **Why it can be built in 7 days.** Everything is TypeScript (desktop) or Python (doc conversion and server pipeline), using proven open-source parts: Electron, llama.cpp, SQLite, Postgres, SearXNG and Supabase Auth. The riskiest parts were tested in advance (section 10).
@@ -91,7 +91,7 @@ This is the **short version** (about 20 pages). It covers what you need to under
 | Desktop shell | **Electron 44** + **electron-vite** (build) + **electron-builder** (installers) | All TypeScript, no Rust needed. electron-builder makes `.dmg` (Apple Silicon + Intel) and `.exe` (NSIS) and handles notarisation and auto-update. Electron Forge's Vite support is still "experimental". Tauri is the alternative considered and a possible later migration (full doc §3.4). |
 | UI | **React + TypeScript + Vite** | Huge ecosystem; Cursor knows it well. |
 | Local model server | **llama.cpp `llama-server`** (pinned build, e.g. b11514) | Runs GGUF models on CPU, Apple Metal or GPU; OpenAI-style API; tool calling; vision through `--mmproj`; `/tokenize` for exact token counts. |
-| Chat models | **Qwen3.5-4B** (8 GB laptops), **Qwen3.5-9B** (16 GB+), **Qwen3.5-2B** fallback; Q4_K_M GGUF from unsloth | Apache-2.0, strong for their size, tool calling, 201 languages, and the same family understands images with `mmproj`. Chosen through a **model registry**, so upgrading is a data change. |
+| Chat model | **Qwen3.5-4B** Q4_K_M GGUF from unsloth, one generic model for every laptop (8 GB minimum) and every agent; no size picker (ADR 0004) | Apache-2.0, strong for their size, tool calling, 201 languages, and the same family understands images with `mmproj`. Chosen through a **model registry**, so upgrading is a data change. |
 | Embeddings | **EmbeddingGemma 2**, text-only 270M part (Q8_0 GGUF, 310 MB, Apache-2.0), vectors cut from 768 to **256** numbers | Multilingual (100+ languages), on-device sized, near-full quality at 256-d. Needs llama.cpp ≥ b11452. Its image/audio encoders are a later upgrade. |
 | Local database | **SQLite** through `better-sqlite3-multiple-ciphers` (SQLCipher mode) + **sqlite-vec** + **FTS5** | One encrypted file holds chats, keyword search and vector search. Tested: opens in the official `sqlcipher` tool. |
 | Key storage | Electron **safeStorage** | Uses the operating system's keychain or DPAPI; no password prompts. |
@@ -112,10 +112,10 @@ This is the **short version** (about 20 pages). It covers what you need to under
 
 | Tier | Machine | Chat model file | Size | Vision file (mmproj-F16) |
 |---|---|---|---|---|
-| 0 | < 8 GB RAM | `unsloth/Qwen3.5-2B-GGUF` / `Qwen3.5-2B-Q4_K_M.gguf` | 1.28 GB | 0.67 GB |
+| 0 | < 8 GB RAM | below the minimum; same file as tier 1 | 2.74 GB | 0.67 GB |
 | 1 | 8 GB | `unsloth/Qwen3.5-4B-GGUF` / `Qwen3.5-4B-Q4_K_M.gguf` | 2.74 GB | 0.67 GB |
-| 2 | 16 GB | `unsloth/Qwen3.5-9B-GGUF` / `Qwen3.5-9B-Q4_K_M.gguf` | 5.68 GB | 0.92 GB |
-| 3 | 32 GB+ | `Qwen3.5-9B-Q8_0.gguf` (optional) | 9.53 GB | 0.92 GB |
+| 2 | 16 GB | same file, larger context | 2.74 GB | 0.67 GB |
+| 3 | 32 GB+ | same file, larger context | 2.74 GB | 0.67 GB |
 | all | — | `unsloth/embeddinggemma-2-GGUF` / `embeddinggemma-2-Q8_0.gguf` (embeddings) | 310 MB | — |
 
 **Speech:** whisper.cpp base Q8_0 (82 MB) on tiers 0–1, small Q8_0 (264 MB) on tier 2, large-v3-turbo Q5_0 (574 MB) on tier 3.

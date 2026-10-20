@@ -7,10 +7,9 @@ export const product = {
   site: 'https://synap.surf',
 } as const
 
+/** One generic chat model for every laptop (8 GB minimum) and every agent. See docs/adr/0004-single-chat-model.md. */
 export const modelTiers = [
-  { ram: 'Under 8 GB', chat: 'Qwen 2B', quant: 'Q4_K_M', note: 'Fallback when memory is tight' },
-  { ram: '8 GB', chat: 'Qwen 4B', quant: 'Q4_K_M', note: 'The usual laptop' },
-  { ram: '16 GB and above', chat: 'Qwen 9B', quant: 'Q4_K_M', note: 'Best quality on this build' },
+  { ram: '8 GB and above', chat: 'Qwen 4B', quant: 'Q4_K_M', note: 'One model for every laptop and every agent' },
 ] as const
 
 export const embeddingModel = {

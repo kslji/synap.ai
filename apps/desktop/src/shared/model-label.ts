@@ -91,8 +91,8 @@ export function fitMarkLabel(mark: 'recommended' | 'fits' | 'too-big'): string {
   return 'Too big for this laptop'
 }
 
-/** Code-only rows carry `agents`. Older rows stay on General and Assistant. */
+/** Rows with `agents` (such as the draft) serve only those agents. Every other chat row serves every agent. */
 export function servesAgent(agents: string[] | undefined, agentId: string): boolean {
   if (agents && agents.length > 0) return agents.includes(agentId)
-  return agentId !== 'code'
+  return true
 }

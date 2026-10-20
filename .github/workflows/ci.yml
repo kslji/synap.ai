@@ -144,7 +144,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .surf-models
-          key: surf-models-qwen2b-embeddinggemma-v1
+          key: surf-models-qwen4b-embeddinggemma-v1
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs
@@ -372,17 +372,17 @@ jobs:
             rm -rf node_modules
           done
           exit 1
-      - name: Qwen 2B file id
+      - name: Qwen 4B file id
         id: weights
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+        run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
-      - name: Download and verify Qwen 2B
+      - name: Download and verify Qwen 4B
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+        run: node scripts/model-weights.mjs --ids qwen3.5-4b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Build the desktop app
         run: npm run build -w @surf/desktop
       - name: Fetch llama.cpp sidecar
@@ -491,24 +491,24 @@ jobs:
             rm -rf node_modules
           done
           exit 1
-      - name: Qwen 2B file id
+      - name: Qwen 4B file id
         id: weights
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+        run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
-      - name: Download and verify Qwen 2B
+      - name: Download and verify Qwen 4B
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+        run: node scripts/model-weights.mjs --ids qwen3.5-4b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs
       - name: Model eval subset
         env:
           SURF_MODELS_DIR: ${{ github.workspace }}/.surf-models
-        run: npx tsx apps/desktop/scripts/model-eval.ts --mode subset --models qwen3.5-2b-q4_k_m --out harness/reports/model-eval.json
+        run: npx tsx apps/desktop/scripts/model-eval.ts --mode subset --models qwen3.5-4b-q4_k_m --out harness/reports/model-eval.json
       - name: Upload model eval
         if: always()
         uses: actions/upload-artifact@v4
@@ -537,17 +537,17 @@ jobs:
             rm -rf node_modules
           done
           exit 1
-      - name: Qwen 2B file id
+      - name: Qwen 4B file id
         id: weights
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
+        run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
-      - name: Download and verify Qwen 2B
+      - name: Download and verify Qwen 4B
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+        run: node scripts/model-weights.mjs --ids qwen3.5-4b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs

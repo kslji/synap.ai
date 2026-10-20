@@ -46,7 +46,7 @@ jobs:
         id: weights
         working-directory: apps/desktop
         run: |
-          node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m --print-key --ids qwen3.5-2b-q4_k_m,qwen3.5-4b-q4_k_m,qwen3.5-9b-q4_k_m --mmproj >> "$GITHUB_OUTPUT"
+          node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m --print-key --ids qwen3.5-4b-q4_k_m --mmproj >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models
@@ -60,7 +60,7 @@ jobs:
         run: |
           npx tsx apps/desktop/scripts/model-eval.ts \
             --mode full \
-            --models qwen3.5-2b-q4_k_m,qwen3.5-4b-q4_k_m,qwen3.5-9b-q4_k_m \
+            --models qwen3.5-4b-q4_k_m \
             --mmproj \
             --allow-skip \
             --out harness/reports/model-eval-full.json

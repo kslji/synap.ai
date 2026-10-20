@@ -38,7 +38,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .surf-models
-          key: surf-models-qwen2b-embeddinggemma-v1
+          key: surf-models-qwen4b-embeddinggemma-v1
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs

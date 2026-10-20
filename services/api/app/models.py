@@ -1,7 +1,6 @@
 """SQLAlchemy models for MySQL database."""
 import datetime as dt
 from decimal import Decimal
-from typing import Optional
 
 from sqlalchemy import (
     Boolean,
@@ -10,7 +9,6 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
-    Index,
     Integer,
     String,
     Text,

@@ -11,5 +11,15 @@
     "micromatch:high",
     "typescript-eslint:high"
   ],
-  "pip": []
+  "pip": [
+    "PYSEC-2026-1110",
+    "PYSEC-2026-35",
+    "PYSEC-2026-1284",
+    "PYSEC-2026-2141",
+    "PYSEC-2026-3552",
+    "PYSEC-2026-3553",
+    "PYSEC-2026-3554",
+    "GHSA-537c-gmf6-5ccf",
+    "PYSEC-2026-502"
+  ]
 }

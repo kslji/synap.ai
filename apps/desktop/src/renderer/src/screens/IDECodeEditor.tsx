@@ -89,7 +89,6 @@ export function IDECodeEditor({
   const savedContentRef = useRef(content)
   const [dirty, setDirty] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
 
   enabledRef.current = enabled
   offRef.current = languagesOff
@@ -253,11 +252,6 @@ export function IDECodeEditor({
       </div>
       {/* Editor host */}
       <div ref={hostRef} className="flex-1 overflow-auto" data-code-editor-host="yes" />
-      {error && (
-        <div className="border-t border-[var(--line)] bg-red-50 px-3 py-2 text-xs text-red-600">
-          {error}
-        </div>
-      )}
     </div>
   )
 }

@@ -16,6 +16,8 @@ from .preflight import InsufficientBalanceError, preflight_check
 from .pricing import pricing_sync_loop
 from .store import MemoryGatewayStore, PostgresGatewayStore
 from .tokenizer import count_messages_tokens
+from .concurrency import ConcurrencyManager
+from .rate_limiter import GlobalRateLimiter, RateLimitConfig
 
 log = logging.getLogger("surf.gateway.service")
 
@@ -42,6 +44,9 @@ class GatewayService:
         history_tokens: int = GATEWAY_HISTORY_TOKENS,
         starting_credit: Decimal = GATEWAY_STARTING_CREDIT,
         system_prompt: str = GATEWAY_SYSTEM_PROMPT,
+        max_concurrent_per_user: int = 1,
+        max_requests_per_second: float = 50.0,
+        max_concurrent_requests: int = 100,
     ):
         self.store = store
         self.http_client = http_client
@@ -52,12 +57,28 @@ class GatewayService:
         self.starting_credit = starting_credit
         self.system_prompt = system_prompt
         self._pricing_sync_task: asyncio.Task | None = None
+        
+        # Per-user concurrency management
+        self.concurrency = ConcurrencyManager(max_concurrent_per_user=max_concurrent_per_user)
+        
+        # Global rate limiting (protects OpenRouter API)
+        rate_limit_config = RateLimitConfig(
+            max_requests_per_second=max_requests_per_second,
+            max_concurrent_requests=max_concurrent_requests,
+        )
+        self.rate_limiter = GlobalRateLimiter(rate_limit_config)
 
     async def start(self) -> None:
-        """Start background tasks (pricing sync)."""
+        """Start background tasks (pricing sync, concurrency manager, rate limiter)."""
         if not self.openrouter_api_key:
             log.warning("OPENROUTER_API_KEY not set; gateway will not work")
             return
+        
+        # Start concurrency manager
+        await self.concurrency.start()
+        
+        # Start global rate limiter
+        await self.rate_limiter.start()
         
         if PRICING_SYNC_SECONDS > 0:
             self._pricing_sync_task = asyncio.create_task(
@@ -72,6 +93,12 @@ class GatewayService:
 
     async def stop(self) -> None:
         """Stop background tasks."""
+        # Stop rate limiter
+        await self.rate_limiter.stop()
+        
+        # Stop concurrency manager
+        await self.concurrency.stop()
+        
         if self._pricing_sync_task:
             self._pricing_sync_task.cancel()
             try:
@@ -110,14 +137,18 @@ class GatewayService:
 
     async def call_openrouter(
         self,
+        user_id: str,
+        request_id: str,
         model: str,
         messages: list[dict[str, str]],
         max_tokens: int,
         stream: bool = False,
     ) -> dict[str, Any]:
-        """Call OpenRouter API (non-streaming).
+        """Call OpenRouter API (non-streaming) with rate limiting.
         
         Args:
+            user_id: User ID for rate limiting
+            request_id: Unique request ID for tracking
             model: Model ID
             messages: Message array
             max_tokens: Maximum output tokens
@@ -141,24 +172,45 @@ class GatewayService:
             "Content-Type": "application/json",
         }
         
-        response = await self.http_client.post(
-            f"{self.openrouter_base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-            timeout=60.0,
-        )
-        response.raise_for_status()
-        return response.json()
+        # Acquire rate limiter permission
+        async with self.rate_limiter.acquire(user_id, request_id):
+            try:
+                response = await self.http_client.post(
+                    f"{self.openrouter_base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=60.0,
+                )
+                response.raise_for_status()
+                self.rate_limiter.record_success()
+                return response.json()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    # Rate limited by OpenRouter
+                    self.rate_limiter.record_rate_limit_error()
+                    log.warning("OpenRouter rate limit hit for user=%s", user_id)
+                else:
+                    self.concurrency.circuit_breaker.record_failure()
+                log.error("OpenRouter API call failed: %s", exc)
+                raise
+            except httpx.HTTPError as exc:
+                self.concurrency.circuit_breaker.record_failure()
+                log.error("OpenRouter API call failed: %s", exc)
+                raise
 
     async def stream_openrouter(
         self,
+        user_id: str,
+        request_id: str,
         model: str,
         messages: list[dict[str, str]],
         max_tokens: int,
     ) -> AsyncIterator[str]:
-        """Stream SSE response from OpenRouter.
+        """Stream SSE response from OpenRouter with rate limiting.
         
         Args:
+            user_id: User ID for rate limiting
+            request_id: Unique request ID for tracking
             model: Model ID
             messages: Message array
             max_tokens: Maximum output tokens
@@ -181,17 +233,33 @@ class GatewayService:
             "Content-Type": "application/json",
         }
         
-        async with self.http_client.stream(
-            "POST",
-            f"{self.openrouter_base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-            timeout=60.0,
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    yield line[6:]
+        # Acquire rate limiter permission
+        async with self.rate_limiter.acquire(user_id, request_id):
+            try:
+                async with self.http_client.stream(
+                    "POST",
+                    f"{self.openrouter_base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=60.0,
+                ) as response:
+                    response.raise_for_status()
+                    self.rate_limiter.record_success()
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            yield line[6:]
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    self.rate_limiter.record_rate_limit_error()
+                    log.warning("OpenRouter rate limit hit for user=%s", user_id)
+                else:
+                    self.concurrency.circuit_breaker.record_failure()
+                log.error("OpenRouter streaming call failed: %s", exc)
+                raise
+            except httpx.HTTPError as exc:
+                self.concurrency.circuit_breaker.record_failure()
+                log.error("OpenRouter streaming call failed: %s", exc)
+                raise
 
     async def handle_chat_request(
         self,
@@ -203,15 +271,16 @@ class GatewayService:
         """Handle complete chat request flow.
         
         Flow:
-        1. Ensure gateway account exists
-        2. Check if account is locked
-        3. Get model pricing
-        4. Prepare messages with history
-        5. Pre-flight check (token count, cost, max_tokens)
-        6. Call OpenRouter
-        7. Post-flight billing
-        8. Save chat messages
-        9. Return response
+        1. Acquire per-user concurrency lock
+        2. Ensure gateway account exists
+        3. Check if account is locked
+        4. Get model pricing
+        5. Prepare messages with history
+        6. Pre-flight check (token count, cost, max_tokens)
+        7. Call OpenRouter (with circuit breaker)
+        8. Post-flight billing
+        9. Save chat messages
+        10. Return response
         
         Args:
             user_id: User ID from JWT
@@ -225,10 +294,33 @@ class GatewayService:
         Raises:
             HTTPException: On various errors
         """
-        # 1. Ensure gateway account exists
+        # 1. Acquire per-user concurrency lock
+        try:
+            async with self.concurrency.user_scope(user_id):
+                return await self._handle_chat_request_internal(
+                    user_id=user_id,
+                    model=model,
+                    prompt=prompt,
+                    stream=stream,
+                )
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many concurrent requests. Please wait for your previous request to complete.",
+            )
+    
+    async def _handle_chat_request_internal(
+        self,
+        user_id: str,
+        model: str,
+        prompt: str,
+        stream: bool = False,
+    ) -> dict[str, Any] | AsyncIterator[str]:
+        """Internal implementation of handle_chat_request (called with concurrency lock held)."""
+        # 2. Ensure gateway account exists
         await self.store.ensure_gateway_account(user_id, self.starting_credit)
         
-        # 2. Check if account is locked
+        # 3. Check if account is locked
         balance_info = await self.store.get_user_balance(user_id)
         if not balance_info:
             raise HTTPException(status_code=500, detail="Failed to get user balance")
@@ -237,15 +329,15 @@ class GatewayService:
         if billing_locked:
             raise HTTPException(status_code=402, detail="Account locked due to insufficient balance")
         
-        # 3. Get model pricing
+        # 4. Get model pricing
         pricing = await self.store.get_model_pricing(model)
         if not pricing:
             raise HTTPException(status_code=400, detail=f"Unknown model: {model}")
         
-        # 4. Prepare messages with history
+        # 5. Prepare messages with history
         messages = await self.prepare_messages(user_id, prompt)
         
-        # 5. Pre-flight check
+        # 6. Pre-flight check
         try:
             buffered_tokens, max_tokens, estimated_cost = preflight_check(
                 messages=messages,
@@ -269,19 +361,37 @@ class GatewayService:
             estimated_cost,
         )
         
-        # 6. Call OpenRouter
+        # 7. Call OpenRouter (with circuit breaker and rate limiting)
+        if not self.concurrency.circuit_breaker.can_execute():
+            raise HTTPException(
+                status_code=503,
+                detail="Service temporarily unavailable. Please try again later.",
+            )
+        
+        import uuid
+        request_id = str(uuid.uuid4())
+        
         if stream:
             return self._handle_streaming_response(
                 user_id=user_id,
+                request_id=request_id,
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
                 balance_before=balance,
             )
         else:
-            response = await self.call_openrouter(model, messages, max_tokens, stream=False)
+            response = await self.call_openrouter(
+                user_id=user_id,
+                request_id=request_id,
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                stream=False,
+            )
+            # Success already recorded in call_openrouter
             
-            # 7. Post-flight billing
+            # 8. Post-flight billing
             billing_result = await settle_billing(
                 store=self.store,
                 user_id=user_id,
@@ -291,7 +401,7 @@ class GatewayService:
                 balance_before=balance,
             )
             
-            # 8. Save chat messages
+            # 9. Save chat messages
             await self.store.save_chat_message(
                 user_id=user_id,
                 role="user",
@@ -309,7 +419,7 @@ class GatewayService:
                 tokens_used=billing_result["output_tokens"],
             )
             
-            # 9. Return response with billing info
+            # 10. Return response with billing info
             result = response.copy()
             result["billing"] = billing_result
             return result
@@ -317,6 +427,7 @@ class GatewayService:
     async def _handle_streaming_response(
         self,
         user_id: str,
+        request_id: str,
         model: str,
         messages: list[dict[str, str]],
         max_tokens: int,
@@ -328,7 +439,7 @@ class GatewayService:
         usage_info = {"prompt_tokens": 0, "completion_tokens": 0}
         
         try:
-            stream = self.stream_openrouter(model, messages, max_tokens)
+            stream = self.stream_openrouter(user_id, request_id, model, messages, max_tokens)
             completion_count = 0
             
             async for chunk_data in stream:

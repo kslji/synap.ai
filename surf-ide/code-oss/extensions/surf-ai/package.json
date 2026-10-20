@@ -1,0 +1,45 @@
+{
+  "name": "surf-ai",
+  "displayName": "Surf AI",
+  "description": "AI-powered coding assistant integrated into Surf IDE",
+  "version": "0.1.0",
+  "publisher": "surf-ai",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "surf-ai.startChat",
+        "title": "Surf AI: Start Chat"
+      },
+      {
+        "command": "surf-ai.askQuestion",
+        "title": "Surf AI: Ask Question"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "eslint": "^8.50.0"
+  },
+  "dependencies": {}
+}

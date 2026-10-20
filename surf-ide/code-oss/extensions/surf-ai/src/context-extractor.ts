@@ -166,10 +166,13 @@ async function getSymbolsContext(): Promise<SymbolContext[]> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return [];
 
+  const docUri = editor.document.uri;
+  const docPath = docUri.fsPath;
+
   try {
     const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
       'vscode.executeDocumentSymbolProvider',
-      editor.document.uri
+      docUri
     );
 
     if (!symbols) return [];
@@ -181,7 +184,7 @@ async function getSymbolsContext(): Promise<SymbolContext[]> {
         symbolContexts.push({
           name: sym.name,
           kind: vscode.SymbolKind[sym.kind],
-          location: `${editor.document.uri.fsPath}:${sym.range.start.line + 1}`,
+          location: `${docPath}:${sym.range.start.line + 1}`,
           range: sym.range,
           containerName: container || sym.name
         });

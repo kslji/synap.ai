@@ -106,18 +106,19 @@ class TestContextIsolation:
         store = MemoryGatewayStore()
         user_id = str(uuid.uuid4())
         
-        # Add many messages (each ~50 chars = ~12 tokens)
+        # Add many messages (each ~10 chars = ~2-3 tokens)
         for i in range(20):
             await store.save_chat_message(user_id, "user", f"Message {i}")
         
-        # Fetch with small token budget (enough for ~5 messages)
-        history = await store.get_user_chat_history(user_id, max_tokens=60)
+        # Fetch with very small token budget (enough for ~3-4 messages only)
+        # Each message is ~2-3 tokens, so 10 tokens should fit ~3-4 messages
+        history = await store.get_user_chat_history(user_id, max_tokens=10)
         
         # Should have fewer than 20 messages
-        assert len(history) < 20
-        assert len(history) > 0
-        # Should have the newest messages
-        assert "Message 19" in history[-1]["content"]
+        assert len(history) < 20, f"Expected < 20 messages, got {len(history)}"
+        assert len(history) > 0, "Expected at least some messages"
+        # Should have the newest messages (last in chronological order)
+        assert "Message 19" in history[-1]["content"], f"Expected newest message, got {history[-1]}"
 
 
 # ============================================================================

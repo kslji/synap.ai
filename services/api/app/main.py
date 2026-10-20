@@ -32,6 +32,9 @@ from .pack_catalog import catalog, verify_download
 from .pages import fetch_one
 from .ssrf import SsrfBlocked
 from .tokens import issue_access_token, read_bearer
+from .gateway.store import MemoryGatewayStore, PostgresGatewayStore
+from .gateway.service import GatewayService
+from .gateway.router import router as gateway_router
 
 log = logging.getLogger("surf.api")
 ENV = os.environ
@@ -73,7 +76,22 @@ async def lifespan(app: FastAPI):
         int(ENV.get("ACTIVATION_WINDOW", "600")),
     )
     app.state.http = httpx.AsyncClient(timeout=8)
+    
+    # Initialize gateway service
+    if LITE:
+        app.state.gateway_store = MemoryGatewayStore()
+    else:
+        app.state.gateway_store = PostgresGatewayStore(app.state.pg)
+        await app.state.gateway_store.ensure_schema()
+    
+    app.state.gateway = GatewayService(
+        store=app.state.gateway_store,
+        http_client=app.state.http,
+    )
+    await app.state.gateway.start()
+    
     yield
+    await app.state.gateway.stop()
     await app.state.http.aclose()
     if app.state.kv is not None:
         await app.state.kv.aclose()
@@ -82,6 +100,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Surf AI API", version="0.1.0", lifespan=lifespan)
+
+# Include gateway router
+app.include_router(gateway_router)
 
 
 class Problem(Exception):

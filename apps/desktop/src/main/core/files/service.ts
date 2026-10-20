@@ -108,10 +108,37 @@ export function createFileSearch(deps: FileSearchDeps): FileSearchService {
   let chain: Promise<void> = Promise.resolve()
   let closed = false
 
-  function openOwned(): FileDb {
-    const opened = openFileDb(deps.dbPath, deps.keyHex)
-    dropSessionGrants(opened)
-    return opened
+  function openOwned(): FileDb | null {
+    try {
+      const opened = openFileDb(deps.dbPath, deps.keyHex)
+      dropSessionGrants(opened)
+      return opened
+    } catch (e) {
+      // Database is corrupted or key is wrong - try to recover
+      console.warn('[surf] file index database unavailable:', (e as Error).message)
+      try {
+        // Delete the corrupted database and try again
+        const { rmSync } = require('node:fs')
+        rmSync(deps.dbPath, { force: true })
+        if (deps.keyHex) {
+          // Try with encryption
+          const opened = openFileDb(deps.dbPath, deps.keyHex)
+          dropSessionGrants(opened)
+          console.info('[surf] file index database recreated (encrypted)')
+          return opened
+        } else {
+          // Try without encryption
+          const opened = openFileDb(deps.dbPath, null)
+          dropSessionGrants(opened)
+          console.info('[surf] file index database recreated (plain)')
+          return opened
+        }
+      } catch (recoveryError) {
+        // Recovery failed - disable file search
+        console.error('[surf] file index recovery failed:', (recoveryError as Error).message)
+        return null
+      }
+    }
   }
 
   function database(): FileDb {

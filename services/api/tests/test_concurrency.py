@@ -223,7 +223,7 @@ class TestCircuitBreakerIntegration:
         try:
             # Trip the circuit breaker
             for _ in range(5):
-                manager.concurrency.circuit_breaker.record_failure()
+                manager.circuit_breaker.record_failure()
             
             stats = manager.get_global_stats()
             assert stats["circuit_state"] == "open"

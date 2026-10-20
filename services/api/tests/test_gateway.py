@@ -106,15 +106,16 @@ class TestContextIsolation:
         store = MemoryGatewayStore()
         user_id = str(uuid.uuid4())
         
-        # Add many messages
+        # Add many messages (each ~50 chars = ~12 tokens)
         for i in range(20):
-            await store.save_chat_message(user_id, "user", f"Message {i} " * 50)
+            await store.save_chat_message(user_id, "user", f"Message {i}")
         
-        # Fetch with small token budget
-        history = await store.get_user_chat_history(user_id, max_tokens=100)
+        # Fetch with small token budget (enough for ~5 messages)
+        history = await store.get_user_chat_history(user_id, max_tokens=60)
         
         # Should have fewer than 20 messages
         assert len(history) < 20
+        assert len(history) > 0
         # Should have the newest messages
         assert "Message 19" in history[-1]["content"]
 
@@ -204,16 +205,17 @@ class TestPreFlight:
         """Large input with insufficient balance should return 402."""
         # User has $0.01
         balance = Decimal("0.01")
-        
-        # 10,000 token input at $1.00 per 1M tokens
-        messages = [{"role": "user", "content": "x" * 40000}]  # ~10k tokens
+            
+        # Very large input to ensure cost exceeds balance
+        # ~100,000 chars should be ~25,000 tokens
+        messages = [{"role": "user", "content": "x" * 100000}]
         input_price = Decimal("1.00")
-        
+            
         buffered_tokens, estimated_cost = calculate_estimated_cost(messages, input_price)
-        
+            
         # Should exceed balance
-        assert estimated_cost > balance
-        
+        assert estimated_cost > balance, f"Expected cost > $0.01, got ${estimated_cost}"
+            
         # preflight_check should raise InsufficientBalanceError
         with pytest.raises(InsufficientBalanceError) as exc_info:
             preflight_check(
@@ -222,7 +224,7 @@ class TestPreFlight:
                 input_price_per_million=input_price,
                 output_price_per_million=Decimal("2.00"),
             )
-        
+            
         assert exc_info.value.required > balance
 
     def test_short_prompt_restricted_max_tokens(self):

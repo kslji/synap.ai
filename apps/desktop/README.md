@@ -20,7 +20,7 @@ Self-test (needs the small models on disk):
 
 ```bash
 mkdir -p ~/surf-models
-# embeddinggemma-2-Q8_0.gguf and Qwen3.5-2B-Q4_K_M.gguf — see docs/IMPLEMENTATION.md
+# embeddinggemma-2-Q8_0.gguf and Qwen3.5-4B-Q4_K_M.gguf — see docs/IMPLEMENTATION.md
 cd apps/desktop
 SURF_MODELS_DIR=~/surf-models npm run selftest
 ```

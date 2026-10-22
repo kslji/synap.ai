@@ -8,7 +8,7 @@ This gateway replaces the heavy web-browsing infrastructure (SearXNG, Chromium, 
 
 ### Key Features
 
-- **Multi-tenant isolation**: Each user's chat history and balance are completely isolated
+- **Multi-tenant isolation**: Each user's balance and billing are completely isolated (chat history stays on the device)
 - **Micro-billing**: Granular per-token billing with configurable markup
 - **Pre-flight safety**: Token counting and cost estimation before API calls
 - **Dynamic pricing**: Automatic sync with OpenRouter's pricing every 6 hours
@@ -29,12 +29,12 @@ This gateway replaces the heavy web-browsing infrastructure (SearXNG, Chromium, 
 │    POST /api/v1/chat                    │
 └──────┬──────────────────────────────────┘
        │
+       ├─► Rate limit (per user + per IP, Valkey-backed → 429)
+       │
        ├─► Auth (JWT validation → user_id)
        │
        ├─► Context Engineering
-       │   └─► Fetch user's chat history (isolated)
-       │   └─► Apply sliding window (GATEWAY_HISTORY_TOKENS)
-       │   └─► Compile messages array
+       │   └─► Build this turn's messages (history stays on the device)
        │
        ├─► Pre-Flight Gatekeeper
        │   ├─► Count tokens (tiktoken cl100k_base)
@@ -52,7 +52,7 @@ This gateway replaces the heavy web-browsing infrastructure (SearXNG, Chromium, 
            ├─► Apply markup (GATEWAY_MARKUP = 1.20)
            ├─► Deduct from balance (SELECT ... FOR UPDATE)
            ├─► Lock account if balance ≤ 0
-           └─► Save audit transaction + chat messages
+           └─► Save audit transaction
 ```
 
 ## Installation
@@ -168,12 +168,13 @@ Response:
 | `OPENROUTER_API_KEY` | (required) | Master OpenRouter API key |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base URL |
 | `GATEWAY_MARKUP` | `1.20` | Markup multiplier (1.20 = 20%) |
-| `GATEWAY_HISTORY_TOKENS` | `2000` | Token budget for chat history |
 | `GATEWAY_STARTING_CREDIT` | `0` | Starting credit for new accounts (USD) |
 | `GATEWAY_SYSTEM_PROMPT` | `You are a helpful assistant.` | Default system prompt |
 | `PRICING_SYNC_SECONDS` | `21600` | Price sync interval (6 hours) |
-| `CHAT_PER_MIN` | `20` | Rate limit: chats per minute |
-| `CHAT_PER_DAY` | `500` | Rate limit: chats per day |
+| `CHAT_RATE_PER_MINUTE` | `30` | Chat requests per minute per user (429 over limit) |
+| `CHAT_IP_RATE_PER_MINUTE` | `60` | Chat requests per minute per IP (429 over limit) |
+| `OTP_RATE_PER_MINUTE` | `10` | OTP requests per minute per user (429 over limit) |
+| `OTP_IP_RATE_PER_MINUTE` | `20` | OTP requests per minute per IP (429 over limit) |
 
 ## Database Schema
 
@@ -200,20 +201,6 @@ Per-user account with balance.
 | `billing_locked` | BOOLEAN | Account locked due to insufficient balance |
 | `created_at` | TIMESTAMPTZ | Account creation timestamp |
 | `updated_at` | TIMESTAMPTZ | Last update timestamp |
-
-### chat_messages
-
-Per-user chat history.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | UUID (PK) | Message ID |
-| `user_id` | UUID (FK) | User ID |
-| `role` | TEXT | Message role (system, user, assistant) |
-| `content` | TEXT | Message content |
-| `model_id` | TEXT | Model used |
-| `tokens_used` | INT | Tokens consumed |
-| `created_at` | TIMESTAMPTZ | Message timestamp |
 
 ### billing_transactions
 
@@ -260,7 +247,7 @@ pytest tests/test_gateway.py -v
 
 3. **Balance checks**: Pre-flight checks prevent overspend. The 15% safety buffer absorbs tokenizer discrepancies.
 
-4. **Rate limiting**: Per-user rate limits prevent abuse (`CHAT_PER_MIN`, `CHAT_PER_DAY`).
+4. **Rate limiting**: Chat and OTP routes are rate limited per user and per IP via Valkey (`CHAT_RATE_PER_MINUTE`, `CHAT_IP_RATE_PER_MINUTE`, `OTP_RATE_PER_MINUTE`, `OTP_IP_RATE_PER_MINUTE`); over the limit returns 429 with `Retry-After`.
 
 5. **Audit trail**: All billing transactions are logged with full details for reconciliation.
 
@@ -268,7 +255,7 @@ pytest tests/test_gateway.py -v
 
 ## Privacy
 
-This gateway reverses the "prompts never leave the device" policy for the cloud chat path. User prompts and chat history are sent to OpenRouter and stored server-side. See `PRIVACY.md` and `docs/adr/0005-openrouter-gateway.md` for details.
+This gateway sends user prompts to OpenRouter for the cloud chat path, but **no chat history is stored server-side** — multi-turn history lives on the device (product rule). See `PRIVACY.md` and `docs/adr/0005-openrouter-gateway.md` for details.
 
 ## Known Limitations
 

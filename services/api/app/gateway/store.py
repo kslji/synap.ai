@@ -27,18 +27,6 @@ CREATE TABLE IF NOT EXISTS gateway_accounts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Chat history per user
-CREATE TABLE IF NOT EXISTS chat_messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
-  content TEXT NOT NULL,
-  model_id TEXT,
-  tokens_used INT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_chat_messages_user_created ON chat_messages(user_id, created_at DESC);
-
 -- Billing audit trail
 CREATE TABLE IF NOT EXISTS billing_transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -111,6 +99,19 @@ class PostgresGatewayStore:
                 "last_synced": result[4],
             }
 
+    async def list_model_pricing(self, model_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Get pricing for several models at once, keyed by model_id.
+
+        Missing models are simply absent from the result, so callers can tell
+        which allowlisted models have not been synced yet.
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for model_id in model_ids:
+            pricing = await self.get_model_pricing(model_id)
+            if pricing:
+                out[model_id] = pricing
+        return out
+
     # --- User Balance ---
     async def ensure_gateway_account(self, user_id: str, starting_credit: Decimal) -> None:
         """Create gateway account for user if it doesn't exist."""
@@ -172,60 +173,6 @@ class PostgresGatewayStore:
                 
                 return (new_balance, billing_locked)
 
-    # --- Chat History ---
-    async def save_chat_message(
-        self,
-        user_id: str,
-        role: str,
-        content: str,
-        model_id: str | None = None,
-        tokens_used: int | None = None,
-    ) -> str:
-        """Save a chat message and return its ID."""
-        async with self.pool.connection() as conn:
-            row = await conn.execute(
-                """
-                INSERT INTO chat_messages (user_id, role, content, model_id, tokens_used)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (user_id, role, content, model_id, tokens_used),
-            )
-            result = await row.fetchone()
-            return str(result[0])
-
-    async def get_user_chat_history(
-        self,
-        user_id: str,
-        max_tokens: int,
-    ) -> list[dict[str, Any]]:
-        """Get user's chat history within token budget (newest first, then reversed)."""
-        async with self.pool.connection() as conn:
-            rows = await conn.execute(
-                """
-                SELECT role, content, created_at
-                FROM chat_messages
-                WHERE user_id = %s
-                ORDER BY created_at DESC
-                LIMIT 100
-                """,
-                (user_id,),
-            )
-            messages = []
-            total_tokens = 0
-            async for row in rows:
-                # Rough token estimate: 1 token ≈ 4 chars
-                content = row[1]
-                estimated_tokens = len(content) // 4
-                if total_tokens + estimated_tokens > max_tokens:
-                    break
-                messages.append({"role": row[0], "content": content})
-                total_tokens += estimated_tokens
-            
-            # Reverse to get chronological order
-            messages.reverse()
-            return messages
-
     # --- Billing Audit ---
     async def save_billing_transaction(
         self,
@@ -275,7 +222,6 @@ class MemoryGatewayStore:
     def __init__(self):
         self.models_pricing: dict[str, dict[str, Any]] = {}
         self.gateway_accounts: dict[str, dict[str, Any]] = {}
-        self.chat_messages: dict[str, list[dict[str, Any]]] = {}
         self.billing_transactions: list[dict[str, Any]] = []
 
     async def ensure_schema(self) -> None:
@@ -303,6 +249,10 @@ class MemoryGatewayStore:
     async def get_model_pricing(self, model_id: str) -> dict[str, Any] | None:
         """Get pricing for a specific model."""
         return self.models_pricing.get(model_id)
+
+    async def list_model_pricing(self, model_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Get pricing for several models at once, keyed by model_id."""
+        return {mid: self.models_pricing[mid] for mid in model_ids if mid in self.models_pricing}
 
     # --- User Balance ---
     async def ensure_gateway_account(self, user_id: str, starting_credit: Decimal) -> None:
@@ -344,58 +294,6 @@ class MemoryGatewayStore:
         account["updated_at"] = datetime.now(timezone.utc)
         
         return (new_balance, billing_locked)
-
-    # --- Chat History ---
-    async def save_chat_message(
-        self,
-        user_id: str,
-        role: str,
-        content: str,
-        model_id: str | None = None,
-        tokens_used: int | None = None,
-    ) -> str:
-        """Save a chat message and return its ID."""
-        import uuid
-        from datetime import datetime, timezone
-        
-        if user_id not in self.chat_messages:
-            self.chat_messages[user_id] = []
-        
-        msg_id = str(uuid.uuid4())
-        self.chat_messages[user_id].append({
-            "id": msg_id,
-            "user_id": user_id,
-            "role": role,
-            "content": content,
-            "model_id": model_id,
-            "tokens_used": tokens_used,
-            "created_at": datetime.now(timezone.utc),
-        })
-        return msg_id
-
-    async def get_user_chat_history(
-        self,
-        user_id: str,
-        max_tokens: int,
-    ) -> list[dict[str, Any]]:
-        """Get user's chat history within token budget (newest first, then reversed)."""
-        messages = self.chat_messages.get(user_id, [])
-        # Sort by created_at descending
-        sorted_msgs = sorted(messages, key=lambda m: m["created_at"], reverse=True)
-        
-        result = []
-        total_tokens = 0
-        for msg in sorted_msgs:
-            content = msg["content"]
-            estimated_tokens = len(content) // 4
-            if total_tokens + estimated_tokens > max_tokens:
-                break
-            result.append({"role": msg["role"], "content": content})
-            total_tokens += estimated_tokens
-        
-        # Reverse to get chronological order
-        result.reverse()
-        return result
 
     # --- Billing Audit ---
     async def save_billing_transaction(

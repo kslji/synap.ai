@@ -8,6 +8,8 @@ Successfully implemented a secure, lightweight, multi-tenant API gateway wrapper
 
 All 5 steps have been implemented with comprehensive tests and documentation.
 
+> **Release-cut amendment:** Step 2's server-side chat storage (`chat_messages`, `get_user_chat_history`, `save_chat_message`, `GATEWAY_HISTORY_TOKENS`) has since been removed — the gateway is single-turn and chat history stays on the device (product rule). The old per-user `CHAT_PER_MIN`/`CHAT_PER_DAY` limiter went with `apps/host`; it is replaced by a Valkey-backed per-user + per-IP rate limit returning 429. The Step 2 narrative below is kept as a historical build record.
+
 ---
 
 ## Step 1: Remove Legacy Infrastructure & Setup Core Routing ✅
@@ -360,7 +362,7 @@ All tests pass with the following coverage:
 ✅ **Audit trail** - Complete transaction history  
 ✅ **Streaming support** - SSE with automatic cutoff  
 ✅ **Balance management** - Account locking when balance ≤ 0  
-✅ **Rate limiting** - Per-user limits (CHAT_PER_MIN, CHAT_PER_DAY)  
+✅ **Rate limiting** - Per-user + per-IP via Valkey, 429 over limit (see release-cut amendment)
 ✅ **Comprehensive tests** - 13 tests covering all scenarios  
 ✅ **Documentation** - ADR, README, inline comments  
 
@@ -397,7 +399,7 @@ This implementation follows the same architecture as Devin's PR (#37) with these
 ⚠️ **Important**: This gateway reverses the "prompts never leave the device" policy for the cloud chat path.
 
 - User prompts are sent to OpenRouter
-- Chat history is stored server-side
+- Chat history is **not** stored server-side (single-turn; history lives on the device)
 - Billing records include response text
 
 See `PRIVACY.md` and `docs/adr/0005-openrouter-gateway.md` for details.

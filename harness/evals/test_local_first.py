@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Secrets stay out of .env.example. The browser pack that used allowInBrowserLlm is gone."""
+"""Secrets stay out of the deploy .env.example. The auth host and its example
+left the repo with the legacy backend; the browser pack that used
+allowInBrowserLlm is gone."""
 
 from __future__ import annotations
 
@@ -16,22 +18,26 @@ def check(name: str, ok: bool, detail: str, rows: list) -> None:
 
 def run_checks() -> list[dict]:
     rows: list[dict] = []
-    example = (ROOT / ".env.example").read_text(encoding="utf-8")
-    for key in ("ADMIN_PASSWORD", "SMTP_PASSWORD", "MOSS_PROJECT_KEY", "MOSS_PROJECT_ID"):
-        line = next((row for row in example.splitlines() if row.startswith(f"{key}=")), "")
-        check(f"env-example-{key.lower()}-empty", line == f"{key}=", line or "missing", rows)
-    check(
-        "env-example-has-no-livekit-dev-secret",
-        "LIVEKIT_API_SECRET=secret" not in example and "LIVEKIT_API_KEY=devkey" not in example,
-        "dev livekit secrets are not active assignments",
-        rows,
-    )
-    check(
-        "env-example-does-not-seal-a-zip",
-        "moss_vault.enc" not in example and "seal:moss" not in example,
-        "zip vault seal removed",
-        rows,
-    )
+    # deploy/.env.example (stack): signing/JWT/mail secrets are blank placeholders.
+    stack = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")
+    for key in (
+        "JWT_SECRET",
+        "OPENROUTER_API_KEY",
+        "LICENCE_SIGNING_KEY_HEX",
+        "PACK_SIGNING_KEY_HEX",
+        "SMTP_PASSWORD",
+    ):
+        line = next((row for row in stack.splitlines() if row.startswith(f"{key}=")), "")
+        check(f"stack-example-{key.lower()}-empty", line == f"{key}=", line or "missing", rows)
+    # Legacy host-only assignments must not creep back into any example.
+    joined = stack
+    for ghost in ("MOSS_PROJECT_KEY=", "LIVEKIT_API_SECRET=secret", "ADMIN_PASSWORD=x"):
+        check(
+            f"no-host-legacy-{ghost.split('=')[0].lower()}",
+            ghost not in joined,
+            "apps/host-era config stays out of the stack example",
+            rows,
+        )
     return rows
 
 

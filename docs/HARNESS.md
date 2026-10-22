@@ -2,7 +2,7 @@
 
 The harness scores the desktop app by calling the real orchestrator: the same retrieval, gate, prompt wrapping, calculator, and token budgeter a chat uses. It does not reimplement those steps in Python. Python loads cases, starts Electron, and scores the transcript.
 
-Host checks (`./harness/run.sh` with no arguments) are unchanged. They still talk to the auth host on `127.0.0.1:18765` and do not need a model.
+Unit evals (`./harness/run.sh unit`) need no model and no server. The old auth-host checks left the repo with `apps/host`.
 
 ## Run it
 

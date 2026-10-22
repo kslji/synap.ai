@@ -1,30 +1,25 @@
 #!/bin/sh
-# host: the existing auth-host checks (no desktop model).
+# unit: pure eval checks, no model, no server.
 # quick: PR eval, Qwen3.5-2B, small samples.
 # full: weekly / laptop eval, about 120 rows per dataset.
 set -e
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-if [ -x "$ROOT/apps/host/.venv/bin/python3" ]; then
-  PY="$ROOT/apps/host/.venv/bin/python3"
+if [ -x "$ROOT/services/api/.venv/bin/python3" ]; then
+  PY="$ROOT/services/api/.venv/bin/python3"
 else
   PY=python3
 fi
-MODE="${1:-host}"
-if [ "$MODE" = "host" ]; then
-  "$PY" harness/evals/test_guardrails.py
-  "$PY" harness/evals/test_moss.py
+MODE="${1:-unit}"
+if [ "$MODE" = "unit" ]; then
   "$PY" harness/evals/test_reply_repair.py
   "$PY" harness/evals/test_local_first.py
-  "$PY" harness/evals/test_convert.py
   "$PY" harness/evals/test_eval_gate.py
   "$PY" harness/evals/test_screenshot.py
-  "$PY" harness/evals/gate.py
-  "$PY" harness/evals/smoke.py
   exit 0
 fi
 if [ "$MODE" != "quick" ] && [ "$MODE" != "full" ]; then
-  echo "usage: harness/run.sh [host|quick|full]" >&2
+  echo "usage: harness/run.sh [unit|quick|full]" >&2
   exit 2
 fi
 shift

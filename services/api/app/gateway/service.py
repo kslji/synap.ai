@@ -12,6 +12,8 @@ import httpx
 from fastapi import HTTPException
 
 from .billing import settle_billing
+from .errors import INSUFFICIENT_CREDITS, NOT_CONFIGURED, raise_mapped, user_facing_message
+from .model_allowlist import is_allowed
 from .preflight import InsufficientBalanceError, preflight_check
 from .pricing import pricing_sync_loop
 from .store import MemoryGatewayStore, PostgresGatewayStore
@@ -25,7 +27,6 @@ log = logging.getLogger("surf.gateway.service")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 GATEWAY_MARKUP = Decimal(os.environ.get("GATEWAY_MARKUP", "1.20"))
-GATEWAY_HISTORY_TOKENS = int(os.environ.get("GATEWAY_HISTORY_TOKENS", "2000"))
 GATEWAY_STARTING_CREDIT = Decimal(os.environ.get("GATEWAY_STARTING_CREDIT", "0"))
 GATEWAY_SYSTEM_PROMPT = os.environ.get("GATEWAY_SYSTEM_PROMPT", "You are a helpful assistant.")
 PRICING_SYNC_SECONDS = int(os.environ.get("PRICING_SYNC_SECONDS", "21600"))  # 6 hours
@@ -41,7 +42,6 @@ class GatewayService:
         openrouter_api_key: str = OPENROUTER_API_KEY,
         openrouter_base_url: str = OPENROUTER_BASE_URL,
         markup: Decimal = GATEWAY_MARKUP,
-        history_tokens: int = GATEWAY_HISTORY_TOKENS,
         starting_credit: Decimal = GATEWAY_STARTING_CREDIT,
         system_prompt: str = GATEWAY_SYSTEM_PROMPT,
         max_concurrent_per_user: int = 1,
@@ -53,7 +53,6 @@ class GatewayService:
         self.openrouter_api_key = openrouter_api_key
         self.openrouter_base_url = openrouter_base_url.rstrip("/")
         self.markup = markup
-        self.history_tokens = history_tokens
         self.starting_credit = starting_credit
         self.system_prompt = system_prompt
         self._pricing_sync_task: asyncio.Task | None = None
@@ -107,33 +106,23 @@ class GatewayService:
                 pass
             log.info("pricing sync stopped")
 
-    async def prepare_messages(self, user_id: str, new_prompt: str) -> list[dict[str, str]]:
-        """Prepare message array with user's history and new prompt.
-        
+    def prepare_messages(self, new_prompt: str) -> list[dict[str, str]]:
+        """Build the message array for a single turn.
+
+        Chat history lives on the device (product rule): the gateway no longer
+        stores or replays past messages. Multi-turn history will be sent by the
+        client with each request (desktop chat rewire, Items 13/15).
+
         Args:
-            user_id: User ID
             new_prompt: New user message
-            
+
         Returns:
-            List of messages in chronological order
+            [system, user] — the turn to send upstream
         """
-        # Get user's chat history within token budget
-        history = await self.store.get_user_chat_history(user_id, self.history_tokens)
-        
-        # Build message array
-        messages = []
-        
-        # Add system prompt if no history or first message
-        if not history or history[0]["role"] != "system":
-            messages.append({"role": "system", "content": self.system_prompt})
-        
-        # Add history
-        messages.extend(history)
-        
-        # Add new prompt
-        messages.append({"role": "user", "content": new_prompt})
-        
-        return messages
+        return [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": new_prompt},
+        ]
 
     async def call_openrouter(
         self,
@@ -158,7 +147,7 @@ class GatewayService:
             Response dict
         """
         if not self.openrouter_api_key:
-            raise HTTPException(status_code=503, detail="OpenRouter API key not configured")
+            raise HTTPException(status_code=503, detail=NOT_CONFIGURED)
         
         payload = {
             "model": model,
@@ -191,12 +180,10 @@ class GatewayService:
                     log.warning("OpenRouter rate limit hit for user=%s", user_id)
                 else:
                     self.concurrency.circuit_breaker.record_failure()
-                log.error("OpenRouter API call failed: %s", exc)
-                raise
+                raise_mapped(exc)
             except httpx.HTTPError as exc:
                 self.concurrency.circuit_breaker.record_failure()
-                log.error("OpenRouter API call failed: %s", exc)
-                raise
+                raise_mapped(exc)
 
     async def stream_openrouter(
         self,
@@ -219,7 +206,7 @@ class GatewayService:
             SSE data chunks
         """
         if not self.openrouter_api_key:
-            raise HTTPException(status_code=503, detail="OpenRouter API key not configured")
+            raise HTTPException(status_code=503, detail=NOT_CONFIGURED)
         
         payload = {
             "model": model,
@@ -254,12 +241,10 @@ class GatewayService:
                     log.warning("OpenRouter rate limit hit for user=%s", user_id)
                 else:
                     self.concurrency.circuit_breaker.record_failure()
-                log.error("OpenRouter streaming call failed: %s", exc)
-                raise
+                raise_mapped(exc)
             except httpx.HTTPError as exc:
                 self.concurrency.circuit_breaker.record_failure()
-                log.error("OpenRouter streaming call failed: %s", exc)
-                raise
+                raise_mapped(exc)
 
     async def handle_chat_request(
         self,
@@ -275,12 +260,11 @@ class GatewayService:
         2. Ensure gateway account exists
         3. Check if account is locked
         4. Get model pricing
-        5. Prepare messages with history
+        5. Build this turn's messages (history stays on the device)
         6. Pre-flight check (token count, cost, max_tokens)
         7. Call OpenRouter (with circuit breaker)
         8. Post-flight billing
-        9. Save chat messages
-        10. Return response
+        9. Return response
         
         Args:
             user_id: User ID from JWT
@@ -327,15 +311,19 @@ class GatewayService:
         
         balance, billing_locked = balance_info
         if billing_locked:
-            raise HTTPException(status_code=402, detail="Account locked due to insufficient balance")
+            raise HTTPException(status_code=402, detail=INSUFFICIENT_CREDITS)
         
-        # 4. Get model pricing
+        # 4. Enforce curated model allowlist (blocks free / non-permitted models)
+        if not is_allowed(model):
+            raise HTTPException(status_code=400, detail=f"Model not permitted: {model}")
+
+        # 5. Get model pricing
         pricing = await self.store.get_model_pricing(model)
         if not pricing:
             raise HTTPException(status_code=400, detail=f"Unknown model: {model}")
         
-        # 5. Prepare messages with history
-        messages = await self.prepare_messages(user_id, prompt)
+        # 5. Build this turn's messages (single turn; history is on the device)
+        messages = self.prepare_messages(prompt)
         
         # 6. Pre-flight check
         try:
@@ -349,7 +337,7 @@ class GatewayService:
         except InsufficientBalanceError as exc:
             raise HTTPException(
                 status_code=402,
-                detail=f"Insufficient balance: need ${exc.required:.6f}, have ${exc.available:.6f}",
+                detail=INSUFFICIENT_CREDITS,
             )
         
         log.info(
@@ -401,25 +389,8 @@ class GatewayService:
                 balance_before=balance,
             )
             
-            # 9. Save chat messages
-            await self.store.save_chat_message(
-                user_id=user_id,
-                role="user",
-                content=prompt,
-                model_id=model,
-                tokens_used=buffered_tokens,
-            )
-            
-            assistant_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            await self.store.save_chat_message(
-                user_id=user_id,
-                role="assistant",
-                content=assistant_content,
-                model_id=model,
-                tokens_used=billing_result["output_tokens"],
-            )
-            
-            # 10. Return response with billing info
+            # No message storage: chat history stays on the device (product rule).
+            # 9. Return response with billing info
             result = response.copy()
             result["billing"] = billing_result
             return result
@@ -433,7 +404,7 @@ class GatewayService:
         max_tokens: int,
         balance_before: Decimal,
     ) -> AsyncIterator[str]:
-        """Handle streaming response with billing and message saving."""
+        """Handle streaming response with billing. Messages are not stored."""
         # Collect the full response for billing
         full_content = []
         usage_info = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -494,27 +465,11 @@ class GatewayService:
                     balance_before=balance_before,
                 )
                 
-                # Save chat messages
-                user_content = messages[-1]["content"] if messages else ""
-                await self.store.save_chat_message(
-                    user_id=user_id,
-                    role="user",
-                    content=user_content,
-                    model_id=model,
-                    tokens_used=usage_info["prompt_tokens"],
-                )
-                
-                await self.store.save_chat_message(
-                    user_id=user_id,
-                    role="assistant",
-                    content="".join(full_content),
-                    model_id=model,
-                    tokens_used=usage_info["completion_tokens"],
-                )
-                
+                # No message storage: chat history stays on the device (product rule).
                 # Send billing info as final chunk
                 yield f"data: {json.dumps({'billing': billing_result})}\n\n"
                 
         except Exception as exc:
             log.error("streaming failed for user=%s: %s", user_id, exc)
-            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            code = "rate_limited" if isinstance(exc, HTTPException) and exc.status_code == 429 else "gateway_error"
+            yield f"data: {json.dumps({'error': {'code': code, 'message': user_facing_message(exc)}})}\n\n"

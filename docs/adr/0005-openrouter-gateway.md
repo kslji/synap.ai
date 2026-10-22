@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted.
+
+**Amended at the release cut:** the gateway no longer stores chat history server-side. `chat_messages` was dropped (migration `0006_drop_legacy`) and `prepare_messages` now builds a single `[system, user]` turn; multi-turn history lives on the device and will be sent by the client (desktop chat rewire). Sections below describing server-side history, `GATEWAY_HISTORY_TOKENS` and `CHAT_PER_*` reflect the superseded design — the current rate limit is per user + per IP via Valkey (429).
 
 ## Context
 
@@ -18,7 +20,7 @@ The SearXNG search proxy and page fetch (`/v1/search`, `/v1/fetch`, `pages.py`, 
 
 1. **Auth:** The existing access JWT; `uid` must be a real user row. That user ID scopes everything below. It is logged; prompt text is not. Returns 401 if invalid.
 
-2. **Context:** The backend is the source of truth. History is read from `chat_messages WHERE user_id = …` only. The payload is one system message, the newest turns that fit `GATEWAY_HISTORY_TOKENS` (oldest dropped first, never starting on an assistant turn), then the new prompt. This ensures 100% tenant isolation with zero cross-contamination.
+2. **Context:** The gateway builds a single turn: one system message followed by the new prompt. No history is read from or written to the backend — chat history lives on the device (product rule). Multi-turn context will be supplied by the client with each request.
 
 3. **Prices:** `models_pricing(model_id PK, input_price_per_million, output_price_per_million, context_window)`. They are upserted from `GET https://openrouter.ai/api/v1/models` every 6 hours (`PRICING_SYNC_SECONDS`). OpenRouter quotes USD per token, so the sync multiplies by 1,000,000. Routers priced `-1` are skipped.
 
@@ -32,7 +34,7 @@ The SearXNG search proxy and page fetch (`/v1/search`, `/v1/fetch`, `pages.py`, 
    - raw = prompt × in/1M + completion × out/1M, using OpenRouter's native `usage`.
    - Deduction = raw × `GATEWAY_MARKUP` (1.20).
    - The balance update runs under `SELECT … FOR UPDATE`. A balance ≤ 0 sets `billing_locked`.
-   - A `billing_transactions` audit row and the user/assistant turn are written in the same transaction.
+   - A `billing_transactions` audit row is written. The prompt/response turns are **not** stored (history stays on the device).
 
 ### Database Schema
 
@@ -53,17 +55,6 @@ CREATE TABLE gateway_accounts (
   billing_locked BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Chat history per user
-CREATE TABLE chat_messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
-  content TEXT NOT NULL,
-  model_id TEXT,
-  tokens_used INT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Billing audit trail
@@ -91,12 +82,11 @@ Environment variables:
 - `OPENROUTER_API_KEY` — Master API key (required)
 - `OPENROUTER_BASE_URL` — OpenRouter API base URL (default: `https://openrouter.ai/api/v1`)
 - `GATEWAY_MARKUP` — Final deduction = raw cost × markup (default: `1.20`)
-- `GATEWAY_HISTORY_TOKENS` — Token budget for chat history (default: `2000`)
 - `GATEWAY_STARTING_CREDIT` — Credit given to new accounts in USD (default: `0`)
 - `GATEWAY_SYSTEM_PROMPT` — System prompt for chat (default: `You are a helpful assistant.`)
 - `PRICING_SYNC_SECONDS` — Price sync interval in seconds (default: `21600` = 6 hours)
-- `CHAT_PER_MIN` — Rate limit: chats per minute (default: `20`)
-- `CHAT_PER_DAY` — Rate limit: chats per day (default: `500`)
+- `CHAT_RATE_PER_MINUTE` / `CHAT_IP_RATE_PER_MINUTE` — Chat requests/min per user / per IP (429 over limit)
+- `OTP_RATE_PER_MINUTE` / `OTP_IP_RATE_PER_MINUTE` — OTP requests/min per user / per IP (429 over limit)
 
 ## Consequences
 
@@ -111,7 +101,7 @@ Environment variables:
 
 ### Negative
 
-- **Privacy:** This reverses "prompts never leave the device" for the cloud chat path. `PRIVACY.md` and the project rule now say so.
+- **Privacy:** User prompts are sent to OpenRouter for the cloud chat path, but no chat history is stored server-side — conversations stay on the device. `PRIVACY.md` and the project rule say so.
 - **Pre-flight limitation:** The pre-flight does not include the markup. A response that uses the full `max_tokens` can leave the balance slightly negative, and the lock flag then stops further use.
 - **No top-ups:** Top-ups and admin balance endpoints are not part of this change. New accounts start at `GATEWAY_STARTING_CREDIT` (default 0).
 - **Desktop compatibility:** The desktop's dev web search still calls the removed routes and will get 404 until it is removed or pointed at the gateway.
@@ -121,7 +111,7 @@ Environment variables:
 Comprehensive tests in `tests/test_gateway.py` cover:
 
 1. **Auth:** Unauthenticated requests rejected with 401. Valid tokens extract user ID.
-2. **Context isolation:** Concurrent requests from user_A (3 messages) and user_B (0 messages) prove zero cross-contamination.
+2. **Context isolation:** Concurrent single-turn requests from separate users prove zero cross-contamination (each billed only for its own request); stores expose no chat-history methods.
 3. **Pricing sync:** Mock OpenRouter response with modified pricing updates without duplicates.
 4. **Pre-flight:** $0.01 balance with large input returns 402. Short prompt gets restricted `max_tokens`.
 5. **Billing:** Exact calculation: 5000 input + 2000 output @ $1/$2 per 1M = $0.009 raw, $0.0108 with 1.20x markup. Balance updates from $2.00 to $1.9892.
@@ -129,7 +119,7 @@ Comprehensive tests in `tests/test_gateway.py` cover:
 
 ## Migration
 
-Alembic migration `0005_openrouter_gateway.py` creates the schema. Run:
+Alembic migration `0005_openrouter_gateway.py` creates the gateway schema; `0006_drop_legacy.py` drops the removed `chat_messages` (and unused search/training tables). Run:
 
 ```bash
 cd services/api

@@ -11,6 +11,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..tokens import read_bearer
+from ..rate_limit import CHAT_IP_RATE_PER_MINUTE, CHAT_RATE_PER_MINUTE, client_ip
+from .model_allowlist import ALLOWED_MODELS
 from .service import GatewayService
 
 log = logging.getLogger("surf.gateway.router")
@@ -60,23 +62,35 @@ async def get_user_id(authorization: str = Header(default="")) -> str:
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
+    request: Request,
     user_id: str = Depends(get_user_id),
     gateway: GatewayService = Depends(get_gateway_service),
 ) -> Any:
     """Chat endpoint: send a message and get a response.
     
     Flow:
-    1. Authenticate user via JWT
-    2. Prepare messages with user's history
-    3. Pre-flight check (token count, cost, max_tokens)
-    4. Call OpenRouter
-    5. Post-flight billing
-    6. Save chat messages
+    1. Rate limit (per user + per IP, Valkey-backed)
+    2. Authenticate user via JWT
+    3. Build this turn's messages (history stays on the device)
+    4. Pre-flight check (token count, cost, max_tokens)
+    5. Call OpenRouter
+    6. Post-flight billing
     7. Return response
     
     Returns 402 if insufficient balance.
     Returns 400 if unknown model.
     """
+    # 1. Per-user + per-IP entry rate limit (replaces the removed legacy host limiter).
+    limiter = request.app.state.limiter
+    allowed, retry = await limiter.hit(f"chat:user:{user_id}", CHAT_RATE_PER_MINUTE)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.",
+                            headers={"Retry-After": str(retry)})
+    allowed, retry = await limiter.hit(f"chat:ip:{client_ip(request)}", CHAT_IP_RATE_PER_MINUTE)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.",
+                            headers={"Retry-After": str(retry)})
+
     log.info("chat request from user=%s model=%s stream=%s", user_id, req.model, req.stream)
     
     result = await gateway.handle_chat_request(
@@ -99,13 +113,27 @@ async def list_models(
     user_id: str = Depends(get_user_id),
     gateway: GatewayService = Depends(get_gateway_service),
 ) -> dict[str, Any]:
-    """List available models with pricing.
-    
-    Returns all models from the pricing table.
+    """List the curated models available in Surf IDE, with live synced pricing.
+
+    Only allowlisted models that have pricing synced from OpenRouter are
+    returned, so the picker never offers a model we cannot bill for.
     """
-    # This would need a method in the store to list all models
-    # For now, return a placeholder
-    return {"models": [], "message": "Use /api/v1/models from OpenRouter directly for now"}
+    ids = [m.model_id for m in ALLOWED_MODELS]
+    pricing = await gateway.store.list_model_pricing(ids)
+    models: list[dict[str, Any]] = []
+    for m in ALLOWED_MODELS:
+        p = pricing.get(m.model_id)
+        if not p:
+            continue
+        models.append({
+            "id": m.model_id,
+            "label": m.label,
+            "provider": m.provider,
+            "context_window": p["context_window"],
+            "input_price_per_million": float(p["input_price_per_million"]),
+            "output_price_per_million": float(p["output_price_per_million"]),
+        })
+    return {"models": models}
 
 
 @router.get("/balance")

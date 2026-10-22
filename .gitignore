@@ -16,9 +16,8 @@ data/
 jwt.secret
 mail-outbox.jsonl
 local-ai/
-apps/host/.venv
+services/api/.venv
 harness/traces/*.json
-harness/evals/last-report.json
 harness/.cache/
 harness/reports/
 !.gitkeep

@@ -1,5 +1,6 @@
 /**
- * Shared injection rules (services/api/app/injection_rules.json is the server copy).
+ * On-device prompt-injection rules for document sanitization. This device copy is
+ * authoritative: the server no longer fetches or sanitizes pages (web search removed).
  * Flags are pattern ids. Passage text and the user's question are not logged.
  */
 import { randomBytes } from 'node:crypto'

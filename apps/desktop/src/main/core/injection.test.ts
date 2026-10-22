@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { convertBytes } from './convert.js'
 import { prepareHtml } from './html-sanitize.js'
@@ -43,13 +40,6 @@ const ATTACK = `<!doctype html>
 <p>Zero&#8203;width still says SB-4417.</p>
 </article>
 </body></html>`
-
-test('desktop rules match the API rules file', () => {
-  const here = dirname(fileURLToPath(import.meta.url))
-  const local = readFileSync(join(here, 'injection-rules.json'), 'utf8')
-  const api = readFileSync(join(here, '../../../../../services/api/app/injection_rules.json'), 'utf8')
-  assert.equal(local, api)
-})
 
 test('hidden html is removed and a visible injection is dropped', () => {
   const page = prepareHtml(ATTACK)

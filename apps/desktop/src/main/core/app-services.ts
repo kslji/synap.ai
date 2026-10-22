@@ -6,13 +6,13 @@
  */
 import { app, BrowserWindow, desktopCapturer, dialog, net, shell, systemPreferences } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { copyFile, mkdir, realpath, rm, stat, statfs } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { unregisterIpc, type Services } from './main-window.js'
-import { IPC, type AuthStatus, type ChatEvent, type Citation, type FileDecideReq, type FileFolderGrant, type FileSuggestFolder, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage } from './ipc-contract.js'
+import { IPC, type AuthStatus, type ChatEvent, type ChatMode, type Citation, type FileDecideReq, type FileFolderGrant, type FileSuggestFolder, type GateName, type LibraryFile, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage } from './ipc-contract.js'
 import { createTextBatch } from '../../shared/stream-batch.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { createCompletionRuntime, type CompletionRuntime } from './code-agent/completion/runtime.js'
@@ -106,6 +106,7 @@ import { blocksNetwork, cleanNetworkMode, resolveNetworkMode, syncChip, withLoca
 import { nextReplyVersions } from './reply-versions.js'
 import { benchmarkFor, readBenchmarkFile, tokensPerSec, upsertBenchmark, writeBenchmarkFile, type BenchmarkRow } from './benchmark-store.js'
 import type { BenchmarkResult } from './ipc-contract.js'
+import { gatewayChat, gatewayListModels } from './gateway-chat.js'
 import { ensureCitationMarkers, withPackVersions } from './search/citations.js'
 import { renderJsPage } from './search/js-page.js'
 import { searchFixtureEnabled } from './search/mode.js'
@@ -627,6 +628,7 @@ export async function createServices(): Promise<Services> {
     }
     if (!server || lastError || !active) throw loadError(lastError ?? new Error('llama-server did not start'), role, model.id, agentId)
     sidecars[role] = 'ready'
+    if (role === 'chat') publishLocalBridge()
     touchModel()
     return server
   }
@@ -1341,8 +1343,64 @@ export async function createServices(): Promise<Services> {
     finish(conversationId, messageId, '', win, merged, existing.sources, existing.gate ?? 'answer', true, lengthLimited)
   }
 
+  /** Cached first allowlisted online model so each online turn does not refetch. */
+  let onlineModelCache: { id: string; at: number } | null = null
+  async function onlineModelId(base: string, token: string, signal: AbortSignal): Promise<string> {
+    const now = Date.now()
+    if (onlineModelCache && now - onlineModelCache.at < 300_000) return onlineModelCache.id
+    const models = await gatewayListModels(base, token, signal).catch(() => [])
+    const id = models[0]?.id ?? ''
+    if (id) onlineModelCache = { id, at: now }
+    return id
+  }
+
+  /** Resolve pinned message IDs (same conversation only) into a labeled context block. */
+  function buildContextBlock(ids: string[], conversationId: string): string {
+    const lines: string[] = []
+    for (const id of ids) {
+      const message = store.readMessage(id)
+      if (!message || message.conversationId !== conversationId) continue
+      const tag = `${message.role}${message.mode ? ` ${message.mode}` : ''}`
+      lines.push(`[#${id.slice(0, 8)} ${tag}]\n${message.text}`)
+    }
+    return lines.length ? `Referenced earlier messages:\n${lines.join('\n\n')}` : ''
+  }
+
+  /** Online turn: forward the prompt (plus any pinned context) to the existing gateway. */
+  async function replyOnline(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+    const settings = readSettings()
+    const contextRefs = req.contextMessageIds?.length ? req.contextMessageIds : undefined
+    const fallback = async (msg: string): Promise<void> => {
+      await emitText(win, messageId, msg)
+      finish(conversationId, messageId, userMessageId, win, msg, [], 'answer', false, false, undefined, { mode: 'online', contextRefs })
+    }
+    if (settings.offlineOnly) return fallback('Online is off because Offline-only mode is on. Turn it off in Settings to use cloud models.')
+    const base = apiBase(settings)
+    const token = await freshAccess({ base, offlineOnly: false }).catch(() => null)
+    if (!token) return fallback('Online needs you signed in and connected. Switch to Offline to use the local model.')
+    const model = await onlineModelId(base, token, signal)
+    if (!model) return fallback('No online models are available right now. Try Offline.')
+    if (signal.aborted) return
+    const contextBlock = buildContextBlock(req.contextMessageIds ?? [], conversationId)
+    const prompt = contextBlock ? `${contextBlock}\n\n${req.text}` : req.text
+    const full = await gatewayChat({
+      baseUrl: base,
+      token,
+      model,
+      prompt,
+      signal,
+      onDelta: (piece) => { sendEvent(win, { type: 'token', messageId, text: piece, mode: 'online' }) },
+    })
+    if (signal.aborted) return
+    finish(conversationId, messageId, userMessageId, win, full, [], 'answer', false, false, undefined, { mode: 'online', contextRefs })
+  }
+
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     const text = req.text
+    if (req.mode === 'online') {
+      await replyOnline(req, conversationId, messageId, userMessageId, win, signal)
+      return
+    }
     const settingsNow = readSettings()
     const connectedNow = reachNow(settingsNow.offlineOnly)
     const turn = routeTurn({
@@ -1578,16 +1636,20 @@ export async function createServices(): Promise<Services> {
         /* project index is optional */
       }
       const fixtureMode = searchFixtureEnabled()
+      // Item 3: web search is removed. Resolve the region from the on-device choice
+      // only — never fetch public IP/geolocation. The live-web path is fully severed.
       activeRegion = await resolveRegion({
         question: text,
         myRegion: settings.myRegion,
-        offlineOnly: settings.offlineOnly || fixtureMode,
-        geoText: fixtureMode ? null : readGeo(),
-        fetchImpl: fixtureMode ? undefined : fetch,
+        offlineOnly: true,
+        geoText: null,
+        fetchImpl: undefined,
       })
       const dev = devWebEnabled()
       const signedIn = Boolean(await loadSession())
-      const webAllowed = settings.webSearchAllowed && req.allowWeb !== false && (fixtureMode ? (signedIn || dev) : true)
+      // Item 3: no live web search in Offline/General chat. This forces composeRouted and
+      // decideWeb onto the local-only branch (never 'web'/'blend'), so no search/fetch runs.
+      const webAllowed = false
       try {
         const composed = await composeRouted({
           question: text,
@@ -1972,13 +2034,13 @@ export async function createServices(): Promise<Services> {
     return store.open(conversationId).messages.filter((message) => message.id !== userMessageId && message.id !== messageId)
   }
 
-  function finish(conversationId: string, messageId: string, _userMessageId: string, win: BrowserWindow, text: string, sources: StoredMessage['sources'], gate: GateName, replaceText = false, lengthLimited = false, budget?: Extract<ChatEvent, { type: 'done' }>['budget']): void {
+  function finish(conversationId: string, messageId: string, _userMessageId: string, win: BrowserWindow, text: string, sources: StoredMessage['sources'], gate: GateName, replaceText = false, lengthLimited = false, budget?: Extract<ChatEvent, { type: 'done' }>['budget'], extra?: { mode?: ChatMode; contextRefs?: string[] }): void {
     const shaped = finishReply(text, lengthLimited)
     const shown = withLocalOnlyNote(shaped.text, readSettings().offlineOnly)
     const existing = store.readMessage(messageId)
     const versions = nextReplyVersions(existing?.versions ?? [], existing?.text ?? '', shown)
-    store.saveReply(conversationId, { id: messageId, role: 'assistant', text: shown, sources, gate, versions })
-    sendEvent(win, { type: 'done', messageId, gate, text: replaceText || shown !== text ? shown : undefined, canContinue: shaped.canContinue, ...(surfEnv('EVAL') && budget ? { budget } : {}) })
+    store.saveReply(conversationId, { id: messageId, role: 'assistant', text: shown, sources, gate, versions, mode: extra?.mode ?? existing?.mode, contextRefs: extra?.contextRefs ?? existing?.contextRefs })
+    sendEvent(win, { type: 'done', messageId, gate, ...(extra?.mode ? { mode: extra.mode } : {}), text: replaceText || shown !== text ? shown : undefined, canContinue: shaped.canContinue, ...(surfEnv('EVAL') && budget ? { budget } : {}) })
   }
 
   readSettings()
@@ -2039,6 +2101,149 @@ export async function createServices(): Promise<Services> {
     embedder: codeEmbedder,
     notify: (status) => { if (ui) safeSend(ui, IPC.codeEvent, status) },
   })
+
+  function resolveSurfIdeForkRoot(): string | null {
+    const candidates = [
+      process.env.SURF_IDE_ROOT,
+      join(app.getAppPath(), '..', '..', 'surf-ide', 'code-oss'),
+      join(app.getAppPath(), 'surf-ide', 'code-oss'),
+    ].filter((value): value is string => Boolean(value))
+    for (const candidate of candidates) {
+      if (existsSync(join(candidate, 'scripts', process.platform === 'win32' ? 'code.bat' : 'code.sh'))) return candidate
+    }
+    return null
+  }
+
+  // Path to the production `Surf IDE.app` binary that `gulp vscode-darwin-arm64`
+  // emits under `.build/darwin/`. Null when it has not been built, so the caller
+  // falls back to the dev `code.sh` path. The app/executable name comes from
+  // product.json (nameLong), matching what the build produces.
+  function resolveSurfIdeBinary(forkRoot: string): string | null {
+    if (process.platform !== 'darwin') return null
+    let appName = 'Surf IDE'
+    try {
+      const product = JSON.parse(readFileSync(join(forkRoot, 'product.json'), 'utf8')) as { nameLong?: unknown }
+      if (typeof product.nameLong === 'string' && product.nameLong.trim()) appName = product.nameLong.trim()
+    } catch { /* keep the default name */ }
+    const binary = join(forkRoot, '.build', 'darwin', `${appName}.app`, 'Contents', 'MacOS', appName)
+    return existsSync(binary) ? binary : null
+  }
+
+  // Publish the current local (offline) model endpoint so a Surf IDE launched
+  // from here can reach the llama.cpp sidecar directly. Written to a small JSON
+  // file whose path is injected into the fork as SURF_LOCAL_BRIDGE_FILE; the
+  // extension re-reads it on demand, so it always sees the latest state.
+  function localBridgePath(): string {
+    return join(app.getPath('userData'), 'surf-ide-local-bridge.json')
+  }
+  function publishLocalBridge(): void {
+    try {
+      const ready = active && active.role === 'chat' && active.server.state === 'ready'
+      const payload = ready
+        ? { baseUrl: active!.server.baseUrl, apiKey: active!.server.apiKey, modelId: active!.modelId }
+        : { baseUrl: '', apiKey: '', modelId: '' }
+      writeFileSync(localBridgePath(), JSON.stringify(payload))
+    } catch { /* best effort; the offline dropdown simply shows nothing */ }
+  }
+
+  const codeIde = {
+    launch: async (root: string): Promise<{ pid: number }> => {
+      if (!isAbsolute(root)) throw new Error('Project path must be absolute')
+      const forkRoot = resolveSurfIdeForkRoot()
+      if (!forkRoot) throw new Error('Surf IDE (VSCode fork) is not installed. Build it with surf-ide/code-oss/setup.sh first.')
+      // Prefer the production bundle (fast, few files) when it has been built;
+      // otherwise fall back to the dev `code.sh` path against the compiled `out/`.
+      const binary = resolveSurfIdeBinary(forkRoot)
+      const production = binary !== null
+      if (!production) {
+        const mainJs = join(forkRoot, 'out', 'vs', 'code', 'electron-main', 'main.js')
+        if (!existsSync(mainJs)) throw new Error('Surf IDE is not compiled yet. Run `npm run compile` inside surf-ide/code-oss once, then relaunch.')
+      }
+      // Hand the signed-in user's gateway JWT + base URL to the spawned IDE so the
+      // surf-ai extension can authenticate its chat/edits calls against the gateway.
+      const settings = readSettings()
+      const base = apiBase(settings)
+      let gatewayToken: string | null = null
+      try {
+        gatewayToken = await freshAccess({ base, offlineOnly: settings.offlineOnly })
+      } catch {
+        gatewayToken = null
+      }
+      // Snapshot the current local model endpoint for the offline dropdown.
+      publishLocalBridge()
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        SURF_GATEWAY_BASE_URL: base,
+        SURF_LOCAL_BRIDGE_FILE: localBridgePath(),
+        ...(gatewayToken ? { SURF_GATEWAY_TOKEN: gatewayToken } : {}),
+        // Only the dev path needs this. code.sh runs `node build/lib/preLaunch.ts`,
+        // which crashes with ERR_UNKNOWN_FILE_EXTENSION when the inherited PATH
+        // resolves to a Node that can't execute TypeScript (system Node 20 vs
+        // .nvmrc 24). The production binary has no prelaunch step.
+        ...(production ? {} : { VSCODE_SKIP_PRELAUNCH: '1' }),
+      }
+      // Launch clean, company-branded: open the chosen folder with no Welcome
+      // tab and no GitHub Copilot Chat. The built-in `GitHub.copilot-chat`
+      // extension contributes the Chat viewlet + "Sign In" from its manifest
+      // even though its activation fails, so it must be disabled at launch;
+      // Surf AI (our own assistant) replaces it.
+      const launchArgs = [
+        root,
+        '--disable-extension=GitHub.copilot-chat',
+        '--skip-welcome',
+        '--skip-release-notes',
+        '--disable-workspace-trust',
+      ]
+      const child = production
+        ? spawn(binary!, launchArgs, { detached: true, stdio: ['ignore', 'ignore', 'pipe'], cwd: forkRoot, env })
+        : process.platform === 'win32'
+          ? spawn(join(forkRoot, 'scripts', 'code.bat'), launchArgs, { detached: true, stdio: ['ignore', 'ignore', 'pipe'], cwd: forkRoot, env })
+          : spawn('bash', [join(forkRoot, 'scripts', 'code.sh'), ...launchArgs], { detached: true, stdio: ['ignore', 'ignore', 'pipe'], cwd: forkRoot, env })
+      // Fire-and-forget used to hide crashes behind a silent no-op. Watch the first
+      // few seconds: if the fork exits early, reject with its stderr so the desktop
+      // surfaces a real error. Only detach once it survives the grace window.
+      return await new Promise<{ pid: number }>((resolve, reject) => {
+        let stderr = ''
+        let settled = false
+        const pid = child.pid ?? 0
+        child.stderr?.on('data', (chunk: Buffer) => {
+          stderr += chunk.toString()
+          if (stderr.length > 8000) stderr = stderr.slice(-8000)
+        })
+        const fail = (reason: string) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          const detail = stderr.trim().split('\n').filter(Boolean).slice(-3).join('\n')
+          reject(new Error(`Surf IDE failed to start: ${reason}${detail ? `\n${detail}` : ''}`))
+        }
+        child.once('error', (error: Error) => fail(error.message))
+        child.once('exit', (code: number | null, signal?: string) => {
+          if (settled) return
+          // Exit code 0 means the launcher handed off to the IDE cleanly (the
+          // shell returns while Electron keeps running detached) — that is a
+          // successful launch, not a crash. Only a non-zero code or a signal
+          // during the grace window is a real failure.
+          if (code === 0) {
+            settled = true
+            clearTimeout(timer)
+            child.stderr?.removeAllListeners('data')
+            child.unref()
+            resolve({ pid })
+            return
+          }
+          fail(code !== null ? `exited with code ${code}` : `exited on signal ${signal ?? 'unknown'}`)
+        })
+        const timer = setTimeout(() => {
+          if (settled) return
+          settled = true
+          child.stderr?.removeAllListeners('data')
+          child.unref()
+          resolve({ pid })
+        }, 4000)
+      })
+    },
+  }
 
   const licences = createLicenceApi({
     userData: app.getPath('userData'),
@@ -2313,7 +2518,7 @@ export async function createServices(): Promise<Services> {
         const userMessageId = randomUUID()
         const agentId = (req.conversationId && store.agentOf(req.conversationId)) || req.agentId || 'code'
         const conversationId = store.ensure(req.conversationId, req.text, agentId)
-        store.append(conversationId, { id: userMessageId, role: 'user', text: req.text, sources: [] })
+        store.append(conversationId, { id: userMessageId, role: 'user', text: req.text, sources: [], mode: req.mode ?? 'offline', contextRefs: req.contextMessageIds?.length ? req.contextMessageIds : undefined })
         ui = win
         const ac = new AbortController()
         inflight.set(messageId, ac)
@@ -2584,6 +2789,7 @@ export async function createServices(): Promise<Services> {
     },
     documents: documentApi,
     code: codeApi,
+    codeIde,
     codeComplete: {
       suggest: (input) => completionRuntime!.suggest(input),
       files: async () => completionRuntime!.files(),
@@ -3469,14 +3675,6 @@ function sectionChunks(db: DB, question: string, conversationId: string | null):
     fileName: row.fileName,
     score: 1,
   }))
-}
-
-function readGeo(): string | null {
-  const name = 'dbip-country-lite.cidr'
-  const packaged = join(process.resourcesPath, 'geo', name)
-  const path = app.isPackaged && existsSync(packaged) ? packaged : join(app.getAppPath(), 'resources', 'geo', name)
-  if (!existsSync(path)) return null
-  return readFileSync(path, 'utf8')
 }
 
 function citationsOf(hits: Array<Hit | UserHit>, versions: Map<string, string>, question: string): Citation[] {

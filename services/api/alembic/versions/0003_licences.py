@@ -15,7 +15,7 @@ depends_on = None
 def upgrade() -> None:
     op.execute("""
     INSERT INTO plans(code, name, features, offline_grace_days)
-    VALUES ('pro', 'Pro', '{"max_devices":2,"packs":["general-core"]}', 7)
+    VALUES ('pro', 'Pro', '{"max_devices": 2,"packs":["general-core"]}', 7)
     ON CONFLICT (code) DO NOTHING
     """)
     op.execute("""

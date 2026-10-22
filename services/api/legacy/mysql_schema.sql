@@ -1,5 +1,15 @@
--- MySQL Database Schema for Surf AI
--- Run this to initialize the database
+-- =====================================================================
+-- LEGACY — not used by Surf production.
+--
+-- This is the old MySQL schema for the removed email/password auth
+-- (/api/v1/auth/*). Surf production runs Postgres + pgvector; the schema of
+-- record is created by services/api/alembic/versions/0001_base_schema.py
+-- (mirrored by deploy/initdb/01_schema.sql).
+--
+-- It used to live in deploy/initdb/, where the Postgres container tried to
+-- execute it and aborted on the first `CREATE DATABASE`/`USE` statement.
+-- Kept here only for historical reference. Do not mount into a container.
+-- =====================================================================
 
 CREATE DATABASE IF NOT EXISTS surf_ai CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE surf_ai;

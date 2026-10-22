@@ -32,6 +32,7 @@ apps/desktop/resources/whisper
 apps/desktop/resources/tessdata/*.traineddata
 apps/desktop/resources/geo/*.cidr
 packages/*/dist
+*.tsbuildinfo
 *.gguf
 *.part
 .surf-models/

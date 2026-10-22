@@ -66,9 +66,9 @@ const config = {
     notarize: signing && Boolean(process.env.APPLE_ID),
   },
   win: {
-    // build/icon.ico is not used: the checked-in ico was 32px and electron-builder rejects that.
-    // The png is 1024 and is converted during the Windows build.
-    icon: 'build/icon.png',
+    // build/icon.ico is a real multi-size ICO (16/24/32/48/64/128/256 @ 32bpp);
+    // electron-builder requires a 256px frame, which this satisfies.
+    icon: 'build/icon.ico',
     target: [{ target: 'nsis', arch: ['x64'] }],
   },
   nsis: {

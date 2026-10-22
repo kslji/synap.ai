@@ -3,15 +3,10 @@
  * llama.cpp accepts either json_schema (response_format) or a GBNF grammar.
  */
 import { CODE_TOOL_NAMES } from './tools.js'
+import type { ToolCallResponseFormat } from '@surf/agent-core'
 
-export interface ToolCallResponseFormat {
-  type: 'json_schema'
-  json_schema: {
-    name: string
-    strict: boolean
-    schema: Record<string, unknown>
-  }
-}
+// The structured-output constraint shape is the shared @surf/agent-core contract.
+export type { ToolCallResponseFormat } from '@surf/agent-core'
 
 export function toolCallJsonSchema(): ToolCallResponseFormat {
   return {

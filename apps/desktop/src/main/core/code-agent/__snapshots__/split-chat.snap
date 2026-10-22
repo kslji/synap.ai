@@ -1,0 +1,18 @@
+# split-chat
+{
+  "answer": "This file describes the project.",
+  "diffs": [],
+  "kind": "chat",
+  "plan": null,
+  "steps": [
+    {
+      "detail": "This file describes the project.",
+      "id": "step-1",
+      "index": 1,
+      "status": "ok",
+      "title": "Finish",
+      "tool": "finish"
+    }
+  ],
+  "stopped": "finish"
+}

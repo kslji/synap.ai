@@ -5,16 +5,10 @@
  */
 import { parseModelJson } from '../../shared/model-output.js';
 import { createStreamJoiner } from '../../shared/reply-text.js';
+import type { ChatMessage, ToolCall } from '@surf/agent-core'
 
-export type Role = 'system' | 'user' | 'assistant' | 'tool';
-export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
-export interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
-export interface ChatMessage {
-  role: Role;
-  content: string | ContentPart[] | null;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-}
+// Chat envelope is the shared @surf/agent-core contract, re-exported here for existing main-process importers.
+export type { ChatMessage, ContentPart, Role, ToolCall } from '@surf/agent-core'
 export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
 
 const QWEN_SAMPLING = { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 };

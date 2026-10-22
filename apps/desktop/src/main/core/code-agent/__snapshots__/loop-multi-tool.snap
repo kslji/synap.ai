@@ -1,0 +1,180 @@
+# loop-multi-tool
+{
+  "answer": "Bumped n and ran the tests.",
+  "diffs": [
+    {
+      "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n-export const n = 1\n+export const n = 2\n \n",
+      "id": "diff-4",
+      "path": "src/a.ts",
+      "status": "applied",
+      "stepId": "step-3"
+    }
+  ],
+  "requests": [
+    {
+      "constraint": "native",
+      "grammarHasReadFile": false,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user"
+      ],
+      "reminderPresent": false,
+      "responseFormatType": null,
+      "stepKind": "triage",
+      "toolNames": [
+        "read_file",
+        "list_dir",
+        "search_project",
+        "propose_edit",
+        "run_command",
+        "finish"
+      ]
+    },
+    {
+      "constraint": "native",
+      "grammarHasReadFile": false,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "reminderPresent": false,
+      "responseFormatType": null,
+      "stepKind": "triage",
+      "toolNames": [
+        "read_file",
+        "list_dir",
+        "search_project",
+        "propose_edit",
+        "run_command",
+        "finish"
+      ]
+    },
+    {
+      "constraint": "native",
+      "grammarHasReadFile": false,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "reminderPresent": false,
+      "responseFormatType": null,
+      "stepKind": "triage",
+      "toolNames": [
+        "read_file",
+        "list_dir",
+        "search_project",
+        "propose_edit",
+        "run_command",
+        "finish"
+      ]
+    },
+    {
+      "constraint": "native",
+      "grammarHasReadFile": false,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "reminderPresent": false,
+      "responseFormatType": null,
+      "stepKind": "triage",
+      "toolNames": [
+        "read_file",
+        "list_dir",
+        "search_project",
+        "propose_edit",
+        "run_command",
+        "finish"
+      ]
+    },
+    {
+      "constraint": "native",
+      "grammarHasReadFile": false,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "reminderPresent": false,
+      "responseFormatType": null,
+      "stepKind": "triage",
+      "toolNames": [
+        "read_file",
+        "list_dir",
+        "search_project",
+        "propose_edit",
+        "run_command",
+        "finish"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "detail": "1 snippet",
+      "id": "step-1",
+      "index": 1,
+      "status": "ok",
+      "title": "Search greet",
+      "tool": "search_project"
+    },
+    {
+      "detail": "README.md",
+      "id": "step-2",
+      "index": 2,
+      "status": "ok",
+      "title": "Read README.md",
+      "tool": "read_file"
+    },
+    {
+      "detail": "src/a.ts",
+      "id": "step-3",
+      "index": 3,
+      "status": "applied",
+      "title": "Edit src/a.ts",
+      "tool": "propose_edit"
+    },
+    {
+      "detail": "ran npm test",
+      "id": "step-5",
+      "index": 4,
+      "note": "",
+      "output": "ran npm test\n1 passing",
+      "status": "ok",
+      "title": "Run npm test",
+      "tool": "run_command"
+    },
+    {
+      "detail": "Bumped n and ran the tests.",
+      "id": "step-6",
+      "index": 5,
+      "status": "ok",
+      "title": "Finish",
+      "tool": "finish"
+    }
+  ],
+  "stopped": "finish"
+}

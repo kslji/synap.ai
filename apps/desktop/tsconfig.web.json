@@ -6,7 +6,8 @@
     "src/renderer/src/**/*.tsx",
     "src/shared/**/*",
     "src/main/**/*",
-    "../../packages/shared/src/**/*"
+    "../../packages/shared/src/**/*",
+    "../../packages/agent-core/src/**/*"
   ],
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
@@ -19,6 +20,9 @@
       ],
       "@surf/shared": [
         "../../packages/shared/src/index.ts"
+      ],
+      "@surf/agent-core": [
+        "../../packages/agent-core/src/index.ts"
       ]
     }
   }

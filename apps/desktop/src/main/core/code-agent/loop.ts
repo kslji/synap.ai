@@ -17,22 +17,10 @@ import { takeOutputUpdate } from '../../../shared/stream-batch.js'
 import { codeAgentDevWebTools, resolveSynapApiUrl, type DevWebHost } from './dev-web-hook.js'
 import { codeToolSchemas } from './tools.js'
 import { listProjectDir, readProjectFile, runProjectCommand, splitCommand } from './workspace.js'
+import type { CompletionRequest } from '@surf/agent-core'
 
-export interface CompletionRequest {
-  messages: ChatMessage[]
-  tools?: readonly unknown[]
-  responseFormat?: ReturnType<typeof toolCallJsonSchema>
-  grammar?: string
-  /** Thinking is on for planning and hard fixes only. */
-  thinking?: boolean
-  maxTokens: number
-  signal?: AbortSignal
-  /** triage and edit stay on the small model. plan and hard-fix use the larger one when both fit. */
-  stepKind?: 'triage' | 'edit' | 'plan' | 'hard-fix'
-  /** True when this request's stable prefix matches the previous one. */
-  cachePrompt?: boolean
-  onDelta?: (text: string) => void
-}
+// The completion request is the shared @surf/agent-core provider contract.
+export type { CompletionRequest } from '@surf/agent-core'
 
 export interface CodeAgentLimits {
   maxSteps: number

@@ -38,3 +38,4 @@ packages/*/dist
 .surf-models/
 scripts/code-pack-src/.cache/
 scripts/code-pack-src/.dev-seed
+apps/desktop/.golden-tmp/

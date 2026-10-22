@@ -7,7 +7,8 @@
     "apps/desktop",
     "apps/web",
     "packages/ui",
-    "packages/shared"
+    "packages/shared",
+    "packages/agent-core"
   ],
   "installConfig": {
     "hoistingLimits": "workspaces"
@@ -15,7 +16,7 @@
   "scripts": {
     "dev:desktop": "npm run dev -w @surf/desktop",
     "dev:web": "npm run dev -w @surf/web",
-    "typecheck": "npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
+    "typecheck": "npm run typecheck -w @surf/agent-core && npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
     "build": "npm run build -w @surf/desktop && npm run build -w @surf/web",
     "build:web": "npm run build -w @surf/web",
     "selftest": "npm run selftest -w @surf/desktop",

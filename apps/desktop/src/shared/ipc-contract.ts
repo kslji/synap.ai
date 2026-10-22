@@ -259,65 +259,23 @@ export type ChatEvent =
   | { type: 'code-plan'; messageId: string; plan: CodePlanView }
   | { type: 'error'; messageId: string; message: string; smallerModelId?: string }
 
-export type CodeStepStatus = 'running' | 'ok' | 'error' | 'waiting' | 'rejected' | 'applied'
+import type {
+  CodeDiffView,
+  CodePlanView,
+  CodeStepView,
+} from '@surf/agent-core'
 
-export interface CodeDiagnosticView {
-  file: string
-  line: number
-  column: number
-  message: string
-  rule: string
-  source: string
-}
-
-export interface CodeStepView {
-  id: string
-  index: number
-  tool: string
-  status: CodeStepStatus
-  title: string
-  detail: string
-  /** Live check log. The tail is kept so the row stays small. */
-  output?: string
-  diagnostics?: CodeDiagnosticView[]
-  /** 1-based attempt or candidate counter. */
-  attempt?: number
-  attempts?: number
-  /** Best-effort sandbox note. Present when a command actually ran. */
-  note?: string
-}
-
-export type CodeDiffStatus = 'pending' | 'applied' | 'rejected' | 'error'
-
-export interface CodeDiffView {
-  id: string
-  stepId: string
-  path: string
-  diff: string
-  status: CodeDiffStatus
-}
-
-export interface CodePlanStepView {
-  id: string
-  index: number
-  goal: string
-  files: string[]
-  symbols: string[]
-  dependsOn: string[]
-  check: string
-  create: boolean
-}
-
-export interface CodeUndoView {
-  stepId: string
-  title: string
-}
-
-export interface CodePlanView {
-  status: 'review' | 'running' | 'done'
-  steps: CodePlanStepView[]
-  undos?: CodeUndoView[]
-}
+// Code-agent view types are the shared @surf/agent-core contract, re-exported for main + renderer importers.
+export type {
+  CodeDiagnosticView,
+  CodeDiffStatus,
+  CodeDiffView,
+  CodePlanStepView,
+  CodePlanView,
+  CodeStepStatus,
+  CodeStepView,
+  CodeUndoView,
+} from '@surf/agent-core'
 
 export interface CodeAgentRoot {
   root: string | null

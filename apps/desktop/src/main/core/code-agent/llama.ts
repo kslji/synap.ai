@@ -1,21 +1,33 @@
 /**
- * llama.cpp chat completions for the Code agent loop.
+ * llama.cpp chat completions for the Code agent loop - the offline ModelProvider.
  * Native tool schemas go out first. Grammar fields are added only on the fallback.
+ *
+ * LocalLlamaProvider wraps a LlamaClient WITHOUT changing it, so the offline path
+ * produces the identical ModelTurn the loop expects. `llamaCompleter` stays as the
+ * one-line adapter so existing call-sites (and the routing/telemetry around them in
+ * app-services) are unchanged.
  */
-import { LlamaClient, type ChatMessage } from '../llama-client.js'
-import type { CompletionRequest } from './loop.js'
-import type { ModelTurn } from './parse-tool.js'
+import { LlamaClient } from '../llama-client.js'
+import type { ChatMessage, CompletionRequest, GenerateOptions, ModelProvider, ModelTurn } from '@surf/agent-core'
+import { providerToComplete } from '@surf/agent-core'
 
-export function llamaCompleter(client: LlamaClient): (req: CompletionRequest) => Promise<ModelTurn> {
-  return async (req) => {
+export class LocalLlamaProvider implements ModelProvider {
+  constructor(private readonly client: LlamaClient) {}
+
+  async generate(messages: ChatMessage[], options: GenerateOptions): Promise<ModelTurn> {
+    const req: CompletionRequest = { messages, ...options }
     const extras = llamaCompletionExtras(req)
     if (req.onDelta) {
-      const res = await client.chatCollect(req.messages, req.tools, req.signal, req.maxTokens, extras, req.onDelta)
+      const res = await this.client.chatCollect(req.messages, req.tools, req.signal, req.maxTokens, extras, req.onDelta)
       return turnFrom(res.choices[0]?.message, res.usage)
     }
-    const res = await client.chat(req.messages, req.tools, req.signal, req.maxTokens, extras)
+    const res = await this.client.chat(req.messages, req.tools, req.signal, req.maxTokens, extras)
     return turnFrom(res.choices[0]?.message, res.usage)
   }
+}
+
+export function llamaCompleter(client: LlamaClient): (req: CompletionRequest) => Promise<ModelTurn> {
+  return providerToComplete(new LocalLlamaProvider(client))
 }
 
 export function llamaCompletionExtras(req: Pick<CompletionRequest, 'responseFormat' | 'grammar' | 'thinking' | 'cachePrompt'>): { response_format?: unknown; grammar?: string; enableThinking?: boolean; cachePrompt?: boolean } {

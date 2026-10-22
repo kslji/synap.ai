@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from decimal import Decimal
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
 from fastapi import HTTPException
@@ -30,6 +30,55 @@ GATEWAY_MARKUP = Decimal(os.environ.get("GATEWAY_MARKUP", "1.20"))
 GATEWAY_STARTING_CREDIT = Decimal(os.environ.get("GATEWAY_STARTING_CREDIT", "0"))
 GATEWAY_SYSTEM_PROMPT = os.environ.get("GATEWAY_SYSTEM_PROMPT", "You are a helpful assistant.")
 PRICING_SYNC_SECONDS = int(os.environ.get("PRICING_SYNC_SECONDS", "21600"))  # 6 hours
+
+
+def sse_frame(payload: Any) -> str:
+    """One SSE `data:` frame.
+
+    The terminal billing chunk carries Decimal amounts, which plain json.dumps
+    rejects - and the whole stream would then end in an error event instead of the
+    billing the device needs. Decimal goes out as a number, anything else as text.
+    """
+    return f"data: {json.dumps(payload, default=_json_default)}\n\n"
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    return str(value)
+
+
+def countable_messages(
+    messages: list[dict[str, Any]],
+    extra: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    """A billing view of one agent turn.
+
+    The pre-flight token count only sees `content`, but an agent turn also spends
+    prompt tokens on its tool schemas, on assistant `tool_calls` (whose content is
+    often empty) and on the tool results replayed back. Folding those into the
+    counted text keeps the estimate honest, so a tool-heavy turn cannot slip past
+    the balance check.
+
+    A plain [system, user] chat turn counts exactly as it did before.
+    """
+    counted: list[dict[str, str]] = []
+    for message in messages:
+        content = message.get("content")
+        if content is None:
+            text = ""
+        elif isinstance(content, str):
+            text = content
+        else:
+            text = json.dumps(content)
+        tool_calls = message.get("tool_calls")
+        if tool_calls:
+            text = f"{text}\n{json.dumps(tool_calls)}".strip()
+        counted.append({"role": message.get("role", "user"), "content": text})
+    tools = (extra or {}).get("tools")
+    if tools:
+        counted.append({"role": "system", "content": json.dumps(tools)})
+    return counted
 
 
 class GatewayService:
@@ -132,6 +181,7 @@ class GatewayService:
         messages: list[dict[str, str]],
         max_tokens: int,
         stream: bool = False,
+        extra_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Call OpenRouter API (non-streaming) with rate limiting.
         
@@ -142,6 +192,8 @@ class GatewayService:
             messages: Message array
             max_tokens: Maximum output tokens
             stream: Whether to stream response (not used here)
+            extra_payload: Optional provider fields forwarded verbatim
+                (tools / response_format / grammar) for the agent endpoint
             
         Returns:
             Response dict
@@ -154,6 +206,7 @@ class GatewayService:
             "messages": messages,
             "max_tokens": max_tokens,
             "stream": False,
+            **(extra_payload or {}),
         }
         
         headers = {
@@ -192,6 +245,7 @@ class GatewayService:
         model: str,
         messages: list[dict[str, str]],
         max_tokens: int,
+        extra_payload: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream SSE response from OpenRouter with rate limiting.
         
@@ -201,6 +255,8 @@ class GatewayService:
             model: Model ID
             messages: Message array
             max_tokens: Maximum output tokens
+            extra_payload: Optional provider fields forwarded verbatim
+                (tools / response_format / grammar) for the agent endpoint
             
         Yields:
             SSE data chunks
@@ -213,6 +269,7 @@ class GatewayService:
             "messages": messages,
             "max_tokens": max_tokens,
             "stream": True,
+            **(extra_payload or {}),
         }
         
         headers = {
@@ -278,29 +335,89 @@ class GatewayService:
         Raises:
             HTTPException: On various errors
         """
-        # 1. Acquire per-user concurrency lock
+        return await self._with_user_lock(
+            user_id,
+            lambda: self._handle_request(
+                user_id=user_id,
+                model=model,
+                messages=self.prepare_messages(prompt),
+                stream=stream,
+            ),
+        )
+
+    async def handle_agent_completion(
+        self,
+        user_id: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        stream: bool = True,
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        grammar: str | None = None,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any] | AsyncIterator[str]:
+        """Handle one stateless agent turn proposed by the device's agent loop.
+
+        Same guards as handle_chat_request (account, 402, allowlist, pricing,
+        pre-flight, circuit breaker, billing), but the caller supplies the whole
+        message array plus the tool/constraint fields, which are forwarded to the
+        provider. Nothing is persisted: the agent's history stays on the device
+        (product rule), so this endpoint is a pure transport.
+
+        Args:
+            user_id: User ID from JWT
+            model: Model ID
+            messages: The turn's messages, in order, as the loop built them
+            stream: Whether to stream the response
+            tools: Native tool schemas (OpenAI format) to forward
+            response_format: json_schema constraint to forward
+            grammar: GBNF grammar to forward (the loop's last fallback rung)
+            max_tokens: Client's requested cap, clamped to what the balance affords
+        """
+        extra: dict[str, Any] = {}
+        if tools:
+            extra["tools"] = tools
+        if response_format:
+            extra["response_format"] = response_format
+        if grammar:
+            extra["grammar"] = grammar
+        return await self._with_user_lock(
+            user_id,
+            lambda: self._handle_request(
+                user_id=user_id,
+                model=model,
+                messages=messages,
+                stream=stream,
+                extra_payload=extra,
+                client_max_tokens=max_tokens,
+            ),
+        )
+
+    async def _with_user_lock(
+        self,
+        user_id: str,
+        run: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        """Run one request under the per-user concurrency lock."""
         try:
             async with self.concurrency.user_scope(user_id):
-                return await self._handle_chat_request_internal(
-                    user_id=user_id,
-                    model=model,
-                    prompt=prompt,
-                    stream=stream,
-                )
+                return await run()
         except asyncio.TimeoutError:
             raise HTTPException(
                 status_code=429,
                 detail="Too many concurrent requests. Please wait for your previous request to complete.",
             )
-    
-    async def _handle_chat_request_internal(
+
+    async def _handle_request(
         self,
         user_id: str,
         model: str,
-        prompt: str,
+        messages: list[dict[str, Any]],
         stream: bool = False,
+        extra_payload: dict[str, Any] | None = None,
+        client_max_tokens: int | None = None,
     ) -> dict[str, Any] | AsyncIterator[str]:
-        """Internal implementation of handle_chat_request (called with concurrency lock held)."""
+        """Shared request body for the chat and agent endpoints (lock held)."""
         # 2. Ensure gateway account exists
         await self.store.ensure_gateway_account(user_id, self.starting_credit)
         
@@ -322,13 +439,11 @@ class GatewayService:
         if not pricing:
             raise HTTPException(status_code=400, detail=f"Unknown model: {model}")
         
-        # 5. Build this turn's messages (single turn; history is on the device)
-        messages = self.prepare_messages(prompt)
-        
-        # 6. Pre-flight check
+        # 6. Pre-flight check. Tool schemas and assistant tool_calls are part of the
+        # prompt too, so they are counted even though their `content` is empty.
         try:
             buffered_tokens, max_tokens, estimated_cost = preflight_check(
-                messages=messages,
+                messages=countable_messages(messages, extra_payload),
                 balance=balance,
                 input_price_per_million=pricing["input_price_per_million"],
                 output_price_per_million=pricing["output_price_per_million"],
@@ -339,6 +454,9 @@ class GatewayService:
                 status_code=402,
                 detail=INSUFFICIENT_CREDITS,
             )
+
+        if client_max_tokens:
+            max_tokens = min(max_tokens, client_max_tokens) if max_tokens else client_max_tokens
         
         log.info(
             "user=%s model=%s tokens=%d max_tokens=%d estimated_cost=$%.6f",
@@ -367,6 +485,7 @@ class GatewayService:
                 messages=messages,
                 max_tokens=max_tokens,
                 balance_before=balance,
+                extra_payload=extra_payload,
             )
         else:
             response = await self.call_openrouter(
@@ -376,6 +495,7 @@ class GatewayService:
                 messages=messages,
                 max_tokens=max_tokens,
                 stream=False,
+                extra_payload=extra_payload,
             )
             # Success already recorded in call_openrouter
             
@@ -400,17 +520,23 @@ class GatewayService:
         user_id: str,
         request_id: str,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         max_tokens: int,
         balance_before: Decimal,
+        extra_payload: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        """Handle streaming response with billing. Messages are not stored."""
+        """Handle streaming response with billing. Messages are not stored.
+
+        Every upstream chunk is forwarded verbatim, so content deltas and native
+        tool-call deltas reach the client unchanged; the device assembles them.
+        """
         # Collect the full response for billing
         full_content = []
+        tool_call_seen = False
         usage_info = {"prompt_tokens": 0, "completion_tokens": 0}
         
         try:
-            stream = self.stream_openrouter(user_id, request_id, model, messages, max_tokens)
+            stream = self.stream_openrouter(user_id, request_id, model, messages, max_tokens, extra_payload)
             completion_count = 0
             
             async for chunk_data in stream:
@@ -430,6 +556,9 @@ class GatewayService:
                     if "content" in delta:
                         full_content.append(delta["content"])
                         completion_count += 1
+                    # An agent turn that only calls tools has no content to bill on.
+                    if delta.get("tool_calls"):
+                        tool_call_seen = True
                 
                 # Track usage if provided
                 if "usage" in chunk:
@@ -437,18 +566,18 @@ class GatewayService:
                 
                 # Sever stream if max_tokens reached
                 if completion_count >= max_tokens:
-                    yield f"data: {json.dumps({'choices': [{'finish_reason': 'length'}]})}\n\n"
+                    yield sse_frame({"choices": [{"finish_reason": "length"}]})
                     break
                 
                 yield f"data: {chunk_data}\n\n"
             
             # Post-flight billing after stream completes
-            if full_content:
+            if full_content or tool_call_seen:
                 # Estimate usage if not provided
                 if usage_info["completion_tokens"] == 0:
                     usage_info["completion_tokens"] = completion_count
                 if usage_info["prompt_tokens"] == 0:
-                    usage_info["prompt_tokens"] = count_messages_tokens(messages)
+                    usage_info["prompt_tokens"] = count_messages_tokens(countable_messages(messages, extra_payload))
                 
                 # Create synthetic response for billing
                 synthetic_response = {
@@ -467,9 +596,9 @@ class GatewayService:
                 
                 # No message storage: chat history stays on the device (product rule).
                 # Send billing info as final chunk
-                yield f"data: {json.dumps({'billing': billing_result})}\n\n"
+                yield sse_frame({"billing": billing_result})
                 
         except Exception as exc:
             log.error("streaming failed for user=%s: %s", user_id, exc)
             code = "rate_limited" if isinstance(exc, HTTPException) and exc.status_code == 429 else "gateway_error"
-            yield f"data: {json.dumps({'error': {'code': code, 'message': user_facing_message(exc)}})}\n\n"
+            yield sse_frame({"error": {"code": code, "message": user_facing_message(exc)}})

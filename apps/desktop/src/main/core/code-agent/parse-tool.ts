@@ -5,16 +5,14 @@
 import { stripMarkdownFences } from '../../../shared/model-output.js'
 import { devWebEnabled, type EnvLike } from '../dev-web-tools.js'
 import { isCodeTool, type CodeToolName } from './tools.js'
+import type { ModelTurn } from '@surf/agent-core'
 
 const DEV_WEB_TOOLS = ['web_search', 'fetch_page'] as const
 type DevWebToolName = typeof DEV_WEB_TOOLS[number]
 export type LoopToolName = CodeToolName | DevWebToolName
 
-export interface ModelTurn {
-  content: string | null
-  toolCalls?: { id?: string; name: string; arguments: string }[]
-  usage?: { promptTokens: number; completionTokens: number }
-}
+// The normalized model turn is the shared @surf/agent-core contract.
+export type { ModelTurn } from '@surf/agent-core'
 
 export interface ParsedCall {
   name: LoopToolName

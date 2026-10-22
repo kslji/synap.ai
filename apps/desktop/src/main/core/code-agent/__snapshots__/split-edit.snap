@@ -1,0 +1,61 @@
+# split-edit
+{
+  "answer": "1. Update src/a.ts to bump n (src/a.ts) — check passed. Undo restores the files from before this step.\nNo full test command was found.",
+  "attempts": [
+    {
+      "candidates": 0,
+      "replanned": false,
+      "stepId": "edit",
+      "tries": 1
+    }
+  ],
+  "diffs": [
+    {
+      "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n-export const n = 1\n+export const n = 2\n \n",
+      "id": "edit:src/a.ts",
+      "path": "src/a.ts",
+      "status": "applied",
+      "stepId": "edit"
+    }
+  ],
+  "kind": "edit",
+  "plan": {
+    "status": "done",
+    "steps": [
+      {
+        "check": "typecheck:",
+        "create": false,
+        "dependsOn": [],
+        "files": [
+          "src/a.ts"
+        ],
+        "goal": "Update src/a.ts to bump n",
+        "id": "edit",
+        "index": 1,
+        "symbols": []
+      }
+    ],
+    "undos": [
+      {
+        "stepId": "edit",
+        "title": "Update src/a.ts to bump n"
+      }
+    ]
+  },
+  "requestKinds": [
+    "edit"
+  ],
+  "steps": [
+    {
+      "attempt": 1,
+      "attempts": 3,
+      "detail": "src/a.ts",
+      "id": "edit:edit",
+      "index": 1,
+      "status": "applied",
+      "title": "Update src/a.ts to bump n",
+      "tool": "edit"
+    }
+  ],
+  "stopped": "finish"
+}

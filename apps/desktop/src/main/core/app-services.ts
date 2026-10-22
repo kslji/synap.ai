@@ -50,6 +50,8 @@ import { FIRST_RUN_CHAT_MODEL_IDS, LOCAL_CHAT_MODEL_ID } from '../../shared/star
 import { keywordSearchNote, setupCatalog, setupEmbedding } from '../../shared/setup-choice.js'
 import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
+import { GatewayProvider } from './gateway-provider.js'
+import { providerToComplete } from '@surf/agent-core'
 import { MetricsLog } from './live/metrics-log.js'
 import { cpuPercent, metricLine, parseProcCpu, type UsageSample } from './live/metrics.js'
 import { storageClearAllowed } from './live/storage.js'
@@ -76,6 +78,8 @@ import { detectAllowlist, mergeAllowlist } from './code-agent/checks.js'
 import { readModeMap, projectMode, saveProjectMode } from './code-agent/mode-store.js'
 import { commandRisk } from './code-agent/permission.js'
 import { runSplitTask } from './code-agent/split.js'
+import { onlineCodeAgentTurn } from './code-agent/agent-route.js'
+import { gatedHistory, onlineContextAllowed, readOnlineConsent } from './code-agent/online-consent.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
 import { bundledSourcePath, readBundledManifest } from './bundled-models.js'
@@ -1014,7 +1018,7 @@ export async function createServices(): Promise<Services> {
     })
   }
 
-  async function replyCode(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
+  async function replyCode(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal, online = false): Promise<void> {
     const root = codeApi.root()
     if (!root) {
       await emitText(win, messageId, FOLDER_PROMPT)
@@ -1054,20 +1058,28 @@ export async function createServices(): Promise<Services> {
     await withModel(async () => {
       const settings = readSettings()
       const reg = registry()
-      const chatModel = await chooseChat(reg, settings.codeModelId, 'code')
-      if (!chatModel) {
+      // An online code turn runs the SAME loop on the gateway provider: no local model is
+      // chosen and no sidecar is launched. A missing sign-in is reported, never rerouted
+      // silently onto the local model.
+      const gateway = online ? await onlineAgent(win, conversationId, messageId, userMessageId, signal) : null
+      if (online && !gateway) return
+      const chatModel = gateway ? null : await chooseChat(reg, settings.codeModelId, 'code')
+      if (!gateway && !chatModel) {
         await emitText(win, messageId, NO_MODEL_MESSAGE)
         finish(conversationId, messageId, userMessageId, win, NO_MODEL_MESSAGE, [], 'insufficient', true)
         return
       }
       const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
-      const server = await ensure('chat', chatModel, profile.serverCtx, '', 'code')
+      const server = chatModel ? await ensure('chat', chatModel, profile.serverCtx, '', 'code') : null
+      const agentModelId = gateway ? gateway.model : chatModel?.id ?? ''
       let counter = heuristicCounter
-      try {
-        const live = new LlamaServerTokenizer(server.baseUrl, server.apiKey)
-        await live.count('ok')
-        counter = live
-      } catch { /* the heuristic counter stays inside the same budget */ }
+      if (server) {
+        try {
+          const live = new LlamaServerTokenizer(server.baseUrl, server.apiKey)
+          await live.count('ok')
+          counter = live
+        } catch { /* the heuristic counter stays inside the same budget */ }
+      }
       const rules = loadSystemRulesSync(root, bundledSystemRulesPath(app.isPackaged, process.resourcesPath, app.getAppPath()))
       const prior = priorMessages(conversationId, userMessageId, messageId)
       const history: { user: string; assistant: string }[] = []
@@ -1078,6 +1090,10 @@ export async function createServices(): Promise<Services> {
           i++
         }
       }
+      // The cloud only sees this chat's earlier offline turns once the chat has agreed.
+      const loopHistory = gateway
+        ? gatedHistory(history, onlineContextAllowed(readOnlineConsent(codeAgentDir()), conversationId))
+        : history
       const started = Date.now()
       const indexed = codeApi.indexed()
       const facts = indexed ? await indexed.planFacts() : workspaceFacts(root)
@@ -1090,7 +1106,7 @@ export async function createServices(): Promise<Services> {
       const liveModels = liveModelList(reg)
       const pair = selectRoutePair({ totalRamGb: hw.totalRamGb, models: liveModels, installed: installedIds })
       let task = req.text
-      if (req.images.length) {
+      if (req.images.length && chatModel) {
         const buffers = req.images.map((image) => Buffer.from(image.base64, 'base64')).filter((buf) => buf.length >= 16)
         if (!buffers.length) throw new Error('That screenshot could not be read.')
         const mmprojPath = await codeMmprojPath(chatModel)
@@ -1132,6 +1148,33 @@ export async function createServices(): Promise<Services> {
       try {
       result = await runSplitTask(task, {
         complete: async (request) => {
+          if (gateway) {
+            // Same loop, same ModelTurn contract - only the transport is the gateway.
+            const batch = createTextBatch(48)
+            const callStarted = Date.now()
+            let first: number | null = null
+            modelBusy += 1
+            try {
+              const turn = await providerToComplete(gateway.provider)({
+                ...request,
+                onDelta: (piece) => {
+                  if (first == null) first = Date.now()
+                  liveText += piece
+                  const ready = batch.push(piece)
+                  if (ready) sendLiveModel(win, messageId, gateway.model, tailLive(liveText))
+                },
+              })
+              const rest = batch.flush()
+              if (rest) sendLiveModel(win, messageId, gateway.model, tailLive(liveText))
+              const idle = { ramMb: null, ticks: null }
+              recordUse(turnSample(gateway.model, turn.usage, first == null ? null : first - callStarted, Date.now() - callStarted, idle, idle, 0, 0, 'code'))
+              return turn
+            } finally {
+              modelBusy = Math.max(0, modelBusy - 1)
+              touchModel()
+            }
+          }
+          if (!chatModel) throw new Error('The offline code agent needs a local chat model')
           const kind: StepRoute = request.stepKind ?? 'edit'
           const choice = routeStepModel({ kind, small: pair.small, large: pair.large, dual: pair.dual })
           const target = reg.models.find((model) => model.id === choice.modelId) ?? chatModel
@@ -1190,7 +1233,7 @@ export async function createServices(): Promise<Services> {
         devWeb: { apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal },
         facts,
         totalRamGb: hw.totalRamGb,
-        currentModelId: chatModel.id,
+        currentModelId: agentModelId,
         catalog: reg.models.filter((model) => model.role === 'chat').map((model) => ({
           id: model.id,
           family: model.family,
@@ -1212,7 +1255,7 @@ export async function createServices(): Promise<Services> {
         reviewPlan: mode === 'ask' ? () => waitPlan(messageId, signal) : undefined,
         onRememberCommand: (command) => writeAllowed(root, command),
         reference: packTurn.reference || undefined,
-      }, history)
+      }, loopHistory)
       } finally {
         acceptAllEdits.delete(messageId)
       }
@@ -1223,7 +1266,7 @@ export async function createServices(): Promise<Services> {
       console.info(`[surf] code agent stopped=${result.stopped} steps=${result.steps.length} ms=${Date.now() - started}`)
       recordUse({
         at: Date.now(),
-        modelId: chatModel.id,
+        modelId: agentModelId,
         tasks: 1,
         steps: result.steps.length,
         tokensIn: 0,
@@ -1237,7 +1280,7 @@ export async function createServices(): Promise<Services> {
         ? ensureCitations(result.answer, packTurn.hits)
         : result.answer
       await emitText(win, messageId, answer)
-      finish(conversationId, messageId, userMessageId, win, answer, packTurn.citations, 'answer')
+      finish(conversationId, messageId, userMessageId, win, answer, packTurn.citations, 'answer', false, false, undefined, gateway ? { mode: 'online' } : undefined)
     })
     kickCodePackIndex()
   }
@@ -1354,6 +1397,25 @@ export async function createServices(): Promise<Services> {
     return id
   }
 
+  /**
+   * The gateway provider an online code turn runs on, or null after finishing the
+   * reply with the reason online is unavailable. The loop is the same; only the
+   * transport differs.
+   */
+  async function onlineAgent(win: BrowserWindow, conversationId: string, messageId: string, userMessageId: string, signal: AbortSignal): Promise<{ provider: GatewayProvider; model: string } | null> {
+    const settings = readSettings()
+    const base = apiBase(settings)
+    const token = await freshAccess({ base, offlineOnly: false }).catch(() => null)
+    const model = token ? await onlineModelId(base, token, signal) : ''
+    if (!token || !model) {
+      const msg = 'Online needs you signed in and connected. Switch to Offline to use the local model.'
+      await emitText(win, messageId, msg)
+      finish(conversationId, messageId, userMessageId, win, msg, [], 'answer', false, false, undefined, { mode: 'online' })
+      return null
+    }
+    return { provider: new GatewayProvider({ baseUrl: base, token, model }), model }
+  }
+
   /** Resolve pinned message IDs (same conversation only) into a labeled context block. */
   function buildContextBlock(ids: string[], conversationId: string): string {
     const lines: string[] = []
@@ -1398,6 +1460,20 @@ export async function createServices(): Promise<Services> {
   async function reply(req: ChatReq, conversationId: string, messageId: string, userMessageId: string, win: BrowserWindow, signal: AbortSignal): Promise<void> {
     const text = req.text
     if (req.mode === 'online') {
+      // A code turn with a project open runs the shared agent loop online; anything
+      // else keeps the single-turn online chat path.
+      const onlineSettings = readSettings()
+      if (onlineCodeAgentTurn({
+        mode: req.mode,
+        agentId: req.agentId,
+        hasRoot: Boolean(codeApi.root()),
+        images: req.images.length,
+        offlineOnly: onlineSettings.offlineOnly,
+        wantsProjectFiles: wantsProjectFiles(text),
+      })) {
+        await replyCode(req, conversationId, messageId, userMessageId, win, signal, true)
+        return
+      }
       await replyOnline(req, conversationId, messageId, userMessageId, win, signal)
       return
     }

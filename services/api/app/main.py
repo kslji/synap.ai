@@ -16,6 +16,7 @@ from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -33,8 +34,10 @@ from .rate_limit import (
     RateLimiter,
     client_ip,
 )
+from .cors import cors_kwargs
 from .startup_guard import is_production, validate_production_config
 from .tokens import issue_access_token, read_bearer
+from .version import app_version
 from .gateway.store import MemoryGatewayStore, PostgresGatewayStore
 from .gateway.service import GatewayService
 from .gateway.router import router as gateway_router
@@ -98,7 +101,14 @@ async def lifespan(app: FastAPI):
         await app.state.pg.close()
 
 
-app = FastAPI(title="Surf AI API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Surf AI API", version=app_version(), lifespan=lifespan)
+
+# CORS is only for named web origins; the desktop app and IDE extension call the
+# API natively and need none. Empty CORS_ORIGINS installs no middleware (secure
+# default), and a lone "*" is never paired with credentials (see app/cors.py).
+_cors = cors_kwargs(ENV.get("CORS_ORIGINS", ""))
+if _cors:
+    app.add_middleware(CORSMiddleware, **_cors)
 
 # Include routers.
 # Authentication is email-OTP only (/v1/auth/otp/* below, backed by PostgresAuth).
@@ -148,12 +158,12 @@ async def health():
         except Exception as exc:  # noqa: BLE001
             out["valkey"] = f"error: {exc.__class__.__name__}"
     ok = all(value.startswith("ok") or value in {"skipped", "memory"} for value in out.values())
-    return JSONResponse({"status": "ok" if ok else "degraded", **out}, status_code=200 if ok else 503)
+    return JSONResponse({"status": "ok" if ok else "degraded", "version": app_version(), **out}, status_code=200 if ok else 503)
 
 
 @app.get("/v1/version")
 async def version():
-    return {"min_app_version": ENV.get("MIN_APP_VERSION", "0.1.0"), "announcements": []}
+    return {"version": app_version(), "min_app_version": ENV.get("MIN_APP_VERSION", "0.1.0"), "announcements": []}
 
 
 @app.get("/v1/models/registry")

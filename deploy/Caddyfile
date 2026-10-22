@@ -1,6 +1,35 @@
-# Replace :80 with api.yourdomain.com to get automatic HTTPS (Let's Encrypt) once DNS points to the VM.
-:80 {
+# Surf API edge. Caddy terminates TLS and is the ONLY thing that can reach the
+# API (compose `exposes` 8000 internally, never to the host).
+#
+#   * api.synap.surf — automatic HTTPS from Let's Encrypt once DNS points here.
+#     Caddy redirects plain HTTP to HTTPS for any named domain automatically,
+#     and sends HSTS over TLS. Security headers are pinned below.
+#   * localhost      — a `tls internal` block so `docker compose up` serves the
+#     API over https://localhost for local testing (Caddy's own locally-trusted
+#     CA; trust it or use `curl -k`).
+
+# ── production ─────────────────────────────────────────────────────────────
+api.synap.surf {
 	encode zstd gzip
-	reverse_proxy api:8000
+
+	# HTTP -> HTTPS is automatic for a named domain. Over TLS add the hardening headers.
+	# -Server drops Caddy's own Server header.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "no-referrer"
 	header -Server
+
+	reverse_proxy api:8000
+}
+
+# ── local testing (https://localhost) ──────────────────────────────────────
+localhost {
+	tls internal
+	encode zstd gzip
+
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "no-referrer"
+	header -Server
+
+	reverse_proxy api:8000
 }

@@ -214,7 +214,10 @@ def test_deploy_example_matches_code():
     extra = sorted(
         v
         for v in documented - read
-        if v not in {"POSTGRES_PASSWORD"}  # consumed inside the postgres image via env_file
+        # Consumed inside a container image via env_file, not by our Python or a
+        # compose ${} reference: the postgres bootstrap password, and the
+        # uvicorn FORWARDED_ALLOW_IPS proxy-trust CIDR.
+        if v not in {"POSTGRES_PASSWORD", "FORWARDED_ALLOW_IPS"}
     )
     assert not missing, f"code reads env vars missing from deploy/.env.example: {missing}"
     assert not extra, f"deploy/.env.example documents vars no code reads: {extra}"

@@ -18,7 +18,9 @@ def check(name: str, ok: bool, detail: str, rows: list) -> None:
 
 def run_checks() -> list[dict]:
     rows: list[dict] = []
-    # deploy/.env.example (stack): signing/JWT/mail secrets are blank placeholders.
+    # deploy/.env.example (stack): signing/JWT/mail secrets are blank or named
+    # placeholders. "change-me"/"replace-me" document that a real value belongs
+    # elsewhere (the git-ignored deploy/.env); anything else fails the guard.
     stack = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")
     for key in (
         "JWT_SECRET",
@@ -28,7 +30,8 @@ def run_checks() -> list[dict]:
         "SMTP_PASSWORD",
     ):
         line = next((row for row in stack.splitlines() if row.startswith(f"{key}=")), "")
-        check(f"stack-example-{key.lower()}-empty", line == f"{key}=", line or "missing", rows)
+        value = line.split("=", 1)[1] if line else ""
+        check(f"stack-example-{key.lower()}-empty", value in ("", "change-me", "replace-me"), line or "missing", rows)
     # Legacy host-only assignments must not creep back into any example.
     joined = stack
     for ghost in ("MOSS_PROJECT_KEY=", "LIVEKIT_API_SECRET=secret", "ADMIN_PASSWORD=x"):

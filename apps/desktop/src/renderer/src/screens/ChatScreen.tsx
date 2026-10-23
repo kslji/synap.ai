@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
-import { BlobMascot, blobStateFor, Markdown } from '@surf/ui'
+import { ArrowLeft, ArrowUp, Check, Cloud, Copy, Cpu, MoreHorizontal, Pin, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { Markdown } from '@surf/ui'
 import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
-import type { ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import type { ChatMode, ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
 import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
 import { messagePlaceholder } from '../../../shared/chat-title'
 import { friendlyNameFromId } from '../../../shared/model-label'
@@ -26,9 +26,9 @@ function folderName(root: string): string {
 }
 
 const PROMPTS = [
-  'What is 14 knots in km/h?',
-  'How do you keep chats on this computer?',
+  'Summarize the documents in my library',
   'What can you do while offline?',
+  'Help me draft a professional reply',
 ]
 
 export function ChatScreen({
@@ -68,7 +68,7 @@ export function ChatScreen({
   tabSuggestionsOff = [],
   onRegenerate,
   onContinue,
-  animateMascot = true,
+  onBackToAgents,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -81,7 +81,7 @@ export function ChatScreen({
   onBotName?: (name: string) => void
   modelLabel: string
   tourAttach: boolean
-  onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[]) => void
+  onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[], opts?: { mode: ChatMode; contextMessageIds: string[] }) => void
   shots?: CodeShot[]
   onAddShots?: (files: File[]) => void
   onRemoveShot?: (id: string) => void
@@ -107,7 +107,7 @@ export function ChatScreen({
   tabSuggestionsOff?: string[]
   onRegenerate?: (messageId: string) => void
   onContinue?: (messageId: string) => void
-  animateMascot?: boolean
+  onBackToAgents?: () => void
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
   const [text, setText] = useState('')
@@ -119,6 +119,11 @@ export function ChatScreen({
   textRef.current = text
   const [over, setOver] = useState(false)
   const [burst, setBurst] = useState<string | null>(null)
+  // Which model answers the next turn. Defaults to the local sidecar (offline).
+  const [mode, setMode] = useState<ChatMode>('offline')
+  // Earlier message IDs the user pinned as explicit context for the next turn.
+  const [contextIds, setContextIds] = useState<string[]>([])
+  const onlineAvailable = !status.offlineOnly
   const scroller = useRef<HTMLDivElement>(null)
   const wasStreaming = useRef(false)
   const messagesRef = useRef(messages)
@@ -143,7 +148,6 @@ export function ChatScreen({
             ? 'thinking'
             : 'idle'
   const waiting = messages.some((m) => (m.steps ?? []).some((step) => step.status === 'waiting') || (m.diffs ?? []).some((diff) => diff.status === 'pending') || m.plan?.status === 'review')
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
   useEffect(() => {
     if (streaming) { wasStreaming.current = true; return }
     if (!wasStreaming.current) return
@@ -180,19 +184,33 @@ export function ChatScreen({
     const images = shots.map((shot) => ({ mime: shot.mime, base64: shot.base64 }))
     if (streaming || (!t && images.length === 0)) return
     setText('')
-    onSend(t, images)
+    onSend(t, images, { mode, contextMessageIds: contextIds })
+    setContextIds([])
+  }
+
+  function addContext(id: string) {
+    setContextIds((list) => (list.includes(id) ? list : [...list, id]))
   }
 
   const bot = cleanMascotName(botName)
   return (
     <section className="flex min-w-0 flex-1" data-listening={listening ? 'yes' : 'no'}>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-center px-6 py-4">
+        <header className="flex items-center justify-between px-6 py-4">
+          <button
+            type="button"
+            onClick={onBackToAgents}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--card)] transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Back to Agents
+          </button>
           <div className="shell-title" data-chat-header="yes" data-chat-agent={agentName} title={status.onlineReason} data-online-reason={status.onlineReason}>
-            <BlobMascot variant="avatar" state={listening ? 'listening' : 'idle'} size={28} animate={animateMascot} label={bot} />
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#F97316] text-xs font-bold text-white" data-chat-avatar="yes">S</div>
             <BotNameField name={bot} onSave={(next) => onBotName?.(next)} />
             <span className="agent-tag" data-agent-pill="yes">{agentName}</span>
           </div>
+          <div className="w-32"></div>
         </header>
         {project && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-2" data-code-project="yes">
@@ -235,7 +253,7 @@ export function ChatScreen({
             <div className="empty-chat">
               {!chatReady ? (
                 <>
-                  <BlobMascot state={activity.state} size={120} animate={animateMascot} />
+                  <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-[#FFEDD5] text-[#C2410C]" data-empty-avatar="yes"><span className="text-3xl font-bold">S</span></div>
                   <h1 className="empty-title" data-empty-agent="yes">{agentName}</h1>
                   <p className="empty-lead" data-model-missing="yes">{MODEL_MISSING_COPY}</p>
                   <button className="btn btn-primary mt-4" type="button" data-open-site="yes" onClick={() => { void window.surf.links.open(modelSiteUrl()) }}>
@@ -244,7 +262,7 @@ export function ChatScreen({
                 </>
               ) : (
                 <>
-                  <BlobMascot state={activity.state} size={148} animate={animateMascot} />
+                  <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-3xl bg-[#FFEDD5] text-[#C2410C]" data-empty-avatar="yes"><span className="text-4xl font-bold">S</span></div>
                   <h1 className="empty-title" data-empty-agent="yes">{agentName}</h1>
                   <p className="empty-lead">
                     {agentNote || `Ask ${agentName} anything. Your files stay here.`}
@@ -259,7 +277,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} botName={bot} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onContinue={onContinue} onOpenFolder={onOpenProject} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} botName={bot} modelLabel={modelLabel} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onContinue={onContinue} onOpenFolder={onOpenProject} onAddContext={addContext} />)}
             </div>
           )}
         </div>
@@ -283,10 +301,48 @@ export function ChatScreen({
             className={`shell-compose mx-auto max-w-2xl px-3 py-3 ${over ? 'is-over' : ''}`}
             data-upload={over ? 'yes' : 'no'}
           >
+            <div className="mb-2 flex flex-col items-center gap-2" data-chat-mode="yes">
+              <div className="inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-sm">
+                <button
+                  type="button"
+                  data-mode="offline"
+                  aria-pressed={mode === 'offline'}
+                  onClick={() => setMode('offline')}
+                  className={`rounded-full px-4 py-1 font-medium transition-colors ${mode === 'offline' ? 'bg-[#F97316] text-white' : 'text-[var(--muted)] hover:text-[var(--ink)]'}`}
+                >
+                  Offline
+                </button>
+                <button
+                  type="button"
+                  data-mode="online"
+                  aria-pressed={mode === 'online'}
+                  disabled={!onlineAvailable}
+                  title={onlineAvailable ? 'Answer with the Surf cloud gateway' : status.onlineReason}
+                  onClick={() => { if (onlineAvailable) setMode('online') }}
+                  className={`rounded-full px-4 py-1 font-medium transition-colors disabled:opacity-40 ${mode === 'online' ? 'bg-[#F97316] text-white' : 'text-[var(--muted)] hover:text-[var(--ink)]'}`}
+                >
+                  Online
+                </button>
+              </div>
+              {contextIds.length > 0 && (
+                <div className="flex flex-wrap justify-center gap-2" data-context-chips="yes">
+                  {contextIds.map((id) => {
+                    const src = messages.find((m) => m.id === id)
+                    return (
+                      <span key={id} className="pill inline-flex items-center gap-1" data-context-chip="yes">
+                        <span className="font-mono text-xs">#{id.slice(0, 8)}</span>
+                        {src ? <span className="max-w-[16rem] truncate">{clipWords(src.text, 12)}</span> : null}
+                        <button type="button" aria-label="Remove context" className="text-[var(--muted)] hover:text-[var(--ink)]" onClick={() => setContextIds((list) => list.filter((x) => x !== id))}>×</button>
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
             {reading && (
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
-                  <BlobMascot state="reading" size={36} variant="avatar" animate={animateMascot} />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#F97316]" data-processing-dot="yes" />
                   Reading files
                 </span>
               </div>
@@ -504,26 +560,36 @@ function BotNameField({ name, onSave }: { name: string; onSave: (name: string) =
   )
 }
 
-function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder }: { msg: UiMsg; botName: string; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void }) {
+function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder, onAddContext }: { msg: UiMsg; botName: string; modelLabel: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void; onAddContext?: (id: string) => void }) {
   const [versionAt, setVersionAt] = useState<number | null>(null)
-  const [wink, setWink] = useState(false)
   const history = msg.versions ?? []
   const showingOld = versionAt != null && versionAt < history.length
   const shown = showingOld ? history[versionAt] ?? msg.text : msg.text
   if (msg.role === 'user') {
     return (
-      <div className="msg-in flex justify-end" data-user-message="yes">
+      <div className="msg-in flex flex-col items-end gap-1" data-user-message="yes">
         <div className="user-bubble max-w-[80%] px-4 py-3 text-[15px] leading-relaxed">{msg.text}</div>
+        {onAddContext && !msg.pending && (
+          <button type="button" className="icon-quiet inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]" data-add-context="yes" aria-label="Add to context" title="Pin this message as context for the next reply" onClick={() => onAddContext(msg.id)}>
+            <Pin size={13} /> Add to context
+          </button>
+        )}
       </div>
     )
   }
-  const waitingHere = (msg.steps ?? []).some((step) => step.status === 'waiting') || (msg.diffs ?? []).some((diff) => diff.status === 'pending') || msg.plan?.status === 'review'
-  const creature = waitingHere ? 'permission' : msg.pending ? live : msg.error ? 'oops' : burst && msg.id === latestId ? burst : 'idle'
   return (
     <div className="msg-in flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
-      <div className="pt-1"><BlobMascot variant="avatar" state={blobStateFor(creature)} size={44} animate={animateMascot} wink={wink} caret={msg.pending ? caret : null} /></div>
+      <div className="pt-1"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F97316] text-sm font-bold text-white" data-assistant-avatar="yes">S</div></div>
       <div className="min-w-0 flex-1">
-      <div className="assistant-name" data-assistant-name="yes">{botName}</div>
+      <div className="assistant-name flex items-center gap-2" data-assistant-name="yes">
+        {botName}
+        {msg.mode && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted)]" data-mode-badge={msg.mode} title={msg.mode === 'online' ? 'Answered by the Surf cloud gateway' : 'Answered locally on this device'}>
+            {msg.mode === 'online' ? <Cloud size={12} /> : <Cpu size={12} />}
+            {msg.mode === 'online' ? 'Online' : 'Offline'}
+          </span>
+        )}
+      </div>
       <div className="assistant-card">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
         {msg.pending && msg.phase === 'files' && !msg.fileAsk && <div className="mb-1 text-sm text-[var(--muted)]" data-file-searching="yes">Searching your files…</div>}
@@ -644,9 +710,14 @@ function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animat
             versionCount={history.length + 1}
             versionAt={showingOld ? versionAt! : history.length}
             onVersion={(index) => setVersionAt(index >= history.length ? null : index)}
-            onCopied={() => { setWink(true); window.setTimeout(() => setWink(false), 420) }}
+            onCopied={() => undefined}
             onRegenerate={onRegenerate ? () => onRegenerate(msg.id) : undefined}
           />
+        )}
+        {!msg.pending && msg.text && onAddContext && (
+          <button type="button" className="icon-quiet mt-1 inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]" data-add-context="yes" aria-label="Add to context" title="Pin this reply as context for the next message" onClick={() => onAddContext(msg.id)}>
+            <Pin size={13} /> Add to context
+          </button>
         )}
       </div>
     </div>

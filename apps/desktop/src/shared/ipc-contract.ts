@@ -66,6 +66,7 @@ export const IPC = {
   codeStatus: 'code:status',
   codeStorage: 'code:storage',
   codeEvent: 'code:event',
+  codeIdeLaunch: 'code-ide:launch',
   codeAgentRoot: 'code-agent:root',
   codeAgentPick: 'code-agent:pick',
   codeAgentDecide: 'code-agent:decide',
@@ -119,6 +120,10 @@ export interface ChatSendReq {
   replaceMessageId?: string
   /** When set, more text is appended to this assistant reply. No new user turn is stored. */
   continueMessageId?: string
+  /** Which model answers this turn. Defaults to offline (local sidecar). */
+  mode?: ChatMode
+  /** Earlier message IDs the user pinned as explicit context for this turn. */
+  contextMessageIds?: string[]
 }
 
 export type ThemeChoice = 'light' | 'dark'
@@ -238,13 +243,16 @@ export interface UpdateOffer {
 
 export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
 
+/** Which model answered a turn: the local sidecar (offline) or the gateway (online). */
+export type ChatMode = 'online' | 'offline'
+
 export type ChatEvent =
-  | { type: 'token'; messageId: string; text: string }
+  | { type: 'token'; messageId: string; text: string; mode?: ChatMode }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
   | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' | 'keywords'; note?: string }
   | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
-  | { type: 'done'; messageId: string; gate: GateName; text?: string; canContinue?: boolean; budget?: {
+  | { type: 'done'; messageId: string; gate: GateName; mode?: ChatMode; text?: string; canContinue?: boolean; budget?: {
     counter: string
     total: number
     droppedChunks: number
@@ -638,6 +646,10 @@ export interface StoredMessage {
   gate?: GateName
   /** Every sibling text of this reply, including the current one. Empty on older rows. */
   versions?: string[]
+  /** Which model produced this turn. Absent on older rows (treated as offline). */
+  mode?: ChatMode
+  /** Earlier message IDs pinned as context when this reply was generated. */
+  contextRefs?: string[]
 }
 
 export interface ModelEvent {
@@ -837,6 +849,9 @@ export interface SurfApi {
     status(): Promise<CodeProjectStatus | null>
     storage(): Promise<CodeStorageUsage>
     onEvent(cb: (status: CodeProjectStatus) => void): () => void
+  }
+  codeIde: {
+    launch(root: string): Promise<{ pid: number }>
   }
   codeComplete: {
     suggest(req: CodeCompleteReq): Promise<CodeCompleteResult>

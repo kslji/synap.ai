@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { persistThemeChoice, BlobMascot, useMascotColorSetter, type ThemeChoice } from '@surf/ui'
-import { useMascotActivity } from './mascot-activity'
-import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
-import { syncChip } from '../../main/core/network-mode'
+import { persistThemeChoice, type ThemeChoice } from '@surf/ui'
+import type { ChatEvent, ChatMode, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
+import { syncChip } from '../../shared/network-mode'
 import { applyEvent, type UiMsg, type View } from './types'
-import { agents } from '../../../../../packages/shared/src/agent-catalog'
-import { agentCanChat } from '../../../../../packages/shared/src/agents'
+import { agents, agentCanChat } from '@surf/shared'
 import { switchAgentChat } from '../../shared/chat-title'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
@@ -107,6 +105,7 @@ export default function App() {
   const [setupPreview, setSetupPreview] = useState<SetupSnapshot | null>(null)
   const [setupKind, setSetupKind] = useState<'pick' | 'repair'>('pick')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
   const [account, setAccount] = useState<{ email: string; deviceId: string | null; plan?: string | null } | null>(null)
@@ -122,14 +121,6 @@ export default function App() {
   function webAllowed(): boolean {
     return Boolean(settings?.webSearchAllowed && !settings.offlineOnly)
   }
-  const setMascotColor = useMascotColorSetter()
-  const { setOffline } = useMascotActivity()
-  useEffect(() => {
-    if (settings?.mascotColor) setMascotColor(settings.mascotColor)
-  }, [settings?.mascotColor, setMascotColor])
-  useEffect(() => {
-    setOffline(Boolean(status && (status.offlineOnly || !status.online)))
-  }, [setOffline, status])
 
   const syncPreview = useRef<SyncChip | null>(null)
   const syncDemoTimer = useRef<number | null>(null)
@@ -156,6 +147,12 @@ export default function App() {
     else setLicenceDevices([])
     return st
   }, [api])
+
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   useEffect(() => {
     window.__surfNav = (next) => setView(next)
@@ -231,8 +228,7 @@ export default function App() {
       setView('setup')
       return
     }
-    if (licence.state === 'dev') setView('chat')
-    else if (status.onboardingComplete) setView('home')
+    if (licence.state === 'dev' || status.onboardingComplete) setView('home')
   }, [status, licence])
 
   useEffect(() => {
@@ -354,19 +350,21 @@ export default function App() {
     }
   }
 
-  async function send(text: string, images: { mime: CodeShot['mime']; base64: string }[] = []) {
+  async function send(text: string, images: { mime: CodeShot['mime']; base64: string }[] = [], opts?: { mode: ChatMode; contextMessageIds: string[] }) {
     const note = images.length ? `\n[${images.length} screenshot${images.length === 1 ? '' : 's'} kept on this computer]` : ''
     const body = `${text.trim() || (images.length ? 'Look at this screenshot.' : '')}${note}`.trim()
     if (!body) return
-    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
+    const mode: ChatMode = opts?.mode ?? 'offline'
+    const contextMessageIds = opts?.contextMessageIds ?? []
+    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [], mode, contextRefs: contextMessageIds.length ? contextMessageIds : undefined }
     const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
     const modelId = (boundAgent === 'code' ? status?.codeModelId : status?.chatModelId) || ''
-    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId }
+    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId, mode }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: webAllowed(), docScope: 'chat' })
+      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: webAllowed(), docScope: 'chat', mode, contextMessageIds })
       if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
@@ -431,9 +429,26 @@ export default function App() {
     setView('chat')
   }
 
+  async function launchCodeIde() {
+    try {
+      const root = codeProject?.root ?? (await api.code.pick())?.root ?? null
+      if (!root) {
+        setNotice('No folder selected — Surf IDE was not opened.')
+        return
+      }
+      await api.codeIde.launch(root)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
   function newChat(nextAgent = agentId) {
     const agent = agents.find((item) => item.id === nextAgent)
     if (!agent || !agentCanChat(agent)) return
+    if (nextAgent === 'code') {
+      void launchCodeIde()
+      return
+    }
     setAgentId(agent.id)
     setConversationId(null)
     setMessages([])
@@ -944,9 +959,12 @@ export default function App() {
 
   if (!status || !settings || !licence) {
     return (
-      <main className="flex h-full flex-col items-center justify-center gap-2" data-ready="no">
-        <BlobMascot state="searching" size={160} />
-        <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Synap.surf'}</p>
+      <main className="flex h-full flex-col items-center justify-center gap-4 bg-[#F2F2F7]" data-ready="no">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#FB923C] to-[#F97316] text-2xl font-black text-white">S</div>
+        <div className="h-1 w-28 overflow-hidden rounded-full bg-[#E7E7F0]">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-[#F97316]" />
+        </div>
+        <p className="text-sm text-[#5B5B6B]">{error ?? 'Starting Synap.surf'}</p>
       </main>
     )
   }
@@ -989,7 +1007,7 @@ export default function App() {
         <SignInScreen
           theme={settings.theme}
           onTheme={chooseTheme}
-          onClose={() => setView('chat')}
+          onClose={() => setView('home')}
           onStart={(email) => api.auth.start(email)}
           onVerify={async (email, code) => {
             await api.auth.verify(email, code)
@@ -1057,6 +1075,7 @@ export default function App() {
       )}
       {updateOffer && <UpdateBanner offer={updateOffer} onApply={() => { void api.updates.apply().catch((e: unknown) => setError((e as Error).message)) }} />}
       <div className="flex min-h-0 flex-1">
+      {screen !== 'home' && (
       <Sidebar
         view={screen}
         devMode={devMode}
@@ -1084,23 +1103,22 @@ export default function App() {
         onSync={() => { void syncFromChip() }}
         sync={status.sync}
       />
+      )}
       <div key={screen} className="view-pane flex min-h-0 min-w-0 flex-1">
       {screen === 'home' && (
         <HomeScreen
-          agents={agents}
-          conversations={conversations}
+          signedIn={Boolean(shownAccount)}
+          userName={shownAccount?.email}
+          theme={settings.theme}
           onStart={(id) => newChat(id)}
-          onOpen={(id) => { void openConversation(id) }}
-          onAsk={() => newChat('general')}
-          onDocument={() => { const id = agentId; newChat(id); void api.library.pick(null, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
-          onFill={() => { void openFill({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
-          onConvert={() => { void openConvert({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
-          onSearch={() => setView('library')}
+          onSignIn={() => setView('signin')}
+          onSignOut={() => void api.auth.signOut().then(() => setAccount(null)).catch(() => undefined)}
+          onTheme={chooseTheme}
         />
       )}
-      {screen === 'agents' && <AgentsScreen agents={agents} onStart={(id) => newChat(id)} />}
+      {screen === 'agents' && <AgentsScreen onStart={(id) => newChat(id)} />}
       {screen === 'chats' && (
-        <ChatsScreen agents={agents} conversations={conversations} agentId={agentId} onOpen={(id) => { void openConversation(id) }} onNew={() => newChat()} />
+        <ChatsScreen agentName={agents.find((agent) => agent.id === agentId)?.name} conversations={conversations} agentId={agentId} onOpen={(id) => { void openConversation(id) }} onNew={() => newChat()} />
       )}
       {screen === 'chat' && (
         <ChatScreen
@@ -1115,7 +1133,7 @@ export default function App() {
           onBotName={(mascotName) => { void patch({ mascotName }) }}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
-          onSend={(t, images) => { void send(t, images) }}
+          onSend={(t, images, opts) => { void send(t, images, opts) }}
           shots={agentId === 'code' ? shots : []}
           onAddShots={agentId === 'code' ? (files) => { void addShots(files) } : undefined}
           onRemoveShot={agentId === 'code' ? (id) => setShots((current) => current.filter((shot) => shot.id !== id)) : undefined}
@@ -1142,7 +1160,7 @@ export default function App() {
           }}
           tabSuggestions={settings.tabSuggestions}
           tabSuggestionsOff={settings.tabSuggestionsOff}
-          animateMascot={settings.animateMascot !== false}
+          onBackToAgents={() => setView('home')}
           onRegenerate={(id) => { void regenerate(id) }}
           onContinue={(id) => { void continueReply(id) }}
           onStop={agentId === 'code' ? () => {
@@ -1265,7 +1283,7 @@ export default function App() {
       {tourStep != null && TOUR[tourStep] && (
         <div className="tour-shade" role="dialog" aria-label="Guided tour">
           <div className="tour-card card px-5 py-5">
-            <BlobMascot state="guiding" size={72} />
+            <div className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl bg-gradient-to-br from-[#FB923C] to-[#F97316] text-2xl font-black text-white">S</div>
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Step {tourStep + 1} of {TOUR.length}</p>
             <h2 className="mt-1 text-lg font-semibold">{TOUR[tourStep].title}</h2>
             <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{TOUR[tourStep].body}</p>
@@ -1278,10 +1296,19 @@ export default function App() {
           </div>
         </div>
       )}
+      {notice && !error && (
+        <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center px-4">
+          <div className="card pointer-events-auto flex items-center gap-3 px-4 py-3 text-sm">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FEF3C7] text-lg font-bold text-[#92400E]">i</span>
+            <span>{notice}</span>
+            <button className="btn btn-ghost" type="button" onClick={() => setNotice(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center px-4">
           <div className="card pointer-events-auto flex items-center gap-3 px-4 py-3 text-sm" role="alert">
-            <BlobMascot state="error" size={40} />
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FEE2E2] text-lg font-bold text-[#B91C1C]">!</span>
             <span>{error}</span>
             <button className="btn btn-ghost" type="button" onClick={() => setError(null)}>Dismiss</button>
           </div>

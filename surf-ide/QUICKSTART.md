@@ -11,7 +11,44 @@ Surf IDE is a **VSCode fork** with integrated AI capabilities:
 ## Current Status
 
 ✅ **Planning complete** - ADR approved, architecture designed  
-⏳ **Implementation not started** - Ready to begin
+✅ **Fork builds and launches** - `./scripts/code.sh` opens a working Surf IDE window  
+✅ **Surf AI extension** - chat sidebar + curated model picker + diff-apply edits, routed through the gateway
+
+## Runtime Notes (macOS / arm64)
+
+The fork compiles, but its native modules are not built by `npm ci` on this machine
+(`.npmrc` pins `build_from_source=true`, and the default make generator sets
+`-mmacosx-version-min=10.7`, too old for `@vscode/policy-watcher`'s use of
+`std::variant`). If the IDE crashes on startup with
+`Could not locate the bindings file`, rebuild the native addons against
+Electron 43.7.7 with a modern deployment target:
+
+```bash
+cd code-oss
+nvm use 24.18.0            # .nvmrc
+NG=node_modules/.bin/../node-gyp/bin/node-gyp.js   # or the npm-bundled node-gyp
+export MACOSX_DEPLOYMENT_TARGET=11.0
+export CXXFLAGS="-mmacosx-version-min=11.0 -std=c++20"
+export CFLAGS="-mmacosx-version-min=11.0"
+for m in policy-watcher spdlog native-watchdog fs-copyfile deviceid sqlite3; do
+  (cd node_modules/@vscode/$m && node "$NG" rebuild \
+    --runtime=electron --target=43.7.7 --arch=arm64 \
+    --dist-url=https://electronjs.org/headers --build-from-source)
+done
+(cd node_modules/native-keymap && node "$NG" rebuild \
+  --runtime=electron --target=43.7.7 --arch=arm64 \
+  --dist-url=https://electronjs.org/headers --build-from-source)
+```
+
+Launch through `./scripts/code.sh` (it exports `VSCODE_DEV=1`, which enables the
+dev CSS import-map loader; running the Electron binary directly without it makes
+every `*.css` import fail and the workbench never loads). The desktop app spawns
+`code.sh` for you and injects `SURF_GATEWAY_TOKEN` / `SURF_GATEWAY_BASE_URL` so
+the extension authenticates against the gateway.
+
+The bundled `@github/copilot-sdk` may log `failed to load runtime ... dlopen` on
+the agent-host subprocess; that is unrelated to the Surf AI extension and does
+not block the IDE from running.
 
 ## Quick Start (Automated)
 

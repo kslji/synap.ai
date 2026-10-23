@@ -514,8 +514,16 @@ function takeSetup(url: string | undefined): void {
   else queuedSetup = url
 }
 
+function goLobby(): void {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
+  void mainWindow.webContents.executeJavaScript('window.__surfNav && window.__surfNav("home")').catch(() => undefined)
+}
+
 app.on('open-url', (event, url) => {
   event.preventDefault()
+  if (url.startsWith('synap://lobby')) { goLobby(); return }
   takeSetup(url)
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore()
@@ -523,7 +531,9 @@ app.on('open-url', (event, url) => {
   }
 })
 app.on('second-instance', (_event, argv) => {
-  takeSetup(argv.find((arg) => arg.startsWith('synap:')))
+  const link = argv.find((arg) => arg.startsWith('synap:'))
+  if (link?.startsWith('synap://lobby')) { goLobby(); return }
+  takeSetup(link)
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()

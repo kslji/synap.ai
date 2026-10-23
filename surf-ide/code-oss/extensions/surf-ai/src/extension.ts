@@ -7,9 +7,28 @@
 import * as vscode from 'vscode';
 import { extractContext, buildPromptWithContext } from './context-extractor';
 import { ChatSidebarProvider } from './chat-sidebar';
+import { GatewayClient } from './gateway-client';
+import { LocalModelClient } from './local-model-client';
+import { resolveRoute } from './model-router';
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   console.log('Surf AI extension activated');
+
+  // The Surf desktop app launches this fork with a short-lived gateway JWT in
+  // SURF_GATEWAY_TOKEN. Persist it into extension secrets so the gateway client
+  // (which reads `surf-ai.authToken`) is authenticated for this session. The
+  // base URL is read live from SURF_GATEWAY_BASE_URL / settings, so it is not stored.
+  const bootToken = process.env.SURF_GATEWAY_TOKEN;
+  if (bootToken && bootToken.trim()) {
+    context.secrets.store('surf-ai.authToken', bootToken.trim()).then(
+      () => console.log('Surf AI: gateway token stored'),
+      (err) => console.error('Surf AI: failed to store gateway token', err)
+    );
+  }
+
+  // Open clean: no Welcome/getting-started tab, and keep the built-in chat
+  // surfaces out of the way so Surf AI is the only assistant the user sees.
+  void applySurfDefaults();
 
   // Register chat sidebar with new Qoder-like UI
   const chatProvider = new ChatSidebarProvider(context.extensionUri, context);
@@ -68,8 +87,24 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('surf-ai.backToLobby', async () => {
+      // Return to the Surf desktop lobby: deep-link the desktop app to the
+      // front (handled by its synap:// protocol), then close this IDE window.
+      await vscode.env.openExternal(vscode.Uri.parse('synap://lobby'));
+      await vscode.commands.executeCommand('workbench.action.closeWindow');
+    })
+  );
+
+  const backItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  backItem.text = '$(arrow-left) Back to Lobby';
+  backItem.tooltip = 'Return to the Surf desktop home';
+  backItem.command = 'surf-ai.backToLobby';
+  backItem.show();
+  context.subscriptions.push(backItem);
+
   // Register inline completion provider
-  const completionProvider = new SurfInlineCompletionProvider();
+  const completionProvider = new SurfInlineCompletionProvider(context);
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
       { pattern: '**' },
@@ -85,17 +120,54 @@ export function deactivate() {
 }
 
 /**
- * Inline completion provider (ghost text)
+ * Apply Surf-friendly defaults, but only where the user has not chosen a value
+ * themselves, so we never stomp an explicit setting.
+ */
+async function applySurfDefaults(): Promise<void> {
+  const setIfUnset = async (section: string, key: string, value: unknown): Promise<void> => {
+    const cfg = vscode.workspace.getConfiguration(section);
+    const inspected = cfg.inspect(key);
+    const alreadySet = Boolean(
+      inspected &&
+      (inspected.workspaceFolderValue !== undefined ||
+        inspected.workspaceValue !== undefined ||
+        inspected.globalValue !== undefined)
+    );
+    if (!alreadySet) {
+      try {
+        await cfg.update(key, value, vscode.ConfigurationTarget.Global);
+      } catch { /* ignore a rejected config write */ }
+    }
+  };
+  await setIfUnset('workbench', 'startupEditor', 'none');
+  await setIfUnset('chat', 'commandCenter.enabled', false);
+  await setIfUnset('chat', 'detectParticipant.enabled', false);
+}
+
+/**
+ * Inline completion provider (ghost text).
+ *
+ * Routes through the same Auto rule as the chat: the Surf gateway when it is
+ * reachable, the local llama.cpp sidecar when it is not. The previous hardcoded
+ * `localhost:8080` never matched the desktop's random-port bridge, so offline
+ * completions did not actually work; the bridge descriptor does.
  */
 class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private debounceTimer: NodeJS.Timeout | undefined;
-  private lastTriggerTime = 0;
+  private readonly gateway: GatewayClient;
+  private readonly local: LocalModelClient;
+  private onlineModel: string | null = null;
+
+  constructor(context: vscode.ExtensionContext) {
+    this.gateway = new GatewayClient(context);
+    this.local = new LocalModelClient();
+  }
 
   async provideInlineCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
-    context: vscode.InlineCompletionContext,
-    token: vscode.CancellationToken
+    _context: vscode.InlineCompletionContext,
+    _token: vscode.CancellationToken
   ): Promise<vscode.InlineCompletionItem[]> {
     // Debounce: wait 500ms after typing stops
     return new Promise((resolve) => {
@@ -109,38 +181,28 @@ class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvide
             new vscode.Position(Math.max(0, position.line - 10), 0),
             position
           ));
-          
+
           const suffix = document.getText(new vscode.Range(
             position,
             new vscode.Position(Math.min(document.lineCount, position.line + 5), 0)
           ));
 
-          const prompt = `Complete this code naturally:
+          const prompt = `Complete this code naturally:\n\n${prefix}\n// Continue from here:\n${suffix}\n`;
 
-${prefix}
-// Continue from here:
-${suffix}
-`;
-
-          const response = await fetch('http://localhost:8080/completion', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prompt: prompt,
-              n_predict: 100,
-              temperature: 0.2,
-              stop: ['\n\n', 'User:', 'Human:']
-            })
-          });
-
-          if (!response.ok) {
-            resolve([]);
-            return;
+          const route = await resolveRoute('auto', this.gateway, this.local);
+          let completion = '';
+          if (route === 'offline') {
+            completion = await this.local.complete(prompt);
+          } else {
+            const model = await this.pickOnlineModel();
+            if (!model) {
+              resolve([]);
+              return;
+            }
+            completion = await this.gateway.chat(model, prompt);
           }
 
-          const data = await response.json() as { content: string };
-          const completion = data.content.trim();
-
+          completion = (completion || '').trim();
           if (completion) {
             resolve([{
               insertText: completion,
@@ -154,5 +216,19 @@ ${suffix}
         }
       }, 500);
     });
+  }
+
+  /** First allowlisted gateway model, cached. Null when none are available. */
+  private async pickOnlineModel(): Promise<string | null> {
+    if (this.onlineModel) {
+      return this.onlineModel;
+    }
+    try {
+      const models = await this.gateway.listModels();
+      this.onlineModel = models[0]?.id ?? null;
+    } catch {
+      this.onlineModel = null;
+    }
+    return this.onlineModel;
   }
 }

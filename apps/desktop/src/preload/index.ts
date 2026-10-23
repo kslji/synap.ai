@@ -121,6 +121,9 @@ const api: SurfApi = {
     storage: () => ipcRenderer.invoke(IPC.codeStorage),
     onEvent: (cb) => subscribe<CodeProjectStatus>(IPC.codeEvent, cb),
   },
+codeIde: {
+    launch: (root: string) => ipcRenderer.invoke(IPC.codeIdeLaunch, root),
+  },
   codeComplete: {
     suggest: (req) => ipcRenderer.invoke(IPC.codeCompleteSuggest, req),
     files: () => ipcRenderer.invoke(IPC.codeCompleteFiles),

@@ -183,6 +183,9 @@ export interface Services {
     status(): Promise<CodeProjectStatus | null>
     storage(): Promise<CodeStorageUsage>
   }
+  codeIde: {
+    launch(root: string): Promise<{ pid: number }>
+  }
   codeComplete: {
     suggest(req: CodeCompleteReq): Promise<CodeCompleteResult>
     files(): Promise<CodeEditorFile[]>
@@ -318,6 +321,7 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   })
   handle(IPC.documentsCancel, (e) => { assertTrusted(e); s.documents.cancel() })
   handle(IPC.codePick, (e) => { assertTrusted(e); return s.code.pick(win) })
+  handle(IPC.codeIdeLaunch, (e, root) => { assertTrusted(e); return s.codeIde.launch(z.string().min(1).max(4096).parse(root)) })
   handle(IPC.codeStatus, (e) => { assertTrusted(e); return s.code.status() })
   handle(IPC.codeStorage, (e) => { assertTrusted(e); return s.code.storage() })
   handle(IPC.linksOpen, (e, raw) => {

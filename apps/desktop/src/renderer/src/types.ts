@@ -1,4 +1,4 @@
-import type { ChatEvent, CodeDiffView, CodePlanView, CodeStepView, FilePermissionPrompt, GateName, StoredMessage } from '../../shared/ipc-contract'
+import type { ChatEvent, ChatMode, CodeDiffView, CodePlanView, CodeStepView, FilePermissionPrompt, GateName, StoredMessage } from '../../shared/ipc-contract'
 
 function copyPlan(plan: CodePlanView): CodePlanView {
   const steps = plan.steps.map((step) => ({
@@ -43,6 +43,10 @@ export interface UiMsg {
   streamed?: boolean
   /** The reply stopped on the length limit and can be continued. */
   canContinue?: boolean
+  /** Which model answered this turn: local sidecar (offline) or gateway (online). */
+  mode?: ChatMode
+  /** Earlier message IDs pinned as explicit context when this reply was made. */
+  contextRefs?: string[]
 }
 
 export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
@@ -69,6 +73,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.text += e.text
     m.streamed = true
     m.canContinue = false
+    if (e.mode) m.mode = e.mode
   }
   if (e.type === 'status') {
     if (e.phase === 'keywords') m.keywordNote = e.note || m.keywordNote
@@ -102,6 +107,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.pending = false
     m.fileAsk = null
     m.gate = e.gate
+    if (e.mode) m.mode = e.mode
     if (typeof e.text === 'string') m.text = e.text
     m.canContinue = e.canContinue === true
     if (m.startedAt) m.elapsedMs = Date.now() - m.startedAt

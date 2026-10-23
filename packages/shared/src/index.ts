@@ -23,3 +23,6 @@ export interface PackManifestShape {
   niche: string
   version: string
 }
+
+export { agents } from './agent-catalog'
+export { agentCanChat, agentCanOpen, parseAgentFile, sortAgents, type AgentMeta, type AgentStatus } from './agents'

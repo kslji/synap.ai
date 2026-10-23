@@ -11,23 +11,73 @@
 
 import * as vscode from 'vscode';
 import { extractContext, buildPromptWithContext } from './context-extractor';
+import { GatewayClient, type GatewayModel } from './gateway-client';
+import { LocalModelClient, type LocalModel } from './local-model-client';
+import { parseEdits, applyEdit, editDiff, type ProposedEdit } from './edit-proposal';
+import { resolveRoute, onlineReachable, invalidateReachability, type SurfMode } from './model-router';
+
+const MODE_STATE_KEY = 'surf-ai.mode';
+
+// Teaches the model to emit reviewable, line-level edits instead of whole-file prose.
+const EDIT_INSTRUCTIONS = `
+
+## Editing files
+When you want to change code, do NOT rewrite whole files in prose. Instead emit one fenced
+block per edit using this exact format (valid JSON inside):
+
+\`\`\`SURF_EDIT
+{ "file": "relative/path/from/project/root", "search": "the exact existing lines to replace", "replace": "the new lines" }
+\`\`\`
+
+Rules:
+- "search" must match existing file text EXACTLY (including whitespace) so it can be applied.
+- To delete lines, set "replace" to "".
+- To add lines, put an anchor line in "search" and the anchor plus the new lines in "replace".
+- To create a new file, give its path, set "search" to "" and "replace" to the full contents.
+- You may emit several SURF_EDIT blocks. Keep all other text as a short explanation.
+- If no change is needed, do not emit any SURF_EDIT block.`;
 
 export class ChatSidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _messageHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   private _isProcessing = false;
+  private readonly _client: GatewayClient;
+  private readonly _local: LocalModelClient;
+  private _models: GatewayModel[] = [];
+  private _selectedModel: string | null = null;
+  private _localModels: LocalModel[] = [];
+  private _selectedLocal: string | null = null;
+  private _mode: SurfMode = 'offline';
+  private _pendingEdits = new Map<string, ProposedEdit>();
+  private _statusTimer: NodeJS.Timeout | undefined;
+  private _egress = 0;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _context: vscode.ExtensionContext
-  ) {}
+  ) {
+    this._client = new GatewayClient(_context);
+    this._local = new LocalModelClient();
+    const saved = _context.workspaceState.get<SurfMode>(MODE_STATE_KEY);
+    if (saved === 'online' || saved === 'offline') {
+      this._mode = saved;
+    }
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
+    _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
     this._view = webviewView;
+
+    webviewView.onDidDispose(() => {
+      if (this._statusTimer) {
+        clearInterval(this._statusTimer);
+        this._statusTimer = undefined;
+      }
+      this._view = undefined;
+    });
 
     webviewView.webview.options = {
       enableScripts: true,
@@ -45,54 +95,138 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
         case 'clearChat':
           this._clearChat();
           break;
+        case 'closePanel':
+          await vscode.commands.executeCommand('workbench.action.closeSidebar');
+          break;
         case 'copyMessage':
           vscode.env.clipboard.writeText(data.value);
           vscode.window.showInformationMessage('Copied to clipboard');
+          break;
+        case 'selectModel':
+          this._selectedModel = data.value;
+          break;
+        case 'selectLocalModel':
+          this._selectedLocal = data.value;
+          break;
+        case 'setMode':
+          if (data.value === 'auto' || data.value === 'online' || data.value === 'offline') {
+            this._mode = data.value;
+            void this._context.workspaceState.update(MODE_STATE_KEY, this._mode);
+            invalidateReachability(this._client);
+            if (this._mode !== 'online') {
+              void this._loadLocalModels();
+            }
+            void this._pushNetStatus();
+          }
+          break;
+        case 'backToLobby':
+          await vscode.commands.executeCommand('surf-ai.backToLobby');
+          break;
+        case 'applyEdits':
+          await this._applyEdits(data.ids);
+          break;
+        case 'rejectEdits':
+          this._rejectEdits(data.ids);
           break;
       }
     });
 
     // Send welcome message
     this._sendWelcomeMessage();
+    this._postMessage({ type: 'mode', mode: this._mode });
+    void this._loadModels();
+    void this._loadLocalModels();
+    void this._pushNetStatus();
+    this._statusTimer = setInterval(() => { void this._pushNetStatus(); }, 8000);
+  }
+
+  /** Tell the webview whether the gateway is reachable, to drive the Auto dot. */
+  private async _pushNetStatus() {
+    const online = await onlineReachable(this._client);
+    this._postMessage({ type: 'netStatus', online, egress: this._egress });
+  }
+
+  private async _loadModels() {
+    try {
+      this._models = await this._client.listModels();
+      if (this._models.length > 0 && !this._selectedModel) {
+        this._selectedModel = this._models[0].id;
+      }
+      this._postMessage({ type: 'models', models: this._models, selected: this._selectedModel });
+    } catch (error) {
+      this._postMessage({ type: 'models', models: [], selected: null, error: (error as Error).message });
+    }
+  }
+
+  private async _loadLocalModels() {
+    this._localModels = await this._local.listModels();
+    if (this._localModels.length > 0 && !this._selectedLocal) {
+      this._selectedLocal = this._localModels[0].id;
+    }
+    this._postMessage({ type: 'localModels', models: this._localModels, selected: this._selectedLocal });
   }
 
   private async _handleUserMessage(message: string) {
     if (this._isProcessing) {
       return;
     }
+    const route = await resolveRoute(this._mode, this._client, this._local);
+    const offline = route === 'offline';
+    if (offline) {
+      if (!this._selectedLocal) {
+        await this._loadLocalModels();
+      }
+      if (!this._selectedLocal) {
+        this._postMessage({
+          type: 'addMessage',
+          role: 'assistant',
+          content: '⚠️ No local model is running. Load one in Surf and switch to Offline Mode, or switch to Online Cloud for gateway models.'
+        });
+        return;
+      }
+    } else {
+      if (!this._selectedModel) {
+        await this._loadModels();
+      }
+      if (!this._selectedModel) {
+        this._postMessage({
+          type: 'addMessage',
+          role: 'assistant',
+          content: '⚠️ No cloud models are reachable right now. Load a local model in Surf and switch to Offline, or reconnect for cloud.'
+        });
+        return;
+      }
+    }
 
     this._isProcessing = true;
     this._messageHistory.push({ role: 'user', content: message });
-
-    // Show user message in UI
-    this._postMessage({
-      type: 'addMessage',
-      role: 'user',
-      content: message
-    });
-
-    // Show typing indicator
+    this._postMessage({ type: 'addMessage', role: 'user', content: message });
     this._postMessage({ type: 'showTyping' });
 
     try {
-      // Extract IDE context
       const context = await extractContext();
-      
-      // Build prompt with context
-      const prompt = buildPromptWithContext(message, context);
+      const prompt = buildPromptWithContext(message, context) + EDIT_INSTRUCTIONS;
+      if (!offline) {
+        this._egress += 1;
+        void this._pushNetStatus();
+      }
+      const response = offline
+        ? await this._local.chat(this._selectedLocal as string, prompt)
+        : await this._client.chat(this._selectedModel as string, prompt);
+      const { prose, edits } = parseEdits(response);
 
-      // Route to AI (smart routing: cache → cloud → local)
-      const response = await this._routeQuery(prompt);
+      this._messageHistory.push({ role: 'assistant', content: prose || response });
+      this._postMessage({ type: 'addMessage', role: 'assistant', content: prose || 'Done.' });
 
-      // Add to history
-      this._messageHistory.push({ role: 'assistant', content: response });
-
-      // Hide typing indicator and show response
-      this._postMessage({
-        type: 'addMessage',
-        role: 'assistant',
-        content: response
-      });
+      if (edits.length > 0) {
+        const payload = edits.map((edit) => {
+          const id = this._newId();
+          this._pendingEdits.set(id, edit);
+          const { removed, added } = editDiff(edit);
+          return { id, file: edit.relPath, isNewFile: edit.isNewFile, removed, added };
+        });
+        this._postMessage({ type: 'proposeEdits', edits: payload });
+      }
     } catch (error) {
       this._postMessage({
         type: 'addMessage',
@@ -105,57 +239,34 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _routeQuery(prompt: string): Promise<string> {
-    // TODO: Implement smart routing
-    // For now, use local model if available, otherwise show error
-    
-    try {
-      // Try local model first
-      const response = await fetch('http://localhost:8080/completion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt,
-          n_predict: 2000,
-          temperature: 0.7,
-          stop: ['</s>', 'User:', 'Human:']
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json() as { content: string };
-        return data.content;
+  private async _applyEdits(ids: string | string[]) {
+    const list = Array.isArray(ids) ? ids : [ids];
+    for (const id of list) {
+      const edit = this._pendingEdits.get(id);
+      if (!edit) {
+        continue;
       }
-    } catch (error) {
-      // Local model not available
-    }
-
-    // Fallback: Try cloud API
-    try {
-      const token = await this._context.secrets.get('surf-ai.authToken');
-      if (token) {
-        const response = await fetch('http://localhost:8000/api/v1/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            model: 'gpt-4',
-            messages: [{ role: 'user', content: prompt }]
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json() as { choices: Array<{ message: { content: string } }> };
-          return data.choices[0].message.content;
-        }
+      try {
+        await applyEdit(edit);
+        this._pendingEdits.delete(id);
+        this._postMessage({ type: 'editResolved', id, applied: true });
+      } catch (error) {
+        vscode.window.showErrorMessage(`Surf: ${(error as Error).message}`);
       }
-    } catch (error) {
-      // Cloud API not available
     }
+  }
 
-    return '⚠️ No AI backend available. Please start llama.cpp server or connect to the backend.\n\nTo start local model:\n```bash\n./llama-server --model ~/.surf-ide/models/Qwen2.5-2B-Q4_K_M.gguf --port 8080\n```';
+  private _rejectEdits(ids: string | string[]) {
+    const list = Array.isArray(ids) ? ids : [ids];
+    for (const id of list) {
+      if (this._pendingEdits.delete(id)) {
+        this._postMessage({ type: 'editResolved', id, applied: false });
+      }
+    }
+  }
+
+  private _newId(): string {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
   }
 
   private _sendWelcomeMessage() {
@@ -487,6 +598,362 @@ Ask me anything about your code!`;
       margin-top: 8px;
     }
 
+    /* Model picker */
+    .model-select {
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 4px;
+      font-size: 12px;
+      padding: 3px 6px;
+      max-width: 150px;
+    }
+
+    /* Header + segmented mode control */
+    .chat-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+
+    .chat-title {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .seg {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 999px;
+      background: var(--vscode-sideBar-background);
+    }
+
+    .seg-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      background: transparent;
+      color: var(--vscode-foreground);
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .seg-btn[data-mode="offline"].active {
+      background: rgba(34, 197, 94, 0.16);
+      color: #22c55e;
+      box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.5);
+    }
+
+    .seg-btn[data-mode="online"].active {
+      background: rgba(59, 130, 246, 0.16);
+      color: #3b82f6;
+      box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5);
+    }
+
+    .sub-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, 0.2);
+      color: #22c55e;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--vscode-disabledForeground, #888);
+    }
+
+    .dot.offline { background: #22c55e; }
+    .dot.online { background: #3b82f6; }
+
+    .toolbar {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .icon-btn {
+      background: none;
+      border: none;
+      color: var(--vscode-icon-foreground);
+      cursor: pointer;
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .icon-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+    .icon-btn[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+    .icon-btn[aria-disabled="true"]:hover { background: none; }
+
+    /* Breadcrumb */
+    .crumb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--vscode-descriptionForeground);
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+
+    .crumb-back {
+      background: none;
+      border: none;
+      color: var(--vscode-foreground);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0 4px;
+    }
+
+    .crumb-scope { color: var(--vscode-foreground); font-weight: 600; }
+    .crumb-sep { opacity: 0.6; }
+    .crumb-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .egress {
+      margin-left: auto;
+      color: #22c55e;
+      white-space: nowrap;
+    }
+
+    .egress.active { color: #3b82f6; }
+
+    /* Composer card */
+    .composer {
+      margin: 8px 12px 4px;
+      padding: 8px 10px;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 12px;
+      background: var(--vscode-input-background);
+    }
+
+    .composer .input-field {
+      border: none;
+      background: transparent;
+      padding: 2px;
+      min-height: 40px;
+      color: var(--vscode-input-foreground);
+    }
+
+    .composer .input-field:focus { outline: none; border: none; }
+
+    .composer-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+
+    .model-pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 999px;
+      background: var(--vscode-sideBar-background);
+      color: var(--vscode-foreground);
+      font-size: 11px;
+      padding: 3px 8px;
+      max-width: 150px;
+      cursor: pointer;
+    }
+
+    .model-pill.offline.active { border-color: rgba(34, 197, 94, 0.6); color: #22c55e; }
+    .model-pill.online.active { border-color: rgba(59, 130, 246, 0.6); color: #3b82f6; }
+
+    .chip-btn {
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 999px;
+      background: var(--vscode-sideBar-background);
+      color: var(--vscode-foreground);
+      font-size: 11px;
+      padding: 3px 10px;
+      cursor: default;
+      opacity: 0.8;
+    }
+
+    .auto-balance { font-size: 11px; color: var(--vscode-descriptionForeground); }
+
+    .send-circle {
+      margin-left: auto;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: none;
+      background: #3b82f6;
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .send-circle:hover { background: #2563eb; }
+    .send-circle:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Panel footer */
+    .panel-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px 10px;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    .foot-left { display: inline-flex; gap: 12px; }
+    .foot-right { color: #22c55e; }
+
+    /* Code blocks with language label + copy */
+    .code-block {
+      margin: 8px 0;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--vscode-textCodeBlock-background);
+    }
+
+    .code-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 10px;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-editor-inactiveSelectionBackground);
+    }
+
+    .code-copy {
+      background: none;
+      border: none;
+      color: var(--vscode-textLink-foreground);
+      cursor: pointer;
+      font-size: 11px;
+      text-transform: none;
+    }
+
+    .code-block pre {
+      margin: 0;
+      padding: 10px 12px;
+      background: transparent;
+      overflow-x: auto;
+    }
+
+    .code-block pre code { background: none; padding: 0; }
+
+    /* Edit review cards */
+    .edit-card {
+      margin-top: 8px;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--vscode-editor-background);
+    }
+
+    .edit-card.resolved { opacity: 0.65; }
+
+    .edit-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--vscode-editor-inactiveSelectionBackground);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .edit-file {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .edit-tag {
+      font-size: 10px;
+      font-weight: 500;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: var(--vscode-badge-background);
+      color: var(--vscode-badge-foreground);
+    }
+
+    .edit-diff {
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+      max-height: 240px;
+      overflow: auto;
+    }
+
+    .edit-line {
+      padding: 1px 10px;
+      white-space: pre;
+    }
+
+    .edit-line.del {
+      background: rgba(229, 83, 75, 0.18);
+      color: var(--vscode-errorForeground);
+    }
+
+    .edit-line.add {
+      background: rgba(78, 185, 106, 0.18);
+      color: var(--vscode-charts-green);
+    }
+
+    .edit-actions {
+      display: flex;
+      gap: 8px;
+      padding: 8px 10px;
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+
+    .edit-btn {
+      padding: 4px 12px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .edit-btn.apply {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+    }
+
+    .edit-btn.apply:hover { background: var(--vscode-button-hoverBackground); }
+
+    .edit-btn.reject {
+      background: transparent;
+      color: var(--vscode-foreground);
+      border: 1px solid var(--vscode-panel-border);
+    }
+
+    .edit-status {
+      font-size: 12px;
+      padding: 8px 10px;
+      color: var(--vscode-descriptionForeground);
+    }
+
     /* Scrollbar */
     ::-webkit-scrollbar {
       width: 8px;
@@ -509,16 +976,28 @@ Ask me anything about your code!`;
 <body>
   <div class="container">
     <!-- Header -->
-    <div class="header">
-      <div class="header-title">
-        <span>🏄</span>
-        <span>Surf AI Chat</span>
+    <div class="chat-header">
+      <span class="chat-title">\u{1F4AC} Chat</span>
+      <div class="seg" id="modeToggle">
+        <button class="seg-btn" data-mode="offline" onclick="setMode('offline')" title="Answer from the local model on this device"><span class="dot offline"></span>Offline Mode<span class="sub-badge">Air-Gapped</span></button>
+        <button class="seg-btn" data-mode="online" onclick="setMode('online')" title="Answer from the Surf cloud gateway"><span class="dot" id="netDot"></span>Online Cloud</button>
       </div>
-      <div class="header-actions">
-        <button class="icon-button" onclick="clearChat()" title="Clear chat">
-          🗑️
-        </button>
+      <div class="toolbar">
+        <button class="icon-btn" onclick="clearChat()" title="New chat">＋</button>
+        <button class="icon-btn" aria-disabled="true" title="History">⌄</button>
+        <button class="icon-btn" id="pauseBtn" aria-disabled="true" title="Pause">⏸</button>
+        <button class="icon-btn" aria-disabled="true" title="Fullscreen">⛶</button>
+        <button class="icon-btn" onclick="closePanel()" title="Close">✕</button>
       </div>
+    </div>
+
+    <!-- Breadcrumb -->
+    <div class="crumb">
+      <button class="crumb-back" onclick="backToLobby()" title="Back to Lobby">←</button>
+      <span class="crumb-scope" id="crumbScope">Local</span>
+      <span class="crumb-sep">•</span>
+      <span class="crumb-title">Surf session</span>
+      <span class="egress" id="egress" title="Requests sent to the cloud this session">● 0 network egress</span>
     </div>
 
     <!-- Messages -->
@@ -536,22 +1015,29 @@ Ask me anything about your code!`;
       <span>Surf AI is thinking...</span>
     </div>
 
-    <!-- Input Area -->
-    <div class="input-area">
-      <div class="input-wrapper">
-        <textarea 
-          id="inputField" 
-          class="input-field" 
-          placeholder="Ask a question about your code..."
-          onkeydown="handleKeyDown(event)"
-        ></textarea>
-        <div class="input-actions">
-          <span class="input-hint">⌘ + Enter to send</span>
-          <button class="send-button" id="sendButton" onclick="sendMessage()">
-            Send
-          </button>
-        </div>
+    <!-- Composer -->
+    <div class="composer">
+      <textarea
+        id="inputField"
+        class="input-field"
+        placeholder="Describe what to build or code refactor..."
+        onkeydown="handleKeyDown(event)"
+      ></textarea>
+      <div class="composer-row">
+        <button class="icon-btn" aria-disabled="true" title="Attach">＋</button>
+        <select id="localSelect" class="model-pill offline" onchange="selectLocalModel()" title="Offline model"></select>
+        <select id="modelSelect" class="model-pill online" onchange="selectModel()" title="Online model"></select>
+        <button class="chip-btn" aria-disabled="true" title="Agent mode">◎ Agent</button>
+        <span class="auto-balance" title="Auto Balance">• Auto Balance</span>
+        <button class="icon-btn" aria-disabled="true" title="Dictate">🎙</button>
+        <button class="send-circle" id="sendButton" onclick="sendMessage()" title="Send">↑</button>
       </div>
+    </div>
+
+    <!-- Panel footer -->
+    <div class="panel-foot">
+      <span class="foot-left"><span id="footScope">🖥 Local</span><span>🛡 Default permissions</span></span>
+      <span class="foot-right" id="footStatus">● Ready</span>
     </div>
   </div>
 
@@ -561,6 +1047,8 @@ Ask me anything about your code!`;
     const inputField = document.getElementById('inputField');
     const sendButton = document.getElementById('sendButton');
     const typingIndicator = document.getElementById('typingIndicator');
+    const modelSelect = document.getElementById('modelSelect');
+    const localSelect = document.getElementById('localSelect');
 
     // Handle messages from extension
     window.addEventListener('message', (event) => {
@@ -573,12 +1061,35 @@ Ask me anything about your code!`;
         case 'showTyping':
           typingIndicator.classList.add('active');
           messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          setPause(true);
           break;
         case 'hideTyping':
           typingIndicator.classList.remove('active');
+          sendButton.disabled = false;
+          setPause(false);
           break;
         case 'clearChat':
           messagesContainer.innerHTML = '';
+          break;
+        case 'models':
+          populateModels(message.models, message.selected, message.error);
+          break;
+        case 'localModels':
+          populateLocalModels(message.models, message.selected);
+          break;
+        case 'mode':
+          applyMode(message.mode);
+          break;
+        case 'netStatus':
+          setNetDot(message.online);
+          setEgress(message.egress);
+          break;
+        case 'proposeEdits':
+          message.edits.forEach(renderEditCard);
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          break;
+        case 'editResolved':
+          resolveEditCard(message.id, message.applied);
           break;
       }
     });
@@ -614,7 +1125,10 @@ Ask me anything about your code!`;
       // Code blocks (triple backtick) - using Unicode escape for backtick
       const BT = String.fromCharCode(96); // backtick character
       const codeBlockRegex = new RegExp(BT + BT + BT + '(\\w*)\\n([\\s\\S]*?)' + BT + BT + BT, 'g');
-      html = html.replace(codeBlockRegex, '<pre><code class="language-$1">$2</code></pre>');
+      html = html.replace(codeBlockRegex, function (_m, lang, code) {
+        const label = (lang || 'code').toUpperCase();
+        return '<div class="code-block"><div class="code-head"><span>' + label + '</span><button class="code-copy" onclick="copyCode(this)">Copy</button></div><pre><code class="language-' + lang + '">' + code + '</code></pre></div>';
+      });
       
       // Inline code (single backtick)
       const inlineCodeRegex = new RegExp(BT + '([^' + BT + ']+)' + BT, 'g');
@@ -663,6 +1177,150 @@ Ask me anything about your code!`;
         event.preventDefault();
         sendMessage();
       }
+    }
+
+    function populateModels(models, selected, error) {
+      modelSelect.innerHTML = '';
+      if (!models || models.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = error ? 'No models' : 'Loading...';
+        modelSelect.appendChild(opt);
+        modelSelect.disabled = true;
+        return;
+      }
+      modelSelect.disabled = false;
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label || m.id;
+        if (m.id === selected) { opt.selected = true; }
+        modelSelect.appendChild(opt);
+      }
+      if (selected) { vscode.postMessage({ type: 'selectModel', value: selected }); }
+    }
+
+    function selectModel() {
+      vscode.postMessage({ type: 'selectModel', value: modelSelect.value });
+    }
+
+    function selectLocalModel() {
+      vscode.postMessage({ type: 'selectLocalModel', value: localSelect.value });
+    }
+
+    function applyMode(mode) {
+      const offline = mode !== 'online';
+      const active = offline ? 'offline' : 'online';
+      document.querySelectorAll('.seg-btn').forEach((b) => {
+        b.classList.toggle('active', b.getAttribute('data-mode') === active);
+      });
+      localSelect.classList.toggle('active', offline);
+      modelSelect.classList.toggle('active', !offline);
+      const scope = offline ? 'Local' : 'Cloud';
+      const crumbScope = document.getElementById('crumbScope');
+      if (crumbScope) { crumbScope.textContent = scope; }
+      const footScope = document.getElementById('footScope');
+      if (footScope) { footScope.textContent = offline ? '🖥 Local' : '☁ Cloud'; }
+    }
+
+    function setNetDot(online) {
+      const dot = document.getElementById('netDot');
+      if (dot) { dot.classList.toggle('online', Boolean(online)); }
+    }
+
+    function setEgress(n) {
+      const el = document.getElementById('egress');
+      if (!el) { return; }
+      const count = Number(n) || 0;
+      el.textContent = '● ' + count + ' network egress';
+      el.classList.toggle('active', count > 0);
+    }
+
+    function setPause(working) {
+      const btn = document.getElementById('pauseBtn');
+      if (btn) { btn.setAttribute('aria-disabled', working ? 'false' : 'true'); }
+      const status = document.getElementById('footStatus');
+      if (status) { status.textContent = working ? '● Working' : '● Ready'; status.style.color = working ? '#3b82f6' : '#22c55e'; }
+    }
+
+    function closePanel() {
+      vscode.postMessage({ type: 'closePanel' });
+    }
+
+    function copyCode(btn) {
+      const block = btn.closest('.code-block');
+      const code = block ? block.querySelector('code') : null;
+      if (code) { vscode.postMessage({ type: 'copyMessage', value: code.textContent }); }
+    }
+
+    function setMode(mode) {
+      applyMode(mode);
+      vscode.postMessage({ type: 'setMode', value: mode });
+    }
+
+    function backToLobby() {
+      vscode.postMessage({ type: 'backToLobby' });
+    }
+
+    function populateLocalModels(models, selected) {
+      localSelect.innerHTML = '';
+      if (!models || models.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = 'No local model';
+        localSelect.appendChild(opt);
+        localSelect.disabled = true;
+        return;
+      }
+      localSelect.disabled = false;
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label || m.id;
+        if (m.id === selected) { opt.selected = true; }
+        localSelect.appendChild(opt);
+      }
+      if (selected) { vscode.postMessage({ type: 'selectLocalModel', value: selected }); }
+    }
+
+    function renderEditCard(edit) {
+      const card = document.createElement('div');
+      card.className = 'edit-card';
+      card.id = 'edit-' + edit.id;
+
+      const lines = [];
+      for (const l of (edit.removed || [])) { lines.push('<div class="edit-line del">- ' + escapeHtml(l) + '</div>'); }
+      for (const l of (edit.added || [])) { lines.push('<div class="edit-line add">+ ' + escapeHtml(l) + '</div>'); }
+
+      const tag = edit.isNewFile ? '<span class="edit-tag">new file</span>' : '';
+      card.innerHTML =
+        '<div class="edit-head"><span class="edit-file">' + escapeHtml(edit.file) + '</span>' + tag + '</div>' +
+        '<div class="edit-diff">' + (lines.join('') || '<div class="edit-status">No line changes.</div>') + '</div>' +
+        '<div class="edit-actions">' +
+          '<button class="edit-btn apply" onclick="applyEdit(\'' + edit.id + '\')">Apply</button>' +
+          '<button class="edit-btn reject" onclick="rejectEdit(\'' + edit.id + '\')">Reject</button>' +
+        '</div>';
+      messagesContainer.appendChild(card);
+    }
+
+    function applyEdit(id) {
+      vscode.postMessage({ type: 'applyEdits', ids: [id] });
+    }
+
+    function rejectEdit(id) {
+      vscode.postMessage({ type: 'rejectEdits', ids: [id] });
+    }
+
+    function resolveEditCard(id, applied) {
+      const card = document.getElementById('edit-' + id);
+      if (!card) { return; }
+      card.classList.add('resolved');
+      const actions = card.querySelector('.edit-actions');
+      if (actions) { actions.outerHTML = '<div class="edit-status">' + (applied ? 'Applied' : 'Rejected') + '</div>'; }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text == null ? '' : String(text);
+      return div.innerHTML;
     }
 
     // Auto-resize textarea

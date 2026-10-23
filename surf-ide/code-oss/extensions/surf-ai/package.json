@@ -4,6 +4,10 @@
   "description": "AI-powered coding assistant integrated into Surf IDE",
   "version": "0.1.0",
   "publisher": "surf-ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kslji/synap.ai.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -16,16 +20,61 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "surf-ai",
+          "title": "Surf AI",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "surf-ai": [
+        {
+          "type": "webview",
+          "id": "surf-ai.chat",
+          "name": "Surf AI Chat"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "surf-ai.startChat",
-        "title": "Surf AI: Start Chat"
+        "command": "surf-ai.openChat",
+        "title": "Surf AI: Open Chat"
       },
       {
         "command": "surf-ai.askQuestion",
         "title": "Surf AI: Ask Question"
+      },
+      {
+        "command": "surf-ai.explainSelection",
+        "title": "Surf AI: Explain Selection"
+      },
+      {
+        "command": "surf-ai.fixErrors",
+        "title": "Surf AI: Fix Errors"
+      },
+      {
+        "command": "surf-ai.backToLobby",
+        "title": "Surf AI: Back to Lobby"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Surf AI",
+      "properties": {
+        "surf.gatewayBaseUrl": {
+          "type": "string",
+          "default": "https://api.synap.surf",
+          "description": "Base URL of the Surf gateway (OpenRouter proxy with per-user billing)."
+        },
+        "surf.localBridgeFile": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the JSON descriptor the Surf desktop writes for the local (offline) model bridge. Normally injected via SURF_LOCAL_BRIDGE_FILE at launch."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

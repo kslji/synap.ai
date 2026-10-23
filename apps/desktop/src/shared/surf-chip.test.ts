@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { syncChip } from '../main/core/network-mode.js'
+import { syncChip } from './network-mode.js'
 import {
   SURF_CHIP_DARK,
   SURF_CHIP_IDLE,

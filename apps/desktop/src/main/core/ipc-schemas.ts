@@ -11,6 +11,8 @@ export const ChatSendReq = z.object({
   docScope: z.enum(['chat', 'all']).default('chat'),
   replaceMessageId: z.string().uuid().optional(),
   continueMessageId: z.string().uuid().optional(),
+  mode: z.enum(['online', 'offline']).optional(),
+  contextMessageIds: z.array(z.string().uuid()).max(50).optional(),
 })
 
 export const SettingsPatch = z.object({

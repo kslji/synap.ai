@@ -95,7 +95,7 @@ import { compareFromText, countFromText, numberTools, asksForNumberTool, resolve
 import { createDocumentApi } from './document-service.js'
 import calcWorker from './calculator.worker?modulePath'
 import { hybridSearch, borderlinePrompt, documentGate, gate as relevanceGate, mergeLocal, type Hit, type GateDecision } from './retrieval.js'
-import { allocate, BUDGETS, heuristicCounter, LlamaServerTokenizer, type Turn } from './token-budget.js'
+import { allocate, budgetForTier, heuristicCounter, LlamaServerTokenizer, type Turn } from './token-budget.js'
 import { openPackDb, openUserDb, type DB } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
@@ -392,7 +392,7 @@ export async function createServices(): Promise<Services> {
     if (!(await installed(model.file, model.size_bytes))) return blank('not-installed')
     try {
       return await withModel(async () => {
-        const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+        const profile = budgetForTier(hw.tier)
         const server = await ensure('chat', model, profile.serverCtx, '', 'general')
         const client = new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey, sampling: { temperature: 0, top_k: 1 } })
         const started = Date.now()
@@ -479,7 +479,7 @@ export async function createServices(): Promise<Services> {
       live: liveStatus(reg, settings, new Set(models.filter((model) => model.installed).map((model) => model.id))),
       appVersion: app.getVersion(),
       gpus: hw.gpus.filter((gpu) => gpu.model.trim() && gpu.model.trim().toLowerCase() !== 'unknown'),
-      contextTokens: (hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0).serverCtx,
+      contextTokens: budgetForTier(hw.tier).serverCtx,
       promptCacheMiB: promptCacheMiB(hw.totalRamGb),
       freeRamGb: hw.freeRamGb,
       benchmarks: reg.models.flatMap((model) => {
@@ -736,7 +736,7 @@ export async function createServices(): Promise<Services> {
         const file = chat?.mmproj?.file
         const path = chat && file ? join(modelsDir(), mmprojDestName(chat.id, file)) : ''
         if (!chat || !mmprojReady(path)) return null
-        const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+        const profile = budgetForTier(hw.tier)
         const server = await ensure('chat', chat, profile.serverCtx, path)
         const client = new LlamaClient({
           baseUrl: server.baseUrl,
@@ -890,7 +890,7 @@ export async function createServices(): Promise<Services> {
         finish(conversationId, messageId, userMessageId, win, NO_MODEL_MESSAGE, [], 'insufficient', true)
         return
       }
-      const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      const profile = budgetForTier(hw.tier)
       const server = chatModel ? await ensure('chat', chatModel, profile.serverCtx, '', 'code') : null
       const agentModelId = gateway ? gateway.model : chatModel?.id ?? ''
       let counter = heuristicCounter
@@ -1142,7 +1142,7 @@ export async function createServices(): Promise<Services> {
       const settings = readSettings()
       const model = await chooseChat(registry(), agentId === 'code' ? settings.codeModelId : settings.chatModelId, agentId)
       if (model) {
-        const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+        const profile = budgetForTier(hw.tier)
         const server = await ensure('chat', model, profile.serverCtx, '', agentId)
         const client = new LlamaClient({
           baseUrl: server.baseUrl,
@@ -1182,7 +1182,7 @@ export async function createServices(): Promise<Services> {
       sendEvent(win, { type: 'error', messageId, message: NO_MODEL_MESSAGE })
       return
     }
-    const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+    const profile = budgetForTier(hw.tier)
     const server = await ensure('chat', model, profile.serverCtx, '', agentId)
     const client = new LlamaClient({
       baseUrl: server.baseUrl,
@@ -1506,7 +1506,7 @@ export async function createServices(): Promise<Services> {
 
       const preferred = agentId === 'code' ? settings.codeModelId : settings.chatModelId
       const chatModel = await chooseChat(reg, preferred, agentId)
-      const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      const profile = budgetForTier(hw.tier)
       if (!chatModel) {
         await emitText(win, messageId, NO_MODEL_MESSAGE)
         finish(conversationId, messageId, userMessageId, win, NO_MODEL_MESSAGE, [], 'insufficient', true)
@@ -1934,7 +1934,7 @@ export async function createServices(): Promise<Services> {
       const settings = readSettings()
       const model = await chooseChat(registry(), settings.codeModelId, 'code')
       if (!model) return null
-      const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+      const profile = budgetForTier(hw.tier)
       const server = await ensure('chat', model, profile.serverCtx, '', 'code')
       return { baseUrl: server.baseUrl, apiKey: server.apiKey }
     }),
@@ -2667,7 +2667,7 @@ export async function createServices(): Promise<Services> {
     if (!chosen) return
     const entry = reg.models.find((model) => model.id === chosen.id)
     if (!entry) return
-    const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
+    const profile = budgetForTier(hw.tier)
     const agent = entry.agents?.includes('code') ? 'code' : 'general'
     await withModel(() => ensure('chat', entry, profile.serverCtx, '', agent))
   }

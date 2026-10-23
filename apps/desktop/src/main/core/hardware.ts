@@ -5,7 +5,7 @@
  *   0: < 8 GB RAM      -> below the 8 GB minimum; 8K context
  *   1: 8-15 GB         -> 8K context
  *   2: 16-31 GB        -> 16K context
- *   3: >= 32 GB or GPU with >= 12 GB VRAM -> 16K context / whisper large-v3-turbo
+ *   3: >= 32 GB or GPU with >= 12 GB VRAM -> 32K context / whisper large-v3-turbo
  */
 import os from 'node:os';
 import si from 'systeminformation';

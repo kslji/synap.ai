@@ -50,3 +50,7 @@ apps/desktop/.golden-tmp/
 
 # Parked, not deleted: the orchestrator stays out of commits until it's picked back up.
 services/ai-orchestrator/
+
+# Build output of the @surf/ui package (tsc emits next to the source).
+packages/ui/src/mascot.d.ts
+packages/ui/src/mascot.js

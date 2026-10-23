@@ -30,9 +30,10 @@ export class GatewayClient {
   }
 
   /**
-   * Quick connectivity + auth check for Auto routing. Returns false (never
-   * throws) when there is no token, the gateway is unreachable, or it answers
-   * non-OK, so callers can treat a false result as "fall back to local".
+   * Quick connectivity + auth check for the Online status indicator. Returns
+   * false (never throws) when there is no token, the gateway is unreachable,
+   * or it answers non-OK. Routing is the user's explicit choice (Offline or
+   * Online); there is no Auto mode that consults this.
    */
   async reachable(timeoutMs = 1500): Promise<boolean> {
     const token = await this.context.secrets.get('surf-ai.authToken');

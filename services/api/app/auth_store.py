@@ -415,9 +415,13 @@ class PostgresAuth(MemoryAuth):
                 raise AuthError(401, "invalid_refresh", "Sign in again.")
             if row[5] is not None or row[6] is not None:
                 await conn.execute("UPDATE auth_refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE family_id = %s", (row[3],))
+                # Commit the burn before raising: the exception exiting the pool
+                # context would otherwise roll the family revocation back.
+                await conn.commit()
                 raise AuthError(401, "refresh_reused", "That session was already used. Sign in again.")
             if row[4] <= now:
                 await conn.execute("UPDATE auth_refresh_tokens SET revoked_at = now() WHERE id = %s", (row[0],))
+                await conn.commit()
                 raise AuthError(401, "invalid_refresh", "Sign in again.")
             device = await (await conn.execute(
                 """SELECT id::text, user_id::text, device_uid, name, os, arch, app_version, status
@@ -427,6 +431,7 @@ class PostgresAuth(MemoryAuth):
             user = await self.user_by_id(row[1])
             if not device or device[7] != "active" or not user:
                 await conn.execute("UPDATE auth_refresh_tokens SET revoked_at = now() WHERE id = %s", (row[0],))
+                await conn.commit()
                 raise AuthError(401, "device_revoked", "This device was revoked.")
             new_raw = secrets.token_urlsafe(32)
             inserted = await (await conn.execute(

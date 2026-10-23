@@ -99,6 +99,22 @@ test('the offline zip leaves AppleDouble and .DS_Store out', async () => {
   }
 })
 
+test('the linter does not walk vendored or built files', () => {
+  /*
+   * surf-ide/code-oss is an upstream VS Code checkout that is not tracked (only
+   * surf-ide/code-oss/extensions/surf-ai is ours) and apps/web/.next is webpack
+   * output full of eval. CI checks out neither, but a laptop has both, and
+   * `npx eslint .` walked them: 1260 errors on a dirty working tree.
+   */
+  const config = readFileSync(join(ROOT, 'eslint.config.mjs'), 'utf8')
+  const ignores = /ignores:\s*\[([^[\]]*)\]/s.exec(config)
+  assert.ok(ignores, 'eslint.config.mjs must declare an ignores list')
+  const patterns = ignores[1]
+  assert.ok(/surf-ide\/code-oss\/\*\*/.test(patterns), 'the vendored IDE tree must be ignored so `npx eslint .` runs locally')
+  assert.ok(/'\*\*\/\.next\/\*\*'/.test(patterns), 'Next build output must be ignored; it is generated, not source')
+  assert.ok(/'!surf-ide\/code-oss\/extensions\/surf-ai\/\*\*'/.test(patterns), 'the Surf AI extension stays linted')
+})
+
 test('the offline packer is the only archive this repo builds', () => {
   const creates = /(?:spawn|exec)Sync\(\s*['"](?:zip|tar)['"]\s*,\s*\[[^\]]*['"]-(?:r|c|czf|cf)/s
   const found: string[] = []

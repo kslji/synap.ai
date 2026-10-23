@@ -116,7 +116,8 @@ test('speculative decoding stays off unless the runtime, the draft, and RAM all 
   }
   assert.equal(speculativeDecision(base).enabled, true)
   assert.equal(speculativeDecision(base).offerDownload, false)
-  assert.deepEqual(speculativeServerArgs(true, '/models/draft.gguf'), ['-md', '/models/draft.gguf', '--draft-max', '8'])
+  // --draft-max was removed upstream; the current flag is --spec-draft-n-max.
+  assert.deepEqual(speculativeServerArgs(true, '/models/draft.gguf'), ['-md', '/models/draft.gguf', '--spec-draft-n-max', '8'])
   assert.deepEqual(speculativeServerArgs(false, '/models/draft.gguf'), [])
   assert.equal(speculativeDecision({ ...base, userEnabled: false }).reason, 'off')
   assert.equal(speculativeDecision({ ...base, userEnabled: false, draftInstalled: false }).offerDownload, true)

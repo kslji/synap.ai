@@ -57,3 +57,20 @@ test('llama-server starts with --no-repack and -cram 0', () => {
   assert.ok(args.includes('--jinja'))
   assert.equal(args.includes('--embeddings'), false)
 })
+
+test('a draft model is passed as --spec-draft-n-max; --draft-max was removed upstream', () => {
+  // build 11514 rejects --draft-max outright ("the argument has been removed"), which would
+  // stop the whole chat server from starting whenever speculative decoding is enabled.
+  const server = new LlamaServer({
+    binPath: 'llama-server',
+    modelPath: 'model.gguf',
+    ctx: 8192,
+    draftModelPath: '/models/draft.gguf',
+    draftMax: 6,
+  })
+  const args = server.args()
+  assert.deepEqual(args.slice(args.indexOf('-md'), args.indexOf('-md') + 2), ['-md', '/models/draft.gguf'])
+  assert.equal(args[args.indexOf('--spec-draft-n-max') + 1], '6')
+  assert.equal(args.includes('--draft-max'), false)
+  assert.equal(args.includes('--draft'), false)
+})

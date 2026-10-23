@@ -78,7 +78,8 @@ export class LlamaServer extends EventEmitter {
     // Together they cut RAM to about the file size (Qwen3.5-2B Q6_K peaked near 1.74 GB).
     // A larger laptop can keep a small prompt cache so a stable prefix is reused.
     a.push('--no-repack', '-cram', String(o.cacheRamMiB ?? 0));
-    if (o.draftModelPath) a.push('-md', o.draftModelPath, '--draft-max', String(o.draftMax ?? 8));
+    // Draft length is --spec-draft-n-max: current builds reject the old --draft-max outright.
+    if (o.draftModelPath) a.push('-md', o.draftModelPath, '--spec-draft-n-max', String(o.draftMax ?? 8));
     return [...a, ...(o.extraArgs ?? [])];
   }
 

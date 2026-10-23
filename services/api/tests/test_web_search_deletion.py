@@ -57,7 +57,7 @@ def test_deploy_schema_does_not_advertise_web_search():
     out the dead quota knob.
     """
     text = (REPO_ROOT / "deploy" / "initdb" / "01_schema.sql").read_text()
-    for ghost in ("web_search_per_day", "search_requests", "search_quota_daily"):
+    for ghost in ("web_search_per_day", "search_requests", "search_quota_daily", "source_suggestions"):
         assert ghost not in text, f"deploy/initdb/01_schema.sql still carries {ghost!r}"
 
 

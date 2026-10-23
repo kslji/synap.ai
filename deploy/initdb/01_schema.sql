@@ -175,20 +175,6 @@ CREATE TABLE sources (
   UNIQUE (niche_id, domain, source_type)
 );
 
-CREATE TABLE source_suggestions (                      -- domains seen in live web answers (opt-in, domain only)
-  id              bigserial PRIMARY KEY,
-  domain          citext NOT NULL,
-  niche_hint      text REFERENCES niches(id),
-  times_seen      int NOT NULL DEFAULT 1,
-  distinct_devices int NOT NULL DEFAULT 1,
-  first_seen_at   timestamptz NOT NULL DEFAULT now(),
-  last_seen_at    timestamptz NOT NULL DEFAULT now(),
-  status          text NOT NULL DEFAULT 'new' CHECK (status IN ('new','accepted','rejected','duplicate')),
-  reviewed_by     uuid REFERENCES users(id),
-  reviewer_notes  text,
-  UNIQUE (domain, niche_hint)
-);
-
 -- ---------------------------------------------------------------------
 -- Ingestion: crawl runs, raw docs, Universal Table, chunks, embeddings
 -- ---------------------------------------------------------------------

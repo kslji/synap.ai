@@ -17,7 +17,7 @@ import { verifyPack } from './core/pack-verify.js'
 import { EVAL_SAMPLING, LlamaClient } from './core/llama-client.js'
 import { LlamaServer, resolveSidecar } from './core/sidecar-manager.js'
 import { surfEnv } from './core/surf-env.js'
-import { repoRoot, startSearchFixture } from './core/web-selftest.js'
+import { repoRoot } from './core/selftest-helpers.js'
 import { createServices } from './core/app-services.js'
 
 interface Expect {
@@ -40,7 +40,6 @@ interface Expect {
 interface Turn {
   question: string
   offlineOnly?: boolean
-  allowWeb?: boolean
   documents?: string[]
   expect?: Expect
 }
@@ -293,7 +292,6 @@ export async function runEval(): Promise<void> {
   mkdirSync(logDir, { recursive: true })
   const results: CaseTranscript[] = []
   let models: ModelMetric[] = []
-  let fixture: { base: string; stop: () => Promise<void> } | null = null
 
   const write = (error?: string) => {
     writeFileSync(outPath, JSON.stringify({ ok: !error && results.every((row) => !row.error), error, models, cases: results }, null, 2))
@@ -301,20 +299,13 @@ export async function runEval(): Promise<void> {
 
   try {
     if (surfEnv('EVAL_SKIP_METRICS') !== '1') models = await probeModels(modelsDir, bin, logDir, full)
-    const needsWeb = cases.some((item) => item.turns.some((turn) => turn.allowWeb))
     const built = new Map<string, string>()
     for (const item of cases) {
       if (!item.pack) continue
       built.set(item.id, await signPack(item.pack, bin, join(modelsDir, EMBEDDINGGEMMA2_256.gguf), logDir))
     }
-    if (needsWeb) {
-      fixture = await startSearchFixture()
-      process.env.SURF_API_BASE = fixture.base
-      process.env.SURF_SEARCH_FIXTURE = '1'
-    }
     writeFileSync(join(logDir, 'settings.json'), JSON.stringify({
       offlineOnly: true,
-      webSearchAllowed: true,
       telemetryOptIn: false,
       chatModelId: surfEnv('EVAL_CHAT_MODEL') || 'qwen3.5-4b-q4_k_m',
       onboardingComplete: true,
@@ -347,19 +338,6 @@ export async function runEval(): Promise<void> {
       await commitInstall(staging, join(app.getPath('userData'), 'packs'), manifest, spec.title)
     }
 
-    if (needsWeb && fixture) {
-      await services.settings.set({ offlineOnly: false, webSearchAllowed: true })
-      const email = 'eval-harness@example.com'
-      const start = await fetch(`${fixture.base}/v1/auth/otp/start`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
-      })
-      const started = await start.json() as { dev_code?: string; error?: { message?: string } }
-      if (!start.ok || !started.dev_code) throw new Error(started.error?.message || 'dev OTP missing')
-      await services.auth.verify(email, started.dev_code)
-    }
-
     for (const item of cases) {
       const transcript: CaseTranscript = { id: item.id, suite: item.suite, weight: item.weight ?? 1, turns: [] }
       results.push(transcript)
@@ -383,27 +361,13 @@ export async function runEval(): Promise<void> {
               await sleep(300)
             }
           }
-          await services.settings.set({
-            offlineOnly: turn.offlineOnly !== false,
-            webSearchAllowed: turn.allowWeb === true,
-          })
-          if (turn.allowWeb) {
-            const onlineDeadline = Date.now() + 15_000
-            let online = false
-            while (Date.now() < onlineDeadline) {
-              const now = await services.models.status()
-              if (now.online) { online = true; break }
-              await sleep(200)
-            }
-            if (!online) throw new Error(`search service stayed offline: ${(await services.models.status()).onlineReason}`)
-          }
+          await services.settings.set({ offlineOnly: turn.offlineOnly !== false })
           const started = Date.now()
           const sent = await services.chat.send({
             conversationId,
             text: turn.question,
             agentId: 'general',
             images: [],
-            allowWeb: turn.allowWeb === true,
             docScope: 'chat',
           }, win)
           conversationId = sent.conversationId
@@ -430,7 +394,6 @@ export async function runEval(): Promise<void> {
     write((error as Error).stack || (error as Error).message)
     throw error
   } finally {
-    if (fixture) await fixture.stop().catch(() => undefined)
     killLlama()
   }
 }

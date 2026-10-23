@@ -453,59 +453,24 @@ test('the chat step list and diff card render apply and reject', () => {
   assert.equal(prev[0]?.steps, undefined)
 })
 
-test('a mocked model can call web_search only while dev web is on', async () => {
+test('the code agent never advertises or runs a web tool', async () => {
   const root = tempProject()
   const seen: string[] = []
-  const dev = await runCodeAgent('find the beacon', {
+  const turn = await runCodeAgent('find the beacon', {
     ...baseHost(root),
-    devWeb: {
-      apiBase: 'http://127.0.0.1:8000',
-      offlineOnly: false,
-      env: { NODE_ENV: 'development' },
-      fetchImpl: async () => Response.json({
-        results: [{ title: 'Pier 9 beacon', url: 'https://example.com/beacon', snippet: 'SB-4417' }],
-      }),
-    },
     async complete(req) {
-      const names = (req.tools ?? []).map((item) => (item as { function?: { name?: string } }).function?.name ?? '')
-      if (names.length) seen.push(...names)
-      const last = req.messages.at(-1)?.content
-      if (typeof last === 'string' && last.includes('URL: https://example.com/beacon')) {
-        return { content: '{"tool":"finish","arguments":{"summary":"Source https://example.com/beacon"}}' }
-      }
+      seen.push(...(req.tools ?? []).map((item) => (item as { function?: { name?: string } }).function?.name ?? ''))
       return { content: '{"tool":"web_search","arguments":{"query":"pier beacon"}}' }
     },
   })
-  assert.equal(dev.stopped, 'finish')
-  assert.match(dev.answer, /https:\/\/example\.com\/beacon/)
-  assert.equal(dev.steps[0]?.tool, 'web_search')
-  assert.equal(dev.steps[0]?.status, 'ok')
-  assert.ok(seen.includes('web_search'))
+  assert.equal(seen.includes('web_search'), false)
+  assert.equal(seen.includes('fetch_page'), false)
   assert.ok(seen.includes('read_file'))
-
-  let fetches = 0
-  const prodSeen: string[] = []
-  const prod = await runCodeAgent('find the beacon', {
-    ...baseHost(root),
-    devWeb: {
-      apiBase: 'http://127.0.0.1:8000',
-      offlineOnly: false,
-      env: { NODE_ENV: 'production' },
-      fetchImpl: async () => {
-        fetches++
-        return Response.json({ results: [] })
-      },
-    },
-    async complete(req) {
-      prodSeen.push(...(req.tools ?? []).map((item) => (item as { function?: { name?: string } }).function?.name ?? ''))
-      return { content: '{"tool":"web_search","arguments":{"query":"pier beacon"}}' }
-    },
-  })
-  assert.equal(prodSeen.includes('web_search'), false)
-  assert.ok(prodSeen.includes('read_file'))
-  assert.equal(fetches, 0)
-  assert.equal(prod.steps.length, 0)
-  assert.equal(prod.stopped, 'parse')
+  // The call is not a code tool, so nothing runs and the loop gives up on parsing.
+  assert.equal(turn.steps.length, 0)
+  assert.deepEqual(turn.diffs, [])
+  assert.equal(turn.stopped, 'parse')
+  assert.match(turn.answer, /could not read a tool call/i)
 })
 
 function baseHost(root: string) {

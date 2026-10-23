@@ -231,40 +231,6 @@ jobs:
       - name: Unit tests with coverage threshold
         run: npm run test:coverage -w @surf/desktop
 
-  no-fabrication:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Compiler tools for native prebuilds
-        run: sudo apt-get update && sudo apt-get install -y make g++
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in 1 2 3; do
-            if npm ci; then exit 0; fi
-            echo "npm ci failed (attempt ${attempt})"
-            rm -rf node_modules
-          done
-          exit 1
-      - name: No-fabrication gate
-        working-directory: apps/desktop
-        run: |
-          set -euo pipefail
-          npx tsx src/main/core/search/no-fabrication-suite.ts > /tmp/no-fabrication.json
-          python3 - <<'PY'
-          import json
-          rows = json.load(open("/tmp/no-fabrication.json"))
-          bad = [row["id"] for row in rows if not row.get("fields", {}).get("ok")]
-          print(f"no-fabrication {len(rows) - len(bad)}/{len(rows)}")
-          if bad or not rows:
-              raise SystemExit("failed: " + ", ".join(bad[:12]))
-          PY
-
   security:
     runs-on: ubuntu-latest
     steps:

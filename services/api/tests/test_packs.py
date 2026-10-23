@@ -6,9 +6,7 @@ from urllib.parse import urlsplit
 os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-ok")
 os.environ.setdefault("JWT_AUDIENCE", "authenticated")
 os.environ["SURF_API_LITE"] = "1"
-os.environ["SEARXNG_URL"] = "http://stub.local/search"
 os.environ["MAIL_MODE"] = "console"
-os.environ["FETCH_ALLOW_HOSTS"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 

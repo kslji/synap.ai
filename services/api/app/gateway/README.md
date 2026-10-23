@@ -4,7 +4,7 @@ A secure, lightweight, multi-tenant API gateway wrapper around the OpenRouter AP
 
 ## Overview
 
-This gateway replaces the heavy web-browsing infrastructure (SearXNG, Chromium, headless browsers) with a direct API proxy that enforces per-user billing and context isolation.
+This gateway is a direct API proxy that enforces per-user billing and context isolation.
 
 ### Key Features
 
@@ -263,8 +263,6 @@ This gateway sends user prompts to OpenRouter for the cloud chat path, but **no 
 1. **Pre-flight doesn't include markup**: The pre-flight check doesn't account for the markup multiplier. A response that uses the full `max_tokens` can leave the balance slightly negative. The account is then locked.
 
 2. **No top-up mechanism**: There's no admin endpoint to add credit to user accounts yet. New accounts start at `GATEWAY_STARTING_CREDIT`.
-
-3. **Desktop compatibility**: The desktop app's dev web search still calls the removed routes (`/v1/search`, `/v1/fetch`) and will get 404 errors.
 
 ## Future Enhancements
 

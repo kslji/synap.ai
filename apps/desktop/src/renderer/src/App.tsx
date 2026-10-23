@@ -118,9 +118,6 @@ export default function App() {
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
-  function webAllowed(): boolean {
-    return Boolean(settings?.webSearchAllowed && !settings.offlineOnly)
-  }
 
   const syncPreview = useRef<SyncChip | null>(null)
   const syncDemoTimer = useRef<number | null>(null)
@@ -364,7 +361,7 @@ export default function App() {
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: webAllowed(), docScope: 'chat', mode, contextMessageIds })
+      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, docScope: 'chat', mode, contextMessageIds })
       if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
@@ -385,7 +382,6 @@ export default function App() {
         conversationId,
         text: 'Continue.',
         agentId: boundAgent,
-        allowWeb: webAllowed(),
         docScope: 'chat',
         continueMessageId: messageId,
       })
@@ -410,7 +406,7 @@ export default function App() {
     setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId, error: false } : msg)))
     setStreaming(true)
     try {
-      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: webAllowed(), docScope: 'chat', replaceMessageId: messageId })
+      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, docScope: 'chat', replaceMessageId: messageId })
       setConversationId(res.conversationId)
       setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, id: res.messageId, versions } : msg)))
     } catch (e) {
@@ -782,19 +778,6 @@ export default function App() {
           { id: 'a-search', role: 'assistant', text: '', sources: [], tools: [], pending: true, phase: 'searching' },
         ])
       }
-      if (scene === 'web') {
-        setView('chat')
-        setPreview(null)
-        setFiles([])
-        setMessages([
-          { id: 'u-web', role: 'user', text: 'What is the Surf beacon code for pier 9 today?', sources: [], tools: [] },
-          {
-            id: 'a-web', role: 'assistant', tools: [],
-            text: 'The Surf beacon code for pier 9 today is SB-4417. [S1]',
-            sources: [{ kind: 'web', title: 'Pier 9 beacon', url: 'https://example.com/beacon', domain: 'example.com', published: '9 Oct 2026', pack: 'web', excerpt: 'Pier 9 beacon · example.com · 9 Oct 2026' }],
-          },
-        ])
-      }
       if (scene === 'versions') {
         setView('chat')
         setAgentId('general')
@@ -849,29 +832,6 @@ export default function App() {
           error: null,
         }])
         setView('packs')
-      }
-      if (scene === 'savedweb') {
-        setView('chat')
-        setPreview(null)
-        setFiles([])
-        setMessages([
-          { id: 'u-saved', role: 'user', text: 'What is the price of the pier 9 beacon today?', sources: [], tools: [] },
-          {
-            id: 'a-saved', role: 'assistant', tools: [],
-            text: 'The Surf beacon code for pier 9 is SB-4417. [S1]',
-            sources: [{
-              kind: 'web',
-              title: 'Pier 9 beacon',
-              url: 'https://example.com/beacon',
-              domain: 'example.com',
-              published: '8 Oct 2026',
-              pack: 'Web, saved 8 Oct 2026',
-              savedAt: Date.UTC(2026, 9, 8, 12, 0),
-              staleNote: 'Saved more than 24 hours ago. Prices and news may have changed.',
-              excerpt: 'The Surf beacon code for pier 9 today is SB-4417.',
-            }],
-          },
-        ])
       }
       if (scene === 'packcite') {
         setView('chat')
@@ -1256,7 +1216,6 @@ export default function App() {
               mascotColor: '#f2740f',
               animateMascot: true,
               networkMode: 'online',
-              webSearchAllowed: false,
               telemetryOptIn: false,
             })
           }}

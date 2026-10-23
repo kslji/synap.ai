@@ -84,7 +84,7 @@ def test_migration_drops_response_text_column():
     assert "DROP TABLE" not in src, "0007 must not drop any table"
 
 
-def test_revision_chain_head_is_the_drop_migration():
+def test_the_drop_migration_is_on_the_revision_chain():
     graph: dict[str, str | None] = {}
     for file in VERSIONS.glob("*.py"):
         text = file.read_text()
@@ -94,4 +94,11 @@ def test_revision_chain_head_is_the_drop_migration():
             graph[rev.group(1)] = down.group(1) if down and down.group(1) else None
     downs = {d for d in graph.values() if d is not None}
     heads = [r for r in graph if r not in downs]
-    assert heads == ["0007_drop_response_text"], f"expected one head at 0007, got {heads}"
+    assert len(heads) == 1, f"expected a single head, got {heads}"
+    # The exact head is pinned in test_migrations.py; here 0007 only has to be
+    # on the linear history so an existing database actually applies the drop.
+    chain, node = [], heads[0]
+    while node:
+        chain.append(node)
+        node = graph.get(node)
+    assert "0007_drop_response_text" in chain, f"0007 is not on the chain to head {heads[0]}: {chain}"

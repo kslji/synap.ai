@@ -8,7 +8,6 @@ import type { DB } from './db.js'
 import type { ConversationSummary, GateName, StoredMessage } from './ipc-contract.js'
 import { isPlaceholderTitle } from '../../shared/chat-title.js'
 import { clipWords, PREVIEW_LIMIT, TITLE_LIMIT } from '../../shared/reply-text.js'
-import { forgetConversation } from './web-cache.js'
 
 export const SESSION_MIGRATION = `
 CREATE TABLE conversations (
@@ -221,11 +220,18 @@ export class SessionStore {
       this.mem.delete(id)
       return
     }
-    if (this.fts) this.db.prepare('DELETE FROM message_fts WHERE conversation_id = ?').run(id)
-    forgetConversation(this.db, id)
+    const db = this.db
+    // Web search is deleted, so this store owns the whole deletion: the chat and
+    // its messages, in one transaction, as the old web-cache helper did.
+    const tx = db.transaction(() => {
+      if (this.fts) db.prepare('DELETE FROM message_fts WHERE conversation_id = ?').run(id)
+      db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(id)
+      db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
+    })
+    tx()
   }
 
-  /** Stored message text, in bytes. The database file also holds documents and saved web passages. */
+  /** Stored message text, in bytes. The database file also holds documents. */
   historyBytes(): number {
     if (!this.db) {
       let total = 0
@@ -244,7 +250,6 @@ export class SessionStore {
       this.mem.clear()
       return
     }
-    this.db.exec('DELETE FROM web_passage_links')
     if (this.fts) this.db.exec('DELETE FROM message_fts')
     this.db.exec('DELETE FROM messages')
     this.db.exec('DELETE FROM conversations')

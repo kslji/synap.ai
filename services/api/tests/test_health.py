@@ -1,15 +1,13 @@
-"""Item 3: /v1/health must return 200 with no SearXNG, and search is gone.
+"""/v1/health reports only postgres and valkey.
 
-Web search was removed entirely (no SearXNG, no /v1/search, no /v1/fetch). The
-health endpoint must therefore report only postgres/valkey and return 200 in
-lite mode without any SEARXNG_URL configured.
+The service has no browsing dependencies, so lite mode must return 200 with
+nothing but the core stores configured.
 """
 import os
 
 os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-ok")
 os.environ.setdefault("JWT_AUDIENCE", "authenticated")
 os.environ["SURF_API_LITE"] = "1"
-os.environ.pop("SEARXNG_URL", None)
 
 from fastapi.testclient import TestClient  # noqa: E402
 

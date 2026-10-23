@@ -11,20 +11,16 @@ import { triageTask, validatePlan, type PlanFacts } from './code-agent/plan.js'
 import type { Diagnostic } from './code-agent/diagnostics.js'
 import {
   coinId,
-  FINANCE_DISCLAIMER,
   indiaEquityTax,
   parseAmfiNav,
   parseBhavCsv,
   parsePnlQuestion,
   parseSipQuestion,
   profitLoss,
-  sipAnswer,
   sipFutureValue,
   stockSymbol,
-  taxAnswer,
-} from './search/finance.js'
-import { claimTopic, unableMessage, verifyGroundedAnswer, type SourceRecord } from './search/verify-answer.js'
-import { decideWeb, wantsFresh } from './web-decision.js'
+} from './finance-maths.js'
+import { claimTopic, unableMessage, verifyGroundedAnswer, type SourceRecord } from './verify-answer.js'
 import { classifyShotUse } from './vision/intent.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { servesAgent } from '../../shared/model-label.js'
@@ -33,7 +29,7 @@ import { DEVICE_REPLY, mathJob, phraseMath, routeTurn } from './chat-route.js'
 import { finishReply, replyShapeOk } from '../../shared/reply-text.js'
 import type { Step11Row } from './step11-cases.js'
 
-export type QuestionDomain = 'coding' | 'splitting' | 'run-fix' | 'screenshots' | 'fresh' | 'finance' | 'legal' | 'no-fabrication' | 'everyday'
+export type QuestionDomain = 'coding' | 'splitting' | 'run-fix' | 'screenshots' | 'finance' | 'legal' | 'no-fabrication' | 'everyday'
 
 export interface EvalQuestion {
   id: string
@@ -166,15 +162,6 @@ export function evalQuestions(): EvalQuestion[] {
   ]
   for (const [question, count, expect] of shots) add('screenshots', `${expect}-${count}-${question.slice(0, 14).replace(/\W+/g, '-')}`, question, `${expect}:${count}`)
 
-  const freshYes = ['What is the price today?', 'Latest headline', 'Prices for this name', 'News from 2026']
-  const freshNo = ['Summarise the attached note', 'What is in yesterday note', 'Hello there', 'Explain the helper']
-  for (const question of freshYes) add('fresh', 'yes-' + question.slice(0, 16).replace(/\W+/g, '-'), question, 'fresh')
-  for (const question of freshNo) add('fresh', 'no-' + question.slice(0, 16).replace(/\W+/g, '-'), question, 'local')
-  add('fresh', 'blend', 'A strong local answer plus a fresh question, online, web allowed.', 'blend')
-  add('fresh', 'refuse-offline', 'A fresh question while offline-only is on.', 'refuse')
-  add('fresh', 'web-weak', 'Local sources are insufficient and web search is allowed.', 'web')
-  add('fresh', 'local-strong', 'A strong local answer and the question is not fresh.', 'local')
-
   const finance: [string, string][] = [
     ['SIP of 100 per month at 12% for 12 months', 'sip'],
     ['SIP of 50 per month at 0% for 6 months', 'sip-zero'],
@@ -182,14 +169,12 @@ export function evalQuestions(): EvalQuestion[] {
     ['Bought at 20 and sold at 10 with 4 shares', 'pnl-loss'],
     ['India equity tax on a gain of 1000 held 10 days', 'stcg'],
     ['India equity tax on a gain of 200000 held 400 days', 'ltcg'],
-    ['Apply the India equity tax table in a non-India region', 'not-india'],
     ['What is the price of "RELIANCE" today?', 'symbol'],
     ['What is the bitcoin price?', 'bitcoin'],
     ['NAV line 120503;INF1;INF2;Sample Fund;42.5;16-Oct-2026', 'nav'],
   ]
   for (const [question, expect] of finance) add('finance', expect, question, expect)
-  add('finance', 'eod-fixture', 'Close for RELIANCE from a fixture bhav copy, not from the network.', 'eod')
-  add('finance', 'disclaimer', 'A SIP answer names the formula and says it is not a recommendation.', 'disclaimer')
+  add('finance', 'eod-fixture', 'Close for RELIANCE from a saved bhav copy.', 'eod')
 
   const legal: [string, string][] = [
     ['What does section 17 of the penal code say?', 'topic-legal'],
@@ -252,7 +237,6 @@ function answerMatches(item: EvalQuestion): boolean {
   if (item.domain === 'splitting') return scoreSplitting(item)
   if (item.domain === 'run-fix') return scoreFix(item)
   if (item.domain === 'screenshots') return scoreShot(item)
-  if (item.domain === 'fresh') return scoreFresh(item)
   if (item.domain === 'finance') return scoreFinance(item)
   if (item.domain === 'legal') return scoreLegal(item)
   if (item.domain === 'everyday') return scoreEveryday(item)
@@ -264,7 +248,7 @@ export function everydayVisible(item: EvalQuestion): string | null {
   if (item.domain !== 'everyday') return null
   if (item.expect === 'device') return DEVICE_REPLY
   if (item.expect !== 'math') return null
-  const plan = routeTurn({ text: item.question, webChip: false, online: true, offlineOnly: false, hasFolder: false })
+  const plan = routeTurn({ text: item.question, hasFolder: false })
   if (plan.kind !== 'math' || plan.math?.kind !== 'calc') return null
   const ran = handle({ id: 1, kind: 'calc', expression: plan.math.expression })
   if (!ran.ok) return null
@@ -273,7 +257,7 @@ export function everydayVisible(item: EvalQuestion): string | null {
 
 /** Calculator, model, or the honest device reply. These do not call a model. */
 function scoreEveryday(item: EvalQuestion): boolean {
-  const base = { text: item.question, webChip: false as const, online: true, offlineOnly: false, hasFolder: false }
+  const base = { text: item.question, hasFolder: false }
   const plan = routeTurn(base)
   const visible = everydayVisible(item)
   if (visible != null && !replyShapeOk(finishReply(visible, false).text)) return false
@@ -358,18 +342,6 @@ function scoreShot(item: EvalQuestion): boolean {
   return classifyShotUse(item.question, Number(countText)) === expect
 }
 
-function scoreFresh(item: EvalQuestion): boolean {
-  if (item.expect === 'fresh') return wantsFresh(item.question) === true
-  if (item.expect === 'local' && item.id.includes('local-strong')) {
-    return decideWeb({ local: 'answer', fresh: false, online: true, offlineOnly: false, webAllowed: true }).branch === 'local'
-  }
-  if (item.expect === 'local') return wantsFresh(item.question) === false
-  if (item.expect === 'blend') return decideWeb({ local: 'answer', fresh: true, online: true, offlineOnly: false, webAllowed: true }).branch === 'blend'
-  if (item.expect === 'refuse') return decideWeb({ local: 'skip', fresh: true, online: false, offlineOnly: true, webAllowed: true }).branch === 'refuse'
-  if (item.expect === 'web') return decideWeb({ local: 'insufficient', fresh: false, online: true, offlineOnly: false, webAllowed: true }).branch === 'web'
-  return false
-}
-
 /** Finance figures come from the in-app formula. The model is not the source. */
 export function financeAnswerOk(item: EvalQuestion): boolean {
   return item.domain === 'finance' && scoreFinance(item)
@@ -390,7 +362,6 @@ function scoreFinance(item: EvalQuestion): boolean {
   }
   if (item.expect === 'stcg') return indiaEquityTax(1000, 10).kind === 'stcg' && indiaEquityTax(1000, 10).tax === 200
   if (item.expect === 'ltcg') return indiaEquityTax(200_000, 400).kind === 'ltcg' && indiaEquityTax(200_000, 400).tax === 75_000 * 0.125
-  if (item.expect === 'not-india') return taxAnswer(1000, 10, { label: 'Worldwide', code: 'WW', source: 'global' }, false).text.includes('not applied')
   if (item.expect === 'symbol') return stockSymbol(item.question) === 'RELIANCE'
   if (item.expect === 'bitcoin') return coinId(item.question) === 'bitcoin'
   if (item.expect === 'nav') {
@@ -400,12 +371,6 @@ function scoreFinance(item: EvalQuestion): boolean {
   if (item.expect === 'eod') {
     const row = parseBhavCsv('SYMBOL,CLOSE,DATE\nRELIANCE,2500.5,2026-10-15\n').find((item) => item.symbol === 'RELIANCE')
     return row?.close === 2500.5 && row.date === '2026-10-15'
-  }
-  if (item.expect === 'disclaimer') {
-    const parsed = parseSipQuestion('SIP of 100 per month at 12% for 12 months')
-    if (!parsed) return false
-    const answer = sipAnswer(parsed, { code: 'WW', label: 'Worldwide', source: 'global' })
-    return answer.text.includes(FINANCE_DISCLAIMER) && answer.text.includes('in-app SIP formula')
   }
   return false
 }

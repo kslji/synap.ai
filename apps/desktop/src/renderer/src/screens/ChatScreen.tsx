@@ -7,7 +7,6 @@ import type { ChatMode, ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatu
 import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
 import { messagePlaceholder } from '../../../shared/chat-title'
 import { friendlyNameFromId } from '../../../shared/model-label'
-import { quoteChipLabel } from '../../../shared/quote'
 import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
@@ -132,13 +131,12 @@ export function ChatScreen({
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
-  const webSearch = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'files'))
-  const webRead = messages.some((m) => m.pending && m.phase === 'reading')
+  const retrieving = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'files'))
   const writing = Boolean(streaming && pending?.text)
   const toolRun = Boolean(pending && (pending.tools.length > 0 || (pending.steps?.length ?? 0) > 0) && !pending.text)
-  const live = webSearch
+  const live = retrieving
     ? 'searching'
-    : reading || webRead
+    : reading
       ? 'reading'
       : writing
         ? 'writing'
@@ -591,9 +589,8 @@ function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onC
         )}
       </div>
       <div className="assistant-card">
-        {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
+        {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching your packs…</div>}
         {msg.pending && msg.phase === 'files' && !msg.fileAsk && <div className="mb-1 text-sm text-[var(--muted)]" data-file-searching="yes">Searching your files…</div>}
-        {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
         {msg.fileAsk && (
           <FilePermissionCard
             prompt={msg.fileAsk}
@@ -640,9 +637,9 @@ function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onC
             ))}
           </div>
         )}
-        {msg.sources.some((s) => s.kind !== 'web' && !s.filePath) && (
+        {msg.sources.some((s) => !s.filePath) && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {msg.sources.map((s, i) => s.kind === 'web' || s.filePath ? null : (
+            {msg.sources.map((s, i) => s.filePath ? null : (
               <button
                 key={i}
                 type="button"
@@ -659,45 +656,6 @@ function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onC
                 {s.suspicious ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]" data-suspicious="yes">This source contained suspicious instructions and was ignored.</span> : null}
               </button>
             ))}
-          </div>
-        )}
-        {msg.sources.some((s) => s.pack === 'quote' && s.url) && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {msg.sources.map((s, i) => s.pack === 'quote' && s.url ? (
-              <button
-                key={i}
-                type="button"
-                className="pill"
-                data-quote-chip="yes"
-                title={s.excerpt || s.title}
-                onClick={() => { void window.surf.links.open(s.url) }}
-              >
-                {quoteChipLabel(s.title || 'Source', i + 1)}
-              </button>
-            ) : null)}
-          </div>
-        )}
-        {msg.sources.some((s) => s.kind === 'web' && s.pack !== 'quote') && (
-          <div className="mt-3 flex flex-col gap-2">
-            {msg.sources.map((s, i) => s.kind === 'web' && s.pack !== 'quote' ? (
-              <button
-                key={i}
-                type="button"
-                className="card px-3 py-2 text-left"
-                data-web-source="yes"
-                data-saved-web={s.savedAt ? 'yes' : 'no'}
-                onClick={() => { void window.surf.links.open(s.url) }}
-              >
-                <div className="text-sm font-semibold">[S{i + 1}] {s.title}</div>
-                <div className="text-xs text-[var(--muted)]">
-                  {s.savedAt ? s.pack : (s.domain || s.url)}
-                  {s.savedAt && s.domain ? ` · ${s.domain}` : ''}
-                  {!s.savedAt && s.published ? ` · ${s.published}` : ''}
-                </div>
-                {s.staleNote && <div className="mt-1 text-xs text-[var(--muted)]" data-stale-note="yes">{s.staleNote}</div>}
-                {s.suspicious && <div className="mt-1 text-xs text-[var(--muted)]" data-suspicious="yes">This source contained suspicious instructions and was ignored.</div>}
-              </button>
-            ) : null)}
           </div>
         )}
       </div>
@@ -857,13 +815,6 @@ function CitedText({ text, sources, onOpen }: { text: string; sources: UiMsg['so
         const mark = /^\[S(\d+)\]$/.exec(part)
         if (!mark) return <span key={i}>{part}</span>
         const source = sources[Number(mark[1]) - 1]
-        if (source?.kind === 'web' && source.url) {
-          return (
-            <button key={i} type="button" className="font-semibold text-[var(--accent-text)] underline" data-web-source="yes" onClick={() => { void window.surf.links.open(source.url) }}>
-              {part}
-            </button>
-          )
-        }
         if (source?.filePath) {
           const path = source.filePath
           return (

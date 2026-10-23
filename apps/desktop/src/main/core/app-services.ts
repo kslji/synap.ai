@@ -24,12 +24,9 @@ import {
   DEVICE_REPLY,
   FOLDER_PROMPT,
   NO_MODEL_MESSAGE,
-  OFFLINE_WEB_NOTE,
-  WEB_FAIL_NOTE,
   phraseMath,
   routeTurn,
   wantsProjectFiles,
-  withWebBanner,
   type MathJob,
 } from './chat-route.js'
 import { readAgentName } from './agent-names.js'
@@ -102,30 +99,19 @@ import { openPackDb, openUserDb, type DB } from './db.js'
 import { getOrCreateDbKey } from './key-store.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
-import { clearSavedWeb, isSavedWebHit, saveCitedPassages, savedWebCitation, savedWebPack, savedWebStats, searchSavedWeb, staleNote, WEB_CACHE_MIGRATION } from './web-cache.js'
-import { SEARCH_CACHE_MIGRATION, clearSearchCache, searchCacheStats } from './search/cache.js'
-import { QUOTE_CACHE_MIGRATION, clearQuoteCache, quoteCacheStats } from './search/quotes.js'
 import { cleanAccent, cleanAnimate, cleanDensity, cleanMascotColor, cleanMascotName } from './appearance.js'
 import { blocksNetwork, cleanNetworkMode, resolveNetworkMode, syncChip, withLocalOnlyNote, type NetworkMode } from './network-mode.js'
 import { nextReplyVersions } from './reply-versions.js'
 import { benchmarkFor, readBenchmarkFile, tokensPerSec, upsertBenchmark, writeBenchmarkFile, type BenchmarkRow } from './benchmark-store.js'
 import type { BenchmarkResult } from './ipc-contract.js'
 import { gatewayChat, gatewayListModels } from './gateway-chat.js'
-import { ensureCitationMarkers, withPackVersions } from './search/citations.js'
-import { renderJsPage } from './search/js-page.js'
-import { searchFixtureEnabled } from './search/mode.js'
-import { regionBanner, resolveRegion } from './search/region.js'
-import { composeRouted, emptyWebAnswer, gatherOnline } from './search/run.js'
-import { cacheLabel, claimTopic, recordsFromContext, unableMessage, verifyGroundedAnswer } from './search/verify-answer.js'
-import { historyHits, planRoute } from './search/router.js'
-import type { LocalHit, RegionChoice } from './search/types.js'
-import { classifyIntent } from './search/intent.js'
-import { contentKeysForDelta, decryptDelta, openSealedContentKey, searchDelta } from './search/delta.js'
+import { claimTopic, recordsFromContext, verifyGroundedAnswer } from './verify-answer.js'
+import { contentKeysForDelta, decryptDelta, openSealedContentKey, searchDelta } from './pack-delta.js'
 import { loadPackContentKey, storePackContentKey } from './pack-content-cache.js'
-import { quoteFromHits, sectionNumber } from './search/legal.js'
 import { assertNetworkAllowed, OfflineOnlyError } from './offline-guard.js'
 import { safeSend } from './safe-send.js'
 import { surfEnv } from './surf-env.js'
+import { resolveSynapApiUrl } from './api-url.js'
 import { applyUpdate, checkAppUpdate, initAutoUpdate, installOfflineUpdate, type UpdateOffer } from './updater.js'
 import type { ParsedChat } from './ipc-schemas.js'
 import { AttachmentQueue } from './attachment-queue.js'
@@ -144,10 +130,7 @@ import { qwenVisionOffer, screenshotStorageLabel, visionOfferMessage } from './v
 import { sniffImage } from './vision/preprocess.js'
 import { nextVisionAttempt, runtimeSupportsMmproj, visionLoadDecision } from './vision/runtime.js'
 import { prepareCodeVision } from './vision/service.js'
-import { chunkBlocks } from './chunker.js'
 import { describeReach } from './reach.js'
-import { fetchPages, probeHealth, searchWeb } from './web-client.js'
-import { codeAgentDevWebTools, devWebEnabled, parseDevWebCommand, resolveSynapApiUrl } from './code-agent/dev-web-hook.js'
 import { checkAnswer, filterParagraphs, scoreText, toolArgsFromUser } from './injection.js'
 import { commitInstall, readInstalled, removePack } from './pack-install.js'
 import { canSwapPack, downloadFile, fetchPackUpdates, PACK_AUTO_SYNC_MS, packAutoSyncAllowed, shouldSync, type RemotePack } from './pack-sync.js'
@@ -162,38 +145,9 @@ import {
   startOtp,
   verifyOtp,
 } from './auth-session.js'
-import {
-  HINT_FAILED,
-  decideWeb,
-  domainOf,
-  formatWebCitation,
-  parseSearchQueries,
-  prettyDate,
-  rankPassages,
-  refusalMessage,
-  rewritePrompt,
-  wantsFresh,
-} from './web-decision.js'
 
 type ChatReq = ParsedChat
 type Settings = Required<SettingsPatch>
-
-interface WebPiece {
-  text: string
-  title: string
-  url: string
-  published: string | null
-  cosine: number
-  vec: Float32Array
-  downrank?: boolean
-  cachedAt?: number | null
-}
-
-const WEB_FLOOR = 0.42
-
-function keywordPieces<T extends { text: string }>(rows: T[]): Array<T & { cosine: number; vec: Float32Array }> {
-  return rows.slice(0, 4).map((piece) => ({ ...piece, cosine: 0, vec: new Float32Array() }))
-}
 
 function chatSampling(model: ModelEntry): Record<string, number> | undefined {
   if (!surfEnv('EVAL')) return model.sampling
@@ -228,7 +182,6 @@ export class ModelLoadError extends Error {
 
 const DEFAULT_SETTINGS: Settings = {
   offlineOnly: false,
-  webSearchAllowed: true,
   telemetryOptIn: false,
   chatModelId: '',
   codeModelId: '',
@@ -245,7 +198,6 @@ const DEFAULT_SETTINGS: Settings = {
   keepWarm: true,
   idleUnloadMinutes: DEFAULT_IDLE_UNLOAD_MINUTES,
   speculativeDecoding: true,
-  myRegion: '',
   mascotName: 'Surf',
   mascotColor: '#f2740f',
   accent: 'orange',
@@ -295,7 +247,6 @@ export async function createServices(): Promise<Services> {
   let stableOnline = osOnline
   let apiReachable = false
   let checking = true
-  let activeRegion: RegionChoice = { code: 'GLOBAL', label: 'worldwide sources', source: 'global' }
   const sidecars: ModelStatus['sidecars'] = { chat: 'stopped', embed: 'stopped', whisper: 'stopped' }
 
   const settingsPath = () => join(app.getPath('userData'), 'settings.json')
@@ -331,7 +282,6 @@ export async function createServices(): Promise<Services> {
       merged.idleUnloadMinutes = clampIdleMinutes(Number(raw.idleUnloadMinutes ?? merged.idleUnloadMinutes))
       if (typeof raw.keepWarm !== 'boolean') merged.keepWarm = DEFAULT_SETTINGS.keepWarm
       if (typeof raw.speculativeDecoding !== 'boolean') merged.speculativeDecoding = DEFAULT_SETTINGS.speculativeDecoding
-      merged.myRegion = typeof raw.myRegion === 'string' ? raw.myRegion.trim().slice(0, 80) : ''
       merged.mascotName = cleanMascotName(raw.mascotName)
       merged.mascotColor = cleanMascotColor(raw.mascotColor)
       merged.accent = cleanAccent(raw.accent)
@@ -522,8 +472,6 @@ export async function createServices(): Promise<Services> {
       holdSetup: Boolean(surfEnv('CAPTURE_DIR')),
       searchModelReady,
       chatPersistence: store.mode,
-      devWeb: devWebEnabled(),
-      ...(devWebEnabled() ? { devApiUrl: apiBase(settings) } : {}),
       live: liveStatus(reg, settings, new Set(models.filter((model) => model.installed).map((model) => model.id))),
       appVersion: app.getVersion(),
       gpus: hw.gpus.filter((gpu) => gpu.model.trim() && gpu.model.trim().toLowerCase() !== 'unknown'),
@@ -807,137 +755,6 @@ export async function createServices(): Promise<Services> {
     calc,
   })
 
-  async function collectWeb(question: string, signal: AbortSignal, chatModel: ModelEntry, ctx: number, win: BrowserWindow, messageId: string, agentId = 'general'): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }> }> {
-    if (!searchFixtureEnabled()) {
-      const local = await collectLocal(question, signal)
-      if (local.keywords) noteKeywordSearch(win, messageId)
-      return { pieces: local.pieces, ignored: local.ignored }
-    }
-    const current = readSettings()
-    assertNetworkAllowed(current.offlineOnly)
-    const server = await ensure('chat', chatModel, ctx, '', agentId)
-    const client = new LlamaClient({
-      baseUrl: server.baseUrl,
-      apiKey: server.apiKey,
-      sampling: chatSampling(chatModel),
-      chatTemplateKwargs: chatModel.chat_template_kwargs,
-      })
-    let raw = ''
-    try {
-      const rewritten = await client.chat([{ role: 'user', content: rewritePrompt(question) }], undefined, signal, 120)
-      raw = String(rewritten.choices[0]?.message?.content ?? '')
-    } catch (error) {
-      if (signal.aborted) throw error
-      raw = ''
-    }
-    const queries = parseSearchQueries(raw, question)
-    const base = apiBase(readSettings())
-    assertNetworkAllowed(readSettings().offlineOnly)
-    const dev = devWebEnabled()
-    const deviceToken = await freshAccess({ base, offlineOnly: readSettings().offlineOnly })
-    if (!deviceToken && !dev) throw new Error('Sign in to search the web.')
-    const picked = new Map<string, { title: string; published: string | null }>()
-    for (const query of queries) {
-      if (signal.aborted) return { pieces: [], ignored: [] }
-      assertNetworkAllowed(readSettings().offlineOnly)
-      const rows = await searchWeb({ base, token: deviceToken || undefined, offlineOnly: readSettings().offlineOnly, query, k: 4, signal })
-      for (const row of rows) {
-        if (!picked.has(row.url)) picked.set(row.url, { title: row.title, published: row.published })
-      }
-    }
-    const urls = [...picked.keys()].slice(0, 3)
-    if (!urls.length) return { pieces: [], ignored: [] }
-    sendEvent(win, { type: 'status', messageId, phase: 'reading' })
-    assertNetworkAllowed(readSettings().offlineOnly)
-    const fetched = await fetchPages({ base, token: deviceToken || undefined, offlineOnly: readSettings().offlineOnly, urls, signal })
-    const ignored: Array<{ url: string; title: string; flags: string[] }> = fetched.ignored.map((item) => ({
-      url: item.url, title: picked.get(item.url)?.title || domainOf(item.url), flags: item.flags,
-    }))
-    if (ignored.length) console.info('[surf] injection ignored flags=%s', ignored.map((item) => item.flags.join('+')).join(';'))
-    const pieces = fetched.chunks.flatMap((page) => {
-      const filtered = filterParagraphs(page.text)
-      if (!filtered.text.trim() || filtered.injection.action === 'drop') {
-        ignored.push({ url: page.url, title: page.title, flags: filtered.injection.flags })
-        return []
-      }
-      return chunkBlocks([{ text: filtered.text, heading: page.title }]).slice(0, 2).map((chunk) => ({
-        text: chunk.text,
-        title: page.title || picked.get(page.url)?.title || domainOf(page.url),
-        url: page.url,
-        published: page.published ?? picked.get(page.url)?.published ?? null,
-        downrank: filtered.injection.action === 'downrank',
-      }))
-    })
-    if (!pieces.length) return { pieces: [], ignored }
-    if (!(await embeddingVerified())) {
-      noteKeywordSearch(win, messageId)
-      return { pieces: keywordPieces(pieces), ignored }
-    }
-    const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb) {
-      noteKeywordSearch(win, messageId)
-      return { pieces: keywordPieces(pieces), ignored }
-    }
-    const embedServer = await ensure('embed', emb, 2048)
-    const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-    const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
-    const [qvec] = await embedder.embedQueries([question])
-    const ranked = rankPassages(qvec, pieces.map((piece, i) => ({ ...piece, vec: vectors[i] })), 4)
-      .filter((piece) => piece.cosine >= WEB_FLOOR)
-      .map((piece) => piece.downrank ? { ...piece, cosine: piece.cosine * 0.5 } : piece)
-    return { pieces: ranked, ignored }
-  }
-
-  async function collectLocal(question: string, signal: AbortSignal): Promise<{ pieces: WebPiece[]; ignored: Array<{ url: string; title: string; flags: string[] }>; keywords: boolean }> {
-    const current = readSettings()
-    assertNetworkAllowed(current.offlineOnly)
-    const gathered = await gatherOnline({
-      question,
-      region: activeRegion,
-      offlineOnly: current.offlineOnly,
-      db: store.db,
-      signal,
-      jsRender: (url) => renderJsPage(url),
-    })
-    const ignored: Array<{ url: string; title: string; flags: string[] }> = []
-    const pieces = gathered.pages.flatMap((page) => {
-      const filtered = filterParagraphs(page.text)
-      if (!filtered.text.trim() || filtered.injection.action === 'drop') {
-        ignored.push({ url: page.url, title: page.title, flags: filtered.injection.flags })
-        return []
-      }
-      const label = page.cachedAt ? `${cacheLabel(page.cachedAt)}\n` : ''
-      return chunkBlocks([{ text: `${label}${filtered.text}`, heading: page.title }]).slice(0, 2).map((chunk) => ({
-        text: chunk.text,
-        title: page.title || domainOf(page.url),
-        url: page.url,
-        published: page.published,
-        downrank: filtered.injection.action === 'downrank',
-        cachedAt: page.cachedAt,
-      }))
-    })
-    if (!pieces.length) return { pieces: [], ignored, keywords: false }
-    if (!(await embeddingVerified())) {
-      if (!readSettings().offlineOnly) queueSearchModelRepair()
-      return { pieces: keywordPieces(pieces), ignored, keywords: true }
-    }
-    const emb = registry().models.find((m) => m.role === 'embedding')
-    if (!emb) return { pieces: keywordPieces(pieces), ignored, keywords: true }
-    const embedServer = await ensure('embed', emb, 2048)
-    const embedder = new Embedder(new LlamaClient({ baseUrl: embedServer.baseUrl, apiKey: embedServer.apiKey }))
-    const vectors = await embedder.embedDocs(pieces.map((piece) => ({ title: piece.title, text: piece.text })))
-    const [qvec] = await embedder.embedQueries([question])
-    const ranked = rankPassages(qvec, pieces.map((piece, i) => ({ ...piece, vec: vectors[i] })), 4)
-      .filter((piece) => piece.cosine >= WEB_FLOOR)
-      .map((piece) => piece.downrank ? { ...piece, cosine: piece.cosine * 0.5 } : piece)
-    return { pieces: ranked, ignored, keywords: false }
-  }
-
-  function hasSavedWeb(conversationId: string | null): boolean {
-    if (!store.db) return false
-    if (!conversationId) return Boolean(store.db.prepare('SELECT 1 AS ok FROM web_passages LIMIT 1').get())
-    return Boolean(store.db.prepare('SELECT 1 AS ok FROM web_passage_links WHERE conversation_id = ? LIMIT 1').get(conversationId))
-  }
 
   function codeAgentDir(): string {
     return join(app.getPath('userData'), 'code-agent')
@@ -1230,7 +1047,6 @@ export async function createServices(): Promise<Services> {
         allowedCommands: readAllowed(root),
         commandAllowlist: allowlist,
         signal,
-        devWeb: { apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal },
         facts,
         totalRamGb: hw.totalRamGb,
         currentModelId: agentModelId,
@@ -1477,13 +1293,8 @@ export async function createServices(): Promise<Services> {
       await replyOnline(req, conversationId, messageId, userMessageId, win, signal)
       return
     }
-    const settingsNow = readSettings()
-    const connectedNow = reachNow(settingsNow.offlineOnly)
     const turn = routeTurn({
       text,
-      webChip: req.allowWeb === true,
-      online: connectedNow.online,
-      offlineOnly: settingsNow.offlineOnly,
       hasFolder: Boolean(codeApi.root()),
     })
     // A device-control refusal outranks folder search, so an "open files" phrase
@@ -1496,7 +1307,6 @@ export async function createServices(): Promise<Services> {
       await continueAnswer(req, conversationId, messageId, win, signal)
       return
     }
-    let searchNote = turn.note ?? ''
     if (turn.kind === 'device') {
       await emitText(win, messageId, DEVICE_REPLY)
       finish(conversationId, messageId, userMessageId, win, DEVICE_REPLY, [], 'answer', true)
@@ -1524,20 +1334,6 @@ export async function createServices(): Promise<Services> {
     }
     const settings = readSettings()
     const reg = registry()
-    if (devWebEnabled()) {
-      const command = parseDevWebCommand(text)
-      if (command) {
-        const tools = codeAgentDevWebTools({ apiBase: apiBase(settings), offlineOnly: settings.offlineOnly, signal })
-        const tool = tools.find((item) => item.name === command.tool)
-        const output = tool
-          ? await tool.run(command.tool === 'web_search' ? { query: command.query } : { url: command.url })
-          : 'error: Dev web search is off.'
-        if (signal.aborted) return
-        await emitText(win, messageId, output)
-        finish(conversationId, messageId, userMessageId, win, output, [], 'answer')
-        return
-      }
-    }
     const direct = await resolveDirectTool(calc, text)
     if (direct) {
       sendEvent(win, { type: 'tool', messageId, name: direct.name, input: direct.input, output: direct.output })
@@ -1643,8 +1439,7 @@ export async function createServices(): Promise<Services> {
         }
         const wantDocs = docCounts.ready > 0 && Boolean(store.db)
         const wantPacks = opened.length > 0
-        const wantSaved = hasSavedWeb(scopeId)
-        if (wantDocs || wantPacks || wantSaved) {
+        if (wantDocs || wantPacks) {
           const vectorsReady = await embeddingVerified()
           let qvec: Float32Array | null = null
           if (vectorsReady) {
@@ -1670,228 +1465,27 @@ export async function createServices(): Promise<Services> {
               { hits: deltaHits, decision: relevanceGate(text, deltaHits) },
             )
             : { hits: packFound.top, decision: plainPacks ? packFound.decision : 'skip' }
-          const savedFound = store.db
-            ? searchSavedWeb(store.db, text, qvec, scopeId)
-            : { top: [], decision: 'skip' as const }
           const localMerged = mergeLocal(
             { hits: docFound.top, decision: wantDocs ? docFound.decision : 'skip' },
             { hits: packSide.hits, decision: wantPacks ? packSide.decision : 'skip' },
           )
-          const merged = mergeLocal(localMerged, { hits: savedFound.top, decision: savedFound.top.length ? savedFound.decision : 'skip' })
-          const guarded = guardRetrieved(merged.hits)
+          const guarded = guardRetrieved(localMerged.hits)
           hits = guarded.kept
-          decision = hits.length ? documentGate(text, hits) : guarded.ignored.length ? 'insufficient' : merged.decision
-          fromDocs = merged.fromDocs && hits.some((hit) => Boolean((hit as UserHit).fileName))
+          decision = hits.length ? documentGate(text, hits) : guarded.ignored.length ? 'insufficient' : localMerged.decision
+          fromDocs = localMerged.fromDocs && hits.some((hit) => Boolean((hit as UserHit).fileName))
           localIgnored = guarded.ignored
         }
       } finally {
         for (const db of opened) db.close()
       }
 
-      const priorForRoute = priorMessages(conversationId, userMessageId, messageId)
-      const localHits: LocalHit[] = hits.map((hit) => localFromHit(hit, versions))
-      localHits.push(...historyHits(priorForRoute, text))
-      if (store.db && classifyIntent(text) === 'legal') localHits.push(...sectionChunks(store.db, text, scopeId))
-      try {
-        const indexed = codeApi.indexed()
-        if (indexed) {
-          const found = await indexed.search(text)
-          for (const hit of found.slice(0, 3)) {
-            localHits.push({
-              layer: 'project',
-              title: hit.path,
-              text: hit.text,
-              url: '',
-              pack: 'project index',
-              fileName: hit.path,
-              score: hit.score || hit.cosine || 0.5,
-            })
-          }
-        }
-      } catch {
-        /* project index is optional */
-      }
-      const fixtureMode = searchFixtureEnabled()
-      // Item 3: web search is removed. Resolve the region from the on-device choice
-      // only — never fetch public IP/geolocation. The live-web path is fully severed.
-      activeRegion = await resolveRegion({
-        question: text,
-        myRegion: settings.myRegion,
-        offlineOnly: true,
-        geoText: null,
-        fetchImpl: undefined,
-      })
-      const dev = devWebEnabled()
-      const signedIn = Boolean(await loadSession())
-      // Item 3: no live web search in Offline/General chat. This forces composeRouted and
-      // decideWeb onto the local-only branch (never 'web'/'blend'), so no search/fetch runs.
-      const webAllowed = false
-      try {
-        const composed = await composeRouted({
-          question: text,
-          hits: localHits,
-          region: activeRegion,
-          offlineOnly: settings.offlineOnly,
-          webAllowed,
-          signal,
-          db: store.db,
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        })
-        if (composed) {
-          if (composed.citations.length) sendEvent(win, { type: 'sources', messageId, sources: composed.citations })
-          await emitText(win, messageId, composed.text)
-          finish(conversationId, messageId, userMessageId, win, composed.text, composed.citations, composed.gate, true)
-          return
-        }
-      } catch (error) {
-        if (signal.aborted) return
-        const intent = classifyIntent(text)
-        if (intent === 'finance' || intent === 'legal' || intent === 'news') {
-          const message = routedUnable(intent, activeRegion.label)
-          await emitText(win, messageId, message)
-          finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
-          return
-        }
-        console.warn('[surf] routed search skipped:', (error as Error).message)
-      }
-      const routed = classifyIntent(text)
-      if (!signal.aborted && (routed === 'finance' || routed === 'legal' || routed === 'news')) {
-        const message = routedUnable(routed, activeRegion.label)
-        await emitText(win, messageId, message)
-        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
-        return
-      }
-
-      const fresh = wantsFresh(text)
-      const route = planRoute({
-        question: text,
-        hits: localHits,
-        fresh,
-        online: reachNow(settings.offlineOnly).online,
-        webAllowed,
-        offlineOnly: settings.offlineOnly,
-        legalQuoted: Boolean(quoteFromHits(text, localHits)),
-      })
-      if (route.local && !route.online) {
-        if (!hits.some((hit) => hit.text === route.local?.text)) {
-          const local = route.local
-          const synthetic: UserHit = {
-            pack: local.pack,
-            chunkId: -1,
-            text: local.text,
-            title: local.title,
-            url: local.url,
-            cosine: Math.max(local.score, 0.8),
-            bm25Rank: 0,
-            vecRank: null,
-            rrf: local.score,
-            fileName: local.fileName || '',
-            locator: null,
-            heading: null,
-            attachmentId: '',
-            excerpt: local.text.slice(0, 240),
-          }
-          hits = [synthetic, ...hits]
-        }
-        decision = 'answer'
-        fromDocs = fromDocs || Boolean(route.local.fileName)
-      }
-      const connected = reachNow(settings.offlineOnly)
-      let plan = decideWeb({
-        local: decision,
-        fresh,
-        online: connected.online,
-        offlineOnly: settings.offlineOnly,
-        webAllowed,
-      })
-      if (turn.kind === 'web' && settings.webSearchAllowed) plan = { branch: 'web' }
-      else if (!claimTopic(text)) {
-        plan = { branch: 'local' }
-        if (turn.kind === 'web' && !settings.webSearchAllowed && !searchNote) {
-          searchNote = 'Web search is off in Settings, so this answer is from the model on this computer.'
-        }
-      }
-      if (plan.branch === 'refuse') {
-        const needsSignIn = fixtureMode && !dev && settings.webSearchAllowed && req.allowWeb !== false && !signedIn && connected.online && !settings.offlineOnly && (fresh || decision === 'insufficient' || decision === 'skip')
-        const message = needsSignIn ? 'Sign in to search the web, or add a document.' : refusalMessage(plan.hint ?? HINT_FAILED)
-        await emitText(win, messageId, message)
-        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
-        return
-      }
 
       const preferred = agentId === 'code' ? settings.codeModelId : settings.chatModelId
       const chatModel = await chooseChat(reg, preferred, agentId)
       const profile = hw.tier >= 2 ? BUDGETS.tier2 : hw.tier === 1 ? BUDGETS.tier1 : BUDGETS.tier0
-      if (!chatModel && plan.branch !== 'web' && plan.branch !== 'blend') {
-        const message = searchNote ? `${NO_MODEL_MESSAGE}\n\n${searchNote}` : NO_MODEL_MESSAGE
-        await emitText(win, messageId, message)
-        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
-        return
-      }
-      let webHits: WebPiece[] = []
-      let webIgnored: Array<{ url: string; title: string; flags: string[] }> = []
-      if (plan.branch === 'web' || plan.branch === 'blend') {
-        sendEvent(win, { type: 'status', messageId, phase: 'searching' })
-        try {
-          const collected = chatModel
-            ? await collectWeb(text, signal, chatModel, profile.serverCtx, win, messageId, agentId)
-            : await collectLocal(text, signal)
-          webHits = collected.pieces
-          webIgnored = collected.ignored
-        } catch (error) {
-          if (signal.aborted) return
-          if (error instanceof OfflineOnlyError) {
-            searchNote = OFFLINE_WEB_NOTE
-            webHits = []
-          } else if (claimTopic(text)) {
-            const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
-            await emitText(win, messageId, message)
-            finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
-            return
-          } else {
-            console.warn('[surf] web search skipped:', (error as Error).message)
-            searchNote = WEB_FAIL_NOTE
-            webHits = []
-          }
-        }
-        if (webHits.length === 0 && (plan.branch === 'web' || plan.branch === 'blend')) {
-          if (claimTopic(text)) {
-            const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
-            await emitText(win, messageId, message)
-            finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
-            return
-          }
-          if (!searchNote) searchNote = WEB_FAIL_NOTE
-        }
-      }
       if (!chatModel) {
-        if (webHits.length) {
-          const quoted = webHits.slice(0, 3).map((hit, index) => `[S${index + 1}] ${hit.title}\n${hit.text.slice(0, 500)}`).join('\n\n')
-          const answer = withWebBanner(quoted, activeRegion.label, true)
-          const sources: Citation[] = webHits.map((hit) => ({
-            kind: 'web' as const,
-            title: hit.title,
-            url: hit.url,
-            domain: domainOf(hit.url),
-            published: prettyDate(hit.published) || null,
-            pack: 'web',
-            excerpt: formatWebCitation({ title: hit.title, url: hit.url, published: hit.published }),
-          }))
-          sendEvent(win, { type: 'sources', messageId, sources })
-          await emitText(win, messageId, answer)
-          finish(conversationId, messageId, userMessageId, win, answer, sources, 'web', true)
-          return
-        }
-        const message = [NO_MODEL_MESSAGE, searchNote].filter(Boolean).join('\n\n')
-        await emitText(win, messageId, message)
-        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient', true)
-        return
-      }
-      const topic = claimTopic(text)
-      if (topic && webHits.length === 0 && hits.length === 0 && !needsCalculator(text)) {
-        const message = emptyWebAnswer(text, activeRegion, refusalMessage(HINT_FAILED))
-        await emitText(win, messageId, message)
-        finish(conversationId, messageId, userMessageId, win, message, [], 'insufficient')
+        await emitText(win, messageId, NO_MODEL_MESSAGE)
+        finish(conversationId, messageId, userMessageId, win, NO_MODEL_MESSAGE, [], 'insufficient', true)
         return
       }
       const server = await ensure('chat', chatModel, profile.serverCtx, '', agentId)
@@ -1901,9 +1495,8 @@ export async function createServices(): Promise<Services> {
         sampling: chatSampling(chatModel),
         chatTemplateKwargs: chatModel.chat_template_kwargs,
       })
-      const stayingLocal = webHits.length === 0
       const refusal = fromDocs ? DOC_REFUSAL : INSUFFICIENT
-      if (stayingLocal && decision === 'borderline') {
+      if (decision === 'borderline') {
         const check = await client.chat([{ role: 'user', content: borderlinePrompt(text, hits) }], undefined, signal, 8)
         const yn = String(check.choices[0]?.message?.content ?? '').trim().toUpperCase()
         if (yn.startsWith('NO')) {
@@ -1923,47 +1516,29 @@ export async function createServices(): Promise<Services> {
           i++
         }
       }
-      const localChunksPreview = plan.branch === 'web' ? [] : hits.slice(0, 4)
+      const localChunksPreview = hits.slice(0, 4)
       const chatTools = [...calculatorTools, ...numberTools]
-      const useTools = needsCalculator(text) && localChunksPreview.length === 0 && webHits.length === 0
-      const localSources = plan.branch === 'web' ? [] : citationsOf(hits, versions, text)
-      const webSources: Citation[] = webHits.map((hit) => ({
-        kind: 'web' as const,
-        title: hit.title,
-        url: hit.url,
-        domain: domainOf(hit.url),
-        published: prettyDate(hit.published) || null,
-        pack: 'web',
-        excerpt: formatWebCitation({ title: hit.title, url: hit.url, published: hit.published }),
+      const useTools = needsCalculator(text) && localChunksPreview.length === 0
+      const localSources = citationsOf(hits, versions)
+      const ignoredSources: Citation[] = localIgnored.map((hit) => ({
+        kind: 'document' as const,
+        title: hit.title || hit.pack,
+        url: hit.url || '',
+        pack: hit.pack,
+        suspicious: true,
       }))
-      const ignoredSources: Citation[] = [
-        ...localIgnored.map((hit) => ({
-          kind: 'document' as const,
-          title: hit.title || hit.pack,
-          url: hit.url || '',
-          pack: hit.pack,
-          suspicious: true,
-        })),
-        ...webIgnored.map((hit) => ({
-          kind: 'web' as const,
-          title: hit.title,
-          url: hit.url,
-          domain: domainOf(hit.url),
-          pack: 'web',
-          suspicious: true,
-        })),
-      ]
-      const sources = [...localSources, ...webSources, ...ignoredSources]
+      const sources = [...localSources, ...ignoredSources]
       if (sources.length) sendEvent(win, { type: 'sources', messageId, sources })
-      const localChunks = plan.branch === 'web' ? [] : hits.slice(0, 4).map((h) => {
-        const note = isSavedWebHit(h) ? staleNote(h.fetchedAt, Date.now(), fresh) : null
-        return { id: String(h.chunkId), text: note ? `${note}\n${h.text}` : h.text, title: isSavedWebHit(h) ? savedWebPack(h.fetchedAt) : (h.title || h.pack), score: h.cosine }
-      })
-      const webChunks = webHits.map((hit, i) => ({ id: `web-${i + 1}`, text: hit.text, title: formatWebCitation(hit), score: hit.cosine }))
+      const localChunks = hits.slice(0, 4).map((h) => ({
+        id: String(h.chunkId),
+        text: h.text,
+        title: h.title || h.pack,
+        score: h.cosine,
+      }))
       const budget = await allocate(new LlamaServerTokenizer(server.baseUrl, server.apiKey), profile, {
         system: SYSTEM,
         tools: useTools ? chatTools : undefined,
-        chunks: [...localChunks, ...webChunks].slice(0, 5),
+        chunks: localChunks.slice(0, 5),
         history,
         question: text,
       })
@@ -2042,7 +1617,7 @@ export async function createServices(): Promise<Services> {
           touchModel()
         }
       }
-      const corpus = [...localChunks, ...webChunks].map((chunk) => `${chunk.title}\n${chunk.text}`).join('\n')
+      const corpus = localChunks.map((chunk) => `${chunk.title}\n${chunk.text}`).join('\n')
       const checked = checkAnswer(answer, text, corpus)
       answer = checked.text
       const grounded = verifyGroundedAnswer({
@@ -2051,48 +1626,23 @@ export async function createServices(): Promise<Services> {
         records: recordsFromContext({
           question: text,
           toolText,
-          chunks: [
-            ...localChunks.map((chunk) => ({ title: chunk.title, text: chunk.text })),
-            ...webHits.map((hit) => ({ title: hit.title, text: hit.text, url: hit.url, published: hit.published, cachedAt: hit.cachedAt ?? null })),
-          ],
+          chunks: localChunks.map((chunk) => ({ title: chunk.title, text: chunk.text })),
         }),
       })
       let answerSources = sources
       const blockedClaim = grounded.blocked.length > 0 && claimTopic(text) != null
       if (blockedClaim) {
-        answer = withWebBanner(grounded.text, activeRegion.label, webHits.length > 0)
+        answer = grounded.text
         answerSources = []
         replaceStream = true
       } else if (!grounded.blocked.length && grounded.text !== answer) {
         answer = grounded.text
         replaceStream = true
       }
-      if (webHits.length && !blockedClaim) {
-        answer = withWebBanner(answer, activeRegion.label, true)
-        answer = ensureCitationMarkers(answer, sources)
-        answer = withPackVersions(answer, sources)
-        replaceStream = true
-      } else if (!webHits.length) {
-        answer = withWebBanner(answer, activeRegion.label, false)
-      }
-      if (searchNote && !answer.includes(searchNote)) {
-        answer = `${answer}\n\n${searchNote}`
-        replaceStream = true
-      }
       if (checked.echoed && scoreText(answer).action === 'drop' && scoreText(text).action !== 'drop') {
         answer = 'I ignored instructions found in a source.'
       }
-      const gate: GateName = webHits.length ? 'web' : decision === 'skip' ? 'answer' : decision
-      if (webHits.length && store.db && !signal.aborted) {
-        saveCitedPassages(store.db, conversationId, messageId, webHits.map((hit) => ({
-          url: hit.url,
-          title: hit.title,
-          text: hit.text,
-          published: hit.published,
-          fetchedAt: Date.now(),
-          vec: hit.vec,
-        })))
-      }
+      const gate: GateName = decision === 'skip' ? 'answer' : decision
       finish(conversationId, messageId, userMessageId, win, answer, answerSources, gate, replaceStream || checked.unknownUrls.length > 0 || checked.echoed || lengthLimited, lengthLimited, {
         counter: budget.report.counter,
         total: budget.report.total,
@@ -2628,13 +2178,6 @@ export async function createServices(): Promise<Services> {
       open: async (id) => store.open(id),
       remove: async (id) => { store.remove(id) },
     },
-    webCache: {
-      status: async () => (store.db ? savedWebStats(store.db) : { bytes: 0, count: 0, capBytes: 8 * 1024 * 1024 }),
-      clear: async () => {
-        if (store.db) clearSavedWeb(store.db)
-        return store.db ? savedWebStats(store.db) : { bytes: 0, count: 0, capBytes: 8 * 1024 * 1024 }
-      },
-    },
     packs: {
       list: () => listPacks(),
       sync: async () => {
@@ -2852,17 +2395,6 @@ export async function createServices(): Promise<Services> {
         return { ok: true, needsConfirm: false, mode: body.mode }
       },
     },
-    devWeb: {
-      run: async (req) => {
-        if (!devWebEnabled()) throw new Error('Dev web search is off.')
-        const current = readSettings()
-        const tools = codeAgentDevWebTools({ apiBase: apiBase(current), offlineOnly: current.offlineOnly })
-        const tool = tools.find((item) => item.name === req.tool)
-        if (!tool) throw new Error('Dev web search is off.')
-        const text = await tool.run(req.tool === 'web_search' ? { query: req.query ?? '' } : { url: req.url ?? '' })
-        return { text }
-      },
-    },
     documents: documentApi,
     code: codeApi,
     codeIde,
@@ -2958,7 +2490,7 @@ export async function createServices(): Promise<Services> {
   }
 
   function reachNow(offlineOnly: boolean): { online: boolean; onlineReason: string } {
-    const described = describeReach({ osOnline: stableOnline, apiReachable, offlineOnly, checking: offlineOnly ? false : checking, localWeb: !searchFixtureEnabled() })
+    const described = describeReach({ osOnline: stableOnline, apiReachable, offlineOnly, checking: offlineOnly ? false : checking })
     return { online: described.online, onlineReason: described.reason }
   }
 
@@ -2986,12 +2518,10 @@ export async function createServices(): Promise<Services> {
       checking = false
       return
     }
-    if (!searchFixtureEnabled()) {
-      apiReachable = true
-      checking = false
-      return
-    }
-    apiReachable = await probeHealth(apiBase(settings), 3000)
+    // Web search is deleted, and with it the search fixture that used to stand in
+    // for the gateway during evals. Everything else reaches the gateway on the
+    // call that actually needs it, and reports the failure there.
+    apiReachable = true
     checking = false
   }
 
@@ -3300,7 +2830,6 @@ export async function createServices(): Promise<Services> {
     const root = app.getPath('userData')
     const packRows = await readInstalled(packsRoot()).catch(() => [])
     const indexUsage = await codeApi.storage()
-    const webBytes = store.db ? savedWebStats(store.db).bytes : 0
     const categories: StorageCategory[] = [
       { id: 'models', label: 'Models', bytes: 0, items: scanFiles(modelsDir()).map((item) => ({ ...item, label: modelStorageLabel(item.id) })) },
       {
@@ -3324,11 +2853,6 @@ export async function createServices(): Promise<Services> {
         ],
       },
       { id: 'chats', label: 'Chat history', bytes: 0, items: [{ id: 'history', label: 'Chat history', bytes: store.historyBytes() }] },
-      { id: 'web', label: 'Saved web', bytes: 0, items: [
-        { id: 'web', label: 'Saved pages', bytes: webBytes },
-        { id: 'search-cache', label: 'Recent searches', bytes: store.db ? searchCacheStats(store.db).bytes : 0 },
-        { id: 'quotes', label: 'Recent quotes', bytes: store.db ? quoteCacheStats(store.db).bytes : 0 },
-      ] },
       { id: 'logs', label: 'Logs', bytes: 0, items: scanFiles(join(root, 'logs')) },
       ...shotCategory(root),
     ]
@@ -3339,12 +2863,6 @@ export async function createServices(): Promise<Services> {
   async function clearStorage(category: StorageCategoryId, itemId?: string): Promise<StorageReport> {
     if (!storageClearAllowed(category)) return storageReport()
     const root = app.getPath('userData')
-    if (category === 'web') {
-      if (store.db && (!itemId || itemId === 'web')) clearSavedWeb(store.db)
-      if (store.db && (!itemId || itemId === 'search-cache')) clearSearchCache(store.db)
-      if (store.db && (!itemId || itemId === 'quotes')) clearQuoteCache(store.db)
-      return storageReport()
-    }
     const dir = categoryDir(category, root)
     assertInsideAppData(root, dir)
     if (!itemId) {
@@ -3367,7 +2885,7 @@ export async function createServices(): Promise<Services> {
 
   async function openStorage(category: StorageCategoryId): Promise<void> {
     const root = app.getPath('userData')
-    if (category === 'chats' || category === 'web') {
+    if (category === 'chats') {
       const file = join(root, 'chat.db')
       if (existsSync(file)) {
         shell.showItemInFolder(file)
@@ -3695,67 +3213,39 @@ export function startUpdater(): void {
   initAutoUpdate()
 }
 
+// Web search is deleted. These are the tables it created in chat.db; they are
+// dropped on every open so existing databases stop holding fetched pages.
+const WEB_CACHE_DROP_SQL = [
+  'DROP TABLE IF EXISTS web_passage_links;',
+  'DROP TABLE IF EXISTS web_passages;',
+  'DROP TABLE IF EXISTS web_fts;',
+  'DROP TABLE IF EXISTS web_vec;',
+  'DROP TABLE IF EXISTS search_disk_cache;',
+  'DROP TABLE IF EXISTS quote_cache;',
+].join('\n')
+
 async function openStore(): Promise<SessionStore> {
-  const evalKey = surfEnv('EVAL_DB_KEY')
-  if (evalKey && /^[0-9a-f]{64}$/i.test(evalKey)) {
-    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), evalKey, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION, SEARCH_CACHE_MIGRATION, QUOTE_CACHE_MIGRATION])
-    return new SessionStore(db)
+  const open = (key: string): DB => {
+    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION])
+    // Web search is deleted: drop the passage and result caches it maintained.
+    // Idempotent, and runs on every open because the positional user_version
+    // scheme cannot apply a new migration to databases that are already ahead.
+    db.exec(WEB_CACHE_DROP_SQL)
+    return db
   }
+  const evalKey = surfEnv('EVAL_DB_KEY')
+  if (evalKey && /^[0-9a-f]{64}$/i.test(evalKey)) return new SessionStore(open(evalKey))
   try {
     const key = await getOrCreateDbKey()
-    const db = openUserDb(join(app.getPath('userData'), 'chat.db'), key, [SESSION_MIGRATION, LIBRARY_MIGRATION, WEB_CACHE_MIGRATION, SEARCH_CACHE_MIGRATION, QUOTE_CACHE_MIGRATION])
-    return new SessionStore(db)
+    return new SessionStore(open(key))
   } catch (e) {
     console.warn('[surf] encrypted chat store unavailable:', (e as Error).message)
     return new SessionStore(null)
   }
 }
 
-function localFromHit(hit: Hit | UserHit, versions: Map<string, string>): LocalHit {
-  const user = hit as UserHit
-  const saved = isSavedWebHit(hit)
-  return {
-    layer: saved ? 'cache' : user.fileName ? 'files' : 'pack',
-    title: hit.title || hit.pack,
-    text: hit.text,
-    url: hit.url || '',
-    pack: hit.pack,
-    version: versions.get(hit.pack),
-    fileName: user.fileName || undefined,
-    score: hit.cosine || hit.rrf || 0,
-  }
-}
-
-function sectionChunks(db: DB, question: string, conversationId: string | null): LocalHit[] {
-  const section = sectionNumber(question)
-  if (!section) return []
-  const like = `%section ${section}%`
-  const scoped = `SELECT c.text AS text, d.title AS title, a.original_name AS fileName
-    FROM chunks c
-    JOIN documents d ON d.id = c.document_id
-    JOIN attachments a ON a.id = d.attachment_id
-    JOIN conversation_files f ON f.attachment_id = a.id
-    WHERE f.conversation_id = ? AND d.status = 'ready' AND c.text LIKE ? LIMIT 3`
-  const all = `SELECT c.text AS text, d.title AS title, a.original_name AS fileName
-    FROM chunks c
-    JOIN documents d ON d.id = c.document_id
-    JOIN attachments a ON a.id = d.attachment_id
-    WHERE d.status = 'ready' AND c.text LIKE ? LIMIT 3`
-  const rows = (conversationId ? db.prepare(scoped).all(conversationId, like) : db.prepare(all).all(like)) as { text: string; title: string; fileName: string }[]
-  return rows.map((row) => ({
-    layer: 'files' as const,
-    title: row.title || row.fileName,
-    text: row.text,
-    url: '',
-    pack: 'library',
-    fileName: row.fileName,
-    score: 1,
-  }))
-}
-
-function citationsOf(hits: Array<Hit | UserHit>, versions: Map<string, string>, question: string): Citation[] {
+function citationsOf(hits: Array<Hit | UserHit>, versions: Map<string, string>): Citation[] {
   return hits.map((hit) => {
-    if (isSavedWebHit(hit)) return savedWebCitation(hit, question)
     const user = hit as UserHit
     const version = versions.get(hit.pack)
     const library = Boolean(user.fileName)
@@ -3870,12 +3360,6 @@ function guardRetrieved<T extends Hit>(hits: T[]): { kept: T[]; ignored: T[] } {
     kept.push(next)
   }
   return { kept, ignored }
-}
-
-function routedUnable(intent: 'finance' | 'legal' | 'news', region: string): string {
-  if (intent === 'legal') return `${regionBanner(region)}\n${unableMessage('legal')}\nThis is not legal advice.`
-  if (intent === 'news') return `${regionBanner(region)}\n${unableMessage('news')}`
-  return `${regionBanner(region)}\n${unableMessage('price')}\nThese figures are calculations from the cited source. This is not a recommendation to buy or sell.`
 }
 
 export function needsCalculator(text: string): boolean {

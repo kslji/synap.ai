@@ -7,7 +7,6 @@ from pathlib import Path
 os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-ok")
 os.environ.setdefault("JWT_AUDIENCE", "authenticated")
 os.environ.setdefault("SURF_API_LITE", "1")
-os.environ.setdefault("SEARXNG_URL", "http://stub.local/search")
 os.environ.setdefault("MAIL_MODE", "console")
 
 from nacl.signing import SigningKey
@@ -125,7 +124,7 @@ def test_committed_builder_fixture_opens_with_the_wrap_key():
     import sqlite3
     import tempfile
     from app.content_key import derive_pack_key, open_content_key
-    fixture = json.loads((ROOT / "apps" / "desktop" / "src" / "main" / "core" / "search" / "fixtures" / "builder-delta.json").read_text())
+    fixture = json.loads((ROOT / "apps" / "desktop" / "src" / "main" / "core" / "fixtures" / "builder-delta.json").read_text())
     wrap = derive_pack_key(fixture["licence_id"], fixture["device_id_hash"])
     assert wrap.hex() == WRAP_VECTOR
     opened = open_content_key(bytes.fromhex(fixture["sealed_hex"]), wrap)

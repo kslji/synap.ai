@@ -4,7 +4,7 @@
 import { lstatSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs' | 'shots'
+export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'logs' | 'shots'
 
 export interface StorageItem {
   id: string

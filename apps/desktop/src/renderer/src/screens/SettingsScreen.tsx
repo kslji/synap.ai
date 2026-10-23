@@ -3,12 +3,11 @@ import { Cpu, Database, HardDrive, Hash, MemoryStick, Monitor, Palette, Plug, Sh
 import { product } from '@surf/shared'
 import { BLOB_SWATCHES, BlobMascot } from '@surf/ui'
 import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
-import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch, type WebCacheStatus } from '../../../shared/ipc-contract'
+import { AUTO_MODE_SUMMARY, type CodeStorageUsage, type DeviceInfo, type LicenceStatus, type ModelStatus, type SettingsPatch } from '../../../shared/ipc-contract'
 import { cleanCpuName, formatContextTokens, formatPromptCache, formatRamGb } from '../../../shared/hardware-label'
 import { friendlyModelName } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
 import { useMascotActivity } from '../mascot-activity'
-import { DevWebPanel } from './DevWebPanel'
 import { chatModels, ModelPanel } from './ModelsScreen'
 import { LiveFeelSettings, StoragePanel } from './UsageStorage'
 import { FilePermissionsPanel } from './FilePermissions'
@@ -56,10 +55,8 @@ export function SettingsScreen({
   const [savedNote, setSavedNote] = useState('')
   const [updateNote, setUpdateNote] = useState('')
   const [apiBase, setApiBase] = useState(settings.apiBaseUrl)
-  const [region, setRegion] = useState(settings.myRegion)
   const chats = chatModels(status)
   useEffect(() => { setApiBase(settings.apiBaseUrl) }, [settings.apiBaseUrl])
-  useEffect(() => { setRegion(settings.myRegion) }, [settings.myRegion])
   const apiOk = /^https?:\/\/\S+$/.test(apiBase)
 
   function save() {
@@ -123,9 +120,7 @@ export function SettingsScreen({
             <p className="mt-1 text-sm text-[var(--muted)]">Signed in as {account.email}</p>
           ) : (
             <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-              {status.devWeb
-                ? 'Dev web search does not need an account. Sign in to see every computer on this licence and to sync packs. A licence key activates this computer on its own.'
-                : 'Sign in to see every computer on this licence and to search the web. A licence key activates this computer on its own. Local chat and documents work without an account.'}
+              Sign in to see every computer on this licence and to sync packs. A licence key activates this computer on its own. Local chat and documents work without an account.
             </p>
           )}
           {licenceState !== 'dev' && (
@@ -190,26 +185,6 @@ export function SettingsScreen({
           {status.sync && <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]" data-sync-detail="yes">{status.sync.detail}</p>}
           {status.sync?.refreshWarning && <p className="mt-2 text-sm leading-relaxed" data-licence-refresh="yes">{status.sync.refreshWarning}</p>}
         </div>
-        <Row
-          title="Allow web search"
-          body="Look up pages when you are online. Your files stay here."
-          on={settings.webSearchAllowed}
-          onToggle={() => onPatch({ webSearchAllowed: !settings.webSearchAllowed })}
-        />
-        <div className="card px-4 py-4">
-          <div className="text-sm font-semibold">My region</div>
-          <input
-            className="field mt-3"
-            value={region}
-            spellCheck={false}
-            aria-label="My region"
-            placeholder="Country"
-            maxLength={80}
-            onChange={(e) => setRegion(e.target.value)}
-            onBlur={() => { if (region.trim() !== settings.myRegion) onPatch({ myRegion: region.trim() }) }}
-          />
-        </div>
-        <SavedWebCard />
         <CodeIndexCard />
         <Row
           title="Telemetry"
@@ -222,13 +197,11 @@ export function SettingsScreen({
             <div className="text-sm font-semibold">Account and pack server</div>
             <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Dev mode, sync off.</p>
           </div>
-        ) : status.devWeb ? (
-          <DevWebPanel apiUrl={status.devApiUrl || 'http://127.0.0.1:8000'} />
         ) : (
           <div className="card px-4 py-4">
             <div className="text-sm font-semibold">Account and pack server</div>
             <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-              Sign-in, licences, and knowledge-pack updates use this address. Web search runs on this computer and does not use an API key.
+              Sign-in, licences, and knowledge-pack updates use this address. Everything else runs on this computer.
             </p>
             <input
               className="field mt-3"
@@ -260,7 +233,7 @@ export function SettingsScreen({
         <div className="card px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
           <div className="font-semibold text-[var(--ink)]">On this computer</div>
           <p className="mt-2">Chats stay on this computer.</p>
-          {licenceState !== 'dev' && <p className="mt-1">Account server: {status.devApiUrl || settings.apiBaseUrl}.</p>}
+          {licenceState !== 'dev' && <p className="mt-1">Account server: {settings.apiBaseUrl}.</p>}
           <p className="mt-3">
             <span className="font-semibold text-[var(--ink)]">Knowledge packs.</span>{' '}
             {licenceState === 'dev'
@@ -424,36 +397,6 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function SavedWebCard() {
-  const [status, setStatus] = useState<WebCacheStatus | null>(null)
-  useEffect(() => {
-    void window.surf.webCache.status().then(setStatus).catch(() => setStatus(null))
-  }, [])
-  return (
-    <div className="card px-4 py-4" data-saved-web-card="yes">
-      <div className="text-sm font-semibold">Saved pages</div>
-      <div className="hw-grid mt-3" data-saved-web-size="yes">
-        <div className="hw-tile">
-          <div className="hw-label">Pages</div>
-          <div className="hw-value">{status ? String(status.count) : '…'}</div>
-        </div>
-        <div className="hw-tile">
-          <div className="hw-label">Space</div>
-          <div className="hw-value">{status ? webSize(status.bytes) : '…'}</div>
-        </div>
-      </div>
-      <button
-        className="btn btn-ghost mt-3"
-        type="button"
-        data-clear-web="yes"
-        onClick={() => { void window.surf.webCache.clear().then(setStatus).catch(() => undefined) }}
-      >
-        Clear saved pages
-      </button>
-    </div>
-  )
-}
-
 function CodeIndexCard() {
   const [usage, setUsage] = useState<CodeStorageUsage | null>(null)
   useEffect(() => {
@@ -486,12 +429,6 @@ function CodeIndexCard() {
 function folderLabel(root: string): string {
   const parts = root.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? root
-}
-
-function webSize(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`
-  return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`
 }
 
 function AboutLink({ href, children }: { href: string; children: string }) {

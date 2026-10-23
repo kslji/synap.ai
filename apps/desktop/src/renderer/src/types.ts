@@ -26,7 +26,7 @@ export interface UiMsg {
   error?: boolean
   smallerModelId?: string
   gate?: GateName
-  phase?: 'searching' | 'reading' | 'files' | 'keywords'
+  phase?: 'searching' | 'files' | 'keywords'
   /** Shown while the search model is downloading or the computer is offline. */
   keywordNote?: string
   fileAsk?: FilePermissionPrompt | null

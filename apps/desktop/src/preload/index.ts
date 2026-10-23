@@ -67,10 +67,6 @@ const api: SurfApi = {
     open: (id) => ipcRenderer.invoke(IPC.conversationsOpen, id),
     remove: (id) => ipcRenderer.invoke(IPC.conversationsDelete, id),
   },
-  webCache: {
-    status: () => ipcRenderer.invoke(IPC.webCacheStatus),
-    clear: () => ipcRenderer.invoke(IPC.webCacheClear),
-  },
   usage: {
     get: () => ipcRenderer.invoke(IPC.usageGet),
     reset: () => ipcRenderer.invoke(IPC.usageReset),
@@ -103,9 +99,6 @@ const api: SurfApi = {
     undo: (req) => ipcRenderer.invoke(IPC.codeAgentUndo, req),
     mode: () => ipcRenderer.invoke(IPC.codeAgentMode),
     setMode: (req) => ipcRenderer.invoke(IPC.codeAgentSetMode, req),
-  },
-  devWeb: {
-    run: (req) => ipcRenderer.invoke(IPC.devWebRun, req),
   },
   documents: {
     pick: (title) => ipcRenderer.invoke(IPC.documentsPick, title),

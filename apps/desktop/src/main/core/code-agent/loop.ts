@@ -14,7 +14,6 @@ import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode
 import type { ProjectSearch } from './project-search.js'
 import { codeSystemPrompt } from './system-rules.js'
 import { takeOutputUpdate } from '../../../shared/stream-batch.js'
-import { codeAgentDevWebTools, resolveSynapApiUrl, type DevWebHost } from './dev-web-hook.js'
 import { codeToolSchemas } from './tools.js'
 import { listProjectDir, readProjectFile, runProjectCommand, splitCommand } from './workspace.js'
 import type { CompletionRequest } from '@surf/agent-core'
@@ -55,8 +54,6 @@ export interface CodeAgentHost {
   ask(request: { kind: 'command' | 'edit'; id: string; command?: string; path?: string; diff?: string }): Promise<{ allow: boolean; remember?: boolean; all?: boolean }>
   runCommand?(command: string, signal?: AbortSignal, hooks?: { onOutput?: (chunk: string) => void }): Promise<{ ok: boolean; output: string; note?: string }>
   onRememberCommand?(command: string): void
-  /** Local web search. Tools stay empty unless dev web is enabled on env. */
-  devWeb?: DevWebHost
 }
 
 export interface CodeAgentResult {
@@ -136,7 +133,7 @@ async function obtainCall(host: CodeAgentHost, messages: ChatMessage[], maxParse
       constraint = constraint === 'native' ? 'json_schema' : 'gbnf'
       continue
     }
-    const call = parseModelTurn(turn, host.devWeb?.env)
+    const call = parseModelTurn(turn)
     if (call) return { call }
     reminder = true
     if (constraint === 'native') constraint = 'json_schema'
@@ -153,7 +150,7 @@ function requestFor(constraint: Constraint, messages: ChatMessage[], host: CodeA
   if (constraint === 'gbnf') {
     return { messages, grammar: toolCallGbnf(), maxTokens: host.answerTokens, signal: host.signal, stepKind }
   }
-  return { messages, tools: codeToolSchemas(host.devWeb?.env), maxTokens: host.answerTokens, signal: host.signal, stepKind }
+  return { messages, tools: codeToolSchemas(), maxTokens: host.answerTokens, signal: host.signal, stepKind }
 }
 
 async function act(
@@ -277,29 +274,12 @@ async function act(
     pushStep(host, steps, { id, index, tool: name, status: result.ok ? 'ok' : 'error', title, detail: oneLine(result.output), output: tail(streamed || result.output), note })
     return clip(host, result.output)
   }
-  const webTool = codeAgentDevWebTools(devWebFor(host)).find((item) => item.name === name)
-  if (webTool) {
-    const output = await webTool.run(args)
-    pushStep(host, steps, { id, index, tool: name, status: output.startsWith('error:') ? 'error' : 'ok', title, detail: oneLine(output) })
-    return clip(host, output)
-  }
   pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: 'Unknown tool' })
   return `error: unknown tool ${name}`
 }
 
 function gateContext(remembered: ReadonlySet<string>, allowlist: ReadonlySet<string>): ApprovalContext {
   return { remembered, allowlist, checkpointPaths: new Set() }
-}
-
-function devWebFor(host: CodeAgentHost): DevWebHost {
-  const extra = host.devWeb
-  return {
-    ...extra,
-    apiBase: extra?.apiBase || resolveSynapApiUrl({ packaged: false, settingsUrl: 'http://127.0.0.1:8000', env: extra?.env }),
-    offlineOnly: extra?.offlineOnly ?? false,
-    signal: host.signal ?? extra?.signal,
-    env: extra?.env,
-  }
 }
 
 function pushStep(host: CodeAgentHost, steps: CodeStepView[], step: CodeStepView): void {
@@ -339,8 +319,6 @@ function stepTitle(name: string, args: Record<string, unknown>): string {
   if (name === 'propose_edit') return `Edit ${path || 'file'}`
   if (name === 'run_command') return `Run ${command || 'command'}`
   if (name === 'finish') return 'Finish'
-  if (name === 'web_search') return `Web search ${query || ''}`.trim()
-  if (name === 'fetch_page') return `Fetch ${stringArg(args, 'url') || 'page'}`
   return name
 }
 

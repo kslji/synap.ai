@@ -45,8 +45,6 @@ export const IPC = {
   conversationsList: 'conversations:list',
   conversationsOpen: 'conversations:open',
   conversationsDelete: 'conversations:delete',
-  webCacheStatus: 'web-cache:status',
-  webCacheClear: 'web-cache:clear',
   libraryAdd: 'library:add',
   libraryPick: 'library:pick',
   libraryList: 'library:list',
@@ -80,7 +78,6 @@ export const IPC = {
   codeCompleteSave: 'code-complete:save',
   codeVisionCapture: 'code-vision:capture',
   codeVisionSave: 'code-vision:save',
-  devWebRun: 'dev-web:run',
   usageGet: 'usage:get',
   usageReset: 'usage:reset',
   usageCsv: 'usage:csv',
@@ -114,7 +111,6 @@ export interface ChatSendReq {
   text: string
   agentId?: string
   images?: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }[]
-  allowWeb?: boolean
   docScope?: DocScope
   /** When set, the new answer is another version of this assistant reply. No new user turn is stored. */
   replaceMessageId?: string
@@ -130,17 +126,14 @@ export type ThemeChoice = 'light' | 'dark'
 
 export interface SettingsPatch {
   offlineOnly?: boolean
-  webSearchAllowed?: boolean
   telemetryOptIn?: boolean
   chatModelId?: string
   /** Code agent model. Empty means the smallest Code model. */
   codeModelId?: string
   onboardingComplete?: boolean
   theme?: ThemeChoice
-  /** Account, licence, and pack server. Production web search does not call this. */
+  /** Account, licence, and pack server. */
   apiBaseUrl?: string
-  /** Country or ISO code. Overrides the public-IP lookup when a VPN is in use. Empty uses IP, then worldwide. */
-  myRegion?: string
   /** Hours between signed-in pack checks. */
   packSyncHours?: number
   /** stable hides -beta tags. beta includes them. */
@@ -169,7 +162,7 @@ export interface SettingsPatch {
   density?: 'compact' | 'comfortable' | 'relaxed'
   /** SVG motion for the mascot. There is no audio. */
   animateMascot?: boolean
-  /** Offline blocks every network call. Online allows web and pack sync. */
+  /** Offline blocks every network call. Online allows the gateway and pack sync. */
   networkMode?: 'offline' | 'online'
 }
 
@@ -223,16 +216,6 @@ export interface CodeEditorText {
   text: string
 }
 
-export interface DevWebRunReq {
-  tool: 'web_search' | 'fetch_page'
-  query?: string
-  url?: string
-}
-
-export interface DevWebRunResult {
-  text: string
-}
-
 export interface UpdateOffer {
   kind: 'nsis' | 'manual'
   version: string
@@ -241,7 +224,7 @@ export interface UpdateOffer {
   steps: string[]
 }
 
-export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
+export type GateName = 'answer' | 'borderline' | 'insufficient'
 
 /** Which model answered a turn: the local sidecar (offline) or the gateway (online). */
 export type ChatMode = 'online' | 'offline'
@@ -250,7 +233,7 @@ export type ChatEvent =
   | { type: 'token'; messageId: string; text: string; mode?: ChatMode }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
-  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' | 'keywords'; note?: string }
+  | { type: 'status'; messageId: string; phase: 'searching' | 'files' | 'keywords'; note?: string }
   | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
   | { type: 'done'; messageId: string; gate: GateName; mode?: ChatMode; text?: string; canContinue?: boolean; budget?: {
     counter: string
@@ -399,10 +382,6 @@ export interface ModelStatus {
   holdSetup?: boolean
   /** False when the search model is missing or its checksum does not match. */
   searchModelReady?: boolean
-  /** True only when NODE_ENV=development or SYNAP_DEV_WEB=1. Omitted tools stay off. */
-  devWeb?: boolean
-  /** Search origin while dev web is on. Omitted in production builds. */
-  devApiUrl?: string
   live?: {
     keepWarm: boolean
     warmModelId: string | null
@@ -462,30 +441,20 @@ export interface Citation {
   url: string
   pack: string
   version?: string
-  kind?: 'document' | 'web'
+  kind?: 'document'
   domain?: string
   published?: string | null
   chunkId?: number
   fileName?: string
   locator?: string | null
   excerpt?: string
-  /** When this web passage was stored on this computer. */
-  savedAt?: number
-  /** Set when a fresh-sensitive question is using a passage older than 24 hours. */
-  staleNote?: string
   /** The passage was left out of the prompt because it contained instructions. */
   suspicious?: boolean
   /** Absolute path. Set for a file the user allowed the app to search. Clicking opens it in the OS. */
   filePath?: string
 }
 
-export interface WebCacheStatus {
-  bytes: number
-  count: number
-  capBytes: number
-}
-
-export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs' | 'shots'
+export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'logs' | 'shots'
 
 export interface UsageModelRow {
   modelId: string
@@ -799,10 +768,6 @@ export interface SurfApi {
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
     remove(id: string): Promise<void>
   }
-  webCache: {
-    status(): Promise<WebCacheStatus>
-    clear(): Promise<WebCacheStatus>
-  }
   usage: {
     get(): Promise<UsageReport>
     reset(): Promise<UsageReport>
@@ -862,9 +827,6 @@ export interface SurfApi {
   codeVision: {
     capture(req: CodeVisionCaptureReq): Promise<CodeVisionCaptureResult>
     save(req: CodeVisionSaveReq): Promise<CodeVisionSaveResult>
-  }
-  devWeb: {
-    run(req: DevWebRunReq): Promise<DevWebRunResult>
   }
   files: {
     list(): Promise<FileFolderGrant[]>

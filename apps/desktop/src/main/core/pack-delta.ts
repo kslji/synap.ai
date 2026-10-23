@@ -6,8 +6,8 @@
  * only the wrap key.
  */
 import nacl from 'tweetnacl'
-import type { DB } from '../db.js'
-import type { Hit } from '../retrieval.js'
+import type { DB } from './db.js'
+import type { Hit } from './retrieval.js'
 
 export const DELTA_FILE = 'delta.sqlite.enc'
 const SQLITE_MAGIC = 'SQLite format 3\0'

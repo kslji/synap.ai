@@ -3,7 +3,7 @@
  * in a source record. A missing, failed, empty, future, or stale source does
  * not authorize a value. The model is not a source.
  */
-import type { Citation } from '../ipc-contract.js'
+import type { Citation } from './ipc-contract.js'
 
 export const UNABLE_PRICE = 'Unable to find the price right now. Please try again in a moment.'
 export const UNABLE_NEWS = 'Unable to find that news right now. Please try again in a moment.'

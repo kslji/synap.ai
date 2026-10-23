@@ -36,7 +36,7 @@ def test_single_root_and_single_head():
     assert roots == ["0001_base"], f"expected one root, got {roots}"
     downs = {d for d in graph.values() if d is not None}
     heads = [r for r in graph if r not in downs]
-    assert heads == ["0007_drop_response_text"], f"expected one head, got {heads}"
+    assert heads == ["0008_drop_web_search_feature"], f"expected one head, got {heads}"
 
 
 def test_chain_is_linear_base_to_gateway():
@@ -48,7 +48,8 @@ def test_chain_is_linear_base_to_gateway():
         chain.append(node)
         node = ups.get(node)
     assert chain == ["0001_base", "0002_otp", "0003_licences", "0004_subscription",
-                     "0005_gateway", "0006_drop_legacy", "0007_drop_response_text"]
+                     "0005_gateway", "0006_drop_legacy", "0007_drop_response_text",
+                     "0008_drop_web_search_feature"]
 
 
 def test_0001_base_runs_raw_ddl_without_bind_parsing():

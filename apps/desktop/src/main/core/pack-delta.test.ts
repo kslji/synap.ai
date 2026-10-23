@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import Database from 'better-sqlite3-multiple-ciphers'
 import nacl from 'tweetnacl'
-import { contentKeysForDelta, decryptDelta, openSealedContentKey, searchDelta, secretboxOpen } from './delta.js'
-import { derivePackKey } from '../licence.js'
+import { contentKeysForDelta, decryptDelta, openSealedContentKey, searchDelta, secretboxOpen } from './pack-delta.js'
+import { derivePackKey } from './licence.js'
 
 const KEY = Buffer.from('22'.repeat(32), 'hex')
 /** Frozen PyNaCl SecretBox of the bytes "harbor-delta-ok" with KEY. */

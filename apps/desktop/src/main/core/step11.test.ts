@@ -7,7 +7,7 @@ import { finishReply, replyShapeOk } from '../../shared/reply-text.js'
 test('step 11 cases are real and all pass', () => {
   const questions = evalQuestions()
   assert.ok(questions.length >= 100, `expected at least 100 questions, got ${questions.length}`)
-  for (const domain of ['coding', 'splitting', 'run-fix', 'screenshots', 'fresh', 'finance', 'legal', 'no-fabrication', 'everyday']) {
+  for (const domain of ['coding', 'splitting', 'run-fix', 'screenshots', 'finance', 'legal', 'no-fabrication', 'everyday']) {
     const count = questions.filter((question) => question.domain === domain).length
     assert.ok(count >= 8, `${domain} has ${count} questions`)
   }

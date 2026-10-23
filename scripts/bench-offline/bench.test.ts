@@ -2,6 +2,32 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { decodeSpeed, firstTokenMs, percentile } from './timing.js';
+import { pickChatModel, type ChatRow } from './pick.js';
+
+/** The two chat rows as the registry ships them, plus the search model that is not a chat row. */
+const registry: ChatRow[] = [
+  { id: 'qwen3.5-2b-q4_k_m', file: 'Qwen3.5-2B-Q4_K_M.gguf', size_bytes: 1_280_835_840, min_ram_gb: 8, tiers: [0, 1, 2, 3], context_default: 8192, default_for: ['*'] },
+  { id: 'qwen3.5-4b-q4_k_m', file: 'Qwen3.5-4B-Q4_K_M.gguf', size_bytes: 3_050_793_408, min_ram_gb: 8, tiers: [0, 1, 2, 3], context_default: 8192 },
+  { id: 'embeddinggemma-300m-qat-q8', file: 'embeddinggemma-300m-qat-Q8_0.gguf', size_bytes: 309_855_520, min_ram_gb: 2, tiers: [0, 1, 2, 3] },
+];
+
+test('a plain bench measures the 2B the app ships, not the largest file that fits', () => {
+  assert.equal(pickChatModel(registry, {}, 32, 0)?.id, 'qwen3.5-2b-q4_k_m', '32 GB of RAM does not move the default');
+  assert.equal(pickChatModel(registry, {}, 8, 0)?.id, 'qwen3.5-2b-q4_k_m');
+  assert.equal(pickChatModel(registry, { model: 'qwen3.5-4b-q4_k_m' }, 32, 0)?.id, 'qwen3.5-4b-q4_k_m', '--model still wins');
+  assert.equal(pickChatModel(registry, { model: 'not-a-model' }, 32, 0), undefined);
+});
+
+test('the search model is never benched as a chat model', () => {
+  const ids = registry.map((row) => pickChatModel([row], {}, 32, 0)?.id ?? null);
+  assert.deepEqual(ids, ['qwen3.5-2b-q4_k_m', 'qwen3.5-4b-q4_k_m', null]);
+});
+
+test('with no default marked, the largest that fits the tier is measured', () => {
+  const unmarked = registry.map(({ default_for: _default, ...row }) => row);
+  assert.equal(pickChatModel(unmarked, {}, 32, 0)?.id, 'qwen3.5-4b-q4_k_m');
+  assert.equal(pickChatModel(unmarked, {}, 8, 0)?.id, 'qwen3.5-4b-q4_k_m');
+});
 
 test('a reply with no content delta reports the whole request, never a negative number', () => {
   // The -5437 ms bug: a 5560 ms request whose first token never parsed used to come out

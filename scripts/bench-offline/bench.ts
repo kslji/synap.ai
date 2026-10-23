@@ -11,11 +11,13 @@
  *   - memory: llama-server RSS once the model is loaded
  *
  * A one-token warm-up runs after the sidecar loads, so the cold figure is the first real
- * message and not Metal/thread start-up. Time to first token counts reasoning tokens too:
- * Qwen3.5 streams its thinking before any answer text.
+ * message and not Metal/thread start-up. Every request asks for `enable_thinking: false`,
+ * which is what the app sends for chat and for each edit step, so `firstContentWarmP50` is the
+ * wait for the first answer token (with thinking on, Qwen3.5 streams reasoning first and leaves
+ * content empty for the whole reasoning pass).
  *
  * Usage:
- *   npm run bench:offline                       # start llama-server for this machine's RAM tier
+ *   npm run bench:offline                       # the 2B default, on this machine's RAM tier
  *   npm run bench:offline -- --runs 7 --tokens 96
  *   npm run bench:offline -- --base-url http://127.0.0.1:8080 --api-key KEY
  *   npm run bench:offline -- --stub             # no model on disk: validate the harness itself
@@ -35,6 +37,7 @@ import { execFileSync } from 'node:child_process';
 import { homedir, platform, arch } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { decodeSpeed, firstTokenMs, percentile, round } from './timing.js';
+import { pickChatModel, type ChatRow } from './pick.js';
 
 import { LlamaServer } from '../../apps/desktop/src/main/core/sidecar-manager.js';
 import { detectHardware } from '../../apps/desktop/src/main/core/hardware.js';
@@ -150,32 +153,13 @@ function defaultModelsDir(): string {
   return join(homedir(), '.config', app, 'models');
 }
 
-interface RegistryModel {
-  id: string;
-  file: string;
-  size_bytes: number;
-  min_ram_gb?: number;
-  tiers?: number[];
-  context_default?: number;
-  context_max?: number;
-  draft?: { id: string; file: string };
+interface RegistryModel extends ChatRow {
   sampling?: { temperature?: number; top_p?: number; top_k?: number; presence_penalty?: number };
 }
 
 function loadRegistry(): RegistryModel[] {
   const parsed = JSON.parse(readFileSync(REGISTRY, 'utf8')) as { models?: RegistryModel[] } | RegistryModel[];
   return Array.isArray(parsed) ? parsed : (parsed.models ?? []);
-}
-
-/** The chat model the RAM tier selects: the largest that fits and lists this tier. */
-function pickModel(models: RegistryModel[], args: Args, ramGb: number, tier: number): RegistryModel | undefined {
-  const chats = models.filter((m) => (m.file ?? '').endsWith('.gguf') && !m.draft && m.context_default);
-  const wanted = args.model ? chats.find((m) => m.id === args.model) : undefined;
-  if (args.model) return wanted ?? chats.find((m) => m.id === args.model);
-  const fits = chats
-    .filter((m) => (m.min_ram_gb ?? 0) <= ramGb && (m.tiers ?? []).includes(tier))
-    .sort((a, b) => (b.min_ram_gb ?? 0) - (a.min_ram_gb ?? 0));
-  return fits[0] ?? chats.sort((a, b) => (a.size_bytes ?? 0) - (b.size_bytes ?? 0))[0];
 }
 
 /** Weights passed as a path rather than a registry entry still get a name and a real size. */
@@ -269,6 +253,8 @@ async function chatStream(baseUrl: string, apiKey: string, maxTokens: number, ca
       stream: true,
       cache_prompt: cachePrompt,
       stream_options: { include_usage: true },
+      // What the app sends in Offline mode and on every edit step: answer, do not think.
+      chat_template_kwargs: { enable_thinking: false },
       temperature: sampling?.temperature ?? 0,
       top_p: sampling?.top_p ?? 1,
       ...(sampling?.top_k ? { top_k: sampling.top_k } : {}),
@@ -507,7 +493,7 @@ async function main(): Promise<number> {
   // -c comes from the tier budget, which is what app-services passes to the sidecar.
   const ctx = budgetForTier(hw.tier).serverCtx;
   const adHoc = args.modelFile ? adHocModel(args.modelFile, ctx) : undefined;
-  const model = adHoc ?? pickModel(models, args, hw.totalRamGb, hw.tier);
+  const model = adHoc ?? pickChatModel(models, args, hw.totalRamGb, hw.tier);
   let sampling = model?.sampling;
   const onGpu = gpuLayers > 0;
   const targetTps = onGpu ? TARGET_TPS_GPU : TARGET_TPS_CPU;
@@ -643,7 +629,12 @@ async function main(): Promise<number> {
       decode: { value: tps, unit: 'tok/s', target: `>= ${targetTps} (${onGpu ? 'GPU' : 'CPU'})`, status: verdict(tps >= targetTps) },
       tabP50: { value: tab, unit: 'ms', target: `< ${TARGET_TAB_MS}`, status: verdict(tab < TARGET_TAB_MS) },
       tabP95: { value: percentile(suite.tabMs, 95), unit: 'ms', target: `< ${TARGET_TAB_MS}`, status: verdict(percentile(suite.tabMs, 95) < TARGET_TAB_MS) },
-      firstContentWarmP50: { value: contentMs.length ? percentile(contentMs, 50) : null, unit: 'ms', target: 'INFO (null = still thinking)', status: 'INFO' },
+      firstContentWarmP50: {
+        value: contentMs.length ? percentile(contentMs, 50) : null,
+        unit: 'ms',
+        target: `< ${TARGET_TTFT_MS} (thinking off)`,
+        status: verdict(contentMs.length > 0 && percentile(contentMs, 50) < TARGET_TTFT_MS),
+      },
       memoryRss: { value: rssMb, unit: 'MB', target: `reference (weights ${round(((report.model.sizeGib as number | undefined) ?? 0) * 1024, 0)} MB)`, status: 'INFO' },
       modelLoad: { value: loadMs, unit: 'ms', target: 'INFO', status: 'INFO' },
       warmupRequest: { value: warmupMs, unit: 'ms', target: 'INFO (excluded from cold)', status: 'INFO' },

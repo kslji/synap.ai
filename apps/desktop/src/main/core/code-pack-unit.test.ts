@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { chunkByHeading } from './code-pack-chunk.js'
 import { detectProjectStack } from './code-pack-detect.js'
 import { ensureCitations, packReferenceBlock, unknownApiRefusal } from './code-pack-prompt.js'
@@ -20,6 +21,12 @@ import { CODE_PACK_QUESTIONS, codePackFactQuestions } from './code-pack-eval-set
 function publicHex(key: KeyObject): string {
   const jwk = key.export({ format: 'jwk' }) as { x: string }
   return Buffer.from(jwk.x, 'base64url').toString('hex')
+}
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
 }
 
 test('chunks split on headings and long sections', () => {

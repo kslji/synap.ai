@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -18,7 +18,9 @@ import { CodeModeBar, CodeTrace } from '../../renderer/src/screens/CodeTrace.js'
 import { heuristicCounter } from './token-budget.js'
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'surf-mode-'))
+  // realpath: on macOS tmpdir() is /var/folders/... (a symlink to /private/var/...).
+  // The edit engine realpaths the root, so relative(root, abs) must not span that link.
+  return realpathSync(mkdtempSync(join(tmpdir(), 'surf-mode-')))
 }
 
 function gate(partial: Partial<ApprovalContext> = {}): ApprovalContext {

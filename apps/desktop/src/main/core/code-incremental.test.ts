@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { fileURLToPath } from 'node:url'
 import { hashEmbedder } from './code/embed.js'
 import { CodeIndex, dbFileBytes } from './code/project.js'
@@ -10,6 +11,12 @@ import { watchProject } from './code/watch.js'
 
 const grammarDir = join(dirname(fileURLToPath(import.meta.url)), '../../../resources/tree-sitter')
 const key = 'ef'.repeat(32)
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('incremental update replaces symbols and a delete drops the file', async () => {
   const root = mkdtempSync(join(tmpdir(), 'surf-incr-'))

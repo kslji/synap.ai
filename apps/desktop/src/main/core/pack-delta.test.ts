@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import Database from 'better-sqlite3-multiple-ciphers'
 import nacl from 'tweetnacl'
 import { contentKeysForDelta, decryptDelta, openSealedContentKey, searchDelta, secretboxOpen } from './pack-delta.js'
@@ -12,6 +13,12 @@ import { derivePackKey } from './licence.js'
 const KEY = Buffer.from('22'.repeat(32), 'hex')
 /** Frozen PyNaCl SecretBox of the bytes "harbor-delta-ok" with KEY. */
 const PYNACL = Buffer.from('3834e099bcd74af5373b98346a392cee21b67c0fe591d71be2ae509d93710f3166ec15416b90338b2258990af4df45a4b7699ebab744b3', 'hex')
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('a PyNaCl secretbox opens and a wrong key does not', () => {
   const opened = secretboxOpen(PYNACL, KEY)

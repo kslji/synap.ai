@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { fileURLToPath } from 'node:url'
@@ -43,6 +44,12 @@ function facts(partial: Partial<PlanFacts> = {}): PlanFacts {
     symbols: partial.symbols ?? [],
     edges: partial.edges ?? [],
   }
+}
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
 }
 
 test('plan schema accepts a checklist and rejects a broken one', () => {

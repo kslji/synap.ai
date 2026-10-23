@@ -13,7 +13,8 @@ import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { ONLINE_CONSENT_ON_NOTE, ONLINE_CONTEXT_LIMIT, onlineContextTurns, renderOnlineContext } from './online-context.js'
 import { openUserDb } from './db.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
@@ -23,6 +24,12 @@ const CORE = dirname(fileURLToPath(import.meta.url))
 
 function row(role: 'user' | 'assistant' | 'note', text: string, mode?: 'offline' | 'online') {
   return { id: text, role, text, mode }
+}
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
 }
 
 test('without consent an online turn carries nothing that stayed offline', () => {

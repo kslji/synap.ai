@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { fileURLToPath } from 'node:url'
 import { heuristicCounter } from './token-budget.js'
 import { hashEmbedder } from './code/embed.js'
@@ -27,6 +28,12 @@ function project(files: Record<string, string>, embed = true): { root: string; i
     embedder: embed ? hashEmbedder() : null,
   })
   return { root, index, cleanup: () => { index.close(); rmSync(root, { recursive: true, force: true }) } }
+}
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
 }
 
 test('reciprocal rank fusion keeps a vector-only hit and a keyword hit', () => {

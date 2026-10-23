@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -27,7 +27,9 @@ const chars: { name: string; count(text: string): Promise<number> } = {
 }
 
 function tempProject(): string {
-  return mkdtempSync(join(tmpdir(), 'surf-code-agent-'))
+  // realpath: on macOS tmpdir() is /var/folders/... (a symlink to /private/var/...).
+  // The edit engine realpaths the root, so relative(root, abs) must not span that link.
+  return realpathSync(mkdtempSync(join(tmpdir(), 'surf-code-agent-')))
 }
 
 test('native tool calls win, and broken JSON is repaired', () => {

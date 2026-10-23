@@ -12,10 +12,17 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { openUserDb } from './db.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
 import { SESSION_MIGRATION, SessionStore } from './session-store.js'
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('deleting a chat still clears it now that web-cache is gone', () => {
   const dir = mkdtempSync(join(tmpdir(), 'surf-web-purge-'))

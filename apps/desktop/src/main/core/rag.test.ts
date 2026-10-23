@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { chunkBlocks, CHUNK_OVERLAP, CHUNK_TARGET } from './chunker.js'
 import { convertBytes } from './convert.js'
 import { openUserDb } from './db.js'
@@ -15,6 +16,12 @@ import { makeDocx, makePdf, makePptx } from './samples.js'
 import { searchUser } from './user-search.js'
 
 const opts = { tessdataDir: '/tmp/unused-tess', tessCacheDir: '/tmp/unused-tess-cache' }
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('chunks keep headings, pages, and overlap', () => {
   const words = Array.from({ length: 500 }, (_, i) => `w${String(i).padStart(3, '0')}`)

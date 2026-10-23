@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from '../native-test-support.js'
 import { fileURLToPath } from 'node:url'
 import * as XLSX from 'xlsx'
 import { makeDocx, makePdf, makePptx } from '../samples.js'
@@ -21,6 +22,12 @@ import { keepGranted, parseMdfind, parseWindowsSearch, searchFileNames, spotligh
 
 const grammarDir = join(dirname(fileURLToPath(import.meta.url)), '../../../../resources/tree-sitter')
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('a file outside a grant is not read', async () => {
   let calls = 0

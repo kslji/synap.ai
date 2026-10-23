@@ -20,6 +20,7 @@
     "build": "npm run build -w @surf/desktop && npm run build -w @surf/web",
     "build:web": "npm run build -w @surf/web",
     "selftest": "npm run selftest -w @surf/desktop",
+    "bench:offline": "tsx scripts/bench-offline/bench.ts",
     "eval": "bash harness/run.sh quick"
   },
   "engines": {

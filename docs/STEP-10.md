@@ -1,5 +1,11 @@
 # Step 10 — search on the laptop
 
+
+> **Superseded — web search was removed in Phase 0.** The SearXNG proxy, `POST /v1/search` and
+> `POST /v1/fetch`, trafilatura page cleaning, the `search_requests`, `search_quota_daily` and
+> `source_suggestions` tables, the `web_search_per_day` plan knob and the laptop search connectors
+> are all deleted. What follows is the record of that step as it shipped; none of it is live.
+
 Production web search runs on the computer that is asking. It does not call our API for search, and it does not ask for a search API key. The eval fixture still uses `POST /v1/search` when `SURF_SEARCH_FIXTURE=1`, so the existing beacon case stays on that path.
 
 ## What runs where

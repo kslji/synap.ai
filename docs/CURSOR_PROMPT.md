@@ -1,5 +1,11 @@
 # CURSOR_PROMPT.md - how to start building Surf AI with Cursor
 
+
+> **Superseded — web search was removed in Phase 0.** The SearXNG proxy, `POST /v1/search` and
+> `POST /v1/fetch`, trafilatura page cleaning, the `search_requests`, `search_quota_daily` and
+> `source_suggestions` tables, the `web_search_per_day` plan knob and the laptop search connectors
+> are all deleted. What follows is the record of that step as it shipped; none of it is live.
+
 Two parts:
 
 - **(a)** The first message to paste into **Cursor Agent mode** in the new `surf/` repo.

@@ -1,5 +1,12 @@
 # Surf AI — Local-first Offline AI Assistant
+
+
 ## Architecture & 7-Day MVP Plan — Electron edition (full reference)
+
+> **Superseded — web search was removed in Phase 0.** The SearXNG proxy, `POST /v1/search` and
+> `POST /v1/fetch`, trafilatura page cleaning, the `search_requests`, `search_quota_daily` and
+> `source_suggestions` tables, the `web_search_per_day` plan knob and the laptop search connectors
+> are all deleted. What follows is the record of that step as it shipped; none of it is live.
 
 > **"Works offline. Stays up to date when you're online."**
 

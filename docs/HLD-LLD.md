@@ -1,6 +1,11 @@
 <style>h2 { page-break-before: auto !important; margin-top: 14pt; } h1 { margin-top: 6pt; }
 @page wide { size: A4 landscape; } .wide { page: wide; text-align: center; } .wide img { max-width: 100%; max-height: 148mm; } .cheat { font-size: 8.3pt; line-height: 1.32; } .cheat table { font-size: 7.6pt; } .cheat h1 { font-size: 17pt; } .cheat ul { margin: 2pt 0; } .wide p.cap { font-size: 9pt; color: #555; margin: 2pt 0 0; }</style>
 
+> **Superseded — web search was removed in Phase 0.** The SearXNG proxy, `POST /v1/search` and
+> `POST /v1/fetch`, trafilatura page cleaning, the `search_requests`, `search_quota_daily` and
+> `source_suggestions` tables, the `web_search_per_day` plan knob and the laptop search connectors
+> are all deleted. What follows is the record of that step as it shipped; none of it is live.
+
 # Surf AI: High-Level and Low-Level Design
 ## Interview edition · Electron + Qwen3.5 + EmbeddingGemma 2 · v0.3, 9 October 2026
 

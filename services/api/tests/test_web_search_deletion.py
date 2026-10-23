@@ -5,6 +5,7 @@ dependencies, the READMEs, the tests and the free-plan seed still carried the
 feature. These checks fail until every trace is gone. 0001_base is history and
 is never edited: a forward migration (0008) strips web_search_per_day instead.
 """
+import json
 import re
 from pathlib import Path
 
@@ -13,6 +14,40 @@ REPO_ROOT = API_ROOT.parents[1]
 VERSIONS = API_ROOT / "alembic" / "versions"
 
 DEAD_PACKAGES = ("pymysql", "aiomysql", "trafilatura")
+
+# The parts of the deleted stack that a document must not still describe as live.
+SEARCH_GHOSTS = (
+    "SearXNG",
+    "search_requests",
+    "search_quota_daily",
+    "source_suggestions",
+    "web_search_per_day",
+    "/v1/search",
+    "/v1/fetch",
+    "trafilatura",
+    "DuckDuckGo",
+)
+
+# The current architecture, read as today's truth: zero ghosts.
+LIVE_DOCS = ("docs/ARCHITECTURE-SHORT.md",)
+
+# Dated design records and step logs. History is not rewritten, so each one must
+# carry a superseded note instead.
+DATED_RECORDS = (
+    "docs/ARCHITECTURE-FULL.md",
+    "docs/HLD-LLD.md",
+    "docs/IMPLEMENTATION.md",
+    "docs/CURSOR_PROMPT.md",
+    "docs/STEP-1.md",
+    "docs/STEP-2.md",
+    "docs/STEP-3.md",
+    "docs/STEP-4.md",
+    "docs/STEP-10.md",
+    "docs/STEP-11.md",
+    "docs/code-samples/production_postgres.sql",
+)
+
+SUPERSEDED = "web search was removed in phase 0"
 
 
 def _api_python_files():
@@ -92,3 +127,47 @@ def test_a_forward_migration_strips_web_search_from_the_free_plan():
     # 0001 is history: it keeps its original seed and is never edited.
     base = next(VERSIONS.glob("0001*.py")).read_text()
     assert '"web_search_per_day":100' in base, "0001_base must remain byte-identical (no history rewrites)"
+
+
+def test_live_docs_do_not_describe_the_deleted_search_stack():
+    """ARCHITECTURE-SHORT is read as today's truth, so it must not name any part
+    of the deleted stack - not the proxy, not the routes, not the tables.
+    """
+    for rel in LIVE_DOCS:
+        text = (REPO_ROOT / rel).read_text()
+        for ghost in SEARCH_GHOSTS:
+            assert ghost.lower() not in text.lower(), f"{rel} still describes {ghost!r} as part of the product"
+
+
+def test_dated_records_are_marked_superseded():
+    """Dated design documents and step logs stay as written; each must say that
+    the web-search parts of them no longer exist.
+    """
+    for rel in DATED_RECORDS:
+        text = (REPO_ROOT / rel).read_text()
+        assert SUPERSEDED in text.lower(), f"{rel} still presents web search without a superseded note"
+
+
+def test_step11_doc_does_not_claim_the_deleted_web_suites():
+    """The separate 42-case web no-fabrication suite and its CI gate went with
+    web search, and the question bank shrank when the fresh-info cases went.
+    """
+    text = (REPO_ROOT / "docs" / "STEP-11.md").read_text()
+    for ghost in (
+        "no-fabrication suite is 42 cases",
+        "including the no-fabrication gate",
+        "fresh info",
+        "116 questions",
+        "46-question",
+        "101-question",
+    ):
+        assert ghost not in text, f"docs/STEP-11.md still claims {ghost!r}"
+
+
+def test_the_model_eval_baseline_note_describes_the_live_suites():
+    """The note is read as today's gate. The measured rows inside the same file
+    are past runs and stay exactly as they were recorded.
+    """
+    note = json.loads((REPO_ROOT / "harness" / "baselines" / "model-eval.json").read_text())["note"]
+    for stale in ("46 questions", "101-question"):
+        assert stale not in note, f"the baseline note still says {stale!r}"

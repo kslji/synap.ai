@@ -1,5 +1,11 @@
 # Step 3 — web search, and a hard offline switch
 
+
+> **Superseded — web search was removed in Phase 0.** The SearXNG proxy, `POST /v1/search` and
+> `POST /v1/fetch`, trafilatura page cleaning, the `search_requests`, `search_quota_daily` and
+> `source_suggestions` tables, the `web_search_per_day` plan knob and the laptop search connectors
+> are all deleted. What follows is the record of that step as it shipped; none of it is live.
+
 Step 10 moved production web search onto the laptop. This page describes the API and the eval fixture. SearXNG is not the path a signed-in desktop chat uses for answers. See `docs/STEP-10.md`.
 
 Day 4 of the plan. The desktop still answers from local documents first. When those are weak, and the computer is online with web search allowed, the eval fixture and the API still use a self-hosted search service. The model and the embeddings stay on the device.

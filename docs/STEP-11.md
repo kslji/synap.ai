@@ -1,5 +1,11 @@
 # Step 11
 
+
+> **Superseded — web search was removed in Phase 0.** The SearXNG proxy, `POST /v1/search` and
+> `POST /v1/fetch`, trafilatura page cleaning, the `search_requests`, `search_quota_daily` and
+> `source_suggestions` tables, the `web_search_per_day` plan knob and the laptop search connectors
+> are all deleted. What follows is the record of that step as it shipped; none of it is live.
+
 Desktop version **0.2.0**.
 
 ## What this step adds
@@ -34,12 +40,12 @@ Pip is the live blob in `packages/ui/src/BlobMascot.tsx`, not a clip. `animation
 
 ## Eval
 
-`step11-questions.ts` scores 116 questions with the real gates: coding 20, splitting 15, run/fix 10, screenshots 13, fresh info 12, finance 12, legal 9, no-fabrication 10, and everyday 15. Everyday questions are “what is 2+2” and the similar sums, a greeting, a short explanation, a fact, a small code question, and the computer-control asks. Sums use the calculator. Control asks must be the plain “isn't available yet” reply. With the other Step 11 checks the suite is 237 rows, all required to pass. The separate no-fabrication suite is 42 cases. Those checks do not call a model. The desktop unit job and the model-eval job print `everyday <id> pass` or `fail` for each one. They also print `shape <id> pass` or `fail`: a visible reply must not end mid-word, fences and bold marks must be closed, and the text must not contain a replacement character.
+`step11-questions.ts` scores 102 questions with the real gates: coding 20, splitting 15, run/fix 10, screenshots 13, finance 10, legal 9, no-fabrication 10, and everyday 15. Everyday questions are “what is 2+2” and the similar sums, a greeting, a short explanation, a fact, a small code question, and the computer-control asks. Sums use the calculator. Control asks must be the plain “isn't available yet” reply. Every row of the Step 11 suite must pass; the suite prints its own row count instead of the doc repeating one. Those checks do not call a model. The desktop unit job and the model-eval job print `everyday <id> pass` or `fail` for each one. They also print `shape <id> pass` or `fail`: a visible reply must not end mid-word, fences and bold marks must be closed, and the text must not contain a replacement character.
 
-The `model-eval` CI job downloads Qwen3.5-2B Q4_K_M, checks the registry SHA-256, and asks llama-server a 46-question subset (coding, splitting, run/fix, finance, and all 10 no-fabrication questions). Everyday questions are scored in that job before the model starts, and they are not sent to llama-server. No-fabrication is scored after the verifier: a missing source returns the fixed "Unable to find … right now" line and does not call the model, and a number, price, date, URL, section, or quote that is not in a fetched record is removed. Finance, news, and legal answers are composed in code. The job records accuracy, tokens per second, time to first token, and peak llama-server RSS. It prints `shape n/total pass` for the model replies as well as for the everyday set. The subset floors in `harness/baselines/model-eval.json` are accuracy 1.0 and no-fabrication 1.0. The 101-question model run keeps no-fabrication at 1.0 and uses `fullMinAccuracy` for the other model questions. The GGUF is cached by file SHA and is not committed.
+The `model-eval` CI job downloads Qwen3.5-2B Q4_K_M, checks the registry SHA-256, and asks llama-server a 44-question subset (coding, splitting, run/fix, finance, and all 10 no-fabrication questions). Everyday questions are scored in that job before the model starts, and they are not sent to llama-server. No-fabrication is scored after the verifier: a missing source returns the fixed "Unable to find … right now" line and does not call the model, and a number, price, date, URL, section, or quote that is not in the supplied record is removed. Finance and legal answers are composed in code. The job records accuracy, tokens per second, time to first token, and peak llama-server RSS. It prints `shape n/total pass` for the model replies as well as for the everyday set. The subset floors in `harness/baselines/model-eval.json` are accuracy 1.0 and no-fabrication 1.0. The 87-question model run keeps no-fabrication at 1.0 and uses `fullMinAccuracy` for the other model questions. The GGUF is cached by file SHA and is not committed.
 
-`model-eval-full` runs nightly. A `v*` tag runs it with the release gate before installers. It covers Qwen 2B, 4B, and 9B, the full 101 questions, and the mmproj screenshot add-on. `scripts/measure-ram.ts` starts llama-server when a GGUF is present and samples process RSS. A missing file still exits 0. Set the repository variable `SURF_MODEL_EVAL_RUNNER` to use a larger runner. Otherwise `./scripts/model-eval-full.sh` is the one command on a Mac, and the release gate reads `harness/baselines/model-eval-full.json` for any size that runner could not load.
+`model-eval-full` runs nightly. A `v*` tag runs it with the release gate before installers. It covers Qwen 2B, 4B, and 9B, all 87 model questions, and the mmproj screenshot add-on. `scripts/measure-ram.ts` starts llama-server when a GGUF is present and samples process RSS. A missing file still exits 0. Set the repository variable `SURF_MODEL_EVAL_RUNNER` to use a larger runner. Otherwise `./scripts/model-eval-full.sh` is the one command on a Mac, and the release gate reads `harness/baselines/model-eval-full.json` for any size that runner could not load.
 
 ## Release
 
-A `v*` tag runs the CI workflow, including the no-fabrication gate and the Step 11 suite, and only then builds installers. This step does not push a tag.
+A `v*` tag runs the CI workflow, including the Step 11 suite, and only then builds installers. This step does not push a tag.

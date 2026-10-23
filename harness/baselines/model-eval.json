@@ -2,7 +2,7 @@
   "minAccuracy": 1,
   "minNoFabrication": 1,
   "fullMinAccuracy": 0.821,
-  "note": "The CI subset (46 questions) must be exact, and no-fabrication must be 1.0 on every real-model run. fullMinAccuracy is the 101-question run on the same Qwen3.5-2B Q4_K_M and llama.cpp b11514. A later run fails when it drops below the floor for its mode.",
+  "note": "The CI subset (44 questions) must be exact, and no-fabrication must be 1.0 on every real-model run. fullMinAccuracy is the floor for the 87-question run on the same Qwen3.5-2B Q4_K_M and llama.cpp b11514; the measured rows below are the runs as they were recorded, before web search was removed. A later run fails when it drops below the floor for its mode.",
   "measured": {
     "modelId": "qwen3.5-2b-q4_k_m",
     "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",

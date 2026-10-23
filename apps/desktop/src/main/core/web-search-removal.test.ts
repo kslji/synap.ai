@@ -20,6 +20,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { IPC } from '../../shared/ipc-contract'
+import { evalQuestions } from './step11-questions.js'
+import { selectModelEvalQuestions } from './model-eval.js'
 
 const CORE = dirname(fileURLToPath(import.meta.url))
 
@@ -105,6 +107,24 @@ test('the eval bank no longer scores web domains', () => {
     for (const dead of ['./search/finance', './web-decision', 'decideWeb', 'wantsFresh', "'fresh'"]) {
       assert.equal(src.includes(dead), false, `${rel} must not reference ${dead}`)
     }
+  }
+})
+
+test('docs/STEP-11.md counts match the question bank that ships', () => {
+  const doc = readFileSync(resolve(CORE, '../../../../../docs/STEP-11.md'), 'utf8')
+  const tally = new Map<string, number>()
+  for (const question of evalQuestions()) tally.set(question.domain, (tally.get(question.domain) ?? 0) + 1)
+  const total = [...tally.values()].reduce((sum, count) => sum + count, 0)
+  const subset = selectModelEvalQuestions('subset').length
+  const full = selectModelEvalQuestions('full').length
+  assert.match(doc, new RegExp(`scores ${total} questions`), `docs/STEP-11.md must state the live total of ${total} questions`)
+  assert.match(doc, new RegExp(`finance ${tally.get('finance')}`), `docs/STEP-11.md must state finance ${tally.get('finance')}`)
+  assert.match(doc, new RegExp(`${subset}-question subset`), `docs/STEP-11.md must state the live ${subset}-question CI subset`)
+  assert.match(doc, new RegExp(`${full}-question (run|model run)`), `docs/STEP-11.md must state the live ${full}-question full run`)
+  for (const domain of ['coding', 'splitting', 'run-fix', 'screenshots', 'legal', 'everyday']) {
+    // The prose writes run/fix, the code writes run-fix.
+    const pattern = domain.replace('-', '[/-]')
+    assert.match(doc, new RegExp(`${pattern} ${tally.get(domain)}`), `docs/STEP-11.md must state ${domain} ${tally.get(domain)}`)
   }
 })
 

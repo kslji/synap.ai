@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -30,6 +32,21 @@ GATEWAY_MARKUP = Decimal(os.environ.get("GATEWAY_MARKUP", "1.20"))
 GATEWAY_STARTING_CREDIT = Decimal(os.environ.get("GATEWAY_STARTING_CREDIT", "0"))
 GATEWAY_SYSTEM_PROMPT = os.environ.get("GATEWAY_SYSTEM_PROMPT", "You are a helpful assistant.")
 PRICING_SYNC_SECONDS = int(os.environ.get("PRICING_SYNC_SECONDS", "21600"))  # 6 hours
+
+# OpenRouter's abuse tracking wants a stable, opaque `user` key. We send an HMAC of
+# the internal user id, never the id itself and never the email. The key is a
+# dedicated secret when provided, otherwise the deployment's JWT signing secret.
+OPENROUTER_USER_HASH_KEY = os.environ.get("OPENROUTER_USER_HASH_KEY", "") or os.environ.get("JWT_SECRET", "")
+
+# One cross-provider default used as the last fallback for every request, plus a
+# preferred same-provider fallback so a model can usually fail over within its family.
+# All slugs here are on the curated allowlist; a fallback only lands where it is allowed.
+OPENROUTER_DEFAULT_FALLBACK = "openai/gpt-4.1"
+PROVIDER_FALLBACK: dict[str, str] = {
+    "openai": "openai/gpt-5-mini",
+    "anthropic": "anthropic/claude-sonnet-4.5",
+    "google": "google/gemini-2.5-flash",
+}
 
 
 def sse_frame(payload: Any) -> str:
@@ -104,6 +121,10 @@ class GatewayService:
         self.markup = markup
         self.starting_credit = starting_credit
         self.system_prompt = system_prompt
+        # Keyed at construction so a deployment can rotate the secret independently.
+        self.user_hash_key = (
+            os.environ.get("OPENROUTER_USER_HASH_KEY", "") or os.environ.get("JWT_SECRET", "")
+        ).encode()
         self._pricing_sync_task: asyncio.Task | None = None
         
         # Per-user concurrency management
@@ -173,6 +194,39 @@ class GatewayService:
             {"role": "user", "content": new_prompt},
         ]
 
+    def openrouter_user(self, user_id: str) -> str:
+        """A stable, opaque OpenRouter `user` key: HMAC-SHA256 of the internal id.
+
+        Never the email and never the raw id - the provider only needs a value it can
+        spot repeat abuse against, and this is irreversible without the server secret.
+        """
+        return hmac.new(self.user_hash_key, user_id.encode(), hashlib.sha256).hexdigest()
+
+    def model_fallbacks(self, model: str) -> list[str]:
+        """The ordered `models` list: the chosen model, a same-provider fallback, the default.
+
+        Duplicates and the primary are removed from the tail; a fallback is only kept if
+        it is on the allowlist, so a request can never be routed to a blocked model.
+        """
+        same_provider = PROVIDER_FALLBACK.get(model.split("/", 1)[0])
+        out = [model]
+        for candidate in (same_provider, OPENROUTER_DEFAULT_FALLBACK):
+            if candidate and candidate != model and candidate not in out and is_allowed(candidate):
+                out.append(candidate)
+        return out
+
+    async def billed_model(self, requested: str, response_model: str | None) -> str:
+        """The model to charge for: the one that actually answered, if we price it.
+
+        A fallback can return a different slug than the one pre-flight priced. Bill the
+        returned model when its pricing is known; otherwise keep the requested model so
+        an unrecognised reply never crashes billing.
+        """
+        if response_model and response_model != requested:
+            if await self.store.get_model_pricing(response_model):
+                return response_model
+        return requested
+
     async def call_openrouter(
         self,
         user_id: str,
@@ -206,6 +260,8 @@ class GatewayService:
             "messages": messages,
             "max_tokens": max_tokens,
             "stream": False,
+            "user": self.openrouter_user(user_id),
+            "models": self.model_fallbacks(model),
             **(extra_payload or {}),
         }
         
@@ -269,6 +325,8 @@ class GatewayService:
             "messages": messages,
             "max_tokens": max_tokens,
             "stream": True,
+            "user": self.openrouter_user(user_id),
+            "models": self.model_fallbacks(model),
             **(extra_payload or {}),
         }
         
@@ -499,11 +557,12 @@ class GatewayService:
             )
             # Success already recorded in call_openrouter
             
-            # 8. Post-flight billing
+            # 8. Post-flight billing on the model that actually answered (a fallback
+            # can differ from the one pre-flight priced).
             billing_result = await settle_billing(
                 store=self.store,
                 user_id=user_id,
-                model_id=model,
+                model_id=await self.billed_model(model, response.get("model")),
                 response=response,
                 markup_multiplier=self.markup,
                 balance_before=balance,
@@ -533,6 +592,7 @@ class GatewayService:
         # Collect the full response for billing
         full_content = []
         tool_call_seen = False
+        returned_model: str | None = None
         usage_info = {"prompt_tokens": 0, "completion_tokens": 0}
         
         try:
@@ -560,6 +620,11 @@ class GatewayService:
                     if delta.get("tool_calls"):
                         tool_call_seen = True
                 
+                # The provider names the model that answered - a fallback differs
+                # from the requested slug, and billing must follow the real one.
+                if isinstance(chunk.get("model"), str):
+                    returned_model = chunk["model"]
+
                 # Track usage if provided
                 if "usage" in chunk:
                     usage_info.update(chunk["usage"])
@@ -588,7 +653,7 @@ class GatewayService:
                 billing_result = await settle_billing(
                     store=self.store,
                     user_id=user_id,
-                    model_id=model,
+                    model_id=await self.billed_model(model, returned_model),
                     response=synthetic_response,
                     markup_multiplier=self.markup,
                     balance_before=balance_before,

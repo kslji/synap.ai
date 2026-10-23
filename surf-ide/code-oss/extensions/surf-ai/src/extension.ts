@@ -9,7 +9,7 @@ import { extractContext, buildPromptWithContext } from './context-extractor';
 import { ChatSidebarProvider } from './chat-sidebar';
 import { GatewayClient } from './gateway-client';
 import { LocalModelClient } from './local-model-client';
-import { resolveRoute } from './model-router';
+import { MODE_STATE_KEY, resolveRoute, type SurfMode } from './model-router';
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Surf AI extension activated');
@@ -147,18 +147,21 @@ async function applySurfDefaults(): Promise<void> {
 /**
  * Inline completion provider (ghost text).
  *
- * Routes through the same Auto rule as the chat: the Surf gateway when it is
- * reachable, the local llama.cpp sidecar when it is not. The previous hardcoded
- * `localhost:8080` never matched the desktop's random-port bridge, so offline
- * completions did not actually work; the bridge descriptor does.
+ * Routes by the same explicit choice the chat sidebar stores (Offline or
+ * Online); with no choice yet, the sidebar's default Offline wins and nothing
+ * leaves the device. The old hardcoded `localhost:8080` never matched the
+ * desktop's random-port bridge, so offline completions did not actually work;
+ * the bridge descriptor does.
  */
 class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private debounceTimer: NodeJS.Timeout | undefined;
   private readonly gateway: GatewayClient;
   private readonly local: LocalModelClient;
+  private readonly context: vscode.ExtensionContext;
   private onlineModel: string | null = null;
 
   constructor(context: vscode.ExtensionContext) {
+    this.context = context;
     this.gateway = new GatewayClient(context);
     this.local = new LocalModelClient();
   }
@@ -189,7 +192,8 @@ class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvide
 
           const prompt = `Complete this code naturally:\n\n${prefix}\n// Continue from here:\n${suffix}\n`;
 
-          const route = await resolveRoute('auto', this.gateway, this.local);
+          const mode: SurfMode = this.context.workspaceState.get<SurfMode>(MODE_STATE_KEY) === 'online' ? 'online' : 'offline';
+          const route = await resolveRoute(mode, this.gateway, this.local);
           let completion = '';
           if (route === 'offline') {
             completion = await this.local.complete(prompt);

@@ -40,7 +40,7 @@ export const SettingsPatch = z.object({
   accent: z.enum(['orange', 'blue', 'indigo', 'navy']).optional(),
   density: z.enum(['compact', 'comfortable', 'relaxed']).optional(),
   animateMascot: z.boolean().optional(),
-  networkMode: z.enum(['offline', 'online', 'auto']).optional(),
+  networkMode: z.enum(['offline', 'online']).optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)

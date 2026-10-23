@@ -13,23 +13,37 @@ import {
 
 const NOW = Date.parse('2026-10-16T12:00:00.000Z')
 
-test('network mode defaults to Auto and keeps a legacy offline file offline', () => {
-  assert.equal(cleanNetworkMode(undefined, false), 'auto')
-  assert.equal(cleanNetworkMode(undefined, undefined), 'auto')
-  assert.equal(cleanNetworkMode(undefined, true), 'offline')
+test('the routing choice is Offline or Online only; legacy Auto settings land on Online', () => {
+  assert.equal(cleanNetworkMode('offline', false), 'offline')
   assert.equal(cleanNetworkMode('online', true), 'online')
-  assert.equal(cleanNetworkMode('nope', false), 'auto')
+  // A settings file written before this change may say "auto" or nothing at all.
+  assert.equal(cleanNetworkMode('auto', false), 'online')
+  assert.equal(cleanNetworkMode(undefined, false), 'online')
+  assert.equal(cleanNetworkMode(undefined, undefined), 'online')
+  assert.equal(cleanNetworkMode('nope', false), 'online')
+  // The legacy offlineOnly flag still means Offline.
+  assert.equal(cleanNetworkMode(undefined, true), 'offline')
 })
 
-test('a settings change picks the mode, and Offline still blocks when the computer is online', () => {
-  assert.equal(resolveNetworkMode('auto', { networkMode: 'offline' }), 'offline')
-  assert.equal(resolveNetworkMode('offline', { offlineOnly: false }), 'auto')
-  assert.equal(resolveNetworkMode('online', { offlineOnly: false }), 'online')
-  assert.equal(resolveNetworkMode('auto', { offlineOnly: true }), 'offline')
+test('a settings change picks the mode, and Offline blocks whatever the computer is doing', () => {
+  assert.equal(resolveNetworkMode('online', { networkMode: 'offline' }), 'offline')
+  assert.equal(resolveNetworkMode('offline', { networkMode: 'online' }), 'online')
+  assert.equal(resolveNetworkMode('online', { offlineOnly: true }), 'offline')
+  assert.equal(resolveNetworkMode('offline', { offlineOnly: false }), 'online')
+  assert.equal(resolveNetworkMode('online', {}), 'online')
+  assert.equal(resolveNetworkMode('offline', {}), 'offline')
+  // Offline makes no network calls, connection up or down.
   assert.equal(blocksNetwork('offline', true), true)
+  assert.equal(blocksNetwork('offline', false), true)
+  // Online attempts regardless of the connection detection that Auto used.
   assert.equal(blocksNetwork('online', false), false)
-  assert.equal(blocksNetwork('auto', false), true)
-  assert.equal(blocksNetwork('auto', true), false)
+  assert.equal(blocksNetwork('online', true), false)
+})
+
+test('Offline blocks regardless of the connection; the IPC-boundary assertions live in main/core', () => {
+  // The SettingsPatch zod assertions live in the main/core copy of this test
+  // (src/main/core/network-mode.test.ts); the IPC schemas are main-process code.
+  assert.equal(blocksNetwork('offline', true), true)
 })
 
 test('an offline answer says it stayed on this computer, once', () => {
@@ -41,11 +55,11 @@ test('an offline answer says it stayed on this computer, once', () => {
   assert.equal(withLocalOnlyNote(refusal, true), refusal)
 })
 
-test('the sync chip uses the four status labels and shows the mode', () => {
+test('the sync chip shows Offline or Online only', () => {
   const base = { packVersion: '2026.10.01', syncingVersion: null, lastSyncAt: NOW, refreshBy: null, now: NOW }
-  const ready = syncChip({ ...base, mode: 'auto', osOnline: true, syncing: false, failed: false })
+  const ready = syncChip({ ...base, mode: 'online', osOnline: true, syncing: false, failed: false })
   assert.equal(ready.label, 'Up to date')
-  assert.equal(ready.modeLabel, 'Auto')
+  assert.equal(ready.modeLabel, 'Online')
   assert.equal(ready.tooltip.includes('Pack v2026.10.01'), true)
   assert.equal(ready.tooltip.includes('2026-10-16T12:00:00.000Z'), true)
 
@@ -56,31 +70,31 @@ test('the sync chip uses the four status labels and shows the mode', () => {
   const unnamed = syncChip({ ...base, mode: 'online', osOnline: true, syncing: true, failed: false, packVersion: null, syncingVersion: null })
   assert.equal(unnamed.label, 'Syncing pack')
 
-  const failed = syncChip({ ...base, mode: 'auto', osOnline: true, syncing: false, failed: true })
+  const failed = syncChip({ ...base, mode: 'online', osOnline: true, syncing: false, failed: true })
   assert.equal(failed.label, 'Sync failed, will retry')
 
   const offline = syncChip({ ...base, mode: 'offline', osOnline: true, syncing: true, failed: true })
   assert.equal(offline.label, 'Offline')
   assert.equal(offline.state, 'offline')
+  assert.equal(offline.modeLabel, 'Offline')
 
-  const detected = syncChip({ ...base, mode: 'auto', osOnline: false, syncing: true, failed: false })
-  assert.equal(detected.label, 'Offline')
-  assert.equal(detected.mode, 'auto')
-
-  const chosenOnline = syncChip({ ...base, mode: 'online', osOnline: false, syncing: false, failed: false })
-  assert.equal(chosenOnline.label, 'Up to date')
-  assert.equal(chosenOnline.modeLabel, 'Online')
+  // Online no longer consults the connection the way Auto did: attempts continue.
+  const noCable = syncChip({ ...base, mode: 'online', osOnline: false, syncing: false, failed: false })
+  assert.equal(noCable.label, 'Up to date')
+  assert.equal(noCable.state, 'uptodate')
 })
 
-test('Offline mode warns when the licence refresh is due, and Auto does not', () => {
+test('Offline mode warns when the licence refresh is due, and Online does not', () => {
   const soon = new Date(NOW + REFRESH_WARN_MS).toISOString()
   const later = new Date(NOW + REFRESH_WARN_MS + 86_400_000).toISOString()
   const past = new Date(NOW - 1000).toISOString()
   assert.match(licenceRefreshWarning({ mode: 'offline', refreshBy: soon, now: NOW }) ?? '', /soon/)
   assert.match(licenceRefreshWarning({ mode: 'offline', refreshBy: past, now: NOW }) ?? '', /passed/)
   assert.equal(licenceRefreshWarning({ mode: 'offline', refreshBy: later, now: NOW }), null)
-  assert.equal(licenceRefreshWarning({ mode: 'auto', refreshBy: past, now: NOW }), null)
   assert.equal(licenceRefreshWarning({ mode: 'online', refreshBy: past, now: NOW }), null)
+  // The copy must not point at a mode that no longer exists.
+  assert.doesNotMatch(licenceRefreshWarning({ mode: 'offline', refreshBy: past, now: NOW }) ?? '', /Auto/)
+  assert.doesNotMatch(licenceRefreshWarning({ mode: 'offline', refreshBy: soon, now: NOW }) ?? '', /Auto/)
   const chip = syncChip({
     mode: 'offline', osOnline: true, syncing: false, failed: false,
     packVersion: null, syncingVersion: null, lastSyncAt: null, refreshBy: past, now: NOW,

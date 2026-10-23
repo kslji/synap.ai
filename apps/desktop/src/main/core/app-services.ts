@@ -251,7 +251,7 @@ const DEFAULT_SETTINGS: Settings = {
   accent: 'orange',
   density: 'comfortable',
   animateMascot: true,
-  networkMode: 'auto',
+  networkMode: 'online',
 }
 
 export async function createServices(): Promise<Services> {
@@ -344,7 +344,7 @@ export async function createServices(): Promise<Services> {
       if (raw.theme === 'system') writeSettings(merged)
       return merged
     } catch {
-      const mode: NetworkMode = 'auto'
+      const mode: NetworkMode = 'online'
       offlineOnly = blocksNetwork(mode, stableOnline)
       return { ...DEFAULT_SETTINGS, networkMode: mode, offlineOnly, tabSuggestions: tabSuggestionsDefault(hw.totalRamGb, codeModelMinRam('')) }
     }

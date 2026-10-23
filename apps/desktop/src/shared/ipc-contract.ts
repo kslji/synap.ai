@@ -169,8 +169,8 @@ export interface SettingsPatch {
   density?: 'compact' | 'comfortable' | 'relaxed'
   /** SVG motion for the mascot. There is no audio. */
   animateMascot?: boolean
-  /** Offline blocks every network call. Online allows web and pack sync. Auto follows the connection. */
-  networkMode?: 'offline' | 'online' | 'auto'
+  /** Offline blocks every network call. Online allows web and pack sync. */
+  networkMode?: 'offline' | 'online'
 }
 
 /** Shown before Auto mode is allowed to write or run commands. */
@@ -427,8 +427,8 @@ export interface ModelStatus {
 export interface SyncChip {
   label: string
   state: 'uptodate' | 'syncing' | 'failed' | 'offline'
-  mode: 'offline' | 'online' | 'auto'
-  modeLabel: 'Offline' | 'Online' | 'Auto'
+  mode: 'offline' | 'online'
+  modeLabel: 'Offline' | 'Online'
   packVersion: string | null
   lastSyncAt: number | null
   tooltip: string

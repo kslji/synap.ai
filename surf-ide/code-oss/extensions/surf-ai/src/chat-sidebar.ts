@@ -14,9 +14,7 @@ import { extractContext, buildPromptWithContext } from './context-extractor';
 import { GatewayClient, type GatewayModel } from './gateway-client';
 import { LocalModelClient, type LocalModel } from './local-model-client';
 import { parseEdits, applyEdit, editDiff, type ProposedEdit } from './edit-proposal';
-import { resolveRoute, onlineReachable, invalidateReachability, type SurfMode } from './model-router';
-
-const MODE_STATE_KEY = 'surf-ai.mode';
+import { MODE_STATE_KEY, resolveRoute, onlineReachable, invalidateReachability, type SurfMode } from './model-router';
 
 // Teaches the model to emit reviewable, line-level edits instead of whole-file prose.
 const EDIT_INSTRUCTIONS = `
@@ -109,12 +107,17 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
           this._selectedLocal = data.value;
           break;
         case 'setMode':
-          if (data.value === 'auto' || data.value === 'online' || data.value === 'offline') {
+          if (data.value === 'online' || data.value === 'offline') {
             this._mode = data.value;
             void this._context.workspaceState.update(MODE_STATE_KEY, this._mode);
             invalidateReachability(this._client);
-            if (this._mode !== 'online') {
+            if (this._mode === 'online') {
+              void this._loadModels();
+              this._startStatusTimer();
+            } else {
+              // Offline: no gateway model list, no background ping, no probes.
               void this._loadLocalModels();
+              this._stopStatusTimer();
             }
             void this._pushNetStatus();
           }
@@ -134,14 +137,36 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     // Send welcome message
     this._sendWelcomeMessage();
     this._postMessage({ type: 'mode', mode: this._mode });
-    void this._loadModels();
+    if (this._mode === 'online') {
+      void this._loadModels();
+    }
     void this._loadLocalModels();
     void this._pushNetStatus();
+    this._startStatusTimer();
+  }
+
+  /** The 8s status ping runs only while Online is active; Offline makes zero network requests. */
+  private _startStatusTimer() {
+    if (this._statusTimer || this._mode !== 'online') {
+      return;
+    }
     this._statusTimer = setInterval(() => { void this._pushNetStatus(); }, 8000);
   }
 
-  /** Tell the webview whether the gateway is reachable, to drive the Auto dot. */
+  private _stopStatusTimer() {
+    if (this._statusTimer) {
+      clearInterval(this._statusTimer);
+      this._statusTimer = undefined;
+    }
+  }
+
+  /** Tell the webview whether the gateway is reachable, to drive the Online status dot. */
   private async _pushNetStatus() {
+    if (this._mode === 'offline') {
+      // Never probe in Offline; report the state from the mode itself.
+      this._postMessage({ type: 'netStatus', online: false, egress: this._egress });
+      return;
+    }
     const online = await onlineReachable(this._client);
     this._postMessage({ type: 'netStatus', online, egress: this._egress });
   }

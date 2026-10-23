@@ -173,7 +173,7 @@ export function SettingsScreen({
         <div className="card px-4 py-4" data-network-settings="yes">
           <div className="text-sm font-semibold">Network</div>
           <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Network mode">
-            {(['offline', 'online', 'auto'] as const).map((mode) => (
+            {(['offline', 'online'] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
@@ -183,7 +183,7 @@ export function SettingsScreen({
                 className={settings.networkMode === mode ? 'btn btn-primary' : 'btn btn-ghost'}
                 onClick={() => onPatch({ networkMode: mode })}
               >
-                {mode === 'offline' ? 'Offline' : mode === 'online' ? 'Online' : 'Auto'}
+                {mode === 'offline' ? 'Offline' : 'Online'}
               </button>
             ))}
           </div>

@@ -979,7 +979,7 @@ export default function App() {
           status={licence}
           offlineOnly={settings.offlineOnly}
           renewal={licence.state === 'subscription_ended'}
-          onAllowNetwork={async () => { await patch({ networkMode: 'auto' }) }}
+          onAllowNetwork={async () => { await patch({ networkMode: 'online' }) }}
           onStart={(email) => api.auth.start(email)}
           onVerify={async (email, code) => {
             await api.auth.verify(email, code)
@@ -1255,7 +1255,7 @@ export default function App() {
               mascotName: 'Surf',
               mascotColor: '#f2740f',
               animateMascot: true,
-              networkMode: 'auto',
+              networkMode: 'online',
               webSearchAllowed: false,
               telemetryOptIn: false,
             })

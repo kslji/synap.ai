@@ -1,0 +1,55 @@
+# =====================================================================
+# One checkout that looks identical on every OS.
+#
+# Text is stored LF and checked out LF, so a Windows clone of this repo
+# never shows a whole-file diff. The exception is the Windows scripts:
+# cmd.exe and PowerShell are unreliable with bare LF in batch files.
+# =====================================================================
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# ---------------------------------------------------------------------
+# Never normalise or diff these.
+# ---------------------------------------------------------------------
+# icons, images, sound
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.wav binary
+*.mp4 binary
+
+# documents and fonts
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+
+# databases and signatures
+*.sqlite binary
+*.sqlite3 binary
+*.sig binary
+
+# native and model payloads shipped with the app
+*.wasm binary
+*.node binary
+*.dylib binary
+*.so binary
+*.dll binary
+*.exe binary
+*.a binary
+*.gguf binary
+*.pack binary
+
+# archives
+*.tar binary
+*.gz binary
+*.zst binary
+*.zip binary

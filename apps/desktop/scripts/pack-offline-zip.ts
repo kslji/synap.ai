@@ -174,10 +174,16 @@ function signMac(app: string): void {
   if (signed.status !== 0) throw new OfflinePackError(1, `codesign failed on the Mac app. ${signed.stderr || ''}`.trim())
 }
 
-function zipStore(folder: string, destZip: string): void {
+/**
+ * The offline bundle is copied with cp -a, which keeps the AppleDouble ._* files
+ * and .DS_Store that Finder leaves in any folder it has opened. -X stops zip
+ * adding its own extended attributes; the -x patterns keep the junk out.
+ */
+export function zipStore(folder: string, destZip: string): void {
   mkdirSync(dirname(destZip), { recursive: true })
   if (existsSync(destZip)) unlinkSync(destZip)
-  const result = spawnSync('zip', ['-r', '-0', '-y', destZip, basename(folder)], { cwd: dirname(folder), encoding: 'utf8' })
+  const result = spawnSync('zip', ['-r', '-X', '-0', '-y', destZip, basename(folder),
+    '-x', '*.DS_Store', '*._*', '*__MACOSX*'], { cwd: dirname(folder), encoding: 'utf8' })
   if (result.status !== 0) throw new OfflinePackError(1, `zip failed. ${result.stderr || result.stdout || result.status}`)
 }
 

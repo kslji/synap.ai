@@ -50,5 +50,13 @@ def validate_production_config() -> None:
     if not key and ENV.get("SURF_GATEWAY_OPTIONAL", "") != "1":
         problems.append("OPENROUTER_API_KEY is required for the Online gateway (set SURF_GATEWAY_OPTIONAL=1 to allow a gateway-less deployment).")
 
+    # Without DATABASE_URL, main.py silently falls back to the in-memory LITE
+    # stores (MemoryAuth/MemoryLicences), which lose all accounts on restart.
+    database_url = ENV.get("DATABASE_URL", "").strip()
+    if not database_url:
+        problems.append("DATABASE_URL is required in production; the in-memory LITE store must never serve production traffic.")
+    elif not ENV.get("VALKEY_URL", "").strip():
+        problems.append("VALKEY_URL is required when DATABASE_URL is set (the non-LITE runtime needs Valkey for rate limiting).")
+
     if problems:
         raise RuntimeError("Refusing to start in production: " + " ".join(problems))

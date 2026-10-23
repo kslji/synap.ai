@@ -7,7 +7,8 @@ _GOOD = "z" * 48  # long, no placeholder markers
 
 
 def _run(monkeypatch, **overrides):
-    for key in ("JWT_SECRET", "OPENROUTER_API_KEY", "MAIL_MODE", "SURF_ENV", "SURF_GATEWAY_OPTIONAL"):
+    for key in ("JWT_SECRET", "OPENROUTER_API_KEY", "MAIL_MODE", "SURF_ENV",
+                "SURF_GATEWAY_OPTIONAL", "DATABASE_URL", "VALKEY_URL"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("SURF_ENV", "production")
     for key, value in overrides.items():
@@ -58,11 +59,42 @@ def test_missing_gateway_key_refuses_start(monkeypatch):
 
 def test_gateway_can_be_declared_optional(monkeypatch):
     _run(monkeypatch, JWT_SECRET=_GOOD, OPENROUTER_API_KEY="", MAIL_MODE="smtp",
-         SURF_GATEWAY_OPTIONAL="1")
+         SURF_GATEWAY_OPTIONAL="1", DATABASE_URL="postgresql://u:p@localhost:5432/db",
+         VALKEY_URL="redis://localhost:6379/0")
 
 
 def test_valid_production_config_boots(monkeypatch):
-    _run(monkeypatch, JWT_SECRET=_GOOD, OPENROUTER_API_KEY="or-key", MAIL_MODE="smtp")
+    _run(monkeypatch, JWT_SECRET=_GOOD, OPENROUTER_API_KEY="or-key", MAIL_MODE="smtp",
+         DATABASE_URL="postgresql://u:p@localhost:5432/db", VALKEY_URL="redis://localhost:6379/0")
+
+
+# --- Item 3: production must not boot on the in-memory LITE stores. ---
+
+
+def test_production_without_database_url_refuses_start(monkeypatch):
+    # No DATABASE_URL means main.py would silently pick MemoryAuth/LITE — fatal in production.
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        _run(monkeypatch, JWT_SECRET=_GOOD, OPENROUTER_API_KEY="or-key", MAIL_MODE="smtp",
+             DATABASE_URL="")
+
+
+def test_production_with_database_but_no_valkey_refuses_start(monkeypatch):
+    with pytest.raises(RuntimeError, match="VALKEY_URL"):
+        _run(monkeypatch, JWT_SECRET=_GOOD, OPENROUTER_API_KEY="or-key", MAIL_MODE="smtp",
+             DATABASE_URL="postgresql://u:p@localhost:5432/db", VALKEY_URL="")
+
+
+def test_production_with_both_urls_boots(monkeypatch):
+    _run(monkeypatch, JWT_SECRET=_GOOD, OPENROUTER_API_KEY="or-key", MAIL_MODE="smtp",
+         DATABASE_URL="postgresql://u:p@localhost:5432/db", VALKEY_URL="redis://localhost:6379/0")
+
+
+def test_missing_database_url_outside_production_is_fine(monkeypatch):
+    # Development and the LITE test suite keep booting without any stores.
+    monkeypatch.delenv("SURF_ENV", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("VALKEY_URL", raising=False)
+    validate_production_config()
 
 
 def test_lifespan_refuses_boot_before_serving(monkeypatch):

@@ -73,6 +73,7 @@ interface Args {
   fa?: 'on' | 'off' | 'auto';
   gpuLayers?: number;
   stub: boolean;
+  compareDraft: boolean;
   json?: string;
 }
 
@@ -87,13 +88,20 @@ interface Report {
   machine: Record<string, unknown>;
   model: Record<string, unknown>;
   metrics: Record<string, { value: number | null; unit: string; target: string; status: 'PASS' | 'FAIL' | 'INFO' | 'BLOCKED' }>;
+  draft?: { withoutTps: number; withTps: number; deltaPct: number; verdict: 'keep' | 'drop' };
   blocked?: string;
   samples: { chat: Sample[]; tabMs: number[] };
   startedAt: string;
 }
 
+interface Suite {
+  coldMs: number;
+  warm: Sample[];
+  tabMs: number[];
+}
+
 function parseArgs(argv: string[]): Args {
-  const out: Args = { apiKey: 'bench', runs: 5, tokens: 64, stub: false };
+  const out: Args = { apiKey: 'bench', runs: 5, tokens: 64, stub: false, compareDraft: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const next = (): string => {
@@ -111,6 +119,7 @@ function parseArgs(argv: string[]): Args {
     else if (flag === '--gpu-layers') out.gpuLayers = Number(next());
     else if (flag === '--json') out.json = next();
     else if (flag === '--stub') out.stub = true;
+    else if (flag === '--compare-draft') out.compareDraft = true;
     else throw new Error(`unknown flag ${flag}`);
   }
   return out;
@@ -250,6 +259,23 @@ async function tabOnce(baseUrl: string, apiKey: string): Promise<number> {
   return performance.now() - started;
 }
 
+/** Cold request, then warm runs (cache_prompt reuse), then the Tab requests. */
+async function runSuite(baseUrl: string, apiKey: string, tokens: number, runs: number, sampling: RegistryModel['sampling']): Promise<Suite> {
+  // Cold: the very first request, empty KV cache.
+  const cold = await chatStream(baseUrl, apiKey, tokens, true, sampling);
+  // Warm: identical prefix, cache_prompt on. What the app sees after the first turn.
+  const warm: Sample[] = [];
+  for (let i = 0; i < runs; i++) {
+    const run = await chatStream(baseUrl, apiKey, tokens, true, sampling);
+    const windowMs = Math.max(1, run.totalMs - run.ttftMs);
+    const tokPerSec = run.predictedPerSecond ?? (run.tokens > 1 ? ((run.tokens - 1) / windowMs) * 1000 : 0);
+    warm.push({ ttftMs: round(run.ttftMs, 0), tokPerSec: round(tokPerSec, 1), tokens: run.tokens });
+  }
+  const tabMs: number[] = [];
+  for (let i = 0; i < runs; i++) tabMs.push(round(await tabOnce(baseUrl, apiKey), 0));
+  return { coldMs: round(cold.ttftMs, 0), warm, tabMs };
+}
+
 function serverRssMb(pid: number | undefined): number | null {
   if (!pid) return null;
   try {
@@ -368,6 +394,7 @@ async function main(): Promise<number> {
   };
 
   let server: LlamaServer | undefined;
+  let serverOpts: ConstructorParameters<typeof LlamaServer>[0] | undefined;
   let stub: { url: string; close: () => Promise<void> } | undefined;
   let loadMs: number | null = null;
   let baseUrl: string;
@@ -394,7 +421,7 @@ async function main(): Promise<number> {
       return 2;
     }
     apiKey = Math.random().toString(36).slice(2);
-    server = new LlamaServer({
+    serverOpts = {
       binPath,
       modelPath,
       ctx: model!.context_default,
@@ -402,7 +429,8 @@ async function main(): Promise<number> {
       threads: Math.max(1, hw.physicalCores - 1),
       cacheRamMiB: 512, // a warm server is the point of this benchmark
       extraArgs: args.fa ? ['-fa', args.fa] : [],
-    });
+    };
+    server = new LlamaServer(serverOpts);
     const startedLoad = performance.now();
     await server.start();
     loadMs = round(performance.now() - startedLoad, 0);
@@ -411,33 +439,46 @@ async function main(): Promise<number> {
   }
 
   try {
-    // Cold: the very first request, empty KV cache.
-    const cold = await chatStream(baseUrl, apiKey, args.tokens, true, model?.sampling);
-    // Warm: identical prefix, cache_prompt on. What the app sees after the first turn.
-    const warm: Sample[] = [];
-    for (let i = 0; i < args.runs; i++) {
-      const run = await chatStream(baseUrl, apiKey, args.tokens, true, model?.sampling);
-      const windowMs = Math.max(1, run.totalMs - run.ttftMs);
-      const tokPerSec = run.predictedPerSecond ?? (run.tokens > 1 ? ((run.tokens - 1) / windowMs) * 1000 : 0);
-      warm.push({ ttftMs: round(run.ttftMs, 0), tokPerSec: round(tokPerSec, 1), tokens: run.tokens });
+    const suite = await runSuite(baseUrl, apiKey, args.tokens, args.runs, model?.sampling);
+    let draftPass: Suite | undefined;
+    if (args.compareDraft && server && serverOpts) {
+      const draftPath = model?.draft ? join(modelsDir, model.draft.file) : '';
+      if (!draftPath || !existsSync(draftPath)) {
+        report.draft = undefined;
+        console.log(`draft   : not on disk (${draftPath || 'no draft in the registry'}) - skipped the A/B pass\n`);
+      } else {
+        // Item 3: run the identical suite with the draft model attached and keep it only if faster.
+        await server.stop();
+        server = new LlamaServer({ ...serverOpts, draftModelPath: draftPath });
+        await server.start();
+        draftPass = await runSuite(server.baseUrl, server.apiKey, args.tokens, args.runs, model?.sampling);
+      }
     }
-    const tabMs: number[] = [];
-    for (let i = 0; i < args.runs; i++) tabMs.push(round(await tabOnce(baseUrl, apiKey), 0));
     const rssMb = serverRssMb(server?.pid);
 
-    const warmTtft = percentile(warm.map((s) => s.ttftMs), 50);
-    const tps = percentile(warm.map((s) => s.tokPerSec), 50);
-    const tab = percentile(tabMs, 50);
+    const warmTtft = percentile(suite.warm.map((s) => s.ttftMs), 50);
+    const tps = percentile(suite.warm.map((s) => s.tokPerSec), 50);
+    const tab = percentile(suite.tabMs, 50);
     const stubNote = args.stub ? ' (STUB)' : '';
     const verdict = (pass: boolean): 'PASS' | 'FAIL' => (pass ? 'PASS' : 'FAIL');
 
-    report.samples = { chat: warm, tabMs };
+    if (draftPass) {
+      const withTps = percentile(draftPass.warm.map((s) => s.tokPerSec), 50);
+      report.draft = {
+        withoutTps: tps,
+        withTps,
+        deltaPct: round(((withTps - tps) / Math.max(1, tps)) * 100, 1),
+        verdict: withTps > tps ? 'keep' : 'drop',
+      };
+    }
+
+    report.samples = { chat: suite.warm, tabMs: suite.tabMs };
     report.metrics = {
-      firstTokenCold: { value: round(cold.ttftMs, 0), unit: 'ms', target: `< ${TARGET_TTFT_MS}`, status: verdict(round(cold.ttftMs, 0) < TARGET_TTFT_MS) },
+      firstTokenCold: { value: suite.coldMs, unit: 'ms', target: `< ${TARGET_TTFT_MS}`, status: verdict(suite.coldMs < TARGET_TTFT_MS) },
       firstTokenWarmP50: { value: warmTtft, unit: 'ms', target: `< ${TARGET_TTFT_MS}`, status: verdict(warmTtft < TARGET_TTFT_MS) },
       decode: { value: tps, unit: 'tok/s', target: `>= ${targetTps} (${onGpu ? 'GPU' : 'CPU'})`, status: verdict(tps >= targetTps) },
       tabP50: { value: tab, unit: 'ms', target: `< ${TARGET_TAB_MS}`, status: verdict(tab < TARGET_TAB_MS) },
-      tabP95: { value: percentile(tabMs, 95), unit: 'ms', target: `< ${TARGET_TAB_MS}`, status: verdict(percentile(tabMs, 95) < TARGET_TAB_MS) },
+      tabP95: { value: percentile(suite.tabMs, 95), unit: 'ms', target: `< ${TARGET_TAB_MS}`, status: verdict(percentile(suite.tabMs, 95) < TARGET_TAB_MS) },
       memoryRss: { value: rssMb, unit: 'MB', target: `reference (weights ${round((model?.size_bytes ?? 0) / 1024 ** 2, 0)} MB)`, status: 'INFO' },
       modelLoad: { value: loadMs, unit: 'ms', target: 'INFO', status: 'INFO' },
     };
@@ -461,6 +502,9 @@ function printReport(report: Report): void {
   console.log(`cpu     : ${m.cpu}`);
   console.log(`model   : ${model.id ?? 'none'} ${model.sizeGib ? `(${model.sizeGib} GiB, ctx ${model.ctx}, -ngl ${model.gpuLayers})` : ''}`);
   if (model.draft) console.log(`draft   : ${model.draft}`);
+  if (report.draft) {
+    console.log(`draft A/B: ${report.draft.withoutTps} -> ${report.draft.withTps} tok/s (${report.draft.deltaPct > 0 ? '+' : ''}${report.draft.deltaPct}%) => ${report.draft.verdict}`);
+  }
   console.log('');
   if (report.blocked) {
     console.log(`BLOCKED: ${report.blocked}`);

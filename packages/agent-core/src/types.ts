@@ -59,6 +59,12 @@ export interface ModelTurn {
   content: string | null
   toolCalls?: { id?: string; name: string; arguments: string }[]
   usage?: { promptTokens: number; completionTokens: number }
+  /**
+   * Why the model stopped, straight from the transport. 'length' means the reply
+   * was cut at the token cap, so both sub-chats can offer the same Continue.
+   * Absent when the stream never said - the field stays additive for the loop.
+   */
+  finishReason?: string
 }
 
 // ---- Code-agent view types (were shared/ipc-contract.ts) ----

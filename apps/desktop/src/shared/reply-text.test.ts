@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { MARKDOWN_RULE, chatSystemPrompt } from '@surf/agent-core'
 import {
-  MARKDOWN_ASK,
   NOTES_LIMIT,
   NOTIFY_LIMIT,
   PREVIEW_LIMIT,
@@ -99,13 +99,15 @@ test('streaming hides an open fence and the final reply closes markup', () => {
   assert.equal(replyShapeOk('pre-'), false)
   assert.equal(replyShapeOk('ok\uFFFD'), false)
   assert.equal(replyShapeOk(''), true)
-  assert.match(MARKDOWN_ASK, /Markdown/)
-  assert.match(MARKDOWN_ASK, /do not stop in the middle of a word/)
-  assert.match(MARKDOWN_ASK, /\[S1\]/)
-  assert.match(MARKDOWN_ASK, /Source heading/)
+  // Item 13: the words the model is told live in @surf/agent-core, not here.
+  assert.match(MARKDOWN_RULE, /Markdown/)
+  assert.match(MARKDOWN_RULE, /do not stop in the middle of a word/)
+  assert.match(MARKDOWN_RULE, /\[S1\]/)
+  assert.match(MARKDOWN_RULE, /Source heading/)
 })
 
 test('the chat system prompt asks for closed markdown', () => {
   const source = readFileSync(new URL('../main/core/app-services.ts', import.meta.url), 'utf8')
-  assert.match(source, /MARKDOWN_ASK/)
+  assert.match(source, /const SYSTEM = chatSystemPrompt\('offline'\)/)
+  assert.equal(chatSystemPrompt('offline').includes(MARKDOWN_RULE), true)
 })

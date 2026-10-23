@@ -191,6 +191,45 @@ test('GatewayProvider produces the identical ModelTurn to the offline path for t
   assert.equal(canonical(online), canonical(offline), 'online and offline must hand the loop the same turn shape')
 })
 
+test('both providers report the finish reason so a cut reply offers Continue', async () => {
+  const cut = [
+    frame({ choices: [{ delta: { content: 'half an answer' } }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'length' }] }),
+    'data: [DONE]\n\n',
+  ].join('')
+  const online = await new GatewayProvider({
+    baseUrl: 'https://gateway.test',
+    token: 'jwt',
+    model: 'm',
+    fetchImpl: (async () => sseResponse(cut)) as typeof fetch,
+  }).generate(messages, { maxTokens: 8, onDelta: () => {} })
+  assert.equal(online.finishReason, 'length', 'the online turn can say it was cut off')
+
+  const original = globalThis.fetch
+  globalThis.fetch = (async () => sseResponse(cut)) as typeof fetch
+  try {
+    const offline = await new LocalLlamaProvider(new LlamaClient({ baseUrl: 'http://127.0.0.1:1', apiKey: 'k' })).generate(messages, {
+      maxTokens: 8,
+      onDelta: () => {},
+    })
+    assert.equal(offline.finishReason, 'length', 'the same field on both sides of the seam')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a turn with no finish frame leaves the ModelTurn shape untouched', async () => {
+  const body = [frame({ choices: [{ delta: { content: 'whole answer' } }] }), 'data: [DONE]\n\n'].join('')
+  const turn = await new GatewayProvider({
+    baseUrl: 'https://gateway.test',
+    token: 'jwt',
+    model: 'm',
+    fetchImpl: (async () => sseResponse(body)) as typeof fetch,
+  }).generate(messages, { maxTokens: 8, onDelta: () => {} })
+  assert.equal(turn.content, 'whole answer')
+  assert.equal('finishReason' in turn, false, 'nothing is added to the turn the loop compares across providers')
+})
+
 test('GatewayProvider preserves the gateway error copies', async () => {
   const cases: Array<{ status: number; body: string; copy: string }> = [
     { status: 402, body: JSON.stringify({ detail: 'Insufficient balance of 3 credits.' }), copy: 'Insufficient balance of 3 credits.' },

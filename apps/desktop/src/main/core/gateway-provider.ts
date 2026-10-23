@@ -54,6 +54,7 @@ export class GatewayProvider implements ModelProvider {
     const decoder = new TextDecoder()
     let buffer = ''
     let content = ''
+    let finishReason: string | undefined
     let usage: ModelTurn['usage']
     const calls = new Map<number, { id: string; name: string; arguments: string }>()
 
@@ -63,7 +64,7 @@ export class GatewayProvider implements ModelProvider {
       const payload = trimmed.slice(5).trim()
       if (!payload || payload === '[DONE]') return
       let chunk: {
-        choices?: Array<{ delta?: { content?: string; tool_calls?: ToolCallDelta[] } }>
+        choices?: Array<{ delta?: { content?: string; tool_calls?: ToolCallDelta[] }; finish_reason?: string | null }>
         usage?: { prompt_tokens?: number; completion_tokens?: number }
         error?: { message?: string } | string
       }
@@ -77,7 +78,9 @@ export class GatewayProvider implements ModelProvider {
         throw new Error(message || 'The cloud model is unavailable right now. Please try again.')
       }
       if (chunk.usage) usage = { promptTokens: chunk.usage.prompt_tokens ?? 0, completionTokens: chunk.usage.completion_tokens ?? 0 }
-      const delta = chunk.choices?.[0]?.delta
+      const choice = chunk.choices?.[0]
+      if (choice?.finish_reason) finishReason = choice.finish_reason
+      const delta = choice?.delta
       if (delta?.content) {
         content += delta.content
         options.onDelta?.(delta.content)
@@ -115,6 +118,7 @@ export class GatewayProvider implements ModelProvider {
       content,
       ...(toolCalls.length ? { toolCalls } : {}),
       ...(usage ? { usage } : {}),
+      ...(finishReason ? { finishReason } : {}),
     }
   }
 }

@@ -19,10 +19,10 @@ export class LocalLlamaProvider implements ModelProvider {
     const extras = llamaCompletionExtras(req)
     if (req.onDelta) {
       const res = await this.client.chatCollect(req.messages, req.tools, req.signal, req.maxTokens, extras, req.onDelta)
-      return turnFrom(res.choices[0]?.message, res.usage)
+      return turnFrom(res.choices[0], res.usage)
     }
     const res = await this.client.chat(req.messages, req.tools, req.signal, req.maxTokens, extras)
-    return turnFrom(res.choices[0]?.message, res.usage)
+    return turnFrom(res.choices[0], res.usage)
   }
 }
 
@@ -39,7 +39,11 @@ export function llamaCompletionExtras(req: Pick<CompletionRequest, 'responseForm
   }
 }
 
-function turnFrom(message: ChatMessage | undefined, usage?: { prompt_tokens?: number; completion_tokens?: number }): ModelTurn {
+function turnFrom(
+  choice: { message?: ChatMessage; finish_reason?: string } | undefined,
+  usage?: { prompt_tokens?: number; completion_tokens?: number },
+): ModelTurn {
+  const message = choice?.message
   return {
     content: messageText(message?.content),
     toolCalls: message?.tool_calls?.map((call) => ({
@@ -48,6 +52,9 @@ function turnFrom(message: ChatMessage | undefined, usage?: { prompt_tokens?: nu
       arguments: call.function.arguments,
     })),
     ...(usage ? { usage: { promptTokens: usage.prompt_tokens ?? 0, completionTokens: usage.completion_tokens ?? 0 } } : {}),
+    // The loop ignores this; the general chat uses it for the same Continue affordance
+    // the online turn gets, so neither path has to guess whether a reply was cut off.
+    ...(choice?.finish_reason ? { finishReason: choice.finish_reason } : {}),
   }
 }
 

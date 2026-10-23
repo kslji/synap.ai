@@ -5,6 +5,7 @@
 import type { CodeDiagnosticView, CodeDiffView, CodePlanView, CodeStepView } from '../../../shared/ipc-contract.js'
 import { takeOutputUpdate } from '../../../shared/stream-batch.js'
 import type { ChatMessage } from '../llama-client.js'
+import { thinkingFor } from '../thinking.js'
 import { commandScript, fullTestCommand, resolveCheck } from './checks.js'
 import { captureCheckpoint, extendCheckpoint, restoreCheckpoint, type Checkpoint } from './checkpoint.js'
 import { parseCommandDiagnostics, type Diagnostic } from './diagnostics.js'
@@ -263,7 +264,7 @@ async function plannedSteps(task: string, host: SplitHost): Promise<{ ok: true; 
         { role: 'user', content: planPrompt(task, host, feedback, attempt) },
       ],
       responseFormat: planResponseFormat(),
-      thinking: true,
+      thinking: thinkingFor('plan'),
       stepKind: 'plan',
       maxTokens: host.answerTokens,
       signal: host.signal,
@@ -285,7 +286,7 @@ async function replan(note: string, _group: PlanStep[], host: SplitHost): Promis
         { role: 'user', content: planPrompt(note, host, feedback, attempt).replace('Kind: plan', 'Kind: replan') },
       ],
       responseFormat: planResponseFormat(),
-      thinking: true,
+      thinking: thinkingFor('plan'),
       stepKind: 'plan',
       maxTokens: host.answerTokens,
       signal: host.signal,
@@ -321,7 +322,7 @@ async function runLadder(
   try {
     await ensureBaseline(resolveCheck(host.root, step.check).command, host, session, views)
     for (let attempt = 1; attempt <= STEP_RETRIES; attempt++) {
-      const result = await tryOnce(step, host, state, views, diffs, session, { attempt, candidate: 0, error, thinking: attempt > 1 })
+      const result = await tryOnce(step, host, state, views, diffs, session, { attempt, candidate: 0, error, thinking: attempt > 1 ? thinkingFor('fix') : thinkingFor('edit-step') })
       lastReport = result.report ?? lastReport
       if (result.halted) return finish(false, result.detail, attempt, 0, result.halted, state.wrote)
       if (result.ok) return finish(true, result.detail, attempt, 0, null, state.wrote)
@@ -329,7 +330,7 @@ async function runLadder(
       rememberFocus(session, result.report)
     }
     for (let candidate = 1; candidate <= STEP_CANDIDATES; candidate++) {
-      const result = await tryOnce(step, host, state, views, diffs, session, { attempt: STEP_RETRIES, candidate, error, thinking: true })
+      const result = await tryOnce(step, host, state, views, diffs, session, { attempt: STEP_RETRIES, candidate, error, thinking: thinkingFor('fix') })
       lastReport = result.report ?? lastReport
       if (result.halted) return finish(false, result.detail, STEP_RETRIES, candidate, result.halted, state.wrote)
       if (result.ok) return finish(true, result.detail, STEP_RETRIES, candidate, null, state.wrote)

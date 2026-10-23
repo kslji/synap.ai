@@ -156,6 +156,8 @@ export class LlamaClient {
 
   /**
    * Stream a chat completion, forwarding content deltas, and return the assembled message.
+   * Qwen3.5 sends its thinking as `reasoning_content` before any content; those deltas go to
+   * `onReasoning` and are returned as `reasoning`, never mixed into the answer.
    * Tool-call deltas are collected so the caller still sees native tool_calls.
    */
   async chatCollect(
@@ -165,7 +167,8 @@ export class LlamaClient {
     maxTokens: number,
     extras: ChatCompletionExtras | undefined,
     onDelta: (text: string) => void,
-  ): Promise<{ choices: { message: ChatMessage; finish_reason: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }> {
+    onReasoning?: (text: string) => void,
+  ): Promise<{ choices: { message: ChatMessage; finish_reason: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number }; reasoning?: string }> {
     const r = await fetch(`${this.o.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.o.apiKey}` },
@@ -178,6 +181,7 @@ export class LlamaClient {
     const joiner = createStreamJoiner();
     let buf = '';
     let content = '';
+    let reasoning = '';
     let finish = 'stop';
     let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
@@ -188,13 +192,18 @@ export class LlamaClient {
       if (!data || data === '[DONE]') return;
       try {
         const json = JSON.parse(data) as {
-          choices?: { finish_reason?: string | null; delta?: { content?: string; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[]
-          usage?: { prompt_tokens?: number; completion_tokens?: number }
+          choices?: { finish_reason?: string | null; delta?: { content?: string; reasoning_content?: string; reasoning?: string; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[]
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
         };
         if (json.usage) usage = json.usage;
         const choice = json.choices?.[0];
         if (choice?.finish_reason) finish = choice.finish_reason;
         const delta = choice?.delta;
+        const thought = delta?.reasoning_content ?? delta?.reasoning;
+        if (thought) {
+          reasoning += thought;
+          onReasoning?.(thought);
+        }
         if (delta?.content) {
           const piece = joiner.pushText(delta.content);
           if (piece) {
@@ -237,12 +246,12 @@ export class LlamaClient {
       content,
       ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
     };
-    return { choices: [{ message, finish_reason: finish }], ...(usage ? { usage } : {}) };
+    return { choices: [{ message, finish_reason: finish }], ...(usage ? { usage } : {}), ...(reasoning ? { reasoning } : {}) };
   }
 
   /** Let the model call tools until it produces a final answer (bounded to avoid loops). Content tokens stream as they arrive. */
   async runWithTools(messages: ChatMessage[], tools: readonly unknown[], handlers: Record<string, ToolHandler>,
-    maxSteps = 4, signal?: AbortSignal, hooks?: { onDelta?: (text: string) => void; maxTokens?: number; cachePrompt?: boolean }): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[]; finishReason: string; usage?: { prompt_tokens: number; completion_tokens: number } }> {
+    maxSteps = 4, signal?: AbortSignal, hooks?: { onDelta?: (text: string) => void; onReasoning?: (text: string) => void; maxTokens?: number; cachePrompt?: boolean }): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[]; finishReason: string; usage?: { prompt_tokens: number; completion_tokens: number } }> {
     const msgs = [...messages];
     const used: ToolCall[] = [];
     let promptTokens = 0;
@@ -250,7 +259,7 @@ export class LlamaClient {
     let sawUsage = false;
     let finishReason = 'stop';
     for (let step = 0; step < maxSteps; step++) {
-      const res = await this.chatCollect(msgs, tools, signal, hooks?.maxTokens ?? 1024, hooks?.cachePrompt ? { cachePrompt: true } : undefined, (piece) => hooks?.onDelta?.(piece));
+      const res = await this.chatCollect(msgs, tools, signal, hooks?.maxTokens ?? 1024, hooks?.cachePrompt ? { cachePrompt: true } : undefined, (piece) => hooks?.onDelta?.(piece), hooks?.onReasoning);
       if (res.usage) {
         sawUsage = true;
         promptTokens += res.usage.prompt_tokens ?? 0;

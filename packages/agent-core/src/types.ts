@@ -51,6 +51,8 @@ export interface CompletionRequest {
   /** True when this request's stable prefix matches the previous one. */
   cachePrompt?: boolean
   onDelta?: (text: string) => void
+  /** Qwen3.5 thinking deltas, kept separate from the answer so a UI can show them in a Thinking block. */
+  onReasoning?: (text: string) => void
 }
 
 // ---- Normalized model turn (was code-agent/parse-tool.ts) ----

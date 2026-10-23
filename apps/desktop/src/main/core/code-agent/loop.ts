@@ -14,6 +14,7 @@ import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode
 import type { ProjectSearch } from './project-search.js'
 import { codeSystemPrompt } from './system-rules.js'
 import { takeOutputUpdate } from '../../../shared/stream-batch.js'
+import { thinkingFor } from '../thinking.js'
 import { codeToolSchemas } from './tools.js'
 import { listProjectDir, readProjectFile, runProjectCommand, splitCommand } from './workspace.js'
 import type { CompletionRequest } from '@surf/agent-core'
@@ -144,13 +145,15 @@ async function obtainCall(host: CodeAgentHost, messages: ChatMessage[], maxParse
 
 function requestFor(constraint: Constraint, messages: ChatMessage[], host: CodeAgentHost): CompletionRequest {
   const stepKind = 'triage' as const
+  // Each turn of the loop is a step: short and specified, so it never thinks.
+  const thinking = thinkingFor('edit-step')
   if (constraint === 'json_schema') {
-    return { messages, responseFormat: toolCallJsonSchema(), maxTokens: host.answerTokens, signal: host.signal, stepKind }
+    return { messages, responseFormat: toolCallJsonSchema(), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
   }
   if (constraint === 'gbnf') {
-    return { messages, grammar: toolCallGbnf(), maxTokens: host.answerTokens, signal: host.signal, stepKind }
+    return { messages, grammar: toolCallGbnf(), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
   }
-  return { messages, tools: codeToolSchemas(), maxTokens: host.answerTokens, signal: host.signal, stepKind }
+  return { messages, tools: codeToolSchemas(), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
 }
 
 async function act(

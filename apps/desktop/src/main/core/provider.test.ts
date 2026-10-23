@@ -90,7 +90,7 @@ test('LocalLlamaProvider sends the same llama-server fields the offline path alw
   const original = globalThis.fetch
   globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
-    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] }), {
+    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok', reasoning_content: 'thought' }, finish_reason: 'stop' }] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
@@ -98,21 +98,32 @@ test('LocalLlamaProvider sends the same llama-server fields the offline path alw
   try {
     const client = new LlamaClient({ baseUrl: 'http://127.0.0.1:1', apiKey: 'k' })
     const provider = new LocalLlamaProvider(client)
-    await provider.generate(messages, {
-      maxTokens: 640,
-      tools: [{ type: 'function', function: { name: 'read_file', parameters: {} } }],
-      responseFormat: { type: 'json_schema', json_schema: { name: 'call', strict: true, schema: {} } },
-      grammar: 'root ::= "finish"',
-      thinking: true,
-      cachePrompt: true,
-    })
+    const tools = [{ type: 'function', function: { name: 'read_file', parameters: {} } }]
+    const responseFormat = { type: 'json_schema' as const, json_schema: { name: 'call', strict: true, schema: {} } }
+    await provider.generate(messages, { maxTokens: 640, tools, responseFormat, grammar: 'root ::= "finish"', thinking: false, cachePrompt: true })
     const body = bodies[0]
+    assert.equal(bodies.length, 1, 'an edit step is one request')
     assert.equal(body.max_tokens, 640)
-    assert.deepEqual(body.tools, [{ type: 'function', function: { name: 'read_file', parameters: {} } }])
+    assert.deepEqual(body.tools, tools)
     assert.equal(body.grammar, 'root ::= "finish"')
     assert.equal(body.cache_prompt, true)
     assert.equal((body.response_format as { type: string }).type, 'json_schema')
-    assert.equal((body.chat_template_kwargs as Record<string, unknown>).enable_thinking, true)
+    assert.equal((body.chat_template_kwargs as Record<string, unknown>).enable_thinking, false)
+
+    // Planning thinks: one capped reasoning request, then the answer with the tools and grammar.
+    bodies.length = 0
+    await provider.generate(messages, { maxTokens: 640, tools, responseFormat, grammar: 'root ::= "finish"', thinking: true, cachePrompt: true })
+    assert.equal(bodies.length, 2)
+    const think = bodies[0] ?? {}
+    assert.equal(think.max_tokens, 512)
+    assert.equal(think.tools, undefined)
+    assert.equal(think.response_format, undefined)
+    assert.equal((think.chat_template_kwargs as Record<string, unknown>).enable_thinking, true)
+    const answer = bodies[1] ?? {}
+    assert.equal(answer.max_tokens, 640)
+    assert.deepEqual(answer.tools, tools)
+    assert.equal((answer.chat_template_kwargs as Record<string, unknown>).enable_thinking, false)
+    assert.match(String((answer.messages as { content: string }[])[2]?.content), /thought/)
 
     // The one-line adapter keeps the old call-site semantics.
     assert.equal(typeof llamaCompleter(client), 'function')

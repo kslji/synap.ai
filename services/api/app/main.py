@@ -244,12 +244,18 @@ async def otp_start(body: OtpStartIn, request: Request):
         raise _auth_problem(exc) from exc
     except ValueError as exc:
         raise Problem(400, "invalid_email", "Enter a valid email address.") from exc
-    app.state.mail.send(
-        body.email.strip().lower(),
-        "Your Surf AI code",
-        f"Your Surf AI sign-in code is {code}. It expires in 10 minutes.",
-        code,
-    )
+    try:
+        app.state.mail.send(
+            body.email.strip().lower(),
+            "Your Surf AI code",
+            f"Your Surf AI sign-in code is {code}. It expires in 10 minutes.",
+            code,
+        )
+    except Exception as exc:
+        # A broken/misconfigured mailer is a dependency failure, not a user error:
+        # answer 503 with a typed code instead of a 500 or a silent success.
+        log.error("otp mail send failed for %s: %s", body.email.strip().lower(), exc.__class__.__name__)
+        raise Problem(503, "mail_unavailable", "Could not send your sign-in code. Try again in a moment.") from exc
     out = {"ok": True}
     if not is_production() and os.environ.get("MAIL_MODE", "console") != "smtp":
         out["dev_code"] = code

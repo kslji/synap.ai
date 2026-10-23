@@ -81,18 +81,25 @@ test('plaintext index works without an embedder', async () => {
 
 test('watcher reports a changed file once', async () => {
   const root = mkdtempSync(join(tmpdir(), 'surf-watch-'))
+  let watcher: { close(): void } | undefined
   try {
     const seen = await new Promise<string[]>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('watcher timed out')), 4000)
-      const watcher = watchProject(root, (rels) => {
-        clearTimeout(timer)
-        watcher.close()
-        resolve(rels)
+      watcher = watchProject(root, (rels) => {
+        // Ignore any spurious startup batch; wait for the write we actually made.
+        if (rels.some((rel) => rel.endsWith('new.py'))) {
+          clearTimeout(timer)
+          resolve(rels)
+        }
       }, 30)
       setTimeout(() => writeFileSync(join(root, 'new.py'), 'def fresh():\n    return 1\n'), 50)
     })
     assert.ok(seen.some((rel) => rel.endsWith('new.py')))
   } finally {
+    watcher?.close()
+    // Let any debounced watcher event settle while the folder still exists; otherwise
+    // Node 22 reports async activity (and an ENOENT for the deleted file) after the test.
+    await new Promise((resolve) => setTimeout(resolve, 80))
     rmSync(root, { recursive: true, force: true })
   }
 })

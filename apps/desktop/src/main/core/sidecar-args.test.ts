@@ -35,9 +35,9 @@ test('a sidecar that cannot be executed rejects without an uncaught exception', 
   process.on('uncaughtException', onUncaught)
   const server = new LlamaServer({ binPath: bin, modelPath: 'model.gguf', ctx: 128, startupTimeoutMs: 3_000 })
   try {
-    // The spawn error differs by OS: macOS reports `spawn Unknown system error -8`
-    // (ENOEXEC) rather than a wrapped startup message, so accept either.
-    await assert.rejects(() => server.start(), /failed to start|exited during startup|spawn .*error/i)
+    // The spawn error differs by OS/Node: macOS reports `spawn ENOEXEC` (Node 22)
+    // or `spawn Unknown system error -8` (Node 20), rather than a wrapped message.
+    await assert.rejects(() => server.start(), /failed to start|exited during startup|spawn \S+|ENOEXEC/i)
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.equal(uncaught.length, 0)
   } finally {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test as nodeTest } from 'node:test'
@@ -239,7 +239,9 @@ test('accepting ghost text edits the buffer and does not need a file write', () 
 })
 
 test('editor save is separate from completion, and paths stay in the project', () => {
-  const root = mkdtempSync(join(tmpdir(), 'surf-edit-'))
+  // realpath: macOS tmpdir() is /var/folders/... (symlink to /private/var/...);
+  // the editor realpaths the root, so relative(root, abs) must not span the link.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'surf-edit-')))
   try {
     writeFileSync(join(root, 'app.ts'), 'const a = 1\n')
     mkdirSync(join(root, 'src'))

@@ -54,3 +54,6 @@ services/ai-orchestrator/
 # Build output of the @surf/ui package (tsc emits next to the source).
 packages/ui/src/mascot.d.ts
 packages/ui/src/mascot.js
+
+# Scratch fixtures for the file-index tests (must be a non-hidden, non-/var path).
+apps/desktop/surf-test-tmp/

@@ -247,6 +247,8 @@ export type ChatEvent =
   | { type: 'token'; messageId: string; text: string; mode?: ChatMode }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
+  /** Qwen3.5 reasoning while a plan or a fix thinks: scratch text, never the answer, never stored. */
+  | { type: 'reasoning'; messageId: string; text: string }
   | { type: 'status'; messageId: string; phase: 'searching' | 'files' | 'keywords'; note?: string }
   | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
   | { type: 'done'; messageId: string; gate: GateName; mode?: ChatMode; text?: string; canContinue?: boolean; budget?: {

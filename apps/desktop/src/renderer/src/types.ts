@@ -40,6 +40,8 @@ export interface UiMsg {
   modelId?: string
   /** Earlier sibling answers for this reply. The latest text is `text`. */
   versions?: string[]
+  /** Qwen3.5 reasoning streamed before the answer. Shown, never stored. */
+  thinking?: string
   /** A token event arrived, so the reply was streamed. */
   streamed?: boolean
   /** The reply stopped on the length limit and can be continued. */
@@ -76,6 +78,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.canContinue = false
     if (e.mode) m.mode = e.mode
   }
+  if (e.type === 'reasoning') m.thinking = (m.thinking ?? '') + e.text
   if (e.type === 'status') {
     if (e.phase === 'keywords') m.keywordNote = e.note || m.keywordNote
     else m.phase = e.phase

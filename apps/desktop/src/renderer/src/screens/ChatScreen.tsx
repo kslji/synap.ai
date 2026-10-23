@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUp, Check, Cloud, Copy, Cpu, MoreHorizontal, Pin, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { ArrowLeft, ArrowUp, Check, ChevronRight, Cloud, Copy, Cpu, MoreHorizontal, Pin, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import { Markdown } from '@surf/ui'
 import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
@@ -16,6 +16,7 @@ import { CodeEditor } from './CodeEditor'
 import { CodeShots, type CodeShot } from './CodeShots'
 import { MicButton } from './MicButton'
 import { placeTranscript, speechProgressLabel } from '../../../main/core/dictation'
+import { thinkingView } from '../../../shared/thinking-block'
 import { Preview } from './LibraryScreen'
 import { FOLDER_PROMPT } from '../../../main/core/chat-route'
 
@@ -608,6 +609,31 @@ function BotNameField({ name, onSave }: { name: string; onSave: (name: string) =
   )
 }
 
+function ThinkingBlock({ thinking, pending, answered }: { thinking?: string; pending: boolean; answered: boolean }) {
+  const [choice, setChoice] = useState<boolean | null>(null)
+  const view = thinkingView(thinking, pending, answered, choice)
+  if (!view) return null
+  return (
+    <div className="mb-2" data-thinking="yes" data-thinking-live={view.live ? 'yes' : 'no'}>
+      <button
+        type="button"
+        className="icon-quiet inline-flex items-center gap-1 text-xs font-medium text-[var(--muted)] hover:text-[var(--ink)]"
+        aria-expanded={view.expanded}
+        data-thinking-toggle="yes"
+        onClick={() => setChoice(!view.expanded)}
+      >
+        <ChevronRight size={13} className={view.expanded ? 'rotate-90 transition-transform' : 'transition-transform'} />
+        {view.label}
+      </button>
+      {view.expanded && (
+        <div className="mt-1 whitespace-pre-wrap border-l-2 border-[var(--line)] pl-3 text-sm leading-relaxed text-[var(--muted)]" data-thinking-text="yes">
+          {view.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder, onAddContext }: { msg: UiMsg; botName: string; modelLabel: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void; onAddContext?: (id: string) => void }) {
   const [versionAt, setVersionAt] = useState<number | null>(null)
   const history = msg.versions ?? []
@@ -661,6 +687,8 @@ function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onC
           />
         )}
         {msg.keywordNote && <div className="mb-1 text-sm text-[var(--muted)]" data-keyword-search="yes">{msg.keywordNote}</div>}
+        {/* Reasoning streams here so a reply that is still thinking never looks empty. */}
+        <ThinkingBlock thinking={msg.thinking} pending={msg.pending === true} answered={shown.trim().length > 0} />
         {msg.sources.some((source) => source.filePath) && shown ? (
           <div className={msg.pending ? 'stream-caret' : ''} data-model-error={msg.error ? 'yes' : 'no'}>
             <FileAnswerBody text={shown} sources={msg.sources} onOpen={(path) => { void window.surf.files.open(path) }} />
@@ -675,7 +703,7 @@ function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onC
           </div>
         ) : (
           <div className={`text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
-            {msg.pending && !msg.phase ? 'Thinking' : ''}
+            {msg.pending && !msg.phase && !msg.thinking ? 'Thinking' : ''}
           </div>
         )}
         {msg.canContinue && !msg.pending && onContinue && (

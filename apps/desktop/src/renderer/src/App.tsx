@@ -184,7 +184,7 @@ export default function App() {
       (events) => {
         setMessages((prev) => events.reduce(applyEvent, prev))
         for (const e of events) {
-          if (e.type === 'token' || e.type === 'tool' || e.type === 'sources' || e.type === 'status' || e.type === 'code-step' || e.type === 'code-diff') setStreaming(true)
+          if (e.type === 'token' || e.type === 'reasoning' || e.type === 'tool' || e.type === 'sources' || e.type === 'status' || e.type === 'code-step' || e.type === 'code-diff') setStreaming(true)
           if (e.type === 'done' || e.type === 'error') {
             setStreaming(false)
             void api.conversations.list().then(setConversations).catch(() => undefined)

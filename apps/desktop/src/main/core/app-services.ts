@@ -1067,6 +1067,10 @@ export async function createServices(): Promise<Services> {
                 const ready = batch.push(piece)
                 if (ready) sendLiveModel(win, messageId, target.id, tailLive(liveText))
               },
+              // A plan or a fix thinks before it answers; the chat shows that thinking live, folded away.
+              onReasoning: (piece) => {
+                if (!signal.aborted) sendEvent(win, { type: 'reasoning', messageId, text: piece })
+              },
             })
             const rest = batch.flush()
             if (rest) sendLiveModel(win, messageId, target.id, tailLive(liveText))
@@ -1635,6 +1639,9 @@ export async function createServices(): Promise<Services> {
               const ready = batch.push(piece)
               if (ready) sendEvent(win, { type: 'token', messageId, text: ready })
             },
+            onReasoning: (piece) => {
+              if (!signal.aborted) sendEvent(win, { type: 'reasoning', messageId, text: piece })
+            },
           })
           const rest = batch.flush()
           if (rest) sendEvent(win, { type: 'token', messageId, text: rest })
@@ -1667,6 +1674,8 @@ export async function createServices(): Promise<Services> {
             answer += piece
             const ready = batch.push(piece)
             if (ready) sendEvent(win, { type: 'token', messageId, text: ready })
+          }, (piece) => {
+            if (!signal.aborted) sendEvent(win, { type: 'reasoning', messageId, text: piece })
           })
           const rest = batch.flush()
           if (rest) sendEvent(win, { type: 'token', messageId, text: rest })

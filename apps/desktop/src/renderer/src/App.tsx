@@ -207,7 +207,7 @@ export default function App() {
     })
     void api.library.list().then(setFiles).catch(() => undefined)
     const offModels = api.models.onEvent((e) => {
-      if (e.state === 'done') void refresh()
+      if (e.state === 'done' || e.state === 'removed') void refresh()
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
     return () => { frames.cancel(); offChat(); offModels(); offLib(); offDocs(); offCode(); window.clearInterval(timer) }
@@ -715,7 +715,7 @@ export default function App() {
         ])
         setMessages([
           { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
-          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 4B' },
+          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 2B' },
         ])
         return
       }
@@ -742,7 +742,7 @@ export default function App() {
             text: formatted ? FORMATTED_REPLY : CONTINUED_REPLY,
             sources: [],
             tools: [],
-            modelId: 'Qwen 4B',
+            modelId: 'Qwen 2B',
             canContinue: !formatted,
           },
         ])
@@ -1200,7 +1200,7 @@ export default function App() {
         />
       )}
       {screen === 'models' && (
-        <ModelsScreen status={status} />
+        <ModelsScreen status={status} onRefresh={() => { void refresh() }} />
       )}
       {screen === 'usage' && (
         <UsagePanel machine={{ cpuModel: status.cpuModel, ramGb: status.ramGb }} />
@@ -1241,6 +1241,7 @@ export default function App() {
             void api.licence.deactivate().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
           }}
           onPatch={(p) => { void patch(p) }}
+          onRefresh={() => { void refresh() }}
           onBack={() => setView('chat')}
           onSave={() => { void patch({}) }}
           onRestore={() => {

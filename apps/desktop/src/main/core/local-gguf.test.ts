@@ -14,9 +14,9 @@ test('the generic Qwen 4B row is the file the first-run card offers', () => {
   const starter = registry.models.find((model) => model.id === STARTER_CHAT_MODEL_ID)
   assert.ok(starter)
   assert.equal(starter.role, 'chat')
-  assert.equal(starter.file, 'Qwen3.5-4B-Q4_K_M.gguf')
-  assert.equal(starter.size_bytes, 2_740_937_888)
-  assert.equal(formatModelSize(starter.size_bytes), '2.74 GB')
+  assert.equal(starter.file, 'Qwen3.5-2B-Q4_K_M.gguf')
+  assert.equal(starter.size_bytes, 1_280_835_840)
+  assert.equal(formatModelSize(starter.size_bytes), '1.28 GB')
 })
 
 test('a file with the registry size selects that model, and any other GGUF stays local', () => {

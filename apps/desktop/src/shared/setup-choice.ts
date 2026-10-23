@@ -1,8 +1,8 @@
 /**
- * First open: one generic Qwen model (Qwen3.5 4B, needs 8 GB RAM) downloads with
+ * First open: the default Qwen model (Qwen3.5 2B, needs 8 GB RAM) downloads with
  * EmbeddingGemma. There is no size picker. RAM below the minimum only shows a warning.
  */
-import { FIRST_RUN_CHAT_MODEL_IDS } from './starter-model'
+import { FIRST_RUN_CHAT_MODEL_IDS, STARTER_CHAT_MODEL_ID } from './starter-model'
 
 export interface SetupModel {
   id: string
@@ -344,17 +344,17 @@ const EMBED_BYTES = 309_855_520
 
 /** Screenshot harness only. Counts are the registry sizes, passed through the same formatters. */
 export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'disk' | 'checksum'): SetupSnapshot {
-  const chatTotal = 2_740_937_888
+  const chatTotal = 1_280_835_840
   const done = 412_000_000
   const rate = byteRate([{ at: 0, bytes: 0 }, { at: 2000, bytes: 16_400_000 }])
   const files: SetupFileView[] = [
-    { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', role: 'chat', done, total: chatTotal, state: 'active' },
+    { id: STARTER_CHAT_MODEL_ID, name: 'Qwen 2B', role: 'chat', done, total: chatTotal, state: 'active' },
     { id: 'embeddinggemma-2-text-q8_0', name: 'Search model', role: 'embedding', done: 0, total: EMBED_BYTES, state: 'waiting' },
   ]
   const base: SetupSnapshot = {
     phase: 'downloading',
-    modelId: 'qwen3.5-4b-q4_k_m',
-    modelName: 'Qwen 4B',
+    modelId: STARTER_CHAT_MODEL_ID,
+    modelName: 'Qwen 2B',
     ramGb: 8,
     choices: [],
     files,
@@ -374,7 +374,7 @@ export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'di
       total: 0,
       bytesPerSecond: null,
       choices: [
-        { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', sizeBytes: chatTotal, withSearchBytes: chatTotal + EMBED_BYTES, minRamGb: 8, warning: null, inDownloads: true },
+        { id: STARTER_CHAT_MODEL_ID, name: 'Qwen 2B', sizeBytes: chatTotal, withSearchBytes: chatTotal + EMBED_BYTES, minRamGb: 8, warning: null, inDownloads: true },
       ],
     }
   }

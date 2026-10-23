@@ -1,5 +1,5 @@
 /**
- * First open shows the one generic model (Qwen 4B). Download fetches that file and
+ * First open shows the default model (Qwen 2B). Download fetches that file and
  * EmbeddingGemma. Pause keeps the .part file. A Downloads copy is used only
  * when the person asks.
  */

@@ -7,7 +7,7 @@
  */
 import { evalQuestions, type EvalQuestion, type QuestionDomain } from './step11-questions.js'
 
-export const FULL_MODEL_IDS = ['qwen3.5-4b-q4_k_m'] as const
+export const FULL_MODEL_IDS = ['qwen3.5-2b-q4_k_m'] as const
 
 const SUBSET_TAKE: { domain: QuestionDomain; count: number }[] = [
   { domain: 'coding', count: 10 },

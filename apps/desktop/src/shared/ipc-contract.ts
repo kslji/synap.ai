@@ -15,6 +15,7 @@ export const IPC = {
   modelsDownload: 'models:download',
   modelsCancel: 'models:cancel',
   modelsImportLocal: 'models:import-local',
+  modelsRemove: 'models:remove',
   modelsEvent: 'models:event',
   setupState: 'setup:state',
   setupStart: 'setup:start',
@@ -372,7 +373,7 @@ export interface ModelStatus {
   cpuModel: string
   cores: number
   chatModelId: string
-  /** First-run model from synap://setup, or the generic Qwen 4B model when no link arrived. */
+  /** First-run model from synap://setup, or the default Qwen 2B model when no link arrived. */
   setupModelId?: string
   /** Code agent selection. The smallest Code model when the user has not picked. */
   codeModelId: string
@@ -738,7 +739,8 @@ export interface SurfApi {
     status(): Promise<ModelStatus>
     download(modelId: string): Promise<void>
     benchmark(modelId: string): Promise<BenchmarkResult>
-    download(modelId: string): Promise<void>
+    /** Deletes an installed chat model file (and its screenshot add-on) so the disk is free again. */
+    remove(modelId: string): Promise<{ id: string; freedBytes: number }>
     onEvent(cb: (e: ModelEvent) => void): () => void
   }
   setup: {

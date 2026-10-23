@@ -91,7 +91,7 @@ interface ModelMetric {
 }
 
 const CHAT_MODELS: { id: string; file: string; required: boolean }[] = [
-  { id: 'qwen3.5-4b', file: 'Qwen3.5-4B-Q4_K_M.gguf', required: true },
+  { id: 'qwen3.5-2b-q4_k_m', file: 'Qwen3.5-2B-Q4_K_M.gguf', required: true },
 ]
 
 function must(name: string): string {
@@ -307,7 +307,7 @@ export async function runEval(): Promise<void> {
     writeFileSync(join(logDir, 'settings.json'), JSON.stringify({
       offlineOnly: true,
       telemetryOptIn: false,
-      chatModelId: surfEnv('EVAL_CHAT_MODEL') || 'qwen3.5-4b-q4_k_m',
+      chatModelId: surfEnv('EVAL_CHAT_MODEL') || 'qwen3.5-2b-q4_k_m',
       onboardingComplete: true,
       theme: 'light',
       apiBaseUrl: process.env.SURF_API_BASE || 'http://127.0.0.1:9',

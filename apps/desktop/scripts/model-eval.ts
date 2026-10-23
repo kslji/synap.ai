@@ -252,7 +252,7 @@ async function main(): Promise<void> {
   let failed = !reportEveryday()
   if (!existsSync(serverBin())) throw new Error('llama-server is not installed. Run node apps/desktop/scripts/fetch-sidecars.mjs')
   const mode = option('mode') === 'full' ? 'full' : 'subset'
-  const ids = (option('models') ?? 'qwen3.5-4b-q4_k_m').split(',').map((item) => item.trim()).filter(Boolean)
+  const ids = (option('models') ?? 'qwen3.5-2b-q4_k_m').split(',').map((item) => item.trim()).filter(Boolean)
   const dir = option('dir') ?? process.env.SURF_MODELS_DIR ?? join(repo, '.surf-models')
   const allowSkip = flag('allow-skip')
   const wantVision = flag('mmproj')

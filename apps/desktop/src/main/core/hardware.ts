@@ -1,6 +1,6 @@
 /**
  * Hardware detection + tier selection (main process). os gives RAM/CPU; systeminformation gives GPUs/VRAM.
- * Every tier runs the same chat model, Qwen3.5-4B Q4_K_M (needs 8 GB RAM). See docs/adr/0004-single-chat-model.md.
+ * Every tier runs the same chat model, Qwen3.5-2B Q4_K_M (needs 8 GB RAM). The larger 4B is an optional download. See docs/adr/0007-qwen35-2b-default.md.
  * Tiers only size the context window and the speech model:
  *   0: < 8 GB RAM      -> below the 8 GB minimum; 8K context
  *   1: 8-15 GB         -> 8K context

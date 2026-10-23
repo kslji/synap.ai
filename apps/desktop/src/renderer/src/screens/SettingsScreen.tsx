@@ -31,6 +31,7 @@ export function SettingsScreen({
   onBack,
   onSave,
   onRestore,
+  onRefresh,
 }: {
   status: ModelStatus
   settings: Required<SettingsPatch>
@@ -50,6 +51,7 @@ export function SettingsScreen({
   onBack: () => void
   onSave: () => void
   onRestore: () => void
+  onRefresh: () => void
 }) {
   const [category, setCategory] = useState<SettingsCategory>('general')
   const [savedNote, setSavedNote] = useState('')
@@ -151,7 +153,7 @@ export function SettingsScreen({
         </Group>}
         {category === 'models' && <Group title="Models">
           <div className="card px-4 py-4">
-            <ModelPanel status={status} chats={chats} />
+            <ModelPanel status={status} chats={chats} onRefresh={onRefresh} />
           </div>
         </Group>}
         {category === 'models' && <Group title="Code agent">

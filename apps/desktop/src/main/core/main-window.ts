@@ -90,6 +90,7 @@ export interface Services {
     cancel(win: BrowserWindow): void
     importLocal(path: string | null, win: BrowserWindow): Promise<{ id: string } | null>
     benchmark(modelId: string): Promise<BenchmarkResult>
+    remove(modelId: string, win: BrowserWindow): Promise<{ id: string; freedBytes: number }>
   }
   setup: {
     state(): Promise<import('../../shared/setup-choice.js').SetupSnapshot>
@@ -243,6 +244,7 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
     return s.models.importLocal(path, win)
   })
   handle(IPC.modelsBenchmark, (e, raw) => { assertTrusted(e); return s.models.benchmark(ModelId.parse(raw)) })
+  handle(IPC.modelsRemove, (e, raw) => { assertTrusted(e); return s.models.remove(ModelId.parse(raw), win) })
   handle(IPC.setupState, (e) => { assertTrusted(e); return s.setup.state() })
   handle(IPC.setupStart, (e) => { assertTrusted(e); return s.setup.start() })
   handle(IPC.setupChoose, (e, raw) => { assertTrusted(e); return s.setup.choose(ModelId.parse(raw)) })

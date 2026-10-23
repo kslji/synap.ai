@@ -667,6 +667,44 @@ export async function createServices(): Promise<Services> {
     safeSend(win, IPC.modelsEvent, { id: current.id, done: current.done, total: current.total, state: 'cancelled' })
   }
 
+  /**
+   * Deletes an installed chat model so the disk is free again. A screenshot add-on goes with it.
+   * The search model is not deletable here: search repair would download it again.
+   */
+  async function remove(modelId: string, win: BrowserWindow): Promise<{ id: string; freedBytes: number }> {
+    const lookupId = modelId.endsWith('#mmproj') ? modelId.slice(0, -'#mmproj'.length) : modelId
+    const model = registry().models.find((m) => m.id === lookupId)
+    if (!model) throw new Error('Unknown model.')
+    if (model.role !== 'chat') throw new Error('Only a chat model can be deleted.')
+    if (downloading) throw new Error('A download is running. Wait for it to finish.')
+    await withModel(async () => {
+      if (active?.modelId === model.id) await stopActive()
+    })
+    const files = [model.file, ...(model.mmproj ? [mmprojDestName(model.id, model.mmproj.file)] : [])]
+    let freedBytes = 0
+    for (const name of files) {
+      const path = join(modelsDir(), name)
+      try {
+        freedBytes += (await stat(path)).size
+        await rm(path, { force: true })
+      } catch {
+        /* not installed */
+      }
+    }
+    if (readLocal()?.modelId === model.id) await rm(localPointerPath(), { force: true })
+    const settings = readSettings()
+    if (settings.chatModelId === model.id || settings.codeModelId === model.id) {
+      writeSettings({
+        ...settings,
+        chatModelId: settings.chatModelId === model.id ? '' : settings.chatModelId,
+        codeModelId: settings.codeModelId === model.id ? '' : settings.codeModelId,
+      })
+    }
+    embeddingOk = null
+    safeSend(win, IPC.modelsEvent, { id: model.id, done: 0, total: 0, state: 'removed' })
+    return { id: model.id, freedBytes }
+  }
+
   async function importLocal(source: string | null, win: BrowserWindow): Promise<{ id: string } | null> {
     let picked = source?.trim() ?? ''
     if (!picked) {
@@ -2206,7 +2244,7 @@ export async function createServices(): Promise<Services> {
         return { conversationId: req.conversationId, allowed: req.allowed, note }
       },
     },
-    models: { status, download, cancel: cancelDownload, benchmark, importLocal },
+    models: { status, download, cancel: cancelDownload, benchmark, importLocal, remove },
     speech: {
       prepare: prepareMicrophone,
       transcribe: transcribeRecording,

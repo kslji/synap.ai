@@ -1,14 +1,18 @@
-import { FIRST_RUN_CHAT_MODEL_IDS, STARTER_CHAT_MODEL_ID } from './starter-model'
+import { FIRST_RUN_CHAT_MODEL_IDS, OPTIONAL_CHAT_MODEL_ID, STARTER_CHAT_MODEL_ID } from './starter-model'
 
-/** Old links named a size. There is one model now, so every size alias opens it. */
+/**
+ * Old links named a size. A 2B link opens the 2B, a 4B link opens the optional 4B, and a 9B link
+ * (a model we no longer ship) opens the 2B.
+ */
 const ALIAS: Record<string, string> = {
   'qwen3.5-2b': STARTER_CHAT_MODEL_ID,
-  'qwen3.5-4b': STARTER_CHAT_MODEL_ID,
+  'qwen3.5-4b': OPTIONAL_CHAT_MODEL_ID,
   'qwen3.5-9b': STARTER_CHAT_MODEL_ID,
   'qwen3.5-2b-q4_k_m': STARTER_CHAT_MODEL_ID,
+  'qwen3.5-4b-q4_k_m': OPTIONAL_CHAT_MODEL_ID,
   'qwen3.5-9b-q4_k_m': STARTER_CHAT_MODEL_ID,
   '2b': STARTER_CHAT_MODEL_ID,
-  '4b': STARTER_CHAT_MODEL_ID,
+  '4b': OPTIONAL_CHAT_MODEL_ID,
   '9b': STARTER_CHAT_MODEL_ID,
 }
 

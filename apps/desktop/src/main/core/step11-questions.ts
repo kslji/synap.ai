@@ -23,7 +23,7 @@ import {
 import { claimTopic, unableMessage, verifyGroundedAnswer, type SourceRecord } from './verify-answer.js'
 import { classifyShotUse } from './vision/intent.js'
 import { codeFitMark } from '../../shared/code-ram.js'
-import { servesAgent } from '../../shared/model-label.js'
+import { isDefaultFor, servesAgent } from '../../shared/model-label.js'
 import { handle } from './calculator.worker.js'
 import { DEVICE_REPLY, mathJob, phraseMath, routeTurn } from './chat-route.js'
 import { finishReply, replyShapeOk } from '../../shared/reply-text.js'
@@ -47,7 +47,7 @@ const FACTS: PlanFacts = {
 }
 
 const registry = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../resources/models.registry.json'), 'utf8')) as {
-  models: { id: string; role: string; agents?: string[] }[]
+  models: { id: string; role: string; agents?: string[]; default_for?: string[] }[]
 }
 
 function diag(file: string, line: number, message: string): Diagnostic {
@@ -278,7 +278,8 @@ function scoreCoding(item: EvalQuestion): boolean {
   if (item.expect === 'too-big') return codeFitMark({ family: 'qwen', minRamGb: 16, defaultFor: [] }, 4) === 'too-big'
   if (item.expect === 'fits') return codeFitMark({ family: 'qwen', minRamGb: 16, defaultFor: [] }, 16) === 'fits'
   if (item.expect === 'code-only') {
-    const code = registry.models.filter((model) => model.role === 'chat' && servesAgent(model.agents, 'code'))
+    // Exactly one chat row is marked as the default; optional rows (the 4B) are extra downloads.
+    const code = registry.models.filter((model) => model.role === 'chat' && servesAgent(model.agents, 'code') && isDefaultFor(model, 'code'))
     return code.length === 1 && servesAgent(code[0].agents, 'general')
   }
   if (item.expect === 'not-code') {

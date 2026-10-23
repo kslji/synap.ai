@@ -55,14 +55,26 @@ export function formatSearchSize(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`
 }
 
-/** The one chat model from models.registry.json. Shown for reference. The installer does not contain a model. */
+/** The chat models from models.registry.json. Shown for reference. The installer does not contain a model. */
 export const SETUP_MODELS = [
+  {
+    id: 'qwen3.5-2b-q4_k_m',
+    token: '2b',
+    name: 'Qwen 2B',
+    size: formatModelSize(1280835840 + SEARCH_MODEL_BYTES),
+    parts: `${formatModelSize(1280835840)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
+    ramGb: 8,
+    file: 'Qwen3.5-2B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf',
+    sha256: 'aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223',
+    sizeBytes: 1280835840,
+  },
   {
     id: 'qwen3.5-4b-q4_k_m',
     token: '4b',
-    name: 'Qwen 4B',
+    name: 'Qwen 4B (optional, more accurate)',
     size: formatModelSize(2740937888 + SEARCH_MODEL_BYTES),
-    parts: `${formatModelSize(2740937888)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model`,
+    parts: `${formatModelSize(2740937888)} model + ${formatSearchSize(SEARCH_MODEL_BYTES)} search model, 1.5 GB larger`,
     ramGb: 8,
     file: 'Qwen3.5-4B-Q4_K_M.gguf',
     url: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf',

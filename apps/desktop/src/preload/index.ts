@@ -22,6 +22,7 @@ const api: SurfApi = {
     status: () => ipcRenderer.invoke(IPC.modelsStatus),
     download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
+    remove: (id) => ipcRenderer.invoke(IPC.modelsRemove, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
   },
   setup: {

@@ -1,8 +1,21 @@
 {
   "registry_format": "surf-models/1",
   "updated_at": "2026-10-20",
-  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-15). One chat model for every laptop and every agent: Qwen3.5-4B Q4_K_M (2.74 GB file, 0.67 GB screenshot file). It needs an 8 GB laptop and also runs on bigger machines. There is no size picker. See docs/adr/0004-single-chat-model.md.",
+  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-24). One default chat model on every laptop, every tier, every agent: Qwen3.5-2B Q4_K_M (1.28 GB file). The 4B Q4_K_M (2.74 GB, 0.67 GB screenshot file) stays as the optional \"More accurate\" download. Nothing downloads unless the person asks for it. See docs/adr/0007-qwen35-2b-default.md, which supersedes 0004.",
   "models": [
+    {
+      "id": "qwen3.5-2b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 2,
+      "license": "apache-2.0", "context_default": 16384, "context_max": 262144,
+      "file": "Qwen3.5-2B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
+      "size_bytes": 1280835840,
+      "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+      "min_ram_gb": 8, "tiers": [0, 1, 2, 3],
+      "default_for": ["*"],
+      "note": "Default on every laptop. The optional Qwen 4B is more accurate and larger.",
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    },
     {
       "id": "qwen3.5-4b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 4,
       "license": "apache-2.0", "context_default": 16384, "context_max": 262144,
@@ -17,7 +30,7 @@
         "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
       },
       "min_ram_gb": 8, "tiers": [0, 1, 2, 3],
-      "default_for": ["code"],
+      "note": "Optional, more accurate. 1.5 GB larger than Qwen 2B, with a screenshot file.",
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
     },

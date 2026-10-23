@@ -15,6 +15,7 @@ import {
   githubReleaseAssetUrl,
   huggingfaceFileUrl,
   missingHfTokenMessage,
+  NSIS_DATABLOCK_LIMIT_BYTES,
   nsisCanEmbed,
   offlineAssetName,
   offlineDiskMessage,
@@ -38,24 +39,27 @@ const registry = JSON.parse(readFileSync(new URL('../../../resources/models.regi
   }[]
 }
 
-test('the one 4B offline package cannot use NSIS or GitHub, and every offline package is a zip', () => {
+test('the 2B offline package fits a GitHub asset, and every offline package is a zip', () => {
   const catalog = setupCatalog(registry.models)
   const embedding = setupEmbedding(registry.models)
   assert.ok(embedding)
-  assert.equal(planOfflineModel(registry.models, '2b'), null)
+  assert.equal(planOfflineModel(registry.models, '4b'), null)
   assert.equal(planOfflineModel(registry.models, '9b'), null)
-  const four = planOfflineModel(registry.models, '4b')
-  assert.ok(four)
-  assert.equal(four.modelBytes, 3_050_793_408)
-  assert.equal(bundledModelBytes(catalog[0]?.sizeBytes ?? 0, embedding.sizeBytes), four.modelBytes)
-  assert.equal(fitsGitHubAsset(four.modelBytes), false)
-  assert.equal(offlineHostFor(four.modelBytes), 'huggingface')
-  assert.equal(offlineHostFor(1_590_691_360), 'github')
-  assert.equal(offlineUploadPlan(four.modelBytes, false), 'missing-token')
-  assert.equal(offlineUploadPlan(four.modelBytes, true), 'huggingface')
-  assert.equal(nsisCanEmbed(four.model.sizeBytes), false)
-  assert.equal(nsisCanEmbed(four.modelBytes), false)
-  assert.equal(asarCanHold(four.model.sizeBytes), true)
+  const two = planOfflineModel(registry.models, '2b')
+  assert.ok(two)
+  assert.equal(two.modelBytes, 1_590_691_360)
+  assert.equal(bundledModelBytes(catalog[0]?.sizeBytes ?? 0, embedding.sizeBytes), two.modelBytes)
+  assert.equal(fitsGitHubAsset(two.modelBytes), true)
+  assert.equal(offlineHostFor(two.modelBytes), 'github')
+  assert.equal(offlineHostFor(3_050_793_408), 'huggingface')
+  assert.equal(offlineUploadPlan(two.modelBytes, false), 'github')
+  assert.equal(offlineUploadPlan(3_050_793_408, false), 'missing-token')
+  assert.equal(offlineUploadPlan(3_050_793_408, true), 'huggingface')
+  // The 2B payload is the first offline bundle that fits one NSIS data block.
+  assert.equal(nsisCanEmbed(two.model.sizeBytes), true)
+  assert.equal(nsisCanEmbed(two.modelBytes), true)
+  assert.equal(nsisCanEmbed(NSIS_DATABLOCK_LIMIT_BYTES), false)
+  assert.equal(asarCanHold(two.model.sizeBytes), true)
   assert.equal(asarCanHold(ASAR_LIMIT_BYTES + 1), false)
   assert.equal(offlinePackaging(), 'zip')
   assert.equal(offlineAssetName('v0.2.0', 'arm64', '2b'), 'Synap.surf-0.2.0-arm64-2b-offline.zip')
@@ -68,8 +72,8 @@ test('the one 4B offline package cannot use NSIS or GitHub, and every offline pa
     githubReleaseAssetUrl('v0.2.0', 'Synap.surf-0.2.0-arm64-2b-offline.zip'),
     'https://github.com/kslji/synap.ai/releases/download/v0.2.0/Synap.surf-0.2.0-arm64-2b-offline.zip',
   )
-  assert.match(missingHfTokenMessage('4b', four.modelBytes, 'kslji/synap-surf-offline'), /HF_TOKEN/)
-  assert.match(missingHfTokenMessage('4b', four.modelBytes, 'kslji/synap-surf-offline'), /kslji\/synap-surf-offline/)
+  assert.match(missingHfTokenMessage('4b', 3_050_793_408, 'kslji/synap-surf-offline'), /HF_TOKEN/)
+  assert.match(missingHfTokenMessage('4b', 3_050_793_408, 'kslji/synap-surf-offline'), /kslji\/synap-surf-offline/)
   assert.equal(GITHUB_ASSET_LIMIT_BYTES, 2_147_483_648)
 })
 
@@ -84,7 +88,7 @@ test('a 14 GB runner can refuse the 9B zip', () => {
 })
 
 test('a tampered manifest does not match the registry and is not installed', () => {
-  const planned = planOfflineModel(registry.models, '4b')
+  const planned = planOfflineModel(registry.models, '2b')
   assert.ok(planned)
   const good = buildBundledManifest(planned.model, planned.embedding)
   const root = mkdtempSync(join(tmpdir(), 'surf-bundle-'))

@@ -96,3 +96,9 @@ export function servesAgent(agents: string[] | undefined, agentId: string): bool
   if (agents && agents.length > 0) return agents.includes(agentId)
   return true
 }
+
+/** `default_for: ["*"]` marks the default for every agent, which is how the 2B ships. */
+export function isDefaultFor(model: { default_for?: string[] }, agentId: string): boolean {
+  const marks = model.default_for ?? []
+  return marks.includes('*') || marks.includes(agentId)
+}

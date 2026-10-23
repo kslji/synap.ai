@@ -69,7 +69,7 @@ export function CodeAgentPage() {
           </div>
         </section>
 
-        <Section id="download" title="Same models as the rest of the app" lede="One installer. After you install, the app downloads one Qwen model (Qwen 4B, needs 8 GB of memory) with the search model. An offline installer already has both files. Code uses that Qwen.">
+        <Section id="download" title="Same models as the rest of the app" lede="One installer. After you install, the app downloads one Qwen model (Qwen 2B, needs 8 GB of memory) with the search model. An offline installer already has both files. Code uses that Qwen. The larger Qwen 4B (optional, more accurate) is a separate download.">
           <div className="card mt-8 px-6 py-6">
             <DownloadCard />
             <BetaUnsignedNote />

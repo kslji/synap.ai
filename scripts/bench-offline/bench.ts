@@ -30,6 +30,7 @@ import { LlamaServer } from '../../apps/desktop/src/main/core/sidecar-manager.js
 import { detectHardware } from '../../apps/desktop/src/main/core/hardware.js';
 import { buildCompletionPrompt } from '../../apps/desktop/src/main/core/code-agent/completion/fim.js';
 import { predictBudget } from '../../apps/desktop/src/main/core/code-agent/completion/windows.js';
+import { budgetForTier } from '../../apps/desktop/src/main/core/token-budget.js';
 
 const ROOT = repoRoot();
 const REGISTRY = join(ROOT, 'apps/desktop/resources/models.registry.json');
@@ -365,6 +366,8 @@ async function main(): Promise<number> {
   const modelsDir = args.modelsDir ?? defaultModelsDir();
   const model = pickModel(models, args, hw.totalRamGb, hw.tier);
   const gpuLayers = args.gpuLayers ?? (hw.appleSilicon ? 999 : 999);
+  // -c comes from the tier budget, which is what app-services passes to the sidecar.
+  const ctx = budgetForTier(hw.tier).serverCtx;
   const onGpu = gpuLayers > 0;
   const targetTps = onGpu ? TARGET_TPS_GPU : TARGET_TPS_CPU;
 
@@ -384,7 +387,7 @@ async function main(): Promise<number> {
         id: model.id,
         file: model.file,
         sizeGib: round((model.size_bytes ?? 0) / 1024 ** 3, 2),
-        ctx: model.context_default,
+        ctx,
         gpuLayers,
         draft: model.draft?.file ?? null,
       }
@@ -424,7 +427,7 @@ async function main(): Promise<number> {
     serverOpts = {
       binPath,
       modelPath,
-      ctx: model!.context_default,
+      ctx,
       gpuLayers,
       threads: Math.max(1, hw.physicalCores - 1),
       cacheRamMiB: 512, // a warm server is the point of this benchmark

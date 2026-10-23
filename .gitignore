@@ -39,3 +39,14 @@ packages/*/dist
 scripts/code-pack-src/.cache/
 scripts/code-pack-src/.dev-seed
 apps/desktop/.golden-tmp/
+.pytest_cache/
+._*
+
+# Surf IDE: the VS Code fork checkout is upstream material; only our extension is ours.
+/surf-ide/code-oss/*
+!/surf-ide/code-oss/extensions/
+/surf-ide/code-oss/extensions/*
+!/surf-ide/code-oss/extensions/surf-ai/
+
+# Parked, not deleted: the orchestrator stays out of commits until it's picked back up.
+services/ai-orchestrator/

@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS billing_transactions (
   final_deduction NUMERIC(24,12) NOT NULL,
   balance_before NUMERIC(24,12) NOT NULL,
   balance_after NUMERIC(24,12) NOT NULL,
-  response_text TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_billing_transactions_user ON billing_transactions(user_id, created_at DESC);
@@ -185,18 +184,21 @@ class PostgresGatewayStore:
         final_deduction: Decimal,
         balance_before: Decimal,
         balance_after: Decimal,
-        response_text: str | None = None,
     ) -> str:
-        """Save billing audit transaction and return its ID."""
+        """Save billing audit transaction and return its ID.
+
+        Token/cost accounting only: the server never persists model replies
+        or user code (product rule; see 0007_drop_response_text).
+        """
         async with self.pool.connection() as conn:
             row = await conn.execute(
                 """
                 INSERT INTO billing_transactions (
                     user_id, model_id, input_tokens, output_tokens,
                     raw_cost, markup_multiplier, final_deduction,
-                    balance_before, balance_after, response_text
+                    balance_before, balance_after
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -209,7 +211,6 @@ class PostgresGatewayStore:
                     final_deduction,
                     balance_before,
                     balance_after,
-                    response_text,
                 ),
             )
             result = await row.fetchone()
@@ -307,9 +308,8 @@ class MemoryGatewayStore:
         final_deduction: Decimal,
         balance_before: Decimal,
         balance_after: Decimal,
-        response_text: str | None = None,
     ) -> str:
-        """Save billing audit transaction and return its ID."""
+        """Save billing audit transaction and return its ID (no reply content)."""
         import uuid
         from datetime import datetime, timezone
         
@@ -325,7 +325,6 @@ class MemoryGatewayStore:
             "final_deduction": final_deduction,
             "balance_before": balance_before,
             "balance_after": balance_after,
-            "response_text": response_text,
             "created_at": datetime.now(timezone.utc),
         })
         return tx_id

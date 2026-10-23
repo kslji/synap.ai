@@ -204,7 +204,9 @@ Per-user account with balance.
 
 ### billing_transactions
 
-Audit trail for all billing transactions.
+Audit trail for all billing transactions. Token/cost accounting only: the
+server never stores model replies or user code (`response_text` was removed
+in migration `0007_drop_response_text`).
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -218,7 +220,6 @@ Audit trail for all billing transactions.
 | `final_deduction` | NUMERIC(24,12) | Final deduction (USD) |
 | `balance_before` | NUMERIC(24,12) | Balance before transaction |
 | `balance_after` | NUMERIC(24,12) | Balance after transaction |
-| `response_text` | TEXT | Model response (for audit) |
 | `created_at` | TIMESTAMPTZ | Transaction timestamp |
 
 ## Testing

@@ -138,7 +138,6 @@ async def settle_billing(
             final_deduction=final_deduction,
             balance_before=balance_before,
             balance_after=new_balance,
-            response_text=response.get("choices", [{}])[0].get("message", {}).get("content"),
         )
         
         result = {

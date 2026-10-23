@@ -21,10 +21,11 @@
  * table is filled in on a machine that has the weights.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir, platform, arch } from 'node:os';
-import { join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
+import { decodeSpeed, firstTokenMs, percentile, round } from './timing.js';
 
 import { LlamaServer } from '../../apps/desktop/src/main/core/sidecar-manager.js';
 import { detectHardware } from '../../apps/desktop/src/main/core/hardware.js';
@@ -75,6 +76,7 @@ interface Args {
   gpuLayers?: number;
   stub: boolean;
   compareDraft: boolean;
+  modelFile?: string;
   json?: string;
 }
 
@@ -82,6 +84,7 @@ interface Sample {
   ttftMs: number;
   tokPerSec: number;
   tokens: number;
+  firstContentMs: number | null;
 }
 
 interface Report {
@@ -99,6 +102,7 @@ interface Suite {
   coldMs: number;
   warm: Sample[];
   tabMs: number[];
+  tabAborted: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -121,19 +125,11 @@ function parseArgs(argv: string[]): Args {
     else if (flag === '--json') out.json = next();
     else if (flag === '--stub') out.stub = true;
     else if (flag === '--compare-draft') out.compareDraft = true;
+    else if (flag === '--model-file') out.modelFile = next();
     else throw new Error(`unknown flag ${flag}`);
   }
   return out;
 }
-
-function percentile(values: number[], p: number): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
-  return sorted[index] ?? 0;
-}
-
-const round = (value: number, digits = 0): number => Number(value.toFixed(digits));
 
 /** Where the app keeps weights: SURF_MODELS_DIR, else Electron's userData/models for Synap.surf. */
 function defaultModelsDir(): string {
@@ -172,23 +168,92 @@ function pickModel(models: RegistryModel[], args: Args, ramGb: number, tier: num
   return fits[0] ?? chats.sort((a, b) => (a.size_bytes ?? 0) - (b.size_bytes ?? 0))[0];
 }
 
+/** Weights passed as a path rather than a registry entry still get a name and a real size. */
+function adHocModel(path: string, ctx: number): RegistryModel | undefined {
+  if (!existsSync(path)) return undefined;
+  return {
+    id: basename(path).replace(/\.gguf$/i, ''),
+    file: path,
+    size_bytes: statSync(path).size,
+    context_default: ctx,
+    tiers: [],
+    min_ram_gb: 0,
+  };
+}
+
+interface ServerInfo {
+  id: string;
+  path: string;
+  nCtx?: number;
+  sizeBytes: number | null;
+}
+
+/** `model_alias` is often the full path in this build, so keep only the file stem. */
+function modelIdFrom(raw: string): string {
+  return basename(raw.trim()).replace(/\.gguf$/i, '');
+}
+
+/**
+ * What a running server says about itself. /props carries the model path and context size;
+ * /v1/models carries the public id. Reporting the registry's default instead (the old
+ * behaviour) labelled a 2B run as the 4B, so the numbers could not be trusted.
+ */
+async function serverInfo(baseUrl: string, apiKey: string): Promise<ServerInfo> {
+  const headers = { Authorization: `Bearer ${apiKey}` };
+  let id = '';
+  let path = '';
+  let nCtx: number | undefined;
+  let sizeBytes: number | null = null;
+  try {
+    const response = await fetch(`${baseUrl}/props`, { headers });
+    if (response.ok) {
+      const props = await response.json() as { model_path?: string; model_alias?: string; n_ctx?: number; default_generation_settings?: { n_ctx?: number } };
+      path = props.model_path ?? '';
+      id = props.model_alias ? modelIdFrom(props.model_alias) : '';
+      nCtx = props.n_ctx ?? props.default_generation_settings?.n_ctx;
+    }
+  } catch { /* build without /props, or a non-llama.cpp server */ }
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, { headers });
+    if (response.ok) {
+      // llama.cpp answers with { models: [{ name, model }] }; newer builds and other servers
+      // use the OpenAI { data: [{ id, meta }] }. Accept both rather than guess.
+      const list = await response.json() as {
+        data?: { id?: string; meta?: { n_ctx?: number; size?: number } }[];
+        models?: { name?: string; model?: string }[];
+      };
+      const openai = list.data?.[0];
+      const llama = list.models?.[0];
+      const raw = openai?.id ?? llama?.name ?? llama?.model ?? '';
+      if (!id && raw) id = modelIdFrom(raw);
+      if (!path && raw && isAbsolute(raw)) path = raw;
+      nCtx = nCtx ?? openai?.meta?.n_ctx;
+      if (typeof openai?.meta?.size === 'number') sizeBytes = openai.meta.size;
+    }
+  } catch { /* build without /v1/models */ }
+  if (sizeBytes === null && path && existsSync(path)) sizeBytes = statSync(path).size;
+  return { id: id || (path ? modelIdFrom(path) : 'unknown'), path, nCtx, sizeBytes };
+}
+
 /** llama.cpp prints timings on non-stream replies; streaming only gives us wall-clock. */
 interface ChatStreamResult {
   ttftMs: number;
   totalMs: number;
   tokens: number;
+  decodeTps: number;
+  firstContentMs: number | null;
   predictedPerSecond?: number;
 }
 
-async function chatStream(baseUrl: string, apiKey: string, maxTokens: number, cachePrompt: boolean, sampling: RegistryModel['sampling']): Promise<ChatStreamResult> {
-  const started = performance.now();
+async function chatStream(baseUrl: string, apiKey: string, maxTokens: number, cachePrompt: boolean, sampling: RegistryModel['sampling'], prompt = CHAT_PROMPT): Promise<ChatStreamResult> {
+  const startedAt = performance.now();
   const response = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       messages: [
         { role: 'system', content: SYSTEM_PREFIX },
-        { role: 'user', content: CHAT_PROMPT },
+        { role: 'user', content: prompt },
       ],
       max_tokens: maxTokens,
       stream: true,
@@ -204,7 +269,8 @@ async function chatStream(baseUrl: string, apiKey: string, maxTokens: number, ca
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let first = 0;
+  let firstTokenAt = 0;
+  let firstContentAt = 0;
   let tokens = 0;
   let predictedPerSecond: number | undefined;
   for (;;) {
@@ -218,21 +284,49 @@ async function chatStream(baseUrl: string, apiKey: string, maxTokens: number, ca
       if (!trimmed.startsWith('data:')) continue;
       const data = trimmed.slice(5).trim();
       if (!data || data === '[DONE]') continue;
-      let chunk: { choices?: { delta?: { content?: string } }[]; usage?: { completion_tokens?: number }; timings?: { predicted_per_second?: number } };
+      let chunk: { choices?: { delta?: { content?: string; reasoning_content?: string } }[]; usage?: { completion_tokens?: number }; timings?: { predicted_per_second?: number } };
       try { chunk = JSON.parse(data); } catch { continue; }
-      const text = chunk.choices?.[0]?.delta?.content ?? '';
-      if (text.length > 0 && first === 0) first = performance.now();
-      if (text.length > 0) tokens += 1;
+      const delta = chunk.choices?.[0]?.delta;
+      const content = delta?.content ?? '';
+      // A thinking model (Qwen3.5) streams reasoning_content first and may emit no content at
+      // all within the token budget. The user starts reading at the first token of either
+      // kind, so that is what time-to-first-token has to measure.
+      const visible = content.length > 0 || (delta?.reasoning_content ?? '').length > 0;
+      if (visible) {
+        if (firstTokenAt === 0) firstTokenAt = performance.now();
+        tokens += 1;
+      }
+      if (content.length > 0 && firstContentAt === 0) firstContentAt = performance.now();
       if (chunk.usage?.completion_tokens) tokens = Math.max(tokens, chunk.usage.completion_tokens);
       if (chunk.timings?.predicted_per_second) predictedPerSecond = chunk.timings.predicted_per_second;
     }
   }
-  const totalMs = performance.now() - started;
-  return { ttftMs: (first || totalMs) - started, totalMs, tokens, predictedPerSecond };
+  const endedAt = performance.now();
+  return {
+    ttftMs: firstTokenMs(startedAt, firstTokenAt, endedAt),
+    totalMs: round(endedAt - startedAt, 0),
+    tokens,
+    decodeTps: decodeSpeed(tokens, firstTokenAt, endedAt),
+    firstContentMs: firstContentAt > 0 ? firstTokenMs(startedAt, firstContentAt, endedAt) : null,
+    predictedPerSecond,
+  };
 }
 
-/** One Tab request at the app's own budget: FIM prompt, 48 tokens, stop on newline. */
-async function tabOnce(baseUrl: string, apiKey: string): Promise<number> {
+/**
+ * One token on a different prompt: it pays Metal/thread start-up so the measured request
+ * is not charged for it, without prefilling the prefix the warm runs are meant to cache.
+ */
+async function warmUp(baseUrl: string, apiKey: string, sampling: RegistryModel['sampling']): Promise<number> {
+  const startedAt = performance.now();
+  await chatStream(baseUrl, apiKey, 1, false, sampling, 'Reply with the single word ok.');
+  return round(performance.now() - startedAt, 0);
+}
+
+/** A completion is one line; anything past this only burns latency. */
+const TAB_MAX_TOKENS = 24;
+
+/** One Tab request at the app's own budget: FIM prompt, small n_predict, stop on newline. */
+async function tabOnce(baseUrl: string, apiKey: string, signal?: AbortSignal): Promise<number> {
   const budget = predictBudget('line');
   const built = buildCompletionPrompt({
     prefix: 'export function total(items: number[]) {\n  return items.',
@@ -245,9 +339,10 @@ async function tabOnce(baseUrl: string, apiKey: string): Promise<number> {
   const response = await fetch(`${baseUrl}/completion`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    signal,
     body: JSON.stringify({
       prompt: built.prompt,
-      n_predict: budget.maxTokens,
+      n_predict: Math.min(budget.maxTokens, TAB_MAX_TOKENS),
       temperature: 0,
       top_k: 1,
       stop: budget.stop,
@@ -260,21 +355,50 @@ async function tabOnce(baseUrl: string, apiKey: string): Promise<number> {
   return performance.now() - started;
 }
 
+/**
+ * What a keystroke actually sees. Every new keypress cancels the request in flight, so only
+ * the last request of the burst is timed; abandoned ones are counted, not measured. Without
+ * this the server kept generating text nobody wanted and p95 (340 ms) exceeded the target.
+ */
+async function tabBurst(baseUrl: string, apiKey: string, keystrokes = 3, gapMs = 40): Promise<{ ms: number; aborted: number }> {
+  let ms = -1;
+  let aborted = 0;
+  for (let i = 1; i <= keystrokes; i++) {
+    const controller = new AbortController();
+    const settled = tabOnce(baseUrl, apiKey, controller.signal).then(
+      (value) => { ms = value; },
+      (error: unknown) => { if (i === keystrokes) throw error; },
+    );
+    if (i < keystrokes) {
+      await new Promise((resolve) => setTimeout(resolve, gapMs));
+      controller.abort();
+      aborted += 1;
+    }
+    await settled;
+  }
+  if (ms < 0) throw new Error('Tab: the last request of the burst produced no result');
+  return { ms: round(ms, 0), aborted };
+}
+
 /** Cold request, then warm runs (cache_prompt reuse), then the Tab requests. */
 async function runSuite(baseUrl: string, apiKey: string, tokens: number, runs: number, sampling: RegistryModel['sampling']): Promise<Suite> {
-  // Cold: the very first request, empty KV cache.
+  // Cold: the first request after the warm-up, so the KV cache holds nothing for this prefix.
   const cold = await chatStream(baseUrl, apiKey, tokens, true, sampling);
   // Warm: identical prefix, cache_prompt on. What the app sees after the first turn.
   const warm: Sample[] = [];
   for (let i = 0; i < runs; i++) {
     const run = await chatStream(baseUrl, apiKey, tokens, true, sampling);
-    const windowMs = Math.max(1, run.totalMs - run.ttftMs);
-    const tokPerSec = run.predictedPerSecond ?? (run.tokens > 1 ? ((run.tokens - 1) / windowMs) * 1000 : 0);
-    warm.push({ ttftMs: round(run.ttftMs, 0), tokPerSec: round(tokPerSec, 1), tokens: run.tokens });
+    const tokPerSec = run.predictedPerSecond ?? run.decodeTps;
+    warm.push({ ttftMs: run.ttftMs, tokPerSec: round(tokPerSec, 1), tokens: run.tokens, firstContentMs: run.firstContentMs });
   }
   const tabMs: number[] = [];
-  for (let i = 0; i < runs; i++) tabMs.push(round(await tabOnce(baseUrl, apiKey), 0));
-  return { coldMs: round(cold.ttftMs, 0), warm, tabMs };
+  let tabAborted = 0;
+  for (let i = 0; i < runs; i++) {
+    const burst = await tabBurst(baseUrl, apiKey);
+    tabMs.push(burst.ms);
+    tabAborted += burst.aborted;
+  }
+  return { coldMs: cold.ttftMs, warm, tabMs, tabAborted };
 }
 
 function serverRssMb(pid: number | undefined): number | null {
@@ -364,10 +488,12 @@ async function main(): Promise<number> {
   const hw = await detectHardware();
   const models = loadRegistry();
   const modelsDir = args.modelsDir ?? defaultModelsDir();
-  const model = pickModel(models, args, hw.totalRamGb, hw.tier);
-  const gpuLayers = args.gpuLayers ?? (hw.appleSilicon ? 999 : 999);
+  const gpuLayers = args.gpuLayers ?? 999;
   // -c comes from the tier budget, which is what app-services passes to the sidecar.
   const ctx = budgetForTier(hw.tier).serverCtx;
+  const adHoc = args.modelFile ? adHocModel(args.modelFile, ctx) : undefined;
+  const model = adHoc ?? pickModel(models, args, hw.totalRamGb, hw.tier);
+  let sampling = model?.sampling;
   const onGpu = gpuLayers > 0;
   const targetTps = onGpu ? TARGET_TPS_GPU : TARGET_TPS_CPU;
 
@@ -390,8 +516,9 @@ async function main(): Promise<number> {
         ctx,
         gpuLayers,
         draft: model.draft?.file ?? null,
+        source: adHoc ? 'model-file' : 'registry',
       }
-      : { id: null },
+      : { id: null, source: 'registry' },
     metrics: {},
     samples: { chat: [], tabMs: [] },
   };
@@ -400,6 +527,7 @@ async function main(): Promise<number> {
   let serverOpts: ConstructorParameters<typeof LlamaServer>[0] | undefined;
   let stub: { url: string; close: () => Promise<void> } | undefined;
   let loadMs: number | null = null;
+  let warmupMs: number | null = null;
   let baseUrl: string;
   let apiKey = args.apiKey;
 
@@ -409,11 +537,25 @@ async function main(): Promise<number> {
     console.log('STUB MODE: timings are synthetic and only prove the harness works.\n');
   } else if (args.baseUrl) {
     baseUrl = args.baseUrl;
+    // The server owns the truth about which weights it loaded: ask it, do not assume.
+    const info = await serverInfo(baseUrl, apiKey);
+    const registryEntry = models.find((m) => m.id === info.id || (info.path !== '' && m.file === basename(info.path)));
+    sampling = registryEntry?.sampling;
+    report.model = {
+      id: info.id,
+      file: info.path ? basename(info.path) : null,
+      sizeGib: info.sizeBytes ? round(info.sizeBytes / 1024 ** 3, 2) : null,
+      ctx: info.nCtx ?? ctx,
+      gpuLayers: null,
+      source: 'server',
+    };
   } else {
     const binPath = join(BIN_DIR, platform() === 'win32' ? 'llama-server.exe' : 'llama-server');
-    const modelPath = model ? join(modelsDir, model.file) : '';
+    const modelPath = model ? (isAbsolute(model.file) ? model.file : join(modelsDir, model.file)) : '';
     if (!existsSync(binPath)) {
       report.blocked = `llama-server is not installed (${binPath})`;
+    } else if (args.modelFile && !adHoc) {
+      report.blocked = `model file not found (${args.modelFile})`;
     } else if (!model) {
       report.blocked = 'no chat model in models.registry.json fits this machine';
     } else if (!existsSync(modelPath)) {
@@ -439,10 +581,13 @@ async function main(): Promise<number> {
     loadMs = round(performance.now() - startedLoad, 0);
     baseUrl = server.baseUrl;
     apiKey = server.apiKey;
+    // Item 3: the first real request paid ~2.5 s of Metal/thread start-up. Buy that here on
+    // a throwaway prompt, so `firstTokenCold` measures the model, not the runtime coming up.
+    warmupMs = await warmUp(baseUrl, apiKey, sampling);
   }
 
   try {
-    const suite = await runSuite(baseUrl, apiKey, args.tokens, args.runs, model?.sampling);
+    const suite = await runSuite(baseUrl, apiKey, args.tokens, args.runs, sampling);
     let draftPass: Suite | undefined;
     if (args.compareDraft && server && serverOpts) {
       const draftPath = model?.draft ? join(modelsDir, model.draft.file) : '';
@@ -454,12 +599,13 @@ async function main(): Promise<number> {
         await server.stop();
         server = new LlamaServer({ ...serverOpts, draftModelPath: draftPath });
         await server.start();
-        draftPass = await runSuite(server.baseUrl, server.apiKey, args.tokens, args.runs, model?.sampling);
+        draftPass = await runSuite(server.baseUrl, server.apiKey, args.tokens, args.runs, sampling);
       }
     }
     const rssMb = serverRssMb(server?.pid);
 
     const warmTtft = percentile(suite.warm.map((s) => s.ttftMs), 50);
+    const contentMs = suite.warm.map((s) => s.firstContentMs).filter((value): value is number => value !== null);
     const tps = percentile(suite.warm.map((s) => s.tokPerSec), 50);
     const tab = percentile(suite.tabMs, 50);
     const stubNote = args.stub ? ' (STUB)' : '';
@@ -482,8 +628,11 @@ async function main(): Promise<number> {
       decode: { value: tps, unit: 'tok/s', target: `>= ${targetTps} (${onGpu ? 'GPU' : 'CPU'})`, status: verdict(tps >= targetTps) },
       tabP50: { value: tab, unit: 'ms', target: `< ${TARGET_TAB_MS}`, status: verdict(tab < TARGET_TAB_MS) },
       tabP95: { value: percentile(suite.tabMs, 95), unit: 'ms', target: `< ${TARGET_TAB_MS}`, status: verdict(percentile(suite.tabMs, 95) < TARGET_TAB_MS) },
-      memoryRss: { value: rssMb, unit: 'MB', target: `reference (weights ${round((model?.size_bytes ?? 0) / 1024 ** 2, 0)} MB)`, status: 'INFO' },
+      firstContentWarmP50: { value: contentMs.length ? percentile(contentMs, 50) : null, unit: 'ms', target: 'INFO (null = still thinking)', status: 'INFO' },
+      memoryRss: { value: rssMb, unit: 'MB', target: `reference (weights ${round(((report.model.sizeGib as number | undefined) ?? 0) * 1024, 0)} MB)`, status: 'INFO' },
       modelLoad: { value: loadMs, unit: 'ms', target: 'INFO', status: 'INFO' },
+      warmupRequest: { value: warmupMs, unit: 'ms', target: 'INFO (excluded from cold)', status: 'INFO' },
+      tabAborted: { value: suite.tabAborted, unit: 'requests', target: 'INFO (cancelled by keystrokes)', status: 'INFO' },
     };
     if (args.stub) for (const metric of Object.values(report.metrics)) if (metric.status !== 'INFO') metric.target += stubNote;
 
@@ -503,7 +652,8 @@ function printReport(report: Report): void {
   console.log('== Surf offline benchmark ==');
   console.log(`machine : ${m.platform} ${m.cores} cores, ${m.ramGb} GB RAM, tier ${m.tier}${(m.gpus as string[]).length ? `, ${(m.gpus as string[]).join(', ')}` : ''}`);
   console.log(`cpu     : ${m.cpu}`);
-  console.log(`model   : ${model.id ?? 'none'} ${model.sizeGib ? `(${model.sizeGib} GiB, ctx ${model.ctx}, -ngl ${model.gpuLayers})` : ''}`);
+  const detail = [model.sizeGib ? `${model.sizeGib} GiB` : '', model.ctx ? `ctx ${model.ctx}` : '', model.gpuLayers ? `-ngl ${model.gpuLayers}` : ''].filter(Boolean).join(', ');
+  console.log(`model   : ${model.id ?? 'none'}${detail ? ` (${detail})` : ''}${model.source === 'server' ? ' [from server]' : ''}`);
   if (model.draft) console.log(`draft   : ${model.draft}`);
   if (report.draft) {
     console.log(`draft A/B: ${report.draft.withoutTps} -> ${report.draft.withTps} tok/s (${report.draft.deltaPct > 0 ? '+' : ''}${report.draft.deltaPct}%) => ${report.draft.verdict}`);

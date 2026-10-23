@@ -28,4 +28,8 @@ fi
 ( cd "$EXT" && npm run compile --silent )
 ( cd "$EXT" && npm test --silent )
 
+# The benchmark's timing maths is pure, so it is testable without weights or a server.
+echo "== offline bench harness (timing maths) =="
+"$ROOT/node_modules/.bin/tsx" --test scripts/bench-offline/bench.test.ts
+
 echo "OK scripts/check.sh"

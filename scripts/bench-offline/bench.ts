@@ -6,8 +6,13 @@
  *   - time to first token, first request (cold) and warm runs that reuse the KV cache
  *     via cache_prompt + a stable system-prompt prefix
  *   - decode speed (tok/s)
- *   - Tab latency: one real FIM /completion at the app's own token budget
+ *   - Tab latency: FIM /completion at the app's own token budget, sent as a burst of
+ *     keystrokes spaced by the editor's debounce, each one cancelling the one in flight
  *   - memory: llama-server RSS once the model is loaded
+ *
+ * A one-token warm-up runs after the sidecar loads, so the cold figure is the first real
+ * message and not Metal/thread start-up. Time to first token counts reasoning tokens too:
+ * Qwen3.5 streams its thinking before any answer text.
  *
  * Usage:
  *   npm run bench:offline                       # start llama-server for this machine's RAM tier
@@ -15,6 +20,10 @@
  *   npm run bench:offline -- --base-url http://127.0.0.1:8080 --api-key KEY
  *   npm run bench:offline -- --stub             # no model on disk: validate the harness itself
  *   npm run bench:offline -- --model qwen3.5-4b-q4_k_m --fa on --json /tmp/bench.json
+ *   npm run bench:offline -- --model-file "~/.../models/Qwen3.5-2B-Q4_K_M.gguf"
+ *
+ * With --base-url the model name, size and context come from that server's /props and
+ * /v1/models, never from the registry, so the table describes what actually answered.
  *
  * Exit codes: 0 every target met, 1 a target missed, 2 not measurable here (model missing).
  * A blocked run still prints the machine profile and the model the RAM tier selects, so the
@@ -30,6 +39,7 @@ import { decodeSpeed, firstTokenMs, percentile, round } from './timing.js';
 import { LlamaServer } from '../../apps/desktop/src/main/core/sidecar-manager.js';
 import { detectHardware } from '../../apps/desktop/src/main/core/hardware.js';
 import { buildCompletionPrompt } from '../../apps/desktop/src/main/core/code-agent/completion/fim.js';
+import { COMPLETION_DEBOUNCE_MS } from '../../apps/desktop/src/main/core/code-agent/completion/debounce.js';
 import { predictBudget } from '../../apps/desktop/src/main/core/code-agent/completion/windows.js';
 import { budgetForTier } from '../../apps/desktop/src/main/core/token-budget.js';
 
@@ -356,25 +366,30 @@ async function tabOnce(baseUrl: string, apiKey: string, signal?: AbortSignal): P
 }
 
 /**
- * What a keystroke actually sees. Every new keypress cancels the request in flight, so only
- * the last request of the burst is timed; abandoned ones are counted, not measured. Without
- * this the server kept generating text nobody wanted and p95 (340 ms) exceeded the target.
+ * What a keystroke actually sees. Keystrokes arrive no faster than the editor's own debounce,
+ * and each one cancels the request still in flight, so only the last request of the burst is
+ * timed; abandoned ones are counted, not measured. Spacing this tighter than the app does
+ * would measure a workload the user cannot produce.
  */
-async function tabBurst(baseUrl: string, apiKey: string, keystrokes = 3, gapMs = 40): Promise<{ ms: number; aborted: number }> {
+async function tabBurst(baseUrl: string, apiKey: string, keystrokes = 3, gapMs = COMPLETION_DEBOUNCE_MS): Promise<{ ms: number; aborted: number }> {
   let ms = -1;
   let aborted = 0;
   for (let i = 1; i <= keystrokes; i++) {
     const controller = new AbortController();
-    const settled = tabOnce(baseUrl, apiKey, controller.signal).then(
-      (value) => { ms = value; },
-      (error: unknown) => { if (i === keystrokes) throw error; },
+    let settled = false;
+    const request = tabOnce(baseUrl, apiKey, controller.signal).then(
+      (value) => { ms = value; settled = true; },
+      (error: unknown) => { settled = true; if (i === keystrokes) throw error; },
     );
     if (i < keystrokes) {
       await new Promise((resolve) => setTimeout(resolve, gapMs));
-      controller.abort();
-      aborted += 1;
+      // Only a request still running is cancelled; one that finished is simply replaced.
+      if (!settled) {
+        controller.abort();
+        aborted += 1;
+      }
     }
-    await settled;
+    await request;
   }
   if (ms < 0) throw new Error('Tab: the last request of the burst produced no result');
   return { ms: round(ms, 0), aborted };

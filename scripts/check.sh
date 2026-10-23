@@ -17,4 +17,15 @@ echo "== harness unit evals =="
 "$PY" harness/evals/test_eval_gate.py
 "$PY" harness/evals/test_screenshot.py
 
+# The VS Code extension is its own npm package (not a root workspace), so it
+# needs its own install before it can be compiled and tested.
+EXT="$ROOT/surf-ide/code-oss/extensions/surf-ai"
+echo "== surf-ai extension (compile + unit tests) =="
+if [ ! -d "$EXT/node_modules" ]; then
+  echo "-- installing $EXT dependencies --"
+  ( cd "$EXT" && npm ci --no-audit --no-fund )
+fi
+( cd "$EXT" && npm run compile --silent )
+( cd "$EXT" && npm test --silent )
+
 echo "OK scripts/check.sh"

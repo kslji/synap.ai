@@ -80,6 +80,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "compile:test": "tsc -p tsconfig.test.json",
+    "test": "npm run compile:test && node --test out-test/*.test.js",
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {

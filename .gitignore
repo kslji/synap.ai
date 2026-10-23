@@ -47,6 +47,8 @@ apps/desktop/.golden-tmp/
 !/surf-ide/code-oss/extensions/
 /surf-ide/code-oss/extensions/*
 !/surf-ide/code-oss/extensions/surf-ai/
+/surf-ide/code-oss/extensions/surf-ai/node_modules/
+/surf-ide/code-oss/extensions/surf-ai/out-test/
 
 # Parked, not deleted: the orchestrator stays out of commits until it's picked back up.
 services/ai-orchestrator/

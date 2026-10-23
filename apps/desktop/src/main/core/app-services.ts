@@ -76,7 +76,8 @@ import { readModeMap, projectMode, saveProjectMode } from './code-agent/mode-sto
 import { commandRisk } from './code-agent/permission.js'
 import { runSplitTask } from './code-agent/split.js'
 import { onlineCodeAgentTurn } from './code-agent/agent-route.js'
-import { gatedHistory, onlineContextAllowed, readOnlineConsent } from './code-agent/online-consent.js'
+import { gatedHistory, onlineContextAllowed, readOnlineConsent, withOnlineConsent, writeOnlineConsent } from './code-agent/online-consent.js'
+import { ONLINE_CONSENT_OFF_NOTE, ONLINE_CONSENT_ON_NOTE, conversationTurnRows, onlineContextTurns, renderOnlineContext } from './online-context.js'
 import { projectSearchFor } from './code-agent/project-search.js'
 import { bundledSystemRulesPath, loadSystemRulesSync } from './code-agent/system-rules.js'
 import { bundledSourcePath, readBundledManifest } from './bundled-models.js'
@@ -898,7 +899,7 @@ export async function createServices(): Promise<Services> {
         } catch { /* the heuristic counter stays inside the same budget */ }
       }
       const rules = loadSystemRulesSync(root, bundledSystemRulesPath(app.isPackaged, process.resourcesPath, app.getAppPath()))
-      const prior = priorMessages(conversationId, userMessageId, messageId)
+      const prior = conversationTurnRows(priorMessages(conversationId, userMessageId, messageId))
       const history: { user: string; assistant: string }[] = []
       for (let i = 0; i < prior.length; i++) {
         const next = prior[i + 1]
@@ -1260,7 +1261,17 @@ export async function createServices(): Promise<Services> {
     if (!model) return fallback('No online models are available right now. Try Offline.')
     if (signal.aborted) return
     const contextBlock = buildContextBlock(req.contextMessageIds ?? [], conversationId)
-    const prompt = contextBlock ? `${contextBlock}\n\n${req.text}` : req.text
+    // Item 12: this chat's earlier turns join the prompt only under the rule in
+    // online-context.ts. Rows the user pinned by hand are already a choice to send
+    // them, so they stay in contextBlock whatever the chip says.
+    const carried = onlineContextTurns(
+      priorMessages(conversationId, userMessageId, messageId),
+      onlineContextAllowed(readOnlineConsent(codeAgentDir()), conversationId),
+      req.contextMessageIds ?? [],
+    )
+    const historyBlock = renderOnlineContext(carried)
+    const blocks = [contextBlock, historyBlock].filter(Boolean)
+    const prompt = blocks.length ? `${blocks.join('\n\n')}\n\n${req.text}` : req.text
     const full = await gatewayChat({
       baseUrl: base,
       token,
@@ -1507,7 +1518,7 @@ export async function createServices(): Promise<Services> {
         decision = 'answer'
       }
 
-      const prior = priorMessages(conversationId, userMessageId, messageId)
+      const prior = conversationTurnRows(priorMessages(conversationId, userMessageId, messageId))
       const history: Turn[] = []
       for (let i = 0; i < prior.length; i++) {
         const next = prior[i + 1]
@@ -2158,6 +2169,29 @@ export async function createServices(): Promise<Services> {
         return { conversationId, messageId }
       },
       cancel(id) { inflight.get(id)?.abort() },
+      consent(conversationId) {
+        return {
+          conversationId,
+          allowed: onlineContextAllowed(readOnlineConsent(codeAgentDir()), conversationId),
+          note: '',
+        }
+      },
+      setConsent(req) {
+        const dir = codeAgentDir()
+        writeOnlineConsent(dir, withOnlineConsent(readOnlineConsent(dir), req.conversationId, req.allowed))
+        // The thread records the agreement, so a later reader knows why Online
+        // turns in this chat started quoting Offline replies.
+        const note = req.allowed ? ONLINE_CONSENT_ON_NOTE : ONLINE_CONSENT_OFF_NOTE
+        if (store.list().some((conversation) => conversation.id === req.conversationId)) {
+          store.append(req.conversationId, {
+            id: randomUUID(),
+            role: 'note',
+            text: note,
+            sources: [],
+          })
+        }
+        return { conversationId: req.conversationId, allowed: req.allowed, note }
+      },
     },
     models: { status, download, cancel: cancelDownload, benchmark, importLocal },
     speech: {

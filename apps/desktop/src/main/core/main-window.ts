@@ -5,9 +5,9 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type BenchmarkResult, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeCompleteReq, type CodeCompleteResult, type CodeEditorFile, type CodeEditorText, type CodeProjectStatus, type CodeStorageUsage, type CodeVisionCaptureResult, type CodeVisionSaveResult, type ConversationSummary, type DeviceInfo, type DocumentResult, type FileDecideReq, type FileFolderGrant, type FileGrantReq, type FileIndexLimits, type FileIndexLimitsReq, type FileOsDenialKind, type FileSuggestFolder, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage, type UpdateOffer, type UsageReport } from './ipc-contract.js'
+import { IPC, type AuthStatus, type BenchmarkResult, type ChatConsentState, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeCompleteReq, type CodeCompleteResult, type CodeEditorFile, type CodeEditorText, type CodeProjectStatus, type CodeStorageUsage, type CodeVisionCaptureResult, type CodeVisionSaveResult, type ConversationSummary, type DeviceInfo, type DocumentResult, type FileDecideReq, type FileFolderGrant, type FileGrantReq, type FileIndexLimits, type FileIndexLimitsReq, type FileOsDenialKind, type FileSuggestFolder, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage, type UpdateOffer, type UsageReport } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
-import { AttachmentId, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, FileDecideReq as FileDecideBody, FileGrantReq as FileGrantBody, FileLimitsReq, FileOsKind, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, SpeechWav, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
+import { AttachmentId, ChatConsentGet, ChatConsentSet, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, FileDecideReq as FileDecideBody, FileGrantReq as FileGrantBody, FileLimitsReq, FileOsKind, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, SpeechWav, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
 import { surfEnv } from './surf-env.js'
 import { NO_VOICE, startSpeak, stopSpeak } from './speech.js'
 
@@ -80,6 +80,9 @@ export interface Services {
   chat: {
     send(req: ParsedChat, win: BrowserWindow): Promise<{ conversationId: string; messageId: string }>
     cancel(id: string): void
+    /** Item 12: this chat's Online-context consent, and the change of it. */
+    consent(conversationId: string): ChatConsentState
+    setConsent(req: { conversationId: string; allowed: boolean }): ChatConsentState
   }
   models: {
     status(): Promise<ModelStatus>
@@ -227,6 +230,8 @@ export function unregisterIpc(): void {
 export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.chatSend, (e, raw) => { assertTrusted(e); return s.chat.send(ChatSendReq.parse(raw), win) })
   handle(IPC.chatCancel, (e, id) => { assertTrusted(e); if (typeof id === 'string') s.chat.cancel(id) })
+  handle(IPC.chatConsentGet, (e, raw) => { assertTrusted(e); return s.chat.consent(ChatConsentGet.parse(raw).conversationId) })
+  handle(IPC.chatConsentSet, (e, raw) => { assertTrusted(e); return s.chat.setConsent(ChatConsentSet.parse(raw)) })
   handle(IPC.settingsGet, (e) => { assertTrusted(e); return s.settings.get() })
   handle(IPC.settingsSet, (e, raw) => { assertTrusted(e); return s.settings.set(SettingsPatchSchema.parse(raw)) })
   handle(IPC.modelsStatus, (e) => { assertTrusted(e); return s.models.status() })

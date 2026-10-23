@@ -9,6 +9,8 @@ export const IPC = {
   chatSend: 'chat:send',
   chatCancel: 'chat:cancel',
   chatEvent: 'chat:event',
+  chatConsentGet: 'chat:consent-get',
+  chatConsentSet: 'chat:consent-set',
   modelsStatus: 'models:status',
   modelsDownload: 'models:download',
   modelsCancel: 'models:cancel',
@@ -228,6 +230,17 @@ export type GateName = 'answer' | 'borderline' | 'insufficient'
 
 /** Which model answered a turn: the local sidecar (offline) or the gateway (online). */
 export type ChatMode = 'online' | 'offline'
+
+/**
+ * Whether this chat has agreed to let an Online turn reuse its earlier Offline
+ * replies as context. Stored on the device, per chat, default false.
+ */
+export interface ChatConsentState {
+  conversationId: string
+  allowed: boolean
+  /** The line written into the thread when consent changed; '' on a plain read. */
+  note: string
+}
 
 export type ChatEvent =
   | { type: 'token'; messageId: string; text: string; mode?: ChatMode }
@@ -609,7 +622,8 @@ export interface DocumentEvent {
 
 export interface StoredMessage {
   id: string
-  role: 'user' | 'assistant'
+  /** 'note' rows are thread chrome (a consent was given or taken back), never model context. */
+  role: 'user' | 'assistant' | 'note'
   text: string
   sources: Citation[]
   gate?: GateName
@@ -714,6 +728,10 @@ export interface SurfApi {
   chat: {
     send(req: ChatSendReq): Promise<{ conversationId: string; messageId: string }>
     cancel(messageId: string): Promise<void>
+    /** Read this chat's Online-context consent. Absent means never given. */
+    getConsent(conversationId: string): Promise<ChatConsentState>
+    /** Grant or revoke it. The thread gets a note either way. */
+    setConsent(req: { conversationId: string; allowed: boolean }): Promise<ChatConsentState>
     onEvent(cb: (e: ChatEvent) => void): () => void
   }
   models: {

@@ -41,6 +41,8 @@ export function ChatScreen({
   botName = 'Surf',
   onBotName,
   modelLabel,
+  onlineConsent,
+  onOnlineConsent,
   tourAttach,
   onSend,
   shots = [],
@@ -79,6 +81,9 @@ export function ChatScreen({
   botName?: string
   onBotName?: (name: string) => void
   modelLabel: string
+  /** Item 12: has this chat agreed to let Online reuse its Offline replies? null = the chat is not saved yet, so there is nothing to agree to. */
+  onlineConsent: boolean | null
+  onOnlineConsent: (allowed: boolean) => void
   tourAttach: boolean
   onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[], opts?: { mode: ChatMode; contextMessageIds: string[] }) => void
   shots?: CodeShot[]
@@ -122,6 +127,8 @@ export function ChatScreen({
   const [mode, setMode] = useState<ChatMode>('offline')
   // Earlier message IDs the user pinned as explicit context for the next turn.
   const [contextIds, setContextIds] = useState<string[]>([])
+  // The consent question is asked in a dialog, never silently on a click.
+  const [askConsent, setAskConsent] = useState(false)
   const onlineAvailable = !status.offlineOnly
   const scroller = useRef<HTMLDivElement>(null)
   const wasStreaming = useRef(false)
@@ -322,6 +329,49 @@ export function ChatScreen({
                   Online
                 </button>
               </div>
+              {mode === 'online' && onlineConsent !== null && (
+                <>
+                  <button
+                    type="button"
+                    data-online-consent={onlineConsent ? 'on' : 'off'}
+                    aria-pressed={onlineConsent}
+                    title={onlineConsent
+                      ? 'Stop Online from using this chat’s Offline replies'
+                      : 'Let Online use this chat’s Offline replies as context'}
+                    onClick={() => { if (onlineConsent) onOnlineConsent(false); else setAskConsent(true) }}
+                    className="pill inline-flex items-center gap-1.5 text-xs"
+                  >
+                    <Cloud size={13} />
+                    {onlineConsent ? 'Reading this chat’s Offline replies' : 'Let Online read this chat’s Offline replies'}
+                  </button>
+                  {askConsent && (
+                    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-6" role="dialog" aria-modal="true" aria-label="Let Online read this chat’s Offline replies">
+                      <div className="card w-full max-w-md px-5 py-5">
+                        <h2 className="text-base font-semibold">Let Online read this chat’s Offline replies?</h2>
+                        <p className="mb-4 mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                          Today an Online turn sees only what you type in that turn and any message you
+                          pin by hand. If you agree, the earlier Offline questions and answers in
+                          <strong className="font-medium text-[var(--ink)]"> this chat only</strong> are sent
+                          to the cloud model as context, so it can answer follow-ups. Other chats are not
+                          affected, every message keeps its Online or Offline label, and the same chip
+                          takes the agreement back.
+                        </p>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" data-consent-cancel className="btn btn-ghost" onClick={() => setAskConsent(false)}>Not now</button>
+                          <button
+                            type="button"
+                            data-consent-accept
+                            className="btn btn-primary"
+                            onClick={() => { setAskConsent(false); onOnlineConsent(true) }}
+                          >
+                            Allow for this chat
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
               {contextIds.length > 0 && (
                 <div className="flex flex-wrap justify-center gap-2" data-context-chips="yes">
                   {contextIds.map((id) => {
@@ -563,10 +613,21 @@ function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onC
   const history = msg.versions ?? []
   const showingOld = versionAt != null && versionAt < history.length
   const shown = showingOld ? history[versionAt] ?? msg.text : msg.text
+  if (msg.role === 'note') {
+    return (
+      <div className="msg-in flex justify-center" data-consent-note="yes">
+        <p className="max-w-md rounded-full border border-[var(--line)] bg-[var(--card)] px-3 py-1 text-center text-xs leading-relaxed text-[var(--muted)]">{msg.text}</p>
+      </div>
+    )
+  }
   if (msg.role === 'user') {
     return (
       <div className="msg-in flex flex-col items-end gap-1" data-user-message="yes">
         <div className="user-bubble max-w-[80%] px-4 py-3 text-[15px] leading-relaxed">{msg.text}</div>
+        <span className="inline-flex items-center gap-1 text-[11px] text-[var(--muted)]" data-mode-badge={msg.mode ?? 'offline'} title={msg.mode === 'online' ? 'Sent to the Surf cloud gateway' : 'Sent to the local model on this device'}>
+          {msg.mode === 'online' ? <Cloud size={11} /> : <Cpu size={11} />}
+          {msg.mode === 'online' ? 'Online' : 'Offline'}
+        </span>
         {onAddContext && !msg.pending && (
           <button type="button" className="icon-quiet inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]" data-add-context="yes" aria-label="Add to context" title="Pin this message as context for the next reply" onClick={() => onAddContext(msg.id)}>
             <Pin size={13} /> Add to context
@@ -581,12 +642,11 @@ function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onC
       <div className="min-w-0 flex-1">
       <div className="assistant-name flex items-center gap-2" data-assistant-name="yes">
         {botName}
-        {msg.mode && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted)]" data-mode-badge={msg.mode} title={msg.mode === 'online' ? 'Answered by the Surf cloud gateway' : 'Answered locally on this device'}>
-            {msg.mode === 'online' ? <Cloud size={12} /> : <Cpu size={12} />}
-            {msg.mode === 'online' ? 'Online' : 'Offline'}
-          </span>
-        )}
+        {/* Item 12: every reply says which model answered it. No mode means the local model. */}
+        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted)]" data-mode-badge={msg.mode ?? 'offline'} title={(msg.mode ?? 'offline') === 'online' ? 'Answered by the Surf cloud gateway' : 'Answered locally on this device'}>
+          {msg.mode === 'online' ? <Cloud size={12} /> : <Cpu size={12} />}
+          {msg.mode === 'online' ? 'Online' : 'Offline'}
+        </span>
       </div>
       <div className="assistant-card">
         {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching your packs…</div>}

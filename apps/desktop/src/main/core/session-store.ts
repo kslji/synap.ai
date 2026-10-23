@@ -62,13 +62,15 @@ export class SessionStore {
           title: c.title,
           agentId: c.agentId,
           updatedAt: c.updatedAt,
-          preview: clipPreview(c.messages[c.messages.length - 1]?.text ?? ''),
+          // Item 12: thread notes are chrome, so the chat list keeps previewing the
+          // last thing the user asked or the model answered.
+          preview: clipPreview([...c.messages].reverse().find((message) => message.role !== 'note')?.text ?? ''),
         }))
         .sort((a, b) => b.updatedAt - a.updatedAt)
     }
     const rows = this.db.prepare(
       `SELECT c.id, c.title, c.agent_id AS agentId, c.updated_at AS updatedAt,
-        (SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS preview
+        (SELECT m.content FROM messages m WHERE m.conversation_id = c.id AND m.role <> 'note' ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS preview
        FROM conversations c ORDER BY c.updated_at DESC LIMIT 200`,
     ).all() as ConversationSummary[]
     return rows.map((row) => ({ ...row, preview: clipPreview(row.preview ?? '') }))
@@ -80,8 +82,8 @@ export class SessionStore {
       return { id, messages: c ? c.messages.map((m) => copyMessage(m)) : [] }
     }
     const rows = this.db.prepare(
-      'SELECT id, role, content, sources_json AS sourcesJson, gate, versions_json AS versionsJson, mode, context_refs_json AS contextRefsJson FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
-    ).all(id) as { id: string; role: 'user' | 'assistant'; content: string; sourcesJson: string; gate: GateName | null; versionsJson: string | null; mode: string | null; contextRefsJson: string | null }[]
+      'SELECT id, role, content, sources_json AS sourcesJson, gate, versions_json AS versionsJson, mode, context_refs_json AS contextRefsJson FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC',
+    ).all(id) as { id: string; role: 'user' | 'assistant' | 'note'; content: string; sourcesJson: string; gate: GateName | null; versionsJson: string | null; mode: string | null; contextRefsJson: string | null }[]
     return {
       id,
       messages: rows.map((r) => ({
@@ -107,7 +109,7 @@ export class SessionStore {
     }
     const row = this.db.prepare(
       'SELECT id, conversation_id AS conversationId, role, content, sources_json AS sourcesJson, gate, versions_json AS versionsJson, mode, context_refs_json AS contextRefsJson FROM messages WHERE id = ?',
-    ).get(id) as { id: string; conversationId: string; role: 'user' | 'assistant'; content: string; sourcesJson: string; gate: GateName | null; versionsJson: string | null; mode: string | null; contextRefsJson: string | null } | undefined
+    ).get(id) as { id: string; conversationId: string; role: 'user' | 'assistant' | 'note'; content: string; sourcesJson: string; gate: GateName | null; versionsJson: string | null; mode: string | null; contextRefsJson: string | null } | undefined
     if (!row) return null
     return {
       id: row.id,
@@ -160,7 +162,7 @@ export class SessionStore {
       'INSERT INTO messages (id, conversation_id, role, content, sources_json, gate, mode, context_refs_json, created_at, versions_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(message.id, conversationId, message.role, message.text, JSON.stringify(message.sources), message.gate ?? null, message.mode ?? 'offline', JSON.stringify(message.contextRefs ?? []), now, JSON.stringify(message.versions ?? []))
     this.db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
-    if (this.fts) this.indexFts(message.id, conversationId, message.text)
+    if (this.fts && message.role !== 'note') this.indexFts(message.id, conversationId, message.text)
   }
 
   /** Insert the assistant reply, or replace that same row when regenerating. */

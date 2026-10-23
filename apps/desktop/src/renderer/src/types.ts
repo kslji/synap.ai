@@ -19,7 +19,8 @@ export type View = 'onboarding' | 'setup' | 'home' | 'agents' | 'chats' | 'chat'
 
 export interface UiMsg {
   id: string
-  role: 'user' | 'assistant'
+  /** 'note' rows are thread chrome (a consent was given or taken back), never model context. */
+  role: 'user' | 'assistant' | 'note'
   text: string
   sources: StoredMessage['sources']
   pending?: boolean

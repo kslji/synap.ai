@@ -14,6 +14,8 @@ const api: SurfApi = {
   chat: {
     send: (req) => ipcRenderer.invoke(IPC.chatSend, req),
     cancel: (id) => ipcRenderer.invoke(IPC.chatCancel, id),
+    getConsent: (conversationId) => ipcRenderer.invoke(IPC.chatConsentGet, { conversationId }),
+    setConsent: (req) => ipcRenderer.invoke(IPC.chatConsentSet, req),
     onEvent: (cb) => subscribe<ChatEvent>(IPC.chatEvent, cb),
   },
   models: {

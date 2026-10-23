@@ -98,6 +98,9 @@ export default function App() {
   const [codeMode, setCodeMode] = useState<CodeAgentModeState | null>(null)
   const [tourStep, setTourStep] = useState<number | null>(null)
   const [messages, setMessages] = useState<UiMsg[]>([])
+  // Item 12: this chat's answer to "may Online read its Offline replies?".
+  // null = the chat has no stored thread yet, so the question does not apply.
+  const [onlineConsent, setOnlineConsent] = useState<boolean | null>(null)
   const [shots, setShots] = useState<CodeShot[]>([])
   const [streaming, setStreaming] = useState(false)
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
@@ -276,6 +279,21 @@ export default function App() {
     if (next) setView(next.view)
   }, [tourStep])
 
+  // Consent belongs to one chat, so opening a chat reads that chat's flag from the
+  // main process rather than keeping a copy in the renderer.
+  useEffect(() => {
+    if (!conversationId) {
+      setOnlineConsent(null)
+      return
+    }
+    let live = true
+    setOnlineConsent(null)
+    api.chat.getConsent(conversationId)
+      .then((state) => { if (live) setOnlineConsent(state.allowed) })
+      .catch(() => { if (live) setOnlineConsent(false) })
+    return () => { live = false }
+  }, [api, conversationId])
+
   function chooseTheme(theme: ThemeChoice) {
     persistThemeChoice(theme)
     void patch({ theme })
@@ -423,6 +441,22 @@ export default function App() {
     setShots([])
     setMessages(opened.messages.map((m) => fromStored(m)))
     setView('chat')
+  }
+
+  /** Item 12: grant or take back this chat's Online context, and show the note. */
+  async function answerOnlineConsent(allowed: boolean) {
+    if (!conversationId) return
+    try {
+      const state = await api.chat.setConsent({ conversationId, allowed })
+      setOnlineConsent(state.allowed)
+      // The note is stored in the thread; mirror it here so the agreement is visible
+      // at once instead of waiting for the next reply to reload the chat.
+      if (state.note) {
+        setMessages((list) => [...list, { id: `n-${Date.now()}`, role: 'note', text: state.note, sources: [], tools: [] }])
+      }
+    } catch (e) {
+      setError((e as Error).message)
+    }
   }
 
   async function launchCodeIde() {
@@ -1092,6 +1126,8 @@ export default function App() {
           botName={settings.mascotName || 'Surf'}
           onBotName={(mascotName) => { void patch({ mascotName }) }}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
+          onlineConsent={onlineConsent}
+          onOnlineConsent={(allowed) => { void answerOnlineConsent(allowed) }}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
           onSend={(t, images, opts) => { void send(t, images, opts) }}
           shots={agentId === 'code' ? shots : []}

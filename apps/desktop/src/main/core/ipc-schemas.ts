@@ -60,6 +60,12 @@ export const ModelId = z.string().min(1).max(80)
 export const ConversationId = z.string().uuid()
 export const JobId = z.string().uuid()
 export const AttachmentId = z.string().uuid()
+/** Item 12: read and change one chat's Online-context consent. */
+export const ChatConsentGet = z.object({ conversationId: ConversationId })
+export const ChatConsentSet = z.object({
+  conversationId: ConversationId,
+  allowed: z.boolean(),
+})
 export const LibraryPick = z.object({
   conversationId: z.string().uuid().nullable(),
   createConversation: z.boolean().default(false),

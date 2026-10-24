@@ -7,7 +7,7 @@ import { sqliteSkipReason } from './native-test-support.js'
 import { chunkBlocks, CHUNK_OVERLAP, CHUNK_TARGET } from './chunker.js'
 import { convertBytes } from './convert.js'
 import { openUserDb } from './db.js'
-import { EMBEDDINGGEMMA2_256, formatDoc, formatQuery, truncateNormalize } from './embedding.js'
+import { JINA_CODE_256, formatDoc, formatQuery, truncateNormalize } from './embedding.js'
 import { addBytes, deleteAttachment, listFiles, saveChunks } from './library-store.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
 import { documentGate, isDevanagariQuery, rrfScore, type Hit } from './retrieval.js'
@@ -48,10 +48,18 @@ test('chunks keep headings, pages, and overlap', () => {
   assert.equal(sheet[0].locatorLabel, 'Warehouse')
 })
 
-test('embedding prefixes and matryoshka normalisation', () => {
-  assert.equal(formatQuery(EMBEDDINGGEMMA2_256, '  pier 4 '), 'task: search result | query: pier 4')
-  assert.equal(formatDoc(EMBEDDINGGEMMA2_256, '', 'hello'), 'title: none | text: hello')
-  assert.equal(formatDoc(EMBEDDINGGEMMA2_256, 'Ferry', 'leaves at dawn'), 'title: Ferry | text: leaves at dawn')
+test('embedding spec: no query prefix, and a title line only when there is a title', () => {
+  assert.equal(JINA_CODE_256.id, 'jina-embeddings-v2-base-code@256')
+  assert.equal(JINA_CODE_256.model, 'jinaai/jina-embeddings-v2-base-code')
+  assert.equal(JINA_CODE_256.gguf, 'jina-embeddings-v2-base-code-Q5_K_M.gguf')
+  assert.equal(JINA_CODE_256.nativeDim, 768)
+  assert.equal(JINA_CODE_256.dim, 256)
+  assert.equal(JINA_CODE_256.queryPrefix, '')
+  assert.equal(formatQuery(JINA_CODE_256, '  pier 4 '), 'pier 4')
+  assert.equal(formatDoc(JINA_CODE_256, '', 'hello'), 'hello')
+  assert.equal(formatDoc(JINA_CODE_256, '   ', 'hello'), 'hello')
+  assert.equal(formatDoc(JINA_CODE_256, 'Ferry', 'leaves at dawn'), 'Ferry\nleaves at dawn')
+  assert.equal(formatDoc(JINA_CODE_256, 'Ferry\n  Deck', '  leaves at dawn  '), 'Ferry Deck\nleaves at dawn')
   const raw = new Array(768).fill(0)
   raw[0] = 3
   raw[1] = 4

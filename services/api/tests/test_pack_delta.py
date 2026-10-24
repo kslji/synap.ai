@@ -48,8 +48,8 @@ def test_feed_parsers_read_sitemap_rss_arxiv_and_huggingface():
     assert parse_sitemap(SITEMAP)[0]["url"] == "https://example.com/harbor"
     assert parse_rss(RSS)[0]["title"] == "Harbor notice"
     assert parse_arxiv(ARXIV)[0]["url"] == "https://arxiv.org/abs/1"
-    rows = parse_hf([{"id": "google/embeddinggemma-2", "pipeline_tag": "feature-extraction", "lastModified": "2026-10-01"}])
-    assert rows[0]["url"] == "https://huggingface.co/google/embeddinggemma-2"
+    rows = parse_hf([{"id": "jinaai/jina-embeddings-v2-base-code", "pipeline_tag": "feature-extraction", "lastModified": "2026-10-01"}])
+    assert rows[0]["url"] == "https://huggingface.co/jinaai/jina-embeddings-v2-base-code"
     assert parse_feed("sitemap", SITEMAP)[0]["published"] == "2026-10-16"
 
 

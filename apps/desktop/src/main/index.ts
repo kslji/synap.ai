@@ -12,7 +12,7 @@ import { createMainWindow, preloadAndHtml, registerIpc } from './core/main-windo
 import { openUserDb } from './core/db'
 import { LlamaServer, resolveSidecar } from './core/sidecar-manager'
 import { LlamaClient } from './core/llama-client'
-import { Embedder, EMBEDDINGGEMMA2_256 } from './core/embedding'
+import { Embedder, JINA_CODE_256 } from './core/embedding'
 import { indexFile } from './core/ingest'
 import { shutdownOcr } from './core/ocr'
 import { LIBRARY_MIGRATION } from './core/library-schema'
@@ -95,9 +95,9 @@ async function selfTest(): Promise<void> {
     return `23.7*17.5=${(a as { result: string }).result}; 14 knots=${(b as { result: string }).result}`
   })
 
-  const embGguf = join(models, EMBEDDINGGEMMA2_256.gguf)
+  const embGguf = join(models, JINA_CODE_256.gguf)
   let ferrySource: { title: string; text: string } | null = null
-  await step(r, 'llama-server sidecar: EmbeddingGemma 2 (256-d)', async () => {
+  await step(r, 'llama-server sidecar: Jina code embeddings (256-d)', async () => {
     if (!existsSync(embGguf)) throw new Error(`missing ${embGguf}`)
     const srv = new LlamaServer({ binPath: bin, modelPath: embGguf, embeddings: true, pooling: 'mean', ctx: 2048, logFile: join(ud, 'embed.log') })
     await srv.start()

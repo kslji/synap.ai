@@ -22,7 +22,7 @@ test('the generic Qwen 4B row is the file the first-run card offers', () => {
 test('a file with the registry size selects that model, and any other GGUF stays local', () => {
   const models: RegistryFile[] = [
     { id: STARTER_CHAT_MODEL_ID, role: 'chat', size_bytes: 100, file: 'Qwen3.5-2B-Q4_K_M.gguf' },
-    { id: 'embeddinggemma-2-text-q8_0', role: 'embedding', size_bytes: 50, file: 'embeddinggemma-2-Q8_0.gguf' },
+    { id: 'jina-embeddings-v2-base-code-q5_k_m', role: 'embedding', size_bytes: 50, file: 'jina-embeddings-v2-base-code-Q5_K_M.gguf' },
   ]
   const matched = planLocalGguf({ sourcePath: '/models/Qwen3.5-2B-Q4_K_M.gguf', bytes: 100, models })
   assert.equal(matched.modelId, STARTER_CHAT_MODEL_ID)

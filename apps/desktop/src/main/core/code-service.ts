@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { basename, join } from 'node:path'
 import type { CodeEmbedder } from './code/embed.js'
 import { CodeIndex, dbFileBytes, projectIdFor, type CodeProjectStatus } from './code/project.js'
+import type { Reranker } from './code/search.js'
 import type { CodeStorageUsage } from './ipc-contract.js'
 
 interface Grant {
@@ -38,6 +39,8 @@ export function createCodeService(opts: {
   keyHex: string | null
   grammarDir: string
   embedder: () => Promise<CodeEmbedder | null>
+  /** The `--reranking` sidecar. Null/absent keeps the zero-memory boosts. */
+  ranker?: () => Promise<Reranker | null>
   notify: (status: CodeProjectStatus) => void
 }): CodeApi {
   mkdirSync(opts.dataDir, { recursive: true })
@@ -75,6 +78,7 @@ export function createCodeService(opts: {
     const id = projectIdFor(real)
     if (current && current.id === id) {
       current.setEmbedder(await opts.embedder())
+      current.setRanker(await opts.ranker?.().catch(() => null) ?? null)
       remember(id, real)
       kick(current, generation)
       return current.status()
@@ -88,6 +92,8 @@ export function createCodeService(opts: {
       return null
     })
     if (gen !== generation) throw new Error('project open superseded')
+    const ranker = await opts.ranker?.().catch(() => null) ?? null
+    if (gen !== generation) throw new Error('project open superseded')
     mkdirSync(join(opts.dataDir, id), { recursive: true })
     const index = new CodeIndex({
       root: real,
@@ -95,6 +101,7 @@ export function createCodeService(opts: {
       keyHex: opts.keyHex,
       grammarDir: opts.grammarDir,
       embedder,
+      ranker,
       onProgress: (status) => { if (gen === generation) opts.notify(status) },
     })
     current = index

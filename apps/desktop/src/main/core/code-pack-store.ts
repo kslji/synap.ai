@@ -1,6 +1,6 @@
 /**
  * Keyword index for the Code pack. Vectors are not stored here.
- * EmbeddingGemma builds a separate cache on the device.
+ * Jina code embeddings builds a separate cache on the device.
  */
 import Database from 'better-sqlite3-multiple-ciphers'
 import type { DB } from './db.js'

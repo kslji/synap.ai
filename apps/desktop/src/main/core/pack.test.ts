@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { EMBEDDINGGEMMA2_256 } from './embedding.js'
+import { JINA_CODE_256 } from './embedding.js'
 import { commitInstall, readInstalled } from './pack-install.js'
 import { canSwapPack, downloadFile, fetchPackUpdates, packAutoSyncAllowed, shouldSync, DEFAULT_SYNC_MS } from './pack-sync.js'
 import { verifyPack, type PackManifest, type TrustedKeys } from './pack-verify.js'
@@ -27,15 +27,15 @@ function signedPack(dir: string, fileBody: Buffer, key: KeyObject, keyId = 'k-te
     created_at: '2026-10-09T00:00:00Z',
     min_app_version: '0.1.0',
     embedding: {
-      id: EMBEDDINGGEMMA2_256.id,
-      model: EMBEDDINGGEMMA2_256.model,
-      file: EMBEDDINGGEMMA2_256.gguf,
-      native_dim: EMBEDDINGGEMMA2_256.nativeDim,
-      dim: EMBEDDINGGEMMA2_256.dim,
+      id: JINA_CODE_256.id,
+      model: JINA_CODE_256.model,
+      file: JINA_CODE_256.gguf,
+      native_dim: JINA_CODE_256.nativeDim,
+      dim: JINA_CODE_256.dim,
       pooling: 'mean',
       normalize: true,
-      query_prefix: EMBEDDINGGEMMA2_256.queryPrefix,
-      doc_template: EMBEDDINGGEMMA2_256.docTemplate,
+      query_prefix: JINA_CODE_256.queryPrefix,
+      doc_template: JINA_CODE_256.docTemplate,
     },
     chunking: { target_tokens: 250, overlap_tokens: 40 },
     files: [{ name: 'pack.sqlite', role: 'index', size: fileBody.length, sha256: digest, url: 'https://packs.invalid/pack.sqlite' }],
@@ -64,7 +64,7 @@ test('a signed pack verifies, and tamper or the wrong key is rejected', async ()
   try {
     const good = join(root, 'good')
     const { keys } = signedPack(good, Buffer.from('pack-bytes'), privateKey)
-    const manifest = await verifyPack(good, { trustedKeys: keys, expectedEmbedding: EMBEDDINGGEMMA2_256 })
+    const manifest = await verifyPack(good, { trustedKeys: keys, expectedEmbedding: JINA_CODE_256 })
     assert.equal(manifest.pack_id, 'general-starter')
 
     const tamperedManifest = join(root, 'bad-manifest')
@@ -72,7 +72,7 @@ test('a signed pack verifies, and tamper or the wrong key is rejected', async ()
     const raw = readFileSync(join(tamperedManifest, 'manifest.json'), 'utf8').replace('general-starter', 'general-starterx')
     writeFileSync(join(tamperedManifest, 'manifest.json'), raw)
     await assert.rejects(
-      () => verifyPack(tamperedManifest, { trustedKeys: keys, expectedEmbedding: EMBEDDINGGEMMA2_256 }),
+      () => verifyPack(tamperedManifest, { trustedKeys: keys, expectedEmbedding: JINA_CODE_256 }),
       /bad pack signature/,
     )
 
@@ -80,13 +80,13 @@ test('a signed pack verifies, and tamper or the wrong key is rejected', async ()
     signedPack(tamperedFile, Buffer.from('pack-bytes'), privateKey)
     writeFileSync(join(tamperedFile, 'pack.sqlite'), Buffer.from('tampered!!'))
     await assert.rejects(
-      () => verifyPack(tamperedFile, { trustedKeys: keys, expectedEmbedding: EMBEDDINGGEMMA2_256 }),
+      () => verifyPack(tamperedFile, { trustedKeys: keys, expectedEmbedding: JINA_CODE_256 }),
       /sha256 mismatch/,
     )
 
     const wrong = generateKeyPairSync('ed25519')
     await assert.rejects(
-      () => verifyPack(good, { trustedKeys: { 'k-test': publicHex(wrong.publicKey) }, expectedEmbedding: EMBEDDINGGEMMA2_256 }),
+      () => verifyPack(good, { trustedKeys: { 'k-test': publicHex(wrong.publicKey) }, expectedEmbedding: JINA_CODE_256 }),
       /bad pack signature/,
     )
   } finally {
@@ -104,7 +104,7 @@ test('a failed install restores the previous version', async () => {
     created_at: '2026-10-09T00:00:00Z',
     min_app_version: '0.1.0',
     embedding: {
-      id: 'embeddinggemma-2-text@256', model: 'google/embeddinggemma-2', file: 'embeddinggemma-2-Q8_0.gguf',
+      id: 'jina-embeddings-v2-base-code@256', model: 'jinaai/jina-embeddings-v2-base-code', file: 'jina-embeddings-v2-base-code-Q5_K_M.gguf',
       native_dim: 768, dim: 256, pooling: 'mean', normalize: true,
       query_prefix: 'task: search result | query: ', doc_template: 'title: {title} | text: {text}',
     },

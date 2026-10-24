@@ -47,6 +47,18 @@ test('a sidecar that cannot be executed rejects without an uncaught exception', 
   }
 })
 
+test('a reranker sidecar runs with rank pooling and its own micro-batch', () => {
+  const server = new LlamaServer({ binPath: 'llama-server', modelPath: 'rerank.gguf', reranking: true, ctx: 2048 })
+  const args = server.args()
+  assert.ok(args.includes('--reranking'))
+  assert.equal(args[args.indexOf('--pooling') + 1], 'rank')
+  assert.equal(args[args.indexOf('-ub') + 1], '2048')
+  assert.equal(args[args.indexOf('-b') + 1], '2048')
+  // A reranker must not claim the chat template: it never serves completions.
+  assert.equal(args.includes('--jinja'), false)
+  assert.equal(args.includes('--embeddings'), false)
+})
+
 test('llama-server starts with --no-repack and -cram 0', () => {
   const server = new LlamaServer({ binPath: 'llama-server', modelPath: 'model.gguf', ctx: 8192 })
   const args = server.args()

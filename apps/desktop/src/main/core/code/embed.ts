@@ -1,6 +1,6 @@
 /**
  * Embeddings for code chunks.
- * Production uses EmbeddingGemma 2 through the existing Embedder (prefixes, 256-d, L2).
+ * Production uses Jina code embeddings through the existing Embedder (prefixes, 256-d, L2).
  * Tests use a deterministic hashed bag-of-tokens so ranking does not need the model.
  */
 import { EMBEDDING_DIM } from './embed-dim.js'
@@ -38,7 +38,7 @@ export function hashEmbedder(dim = EMBEDDING_DIM): CodeEmbedder {
   }
 }
 
-/** Adapter: the app's EmbeddingGemma client already applies the model-card prefixes. */
+/** Adapter: the app's Jina code embeddings client already applies the model-card prefixes. */
 export function gemmaEmbedder(embedder: Embedder): CodeEmbedder {
   return {
     dim: embedder.spec.dim,

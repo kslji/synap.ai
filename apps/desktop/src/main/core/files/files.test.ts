@@ -446,7 +446,7 @@ test('file answers lead with the passage and cite only markers that appear', () 
   assert.equal(named.citations.length, 1)
 })
 
-test('hash embedder is temporary until EmbeddingGemma is installed', async () => {
+test('hash embedder is temporary until Jina code embeddings is installed', async () => {
   const dir = mkdtempSync(join(TEST_TMP, 'surf-embed-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
@@ -473,7 +473,7 @@ test('hash embedder is temporary until EmbeddingGemma is installed', async () =>
   }
 })
 
-test('EmbeddingGemma re-embeds a fallback folder and a failed pass leaves the old vectors', async () => {
+test('Jina code embeddings re-embeds a fallback folder and a failed pass leaves the old vectors', async () => {
   const dir = mkdtempSync(join(TEST_TMP, 'surf-reembed-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)

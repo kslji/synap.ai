@@ -1,6 +1,6 @@
 """Build and sign a knowledge pack from a folder of text files.
 
-Embeddings come from llama-server running the same EmbeddingGemma 2 GGUF the
+Embeddings come from llama-server running the same Jina code embeddings GGUF the
 desktop uses. The signing seed is PACK_SIGNING_KEY_HEX or --key-hex. Never
 commit that seed.
 
@@ -29,9 +29,9 @@ if str(HARNESS_ROOT) not in sys.path:
 from core.pack_gate import assert_can_sign  # noqa: E402
 
 SPEC = {
-    "id": "embeddinggemma-2-text@256",
-    "model": "google/embeddinggemma-2",
-    "file": "embeddinggemma-2-Q8_0.gguf",
+    "id": "jina-embeddings-v2-base-code@256",
+    "model": "jinaai/jina-embeddings-v2-base-code",
+    "file": "jina-embeddings-v2-base-code-Q5_K_M.gguf",
     "native_dim": 768,
     "dim": 256,
     "pooling": "mean",

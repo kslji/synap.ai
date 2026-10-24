@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openPackDb } from './db.js'
-import { EMBEDDINGGEMMA2_256, Embedder } from './embedding.js'
+import { JINA_CODE_256, Embedder } from './embedding.js'
 import { LlamaClient } from './llama-client.js'
 import { LlamaServer } from './sidecar-manager.js'
 import { commitInstall } from './pack-install.js'
@@ -91,7 +91,7 @@ export async function provePack(opts: {
     }
     const manifest = await verifyPack(staging, {
       trustedKeys: { 'k-selftest': pub },
-      expectedEmbedding: EMBEDDINGGEMMA2_256,
+      expectedEmbedding: JINA_CODE_256,
     })
     const installedRoot = join(work, 'installed')
     const finalDir = await commitInstall(staging, installedRoot, manifest, pack.title)

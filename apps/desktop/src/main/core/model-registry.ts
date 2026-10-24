@@ -16,7 +16,7 @@ const FileRef = z.object({
 
 export const ModelEntry = FileRef.extend({
   id: z.string(),
-  role: z.enum(['chat', 'embedding', 'asr', 'vad']),
+  role: z.enum(['chat', 'embedding', 'reranker', 'asr', 'vad']),
   family: z.string(),
   license: z.string(),
   params_b: z.number().optional(),
@@ -28,7 +28,9 @@ export const ModelEntry = FileRef.extend({
   query_prefix: z.string().optional(),
   doc_template: z.string().optional(),
   spec_id: z.string().optional(), // embedding compatibility key (embedding.ts)
-  min_llama_cpp_build: z.number().int().optional(), // e.g. 11452 = first llama.cpp release with gemma-embedding2
+  min_llama_cpp_build: z.number().int().optional(), // e.g. 11452 = first llama.cpp release with the jina embedding architecture
+  /** True when the file ships with every offline chat download (the embedding and reranker models). */
+  bundled_with_chat: z.boolean().optional(),
   mmproj: FileRef.optional(),
   min_ram_gb: z.number(),
   /** Measured process peak, when we have one. */

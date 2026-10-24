@@ -39,7 +39,7 @@ function fixture(os: 'mac' | 'windows'): {
     url: 'https://example.invalid/qwen',
   }
   const embedding: SetupEmbed = {
-    id: 'embeddinggemma-2-text-q8_0',
+    id: 'jina-embeddings-v2-base-code-q5_k_m',
     name: 'Search model',
     file: 'embed.gguf',
     sizeBytes: embedBody.length,

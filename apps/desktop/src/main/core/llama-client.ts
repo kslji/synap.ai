@@ -65,10 +65,31 @@ export class LlamaClient {
   }
 
   /** Raw /v1/embeddings call (llama-server L2-normalises the full vector). Use embedding.ts `Embedder`,
-   *  which adds the EmbeddingGemma 2 prefixes and does Matryoshka truncation + re-normalisation. */
+   *  which adds the Jina code embeddings prefixes and does Matryoshka truncation + re-normalisation. */
   async embed(texts: string[]): Promise<Float32Array[]> {
     const j = await this.post<{ data: { index: number; embedding: number[] }[] }>('/v1/embeddings', { input: texts, model: 'embed' });
     return j.data.sort((a, b) => a.index - b.index).map((d) => Float32Array.from(d.embedding));
+  }
+
+  /**
+   * Cross-encoder rerank scores in the order the documents were sent, from the `--reranking` sidecar.
+   * Any HTTP or shape problem throws; callers keep their RRF order rather than failing a search.
+   */
+  async rerank(query: string, documents: string[]): Promise<number[]> {
+    const j = await this.post<{ results?: { index: number; relevance_score: number }[] }>('/v1/rerank', {
+      model: 'rerank',
+      query,
+      documents,
+      top_n: documents.length,
+    });
+    const results = j.results ?? [];
+    if (results.length !== documents.length) throw new Error(`reranker returned ${results.length} scores for ${documents.length} documents`);
+    const out = new Array<number>(documents.length).fill(0);
+    for (const row of results) {
+      if (!Number.isFinite(row.relevance_score) || row.index < 0 || row.index >= documents.length) throw new Error('reranker returned a bad row');
+      out[row.index] = row.relevance_score;
+    }
+    return out;
   }
 
   private chatBody(messages: ChatMessage[], tools: readonly unknown[] | undefined, maxTokens: number, stream: boolean, extras?: ChatCompletionExtras) {

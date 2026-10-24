@@ -8,7 +8,7 @@ import { pickChatModel, type ChatRow } from './pick.js';
 const registry: ChatRow[] = [
   { id: 'qwen3.5-2b-q4_k_m', file: 'Qwen3.5-2B-Q4_K_M.gguf', size_bytes: 1_280_835_840, min_ram_gb: 8, tiers: [0, 1, 2, 3], context_default: 8192, default_for: ['*'] },
   { id: 'qwen3.5-4b-q4_k_m', file: 'Qwen3.5-4B-Q4_K_M.gguf', size_bytes: 3_050_793_408, min_ram_gb: 8, tiers: [0, 1, 2, 3], context_default: 8192 },
-  { id: 'embeddinggemma-300m-qat-q8', file: 'embeddinggemma-300m-qat-Q8_0.gguf', size_bytes: 309_855_520, min_ram_gb: 2, tiers: [0, 1, 2, 3] },
+  { id: 'jina-embeddings-v2-base-code-q5_k_m', file: 'jina-embeddings-v2-base-code-Q5_K_M.gguf', size_bytes: 121_387_072, min_ram_gb: 2, tiers: [0, 1, 2, 3] },
 ];
 
 test('a plain bench measures the 2B the app ships, not the largest file that fits', () => {

@@ -338,7 +338,7 @@ export interface CodeAgentSetModeResult {
 
 export interface CatalogModel {
   id: string
-  role: 'chat' | 'embedding' | 'asr' | 'vad'
+  role: 'chat' | 'embedding' | 'reranker' | 'asr' | 'vad'
   label: string
   family: string
   /** Picker size token, such as 2B or E2B. */
@@ -699,7 +699,7 @@ export interface PackRow {
   /** Code pack: bytes of the signed files. Omitted for other packs. */
   sizeBytes?: number | null
   sources?: { title: string; version: string; licence: string; url: string }[]
-  /** 0 to 1 while EmbeddingGemma builds the local cache. */
+  /** 0 to 1 while Jina code embeddings builds the local cache. */
   indexProgress?: number | null
   indexState?: 'pending' | 'indexing' | 'ready' | 'off' | 'error' | 'blocked'
   updatedAt?: string | null

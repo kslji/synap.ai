@@ -16,7 +16,7 @@ test('first launch uses the one chat model on every tier and skips when both fil
   for (const tier of [0, 1, 2, 3]) {
     const plan = firstLaunchPlan({ tier, registry, installed: none })
     assert.equal(plan.chat.id, 'qwen3.5-2b-q4_k_m')
-    assert.equal(plan.embed.id, 'embeddinggemma-2-text-q8_0')
+    assert.equal(plan.embed.id, 'jina-embeddings-v2-base-code-q5_k_m')
     assert.equal(plan.skip, false)
   }
   const present = firstLaunchPlan({ tier: 1, registry, installed: () => true })

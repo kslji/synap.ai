@@ -1,6 +1,6 @@
 /**
  * Hybrid search over the Code pack.
- * Keyword: FTS5. Vector: the on-device EmbeddingGemma cache, when it exists.
+ * Keyword: FTS5. Vector: the on-device Jina code embeddings cache, when it exists.
  * Ranks are fused with the same reciprocal-rank function as other packs, then
  * the heading boost from the project index (there is no cross-encoder reranker
  * in this build).

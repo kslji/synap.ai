@@ -1,17 +1,16 @@
 """
-EmbeddingGemma 2 embedding spec shared by the server pipeline and (mirrored in ts/embedding.ts) the desktop.
+Jina code embeddings spec shared by the server pipeline and (mirrored in ts/embedding.ts) the desktop.
 
-Same model + same 256-d Matryoshka truncation + same prefixes on both sides, or the app refuses the pack.
+Same model + same 256-d Matryoshka truncation + same document template on both sides, or the app refuses the pack.
 
 Two interchangeable backends:
   * "llama"  (default)  - llama-server with the SAME GGUF the desktop downloads (bit-for-bit same math path).
-        llama-server -m embeddinggemma-2-Q8_0.gguf --embeddings --pooling mean -c 2048 -b 2048 -ub 2048 --port 8081
-        (llama.cpp >= b11452; older builds fail with "unknown model architecture: 'gemma-embedding2'")
-  * "st"  - sentence-transformers >= 6.1.0 on the original weights (GPU batches on Kaggle/Colab). Text-only:
-        SentenceTransformer('google/embeddinggemma-2', config_kwargs={'vision_config': None, 'audio_config': None})
-        pip install "sentence-transformers>=6.1.0" torch torchvision pillow   (the processor imports torchvision/PIL
-        even for text-only use). Use bfloat16 on GPUs that support it, float32 on CPU. NEVER float16 (NaN).
-        Measured on 9 Oct 2026: GGUF Q8_0 vs float32 weights -> cosine >= 0.999 on our test texts (see LAST_RUN).
+        llama-server -m jina-embeddings-v2-base-code-Q5_K_M.gguf --embeddings --pooling mean -c 2048 -b 2048 -ub 2048 --port 8081
+        (llama.cpp >= b11452; older builds fail with "unknown model architecture: 'jina-bert-v2'")
+  * "st"  - sentence-transformers on the original weights (GPU batches on Kaggle/Colab).
+        SentenceTransformer('jinaai/jina-embeddings-v2-base-code', trust_remote_code=True). Use bfloat16 on GPUs
+        that support it, float32 on CPU. NEVER float16 (NaN).
+        The model was trained with Matryoshka loss, so the first 256 dims are usable on their own once re-normalised.
 
 pip install httpx numpy   (+ the "st" extras above if you use that backend)
 """
@@ -25,15 +24,15 @@ import httpx
 
 @dataclass(frozen=True)
 class EmbeddingSpec:
-    id: str = "embeddinggemma-2-text@256"
-    model: str = "google/embeddinggemma-2"
-    file: str = "embeddinggemma-2-Q8_0.gguf"
+    id: str = "jina-embeddings-v2-base-code@256"
+    model: str = "jinaai/jina-embeddings-v2-base-code"
+    file: str = "jina-embeddings-v2-base-code-Q5_K_M.gguf"
     native_dim: int = 768
     dim: int = 256
     pooling: str = "mean"
     normalize: bool = True
-    query_prefix: str = "task: search result | query: "
-    doc_template: str = "title: {title} | text: {text}"
+    query_prefix: str = ""
+    doc_template: str = "{title}\n{text}"
 
     def manifest(self) -> dict:
         """Exactly what goes into manifest.json["embedding"] (checked by ts/pack-verify.ts)."""
@@ -48,8 +47,10 @@ def format_query(q: str, spec: EmbeddingSpec = SPEC) -> str:
 
 
 def format_doc(title: str | None, text: str, spec: EmbeddingSpec = SPEC) -> str:
-    t = " ".join(title.split()) if title and title.strip() else "none"
-    return spec.doc_template.replace("{title}", t).replace("{text}", text.strip())
+    """Title line first, and only when there is a title: bare text otherwise."""
+    head = " ".join(title.split()) if title and title.strip() else ""
+    doc = spec.doc_template.replace("{title}", head).replace("{text}", text.strip())
+    return doc if head else doc.lstrip("\n")
 
 
 def truncate_normalize(v: list[float], dim: int) -> list[float]:
@@ -90,15 +91,14 @@ class LlamaEmbedder:
 
 
 class STEmbedder:
-    """Same spec on the original weights (GPU). Text-only 270M backbone; vision/audio encoders not loaded."""
+    """Same spec on the original weights (GPU)."""
 
     def __init__(self, spec: EmbeddingSpec = SPEC, device: str | None = None):
         import torch
         from sentence_transformers import SentenceTransformer
         bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
         self.spec = spec
-        self.model = SentenceTransformer(spec.model, device=device,
-                                         config_kwargs={"vision_config": None, "audio_config": None},
+        self.model = SentenceTransformer(spec.model, device=device, trust_remote_code=True,
                                          model_kwargs={"torch_dtype": torch.bfloat16 if bf16 else torch.float32})
 
     def _run(self, inputs: list[str]) -> list[list[float]]:

@@ -1,6 +1,6 @@
 /**
- * First open shows the default model (Qwen 2B). Download fetches that file and
- * EmbeddingGemma. Pause keeps the .part file. A Downloads copy is used only
+ * First open shows the default model (Qwen 2B). Download fetches that file, the Jina code
+ * embeddings and the Jina reranker. Pause keeps the .part file. A Downloads copy is used only
  * when the person asks.
  */
 import { mkdirSync } from 'node:fs'
@@ -28,6 +28,8 @@ export interface SetupHost {
   ramGb: () => number
   catalog: () => SetupModel[]
   embedding: () => SetupEmbed
+  /** The cross-encoder. Null when this build ships none: search falls back to the boosts. */
+  reranker?: () => SetupEmbed | null
   /** Pass sha256 to require a checksum. Size alone treats a same-size corrupt file as installed. */
   isInstalled: (file: string, size: number, sha256?: string) => Promise<boolean>
   inDownloads: (file: string, size: number, sha256: string) => Promise<boolean>
@@ -91,7 +93,7 @@ export function createSetupController(host: SetupHost) {
       ...EMPTY,
       phase: 'pick',
       ramGb: ramGb > 0 ? ramGb : null,
-      choices: setupChoices(catalog, ramGb > 0 ? ramGb : null, downloads, embedBytes),
+      choices: setupChoices(catalog, ramGb > 0 ? ramGb : null, downloads, embedBytes, host.reranker?.()?.sizeBytes ?? 0),
     })
   }
 
@@ -126,6 +128,9 @@ export function createSetupController(host: SetupHost) {
     const embedInstalled = await host.isInstalled(embedding.file, embedding.sizeBytes, embedding.sha256)
     const chatInDownloads = await host.inDownloads(chosen.file, chosen.sizeBytes, chosen.sha256)
     const embedInDownloads = await host.inDownloads(embedding.file, embedding.sizeBytes, embedding.sha256)
+    const reranker = host.reranker?.() ?? null
+    const rerankInstalled = reranker ? await host.isInstalled(reranker.file, reranker.sizeBytes, reranker.sha256) : false
+    const rerankInDownloads = reranker ? await host.inDownloads(reranker.file, reranker.sizeBytes, reranker.sha256) : false
     if (gen !== generation) return
     const probe = host.spec({
       id: chosen.id, role: 'chat', name: chosen.name, file: chosen.file, url: chosen.url, sha256: chosen.sha256, sizeBytes: chosen.sizeBytes, action: 'download',
@@ -142,6 +147,9 @@ export function createSetupController(host: SetupHost) {
       embedInDownloads,
       catalog,
       embedding,
+      reranker,
+      rerankInstalled,
+      rerankInDownloads,
     })
     if (gen !== generation) return
     if (plan.action === 'done') {
@@ -262,12 +270,15 @@ export function createSetupController(host: SetupHost) {
     })
     const embedInstalled = await host.isInstalled(embedding.file, embedding.sizeBytes, embedding.sha256)
     const embedInDownloads = await host.inDownloads(embedding.file, embedding.sizeBytes, embedding.sha256)
+    const reranker = host.reranker?.() ?? null
+    const rerankInstalled = reranker ? await host.isInstalled(reranker.file, reranker.sizeBytes, reranker.sha256) : false
+    const rerankInDownloads = reranker ? await host.inDownloads(reranker.file, reranker.sizeBytes, reranker.sha256) : false
     const probe = host.spec({
       id: embedding.id, role: 'embedding', name: embedding.name, file: embedding.file, url: embedding.url, sha256: embedding.sha256, sizeBytes: embedding.sizeBytes, action: 'download',
     })
     mkdirSync(dirname(probe.dest), { recursive: true })
     const free = await host.freeBytes(dirname(probe.dest))
-    const plan = planEmbeddingRepair({ embedding, embedInstalled, embedInDownloads, freeBytes: free })
+    const plan = planEmbeddingRepair({ embedding, embedInstalled, embedInDownloads, freeBytes: free, reranker, rerankInstalled, rerankInDownloads })
     if (gen !== generation) return
     if (plan.action === 'done') {
       finish(plan.modelId, host.catalog(), ramGb, true)

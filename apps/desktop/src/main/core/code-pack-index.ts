@@ -9,7 +9,7 @@ import { dirname } from 'node:path'
 import type { CodeEmbedder } from './code/embed.js'
 import { vectorBytes } from './code/embed.js'
 import { vecExtensionPath, type DB } from './db.js'
-import { EMBEDDINGGEMMA2_256 } from './embedding.js'
+import { JINA_CODE_256 } from './embedding.js'
 
 export interface IndexProgress {
   state: 'pending' | 'indexing' | 'ready' | 'off' | 'error'
@@ -52,7 +52,7 @@ export async function indexCodePackEmbeddings(opts: {
     mkdirSync(dirname(opts.cachePath), { recursive: true })
     const cache = openVectorCache(opts.cachePath)
     try {
-      const spec = `${opts.packVersion}\n${EMBEDDINGGEMMA2_256.id}\n${opts.embedder.dim}`
+      const spec = `${opts.packVersion}\n${JINA_CODE_256.id}\n${opts.embedder.dim}`
       const stored = cache.prepare("SELECT value FROM meta WHERE key = 'spec'").get() as { value: string } | undefined
       if (stored?.value !== spec) {
         cache.exec('DELETE FROM chunk_vec')
@@ -106,7 +106,7 @@ function openVectorCache(path: string): DB {
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vec USING vec0(
       chunk_id INTEGER PRIMARY KEY,
-      embedding float[${EMBEDDINGGEMMA2_256.dim}]
+      embedding float[${JINA_CODE_256.dim}]
     );
   `)
   return db
@@ -128,7 +128,7 @@ export function openCodePackVectors(path: string): DB | null {
 export function writeVectorCache(path: string, packVersion: string, rows: { id: number; vector: Float32Array }[]): DB {
   const db = openVectorCache(path)
   db.prepare("INSERT INTO meta(key, value) VALUES ('spec', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-    .run(`${packVersion}\n${EMBEDDINGGEMMA2_256.id}\n${rows[0]?.vector.length ?? EMBEDDINGGEMMA2_256.dim}`)
+    .run(`${packVersion}\n${JINA_CODE_256.id}\n${rows[0]?.vector.length ?? JINA_CODE_256.dim}`)
   for (const row of rows) insertVector(db, row.id, row.vector)
   return db
 }

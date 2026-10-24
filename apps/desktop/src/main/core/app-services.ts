@@ -44,7 +44,8 @@ import { adoptFromFolder, adoptRows, adoptVerified } from './adopt-model.js'
 import { accountsBlocked, devModeEnabled, isModelSiteUrl, isSynapUrl, releaseBuild, releaseFlagFromJson } from './dev-mode.js'
 import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } from './local-gguf.js'
 import { FIRST_RUN_CHAT_MODEL_IDS, LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
-import { keywordSearchNote, setupCatalog, setupEmbedding } from '../../shared/setup-choice.js'
+import { keywordSearchNote, deleteBlockedReason, formatByteCount as formatBytes, setupCatalog, setupEmbedding, setupReranker, sharedSearchRole } from '../../shared/setup-choice.js'
+import { bundling, legacySearchFiles, missingBundleFiles } from './model-bundle.js'
 import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { GatewayProvider } from './gateway-provider.js'
@@ -87,7 +88,8 @@ import { NOTHING_HEARD, osMicStatus, SPEECH_FAILED, SPEECH_MODEL_MISSING, SPEECH
 import { resolveWhisperCli, transcribeFile } from './dictation-run.js'
 import { LlamaServer, resolveSidecar, type SidecarState } from './sidecar-manager.js'
 import { EVAL_SAMPLING, LlamaClient } from './llama-client.js'
-import { Embedder, EMBEDDINGGEMMA2_256 } from './embedding.js'
+import type { Reranker } from './code/search.js'
+import { Embedder, JINA_CODE_256 } from './embedding.js'
 import { gemmaEmbedder } from './code/embed.js'
 import { createCodeService } from './code-service.js'
 import { Calculator, calculatorTools } from './calculator.js'
@@ -429,7 +431,7 @@ export async function createServices(): Promise<Services> {
       tiers: m.tiers,
       installed: m.role === 'embedding' ? searchModelReady : await installed(m.file, m.size_bytes),
       recommended: m.id === recommended.id,
-      fitsRam: m.role === 'embedding' || m.role === 'vad' || fits(m),
+      fitsRam: m.role === 'embedding' || m.role === 'reranker' || m.role === 'vad' || fits(m),
       file: m.file,
       quant: quantFromFile(m.file),
       agents: m.agents ?? [],
@@ -621,21 +623,46 @@ export async function createServices(): Promise<Services> {
     const file = vision && model.mmproj ? model.mmproj : model
     const destName = vision && model.mmproj ? mmprojDestName(model.id, model.mmproj.file) : model.file
     mkdirSync(modelsDir(), { recursive: true })
-    const dest = join(modelsDir(), destName)
-    downloading = { id: modelId, done: 0, total: file.size_bytes }
+    // A chat model brings the bundled search files that are still missing, in the same job.
+    const embedRow = setupEmbedding(registry().models)
+    const rerankRow = setupReranker(registry().models)
+    const search = vision || model.role !== 'chat'
+      ? []
+      : [
+          embedRow && { ...embedRow, role: 'embedding' },
+          rerankRow && { ...rerankRow, role: 'reranker' },
+        ].filter((row): row is NonNullable<typeof row> => Boolean(row))
+    const present = new Set(readdirSync(modelsDir()))
+    const job = missingBundleFiles(
+      { id: modelId, role: model.role, file: destName, url: file.url, sha256: file.sha256, sizeBytes: file.size_bytes },
+      search,
+      present,
+    )
+    const needed = bundling(job)
+    const space = await diskSpace(modelsDir())
+    if (space.freeBytes > 0 && space.freeBytes < needed) {
+      throw new Error(`Not enough disk space: this download needs ${formatBytes(needed)} and there is ${formatBytes(space.freeBytes)} free.`)
+    }
+    const totalBytes = job.reduce((sum, entry) => sum + entry.sizeBytes, 0)
+    downloading = { id: modelId, done: 0, total: totalBytes }
     const ac = new AbortController()
     downloadAbort = ac
     const send = (state: string, done: number, error?: string) => {
-      safeSend(win, IPC.modelsEvent, { id: modelId, done, total: file.size_bytes, state, error })
+      safeSend(win, IPC.modelsEvent, { id: modelId, done, total: totalBytes, state, error })
     }
     try {
-      await downloadVerified({ url: file.url, dest, size: file.size_bytes, sha256: file.sha256 }, (done) => {
-        if (ac.signal.aborted) return
-        downloading = { id: modelId, done, total: file.size_bytes }
-        send('progress', done)
-      }, ac.signal)
+      let finished = 0
+      for (const entry of job) {
+        await downloadVerified({ url: entry.url, dest: join(modelsDir(), entry.file), size: entry.sizeBytes, sha256: entry.sha256 }, (done) => {
+          if (ac.signal.aborted) return
+          downloading = { id: modelId, done: finished + done, total: totalBytes }
+          send('progress', finished + done)
+        }, ac.signal)
+        finished += entry.sizeBytes
+      }
       if (!ac.signal.aborted) {
-        send('done', file.size_bytes)
+        send('done', totalBytes)
+        if (!vision && job.some((entry) => entry.role === 'search')) embeddingOk = null
         if (!vision && model.role === 'embedding') {
           void fileSearch?.upgradeEmbeddings()
           embeddingOk = true
@@ -669,18 +696,28 @@ export async function createServices(): Promise<Services> {
 
   /**
    * Deletes an installed chat model so the disk is free again. A screenshot add-on goes with it.
-   * The search model is not deletable here: search repair would download it again.
+   * The bundled search files stay while any offline chat model is installed: the next chat
+   * download would fetch them again anyway, and search would break in between.
    */
   async function remove(modelId: string, win: BrowserWindow): Promise<{ id: string; freedBytes: number }> {
     const lookupId = modelId.endsWith('#mmproj') ? modelId.slice(0, -'#mmproj'.length) : modelId
     const model = registry().models.find((m) => m.id === lookupId)
     if (!model) throw new Error('Unknown model.')
-    if (model.role !== 'chat') throw new Error('Only a chat model can be deleted.')
     if (downloading) throw new Error('A download is running. Wait for it to finish.')
+    let chatInstalled = false
+    if (sharedSearchRole(model.role)) {
+      for (const row of registry().models) {
+        if (row.role === 'chat' && await installed(row.file, row.size_bytes)) { chatInstalled = true; break }
+      }
+    }
+    const blocked = deleteBlockedReason(model.role, chatInstalled)
+    if (blocked) throw new Error(blocked)
+    if (!sharedSearchRole(model.role) && model.role !== 'chat') throw new Error('Only a downloaded model can be deleted.')
     await withModel(async () => {
       if (active?.modelId === model.id) await stopActive()
     })
     const files = [model.file, ...(model.mmproj ? [mmprojDestName(model.id, model.mmproj.file)] : [])]
+    if (model.role === 'embedding' || model.role === 'reranker') await stopReranker()
     let freedBytes = 0
     for (const name of files) {
       const path = join(modelsDir(), name)
@@ -1483,7 +1520,7 @@ export async function createServices(): Promise<Services> {
               const fetched = await ensurePackContentKey()
               if (fetched) deltaKeys = contentKeysForDelta(fetched, surfEnv('PACK_CONTENT_KEY'))
             }
-            await verifyPack(dir, { trustedKeys: trustedPackKeys(), expectedEmbedding: EMBEDDINGGEMMA2_256 })
+            await verifyPack(dir, { trustedKeys: trustedPackKeys(), expectedEmbedding: JINA_CODE_256 })
             const plain = decryptDelta(readFileSync(encPath), deltaKeys)
             if (!plain) {
               console.warn('[surf] pack delta left sealed')
@@ -1750,10 +1787,59 @@ export async function createServices(): Promise<Services> {
       return fn(gemmaEmbedder(new Embedder(new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey }))))
     })
     return {
-      dim: EMBEDDINGGEMMA2_256.dim,
+      dim: JINA_CODE_256.dim,
       embedDocs: (docs: { title?: string | null; text: string }[]) => run((embedder) => embedder.embedDocs(docs)),
       embedQueries: (queries: string[]) => run((embedder) => embedder.embedQueries(queries)),
     }
+  }
+
+  /**
+   * The Jina cross-encoder, started only when its file is installed and someone searches code.
+   * It is its own tiny server (35 MB) so a chat request never waits behind it. Any failure returns
+   * null and search keeps the RRF + symbol order.
+   */
+  let rerankServer: LlamaServer | null = null
+  let rerankStarting: Promise<Reranker | null> | null = null
+  async function codeReranker(): Promise<Reranker | null> {
+    const row = setupReranker(registry().models)
+    if (!row || !(await installed(row.file, row.sizeBytes))) return null
+    if (rerankServer?.state === 'ready') {
+      const live = rerankServer
+      const client = new LlamaClient({ baseUrl: live.baseUrl, apiKey: live.apiKey })
+      return { rerank: (query, documents) => client.rerank(query, documents) }
+    }
+    if (rerankStarting) return rerankStarting
+    rerankStarting = (async () => {
+      try {
+        const bin = resolveSidecar('llama-server', app.isPackaged, process.resourcesPath, app.getAppPath())
+        const server = new LlamaServer({
+          binPath: bin,
+          modelPath: modelFilePath(row.file, row.sizeBytes),
+          reranking: true,
+          pooling: 'rank',
+          ctx: 2048,
+          threads: chatThreads(hw),
+          cacheRamMiB: 0,
+          startupTimeoutMs: 60_000,
+        })
+        await server.start()
+        rerankServer = server
+        const client = new LlamaClient({ baseUrl: server.baseUrl, apiKey: server.apiKey })
+        return { rerank: (query: string, documents: string[]) => client.rerank(query, documents) }
+      } catch (error) {
+        console.warn(`[surf] reranker unavailable: ${(error as Error).message}`)
+        return null
+      } finally {
+        rerankStarting = null
+      }
+    })()
+    return rerankStarting
+  }
+
+  async function stopReranker(): Promise<void> {
+    const server = rerankServer
+    rerankServer = null
+    if (server) await server.stop().catch(() => undefined)
   }
 
   async function codeDbKey(): Promise<string | null> {
@@ -1791,11 +1877,20 @@ export async function createServices(): Promise<Services> {
     },
   })
 
+  // The retired search GGUF is never loaded again: delete it on startup so the ~295 MB comes back.
+  try {
+    for (const name of legacySearchFiles(readdirSync(modelsDir()))) {
+      await rm(join(modelsDir(), name), { force: true })
+      console.info(`[surf] removed retired search model ${name}`)
+    }
+  } catch { /* no models directory yet: nothing to retire */ }
+
   const codeApi = createCodeService({
     dataDir: join(app.getPath('userData'), 'code-projects'),
     keyHex: await codeDbKey(),
     grammarDir: codeGrammarDir(),
     embedder: codeEmbedder,
+    ranker: codeReranker,
     notify: (status) => { if (ui) safeSend(ui, IPC.codeEvent, status) },
   })
 
@@ -1968,6 +2063,7 @@ export async function createServices(): Promise<Services> {
     unregisterIpc()
     if (idleTimer) clearInterval(idleTimer)
     void stopActive().catch(() => undefined)
+    void stopReranker().catch(() => undefined)
   }
 
   completionRuntime = createCompletionRuntime({
@@ -2116,6 +2212,7 @@ export async function createServices(): Promise<Services> {
       if (!row) throw new Error('no embedding model')
       return row
     },
+    reranker: () => setupReranker(registry().models),
     isInstalled: async (file, size, sha256) => {
       if (!sha256) return installed(file, size)
       const ok = await fileMatches(join(modelsDir(), file), size, sha256)
@@ -2287,7 +2384,7 @@ export async function createServices(): Promise<Services> {
         const picked = await dialog.showOpenDialog(win, { title: 'Install a signed pack', properties: ['openDirectory'] })
         if (picked.canceled || !picked.filePaths[0]) return null
         const dir = picked.filePaths[0]
-        const manifest = await verifyPack(dir, { trustedKeys: trustedPackKeys(), expectedEmbedding: EMBEDDINGGEMMA2_256 })
+        const manifest = await verifyPack(dir, { trustedKeys: trustedPackKeys(), expectedEmbedding: JINA_CODE_256 })
         const staging = join(packsRoot(), '.staging', manifest.pack_id)
         await rm(staging, { recursive: true, force: true })
         await mkdir(staging, { recursive: true })
@@ -3138,7 +3235,7 @@ export async function createServices(): Promise<Services> {
       }
       const manifest = await verifyPack(staging, {
         trustedKeys: trustedPackKeys(),
-        expectedEmbedding: EMBEDDINGGEMMA2_256,
+        expectedEmbedding: JINA_CODE_256,
         installedVersion: previous ?? undefined,
       })
       if (!canSwapPack(inflight.size > 0)) {
@@ -3380,7 +3477,7 @@ function isMetered(): Promise<boolean> {
 }
 
 function labelFor(m: ModelEntry): string {
-  if (m.role === 'embedding') return 'EmbeddingGemma 2'
+  if (m.role === 'embedding') return 'Jina code embeddings'
   if (m.role === 'chat') return chatModelLabel(m)
   if (m.role === 'asr') return 'Speech model'
   if (m.role === 'vad') return 'Voice activity'

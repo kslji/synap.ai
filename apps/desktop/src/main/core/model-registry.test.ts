@@ -11,11 +11,12 @@ import { defaultForAgent, parseRegistry, pick, servesAgent, smallerChatModel } f
 const registry = parseRegistry(JSON.parse(readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../../../resources/models.registry.json'), 'utf8')))
 const GENERIC = 'qwen3.5-2b-q4_k_m'
 const OPTIONAL = 'qwen3.5-4b-q4_k_m'
+const GEMMA = 'gemma-4-e2b-q4_k_m'
 
-test('the registry has one default chat model, an optional bigger one, and the draft', () => {
+test('the registry has one default chat model, two optional bigger ones, and the draft', () => {
   const chats = registry.models.filter((model) => model.role === 'chat')
   const main = chats.filter((model) => !model.agents?.includes('draft'))
-  assert.deepEqual(main.map((model) => model.id), [GENERIC, OPTIONAL])
+  assert.deepEqual(main.map((model) => model.id), [GENERIC, OPTIONAL, GEMMA])
   const model = main[0]
   assert.equal(model.min_ram_gb, 8)
   assert.equal(model.size_bytes, 1280835840)
@@ -27,11 +28,41 @@ test('the registry has one default chat model, an optional bigger one, and the d
   assert.equal(ramTierForFile(model.size_bytes), 4)
   assert.equal(offeredOnLaptop(model.min_ram_gb, 4), false)
   assert.equal(offeredOnLaptop(model.min_ram_gb, 8), true)
-  assert.equal(registry.models.some((model) => model.family.startsWith('gemma4')), false)
-  // The 4B stays available but is not what anything selects by itself.
+  // The 4B and Gemma stay available but are not what anything selects by itself.
   const optional = main[1]
   assert.equal(optional.default_for, undefined)
   assert.equal(optional.mmproj?.size_bytes, 672423616)
+  const gemma = main[2]
+  assert.equal(gemma.label, 'Gemma 4 E2B (optional)')
+  assert.equal(gemma.family, 'gemma-4')
+  assert.equal(gemma.default_for, undefined)
+  assert.equal(gemma.file, 'gemma-4-E2B-it-Q4_K_M.gguf')
+  assert.equal(gemma.size_bytes, 3106738272)
+  assert.equal(gemma.sha256, '740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8')
+  assert.deepEqual(gemma.tiers, [0, 1, 2, 3])
+  assert.equal(main.filter((row) => row.default_for?.includes('*')).length, 1)
+})
+
+test('the search files are the Jina code embedding and its reranker', () => {
+  const embedding = registry.models.find((model) => model.role === 'embedding')
+  const reranker = registry.models.find((model) => model.role === 'reranker')
+  assert.ok(embedding)
+  assert.ok(reranker)
+  assert.equal(embedding.id, 'jina-embeddings-v2-base-code-q5_k_m')
+  assert.equal(embedding.spec_id, 'jina-embeddings-v2-base-code@256')
+  assert.equal(embedding.family, 'jina')
+  assert.equal(embedding.dim, 256)
+  assert.equal(embedding.native_dim, 768)
+  assert.equal(embedding.query_prefix, '')
+  assert.equal(embedding.doc_template, '{title}\n{text}')
+  assert.equal(embedding.bundled_with_chat, true)
+  assert.equal(embedding.file, 'jina-embeddings-v2-base-code-Q5_K_M.gguf')
+  assert.equal(embedding.size_bytes, 121387072)
+  assert.equal(reranker.id, 'jina-reranker-v1-turbo-en-q5_k_m')
+  assert.equal(reranker.bundled_with_chat, true)
+  assert.equal(reranker.file, 'jina-reranker-v1-turbo-en-Q5_K_M.gguf')
+  assert.equal(reranker.size_bytes, 37323936)
+  assert.equal(registry.models.filter((model) => model.role === 'embedding').length, 1)
 })
 
 test('every tier and every agent uses the default model', () => {

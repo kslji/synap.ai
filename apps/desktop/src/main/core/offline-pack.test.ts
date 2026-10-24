@@ -47,7 +47,8 @@ test('the 2B offline package fits a GitHub asset, and every offline package is a
   assert.equal(planOfflineModel(registry.models, '9b'), null)
   const two = planOfflineModel(registry.models, '2b')
   assert.ok(two)
-  assert.equal(two.modelBytes, 1_590_691_360)
+  // The installer pack stays chat + embedding; the reranker is fetched by the setup plan when online.
+  assert.equal(two.modelBytes, 1_402_222_912)
   assert.equal(bundledModelBytes(catalog[0]?.sizeBytes ?? 0, embedding.sizeBytes), two.modelBytes)
   assert.equal(fitsGitHubAsset(two.modelBytes), true)
   assert.equal(offlineHostFor(two.modelBytes), 'github')

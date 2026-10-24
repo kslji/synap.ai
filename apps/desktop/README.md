@@ -20,7 +20,8 @@ Self-test (needs the small models on disk):
 
 ```bash
 mkdir -p ~/surf-models
-# embeddinggemma-2-Q8_0.gguf and Qwen3.5-2B-Q4_K_M.gguf — see docs/IMPLEMENTATION.md
+# jina-embeddings-v2-base-code-Q5_K_M.gguf,
+# jina-reranker-v1-turbo-en-Q5_K_M.gguf and Qwen3.5-2B-Q4_K_M.gguf — see docs/IMPLEMENTATION.md
 cd apps/desktop
 SURF_MODELS_DIR=~/surf-models npm run selftest
 ```

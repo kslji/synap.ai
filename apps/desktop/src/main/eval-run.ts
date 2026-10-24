@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { cp, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { EMBEDDINGGEMMA2_256 } from './core/embedding.js'
+import { JINA_CODE_256 } from './core/embedding.js'
 import { IPC, type ChatEvent, type Citation } from './core/ipc-contract.js'
 import { commitInstall } from './core/pack-install.js'
 import { trustedPackKeys } from './core/pack-keys.js'
@@ -189,11 +189,11 @@ async function probeModels(modelsDir: string, bin: string, logDir: string, full:
     const sample = await probeModel(bin, path, false, join(logDir, `${model.id}.log`))
     metrics.push({ id: model.id, file: model.file, present: true, ...sample, note: 'short greedy reply, context 2048' })
   }
-  const embFile = EMBEDDINGGEMMA2_256.gguf
+  const embFile = JINA_CODE_256.gguf
   const embPath = join(modelsDir, embFile)
   if (!existsSync(embPath)) throw new Error(`missing ${embPath}`)
   const emb = await probeModel(bin, embPath, true, join(logDir, 'embedding.log'))
-  metrics.push({ id: 'embeddinggemma-2', file: embFile, present: true, ...emb, note: 'one query embed, context 2048' })
+  metrics.push({ id: 'jina-embeddings-v2-base-code', file: embFile, present: true, ...emb, note: 'one query embed, context 2048' })
   return metrics
 }
 
@@ -302,7 +302,7 @@ export async function runEval(): Promise<void> {
     const built = new Map<string, string>()
     for (const item of cases) {
       if (!item.pack) continue
-      built.set(item.id, await signPack(item.pack, bin, join(modelsDir, EMBEDDINGGEMMA2_256.gguf), logDir))
+      built.set(item.id, await signPack(item.pack, bin, join(modelsDir, JINA_CODE_256.gguf), logDir))
     }
     writeFileSync(join(logDir, 'settings.json'), JSON.stringify({
       offlineOnly: true,
@@ -334,7 +334,7 @@ export async function runEval(): Promise<void> {
       await rm(staging, { recursive: true, force: true })
       await mkdir(staging, { recursive: true })
       await cp(dir, staging, { recursive: true })
-      const manifest = await verifyPack(staging, { trustedKeys: trustedPackKeys(), expectedEmbedding: EMBEDDINGGEMMA2_256 })
+      const manifest = await verifyPack(staging, { trustedKeys: trustedPackKeys(), expectedEmbedding: JINA_CODE_256 })
       await commitInstall(staging, join(app.getPath('userData'), 'packs'), manifest, spec.title)
     }
 

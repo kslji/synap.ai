@@ -14,8 +14,8 @@ export const modelTiers = [
 ] as const
 
 export const embeddingModel = {
-  name: 'EmbeddingGemma 2',
-  detail: 'Text only, 256 dimensions, with task prefixes',
+  name: 'Jina code embeddings',
+  detail: 'Code-aware, 256 dimensions, no prefixes',
 } as const
 
 export interface PackManifestShape {

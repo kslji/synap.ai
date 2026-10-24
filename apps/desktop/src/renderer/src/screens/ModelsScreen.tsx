@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { CatalogModel, ModelStatus } from '../../../shared/ipc-contract'
-import { friendlyModelName, servesAgent } from '../../../shared/model-label'
+import { friendlyModelName, modelMarkLabel, servesAgent } from '../../../shared/model-label'
 import { formatIndexBytes } from '../format'
 
 /** Chat rows for an agent. The registry holds one generic chat model, shared by every agent. */
@@ -46,7 +46,7 @@ export function ModelPanel({ status, chats, onRefresh }: { status: ModelStatus; 
   return (
     <div data-model-panel="yes">
       <h2 className="text-lg font-semibold tracking-tight">Model</h2>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Qwen 2B is the default for every agent and needs 8 GB of memory. Qwen 4B is optional, larger, and more accurate. Nothing downloads until you ask.</p>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Qwen 2B is the default for every agent and needs 8 GB of memory. Qwen 4B is optional, larger, and more accurate. Gemma 4 E2B is a second family you can pick instead. Nothing downloads until you ask.</p>
       <ul className="mt-4 flex flex-col gap-2">
         {chats.map((model) => {
           const isDefault = model.id === recommended.id
@@ -55,7 +55,7 @@ export function ModelPanel({ status, chats, onRefresh }: { status: ModelStatus; 
               <div className="text-sm font-semibold">
                 {shownName(model)}
                 {' · '}
-                <span data-model-mark={model.id}>{isDefault ? 'Recommended' : 'More accurate'}</span>
+                <span data-model-mark={model.id}>{modelMarkLabel(model.id, isDefault)}</span>
               </div>
               <div className="text-xs text-[var(--muted)]" data-model-size={model.id}>
                 {formatIndexBytes(model.sizeBytes)} · needs {model.minRamGb} GB memory · {model.installed ? 'on this computer' : 'not downloaded'}

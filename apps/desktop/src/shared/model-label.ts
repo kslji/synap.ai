@@ -1,4 +1,9 @@
-/** Name people see: family plus size, such as Qwen 2B. Version, file, and quant stay out. */
+import { OPTIONAL_CHAT_MODEL_ID } from './starter-model.js'
+
+/**
+ * Name people see: family plus size, such as Qwen 2B. Version, file, and quant stay out, except
+ * for Gemma's E-series, where the generation and the E are part of the size name (Gemma 4 E2B).
+ */
 export function friendlyModelName(model: {
   id?: string | null
   family?: string | null
@@ -22,6 +27,8 @@ export function friendlyNameFromId(id: string | null | undefined): string | null
     if (size) return `Qwen ${size[1]}B`
   }
   if (/^gemma/i.test(bare)) {
+    const efficient = /^gemma-(\d+)-e(\d+(?:\.\d+)?)b(?:-|$)/i.exec(bare)
+    if (efficient) return `Gemma ${efficient[1]} E${efficient[2]}B`
     const size = /(?:^|-)(?:e)?(\d+(?:\.\d+)?)b(?:-|$)/i.exec(bare)
     if (size) return `Gemma ${size[1]}B`
   }
@@ -89,6 +96,15 @@ export function fitMarkLabel(mark: 'recommended' | 'fits' | 'too-big'): string {
   if (mark === 'recommended') return 'Recommended'
   if (mark === 'fits') return 'Fits'
   return 'Too big for this laptop'
+}
+
+/**
+ * Model-panel mark. Only the optional Qwen 4B is the accuracy upgrade; a second family (Gemma) is an
+ * alternative, so calling it more accurate would be a claim the registry does not make.
+ */
+export function modelMarkLabel(id: string, isDefault: boolean): string {
+  if (isDefault) return 'Recommended'
+  return id === OPTIONAL_CHAT_MODEL_ID ? 'More accurate' : 'Optional'
 }
 
 /** Rows with `agents` (such as the draft) serve only those agents. Every other chat row serves every agent. */

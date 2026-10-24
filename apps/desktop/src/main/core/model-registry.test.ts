@@ -7,6 +7,7 @@ import { EVAL_SAMPLING, chatRequestFields } from './llama-client.js'
 import { codeFitMark, offeredOnLaptop, ramTierForFile } from '../../shared/code-ram.js'
 import { chatModelLabel, quantFromFile } from '../../shared/model-label.js'
 import { defaultForAgent, parseRegistry, pick, servesAgent, smallerChatModel } from './model-registry.js'
+import { setupCatalog } from '../../shared/setup-choice.js'
 
 const registry = parseRegistry(JSON.parse(readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../../../resources/models.registry.json'), 'utf8')))
 const GENERIC = 'qwen3.5-2b-q4_k_m'
@@ -41,6 +42,24 @@ test('the registry has one default chat model, two optional bigger ones, and the
   assert.equal(gemma.sha256, '740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8')
   assert.deepEqual(gemma.tiers, [0, 1, 2, 3])
   assert.equal(main.filter((row) => row.default_for?.includes('*')).length, 1)
+})
+
+test('Gemma 4 E2B is optional: offered, never picked, never in the first-run download', () => {
+  const gemma = registry.models.find((model) => model.id === GEMMA)
+  assert.ok(gemma)
+  // Offered in the Offline picker for every agent and tier, and deletable like any chat model.
+  assert.equal(servesAgent(gemma, 'general'), true)
+  assert.equal(servesAgent(gemma, 'code'), true)
+  assert.equal(gemma.role, 'chat')
+  assert.equal(gemma.label, 'Gemma 4 E2B (optional)')
+  assert.equal(chatModelLabel(gemma), 'Gemma 4 E2B')
+  // Never selected by a pick, a default, or a step-down.
+  for (const tier of [0, 1, 2, 3]) assert.equal(pick(registry, 'chat', tier, 'code').id, GENERIC)
+  assert.equal(defaultForAgent(registry, 'general')?.id, GENERIC)
+  const chats = registry.models.filter((model) => model.role === 'chat' && servesAgent(model, 'general'))
+  assert.notEqual(smallerChatModel(chats, GENERIC)?.id, GEMMA)
+  // Never auto-downloaded: the first-run catalog is the starter ids only.
+  assert.equal(setupCatalog(registry.models).some((model) => model.id === GEMMA), false)
 })
 
 test('the search files are the Jina code embedding and its reranker', () => {

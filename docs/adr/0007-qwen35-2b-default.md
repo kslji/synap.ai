@@ -4,19 +4,20 @@ Supersedes [ADR 0004](0004-single-chat-model.md). Numbered 0007 because 0005 (Op
 
 ADR 0004 chose one chat file for every laptop: Qwen3.5-4B Q4_K_M (2.74 GB, plus a 0.67 GB `mmproj`). It removed the size picker so there was one file to test, cache, and support. The measurement that followed changes the file, not the shape of the decision.
 
-Measured on an Apple Silicon laptop with llama-server b11514 (`scripts/bench-offline`, cold start, `cache_prompt`, a 97-token system prefix):
+Measured on an Apple Silicon laptop (8 GB M1) with llama-server b11514 (`npm run bench:offline`, cold start, `cache_prompt`, a 97-token system prefix, `enable_thinking: false`):
 
 | | Qwen3.5-2B Q4_K_M | Qwen3.5-4B Q4_K_M |
 | --- | --- | --- |
-| File | 1.28 GB | 2.74 GB (+0.67 GB `mmproj`) |
-| Load | 2054 ms | ~3.2 s |
-| First token, cold | 134 ms | 2.5 s+ |
-| First token, warm | 59 ms | 1.9 s |
-| Decode | 31.5 tok/s | ~22 tok/s |
-| Tab p50 / p95 | 65 ms / 74 ms | 340 ms p95 |
-| RSS | 216 MB | ~700 MB |
+| File | 1.19 GiB | 2.74 GB (+0.67 GB `mmproj`) |
+| Load | 2.0–3.6 s | ~3.2 s |
+| First token, cold | 145 ms | 2.5 s+ |
+| First token, warm | 56 ms | 1.9 s |
+| First answer token, warm (thinking off) | 56 ms | 1.9 s |
+| Decode | 31.3 tok/s | ~22 tok/s |
+| Tab p50 / p95 | 59 ms / 70 ms | 340 ms p95 |
+| RSS | 236 MB | ~700 MB |
 
-The 2B answers first on the machine people actually use. The 4B is more accurate, and on the tasks in our 20-task agent eval that difference is real but small (see [code-pack-eval](https://github.com/kslji/synap.ai/blob/main/docs/code-pack-eval.md)). Accuracy still comes before latency, so the 4B stays one click away; it is not the default.
+The 2B answers first on the machine people actually use, and it is accurate enough to be the default: on the [20-task agent eval](../code-agent-eval.md) it finishes 12 of 20 real edit tasks through the direct loop at a median of 4 steps. Its failures are the asks that need two coordinated edits or a new file, which is what the failure ladder's suggestion of a larger model is for. The 4B is not measured on that eval yet (only the 2B's weights are in the test image). Accuracy still comes before latency, so the 4B stays one click away; it is not the default.
 
 ## Decision
 
@@ -30,6 +31,7 @@ The 2B answers first on the machine people actually use. The 4B is more accurate
 - `default_for: ["*"]` means "default for every agent". `pick()` prefers a row marked for the agent over the largest file, so a 16 GB or 32 GB laptop still gets the 2B unless the person picks the 4B.
 - Qwen3.5-4B Q4_K_M stays in the registry as `qwen3.5-4b-q4_k_m`, with `tiers: [0, 1, 2, 3]` and no `default_for`. It is the optional "More accurate" download, 1.5 GB larger, and it is still the only file with a `mmproj` (screenshots).
 - `synap://setup?model=4b` and `?model=qwen3.5-4b-q4_k_m` open the 4B; 2B links and 9B links open the 2B.
+- Decomposition costs the 2B more than it gains. The same 20 tasks through `runSplitTask` (triage, then one step for an `edit` or a plan for a multi-file ask, each step with checks and a 3x3 failure ladder) scored 8/20 against the loop's 12/20, and took 1548 s against 330 s; seven runs hit the 120 s cap, and rerunning those seven at 300 s passed none. `runSplitTask` is the shipped code path, so 8/20 is the shipped number, and routing an `edit` straight to the loop is the next change this measurement argues for. The eval doc records the per-task detail.
 - Offline installers are one zip per OS/arch (`-2b-offline.zip`, `-4b-offline.zip`). The 2B zip is 1.59 GB including the 310 MB search model, so it fits one GitHub release asset (< 2 GiB) and one NSIS data block. The 4B zip is 3.05 GB and still goes to the Hugging Face dataset.
 
 ## Downloads are always the person's choice

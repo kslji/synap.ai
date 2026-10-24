@@ -21,6 +21,7 @@
     "build:web": "npm run build -w @surf/web",
     "selftest": "npm run selftest -w @surf/desktop",
     "bench:offline": "tsx scripts/bench-offline/bench.ts",
+    "eval:agent": "tsx apps/desktop/scripts/code-agent-eval.ts",
     "eval": "bash harness/run.sh quick"
   },
   "engines": {

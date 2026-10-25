@@ -3,7 +3,7 @@
  * Whole-file rewrites of longer files are rejected.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, relative, sep } from 'node:path'
+import { dirname } from 'node:path'
 import { unifiedDiff } from './edit.js'
 import { resolveInside } from './paths.js'
 import { normPath } from './plan.js'
@@ -57,7 +57,9 @@ export function preparePatchSet(
   for (const [rel, file] of working) {
     const before = file.created ? '' : readFileSync(file.abs, 'utf8')
     if (file.text === before) return { ok: false, message: `edit does not change ${rel}` }
-    const display = relative(root, file.abs).split(sep).join('/') || rel
+    // The relative path the edit named. `relative(root, abs)` drifts on macOS, where /var is a link
+    // to /private/var: the checkpoint and the plan then point at different files.
+    const display = rel
     files.push({
       path: display,
       abs: file.abs,

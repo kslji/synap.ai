@@ -6,6 +6,8 @@
  *
  * Each task runs on the same throwaway project in a temp folder, and both modes are scored the
  * same way: the listed files must end in the expected state and the run must stop on finish.
+ * The folder also gets a real `npm run typecheck` (the repo's own TypeScript), so a step check can
+ * fail, roll back, and go round the fix loop instead of trusting the model.
  * The tasks and the scoring live in src/main/core/code-agent/eval-cases.ts, where a unit test
  * checks them without a model. Only pass rates and timings are reported; prompt and answer text
  * stay in the temp folder.
@@ -19,6 +21,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { tmpdir, platform, arch, availableParallelism } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { EVAL_SAMPLING, LlamaClient } from '../src/main/core/llama-client.js'
 import { LlamaServer } from '../src/main/core/sidecar-manager.js'
@@ -28,10 +31,14 @@ import { runSplitTask, type SplitHost } from '../src/main/core/code-agent/split.
 import { createProjectSearch } from '../src/main/core/code-agent/project-search.js'
 import type { PlanFacts } from '../src/main/core/code-agent/plan.js'
 import { AGENT_EVAL_CASES, EVAL_RULES, scoreFiles, type EvalCase } from '../src/main/core/code-agent/eval-cases.js'
+import { evalProjectFiles } from '../src/main/core/code-agent/eval-project.js'
+import { runProjectCommand } from '../src/main/core/code-agent/workspace.js'
 import { heuristicCounter } from '../src/main/core/token-budget.js'
 import { providerToComplete, type CompletionRequest, type ModelTurn } from '@surf/agent-core'
 
 const DESKTOP = join(dirname(fileURLToPath(import.meta.url)), '..')
+/** The repo's own TypeScript, so a fixture can typecheck without installing anything. */
+const TSC = createRequire(import.meta.url).resolve('typescript/bin/tsc')
 
 type Mode = 'direct' | 'split'
 
@@ -84,6 +91,9 @@ async function runCase(
   // macOS gives a /var path that resolves to /private/var; the sandbox compares real paths.
   const root = mkdtempSync(join(realpathSync(tmpdir()), `surf-agent-eval-${c.id}-`))
   writeFixture(root, c.files)
+  // A real check: without one the ladder cannot tell a bad edit from a good one, and a skipped
+  // second file still scores as a pass.
+  writeFixture(root, evalProjectFiles(TSC))
   const facts: PlanFacts = { indexed: false, files: Object.keys(c.files), symbols: [], edges: [] }
   let requests = 0
   const controller = new AbortController()
@@ -110,7 +120,7 @@ async function runCase(
       complete: (req) => { requests += 1; return complete(req) },
       // The eval scores the code a task ends with, so approvals never block a run.
       ask: async () => ({ allow: true }),
-      runCommand: async () => ({ ok: true, output: 'ok' }),
+      runCommand: (command, signal, hooks) => runProjectCommand(root, command, signal, hooks),
     }
     if (mode === 'direct') {
       const result = await runCodeAgent(c.task, host)

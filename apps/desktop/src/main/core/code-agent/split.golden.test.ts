@@ -96,16 +96,17 @@ test('golden: a chat task delegates to the loop through runSplitTask', async () 
   }
 })
 
-test('golden: a single-file edit task plans, edits, and passes its check', async () => {
+test('golden: a two-file edit task plans, edits both files, and passes its check', async () => {
   const p = project()
   try {
     mkdirSync(join(p.root, 'src'), { recursive: true })
     writeFileSync(join(p.root, 'src', 'a.ts'), 'export const n = 1\n')
+    writeFileSync(join(p.root, 'src', 'b.ts'), 'export const m = 1\n')
 
     const requests: CompletionRequest[] = []
     const host: SplitHost = {
       root: p.root,
-      facts: facts(['src/a.ts']),
+      facts: facts(['src/a.ts', 'src/b.ts']),
       rules: 'Follow the project style.',
       counter: heuristicCounter,
       promptBudget: 2000,
@@ -115,13 +116,27 @@ test('golden: a single-file edit task plans, edits, and passes its check', async
       search: emptySearch(),
       async complete(req): Promise<ModelTurn> {
         requests.push(req)
+        const user = String(req.messages.at(-1)?.content ?? '')
+        if (user.includes('Kind: plan')) {
+          return {
+            content: JSON.stringify({
+              steps: [
+                { id: 's1', goal: 'bump n', files: ['src/a.ts'], symbols: [], depends_on: [], check: { kind: 'typecheck', command: '' }, create: false },
+                { id: 's2', goal: 'bump m', files: ['src/b.ts'], symbols: [], depends_on: ['s1'], check: { kind: 'typecheck', command: '' }, create: false },
+              ],
+            }),
+          }
+        }
+        if (user.includes('src/b.ts')) {
+          return { content: '{"edits":[{"path":"src/b.ts","old":"export const m = 1","new":"export const m = 2"}]}' }
+        }
         return { content: '{"edits":[{"path":"src/a.ts","old":"export const n = 1","new":"export const n = 2"}]}' }
       },
       async ask() {
         return { allow: true }
       },
     }
-    const result = await runSplitTask('Update src/a.ts to bump n', host)
+    const result = await runSplitTask('Update src/a.ts and src/b.ts to bump the constants', host)
     matchSnapshot('split-edit', canonical({
       kind: result.kind,
       answer: result.answer,

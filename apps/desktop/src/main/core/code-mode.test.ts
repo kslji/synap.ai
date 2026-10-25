@@ -19,7 +19,7 @@ import { heuristicCounter } from './token-budget.js'
 
 function tempDir(): string {
   // realpath: on macOS tmpdir() is /var/folders/... (a symlink to /private/var/...).
-  // The edit engine realpaths the root, so relative(root, abs) must not span that link.
+  // Patch paths stay project-relative now, but keep the root real so fs checks match.
   return realpathSync(mkdtempSync(join(tmpdir(), 'surf-mode-')))
 }
 
@@ -108,13 +108,16 @@ test('ask mode does not write or run until the user allows it', async () => {
   const file = join(root, 'src', 'a.ts')
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(file, 'export const n = 1\n')
+  writeFileSync(join(root, 'src', 'b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
   const ran: string[] = []
   let sawWrite = false
+  const editTurn = { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
+  const complete = async (req: CompletionRequest): Promise<ModelTurn> => text(req).includes('Kind: plan')
+    ? { content: JSON.stringify({ steps: [{ id: 's1', goal: 'bump n', files: ['src/a.ts'], symbols: [], depends_on: [], check: { kind: 'typecheck', command: '' }, create: false }] }) }
+    : editTurn
   try {
-    const denied = await runSplitTask('Fix the typo in src/a.ts', host(root, async () => ({
-      content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }),
-    }), async (command) => {
+    const denied = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', host(root, complete, async (command) => {
       ran.push(command)
       return { ok: true, output: 'ok' }
     }, async () => {
@@ -126,9 +129,7 @@ test('ask mode does not write or run until the user allows it', async () => {
     assert.equal(readFileSync(file, 'utf8'), 'export const n = 1\n')
     assert.deepEqual(ran, [])
 
-    const allowed = await runSplitTask('Fix the typo in src/a.ts', host(root, async () => ({
-      content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }),
-    }), async () => ({ ok: true, output: 'ok' }), async (request) => {
+    const allowed = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', host(root, complete, async () => ({ ok: true, output: 'ok' }), async (request) => {
       if (request.kind === 'edit') assert.equal(readFileSync(file, 'utf8'), 'export const n = 1\n')
       return { allow: true }
     }))
@@ -144,11 +145,12 @@ test('auto runs an allow-listed check and pauses before an install', async () =>
   const file = join(root, 'src', 'a.ts')
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(file, 'export const n = 1\n')
+  writeFileSync(join(root, 'src', 'b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }))
   const ran: string[] = []
   const asked: string[] = []
   try {
-    const result = await runSplitTask('Fix the typo in src/a.ts and keep the test', {
+    const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', {
       ...host(root, async (req) => {
         const user = text(req)
         if (user.includes('Kind: plan')) {

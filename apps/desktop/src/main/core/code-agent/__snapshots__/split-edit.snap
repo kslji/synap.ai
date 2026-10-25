@@ -1,24 +1,37 @@
 # split-edit
 {
-  "answer": "1. Update src/a.ts to bump n (src/a.ts) — check passed. Undo restores the files from before this step.\nNo full test command was found.",
+  "answer": "1. bump n (src/a.ts) — check passed. Undo restores the files from before this step.\n2. bump m (src/b.ts) — check passed. Undo restores the files from before this step.\nNo full test command was found.",
   "attempts": [
     {
       "candidates": 0,
       "replanned": false,
-      "stepId": "edit",
+      "stepId": "s1",
+      "tries": 1
+    },
+    {
+      "candidates": 0,
+      "replanned": false,
+      "stepId": "s2",
       "tries": 1
     }
   ],
   "diffs": [
     {
       "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n-export const n = 1\n+export const n = 2\n \n",
-      "id": "edit:src/a.ts",
+      "id": "s1:src/a.ts",
       "path": "src/a.ts",
       "status": "applied",
-      "stepId": "edit"
+      "stepId": "s1"
+    },
+    {
+      "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,2 +1,2 @@\n-export const m = 1\n+export const m = 2\n \n",
+      "id": "s2:src/b.ts",
+      "path": "src/b.ts",
+      "status": "applied",
+      "stepId": "s2"
     }
   ],
-  "kind": "edit",
+  "kind": "plan",
   "plan": {
     "status": "done",
     "steps": [
@@ -29,20 +42,40 @@
         "files": [
           "src/a.ts"
         ],
-        "goal": "Update src/a.ts to bump n",
-        "id": "edit",
+        "goal": "bump n",
+        "id": "s1",
         "index": 1,
+        "symbols": []
+      },
+      {
+        "check": "typecheck:",
+        "create": false,
+        "dependsOn": [
+          "s1"
+        ],
+        "files": [
+          "src/b.ts"
+        ],
+        "goal": "bump m",
+        "id": "s2",
+        "index": 2,
         "symbols": []
       }
     ],
     "undos": [
       {
-        "stepId": "edit",
-        "title": "Update src/a.ts to bump n"
+        "stepId": "s1",
+        "title": "bump n"
+      },
+      {
+        "stepId": "s2",
+        "title": "bump m"
       }
     ]
   },
   "requestKinds": [
+    "plan",
+    "edit",
     "edit"
   ],
   "steps": [
@@ -50,10 +83,20 @@
       "attempt": 1,
       "attempts": 3,
       "detail": "src/a.ts",
-      "id": "edit:edit",
+      "id": "s1:edit",
       "index": 1,
       "status": "applied",
-      "title": "Update src/a.ts to bump n",
+      "title": "bump n",
+      "tool": "edit"
+    },
+    {
+      "attempt": 1,
+      "attempts": 3,
+      "detail": "src/b.ts",
+      "id": "s2:edit",
+      "index": 2,
+      "status": "applied",
+      "title": "bump m",
       "tool": "edit"
     }
   ],

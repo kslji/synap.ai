@@ -226,6 +226,35 @@ test('a fix turn cannot edit a file the request did not name', async () => {
   }
 })
 
+
+test('a missing name and a default import are repaired with the import the project needs', async () => {
+  const q = String.fromCharCode(34)
+  const root = project({
+    'src/counter.ts': 'export let count = 0\n\nexport function reset(): void {\n  count = 0\n}\n',
+    'src/ui.ts': 'import count from ' + q + './counter' + q + '\n\nexport function label(): string {\n  reset()\n  return `count: ${count}`\n}\n',
+  })
+  const { complete, requests } = scripted([
+    edit('src/counter.ts', 'export let count = 0', 'export let count = 0\n'),
+    edit('src/ui.ts', '  reset()', '  reset()\n  reset()'),
+    finish,
+    finish,
+  ])
+  const where = join(root, 'src/counter')
+  const failure = [
+    `src/ui.ts(1,8): error TS2613: Module '${q}${where}${q}' has no default export. Did you mean to use 'import { count } from ${q}${where}${q}' instead?`,
+    `src/ui.ts(4,3): error TS2552: Cannot find name 'reset'. Did you mean 'onreset'?`,
+  ].join('\n')
+  try {
+    await runCodeAgent('Make label reset the counter in src/ui.ts using src/counter.ts.', makeHost(root, complete, ['npm test'], async () => ({ ok: false, output: failure })))
+    const fix = promptOf(requests[3])
+    assert.match(fix, /import [{] count [}] from '.*counter'/, 'the default import was not repaired with the named one')
+    assert.match(fix, /reset is exported by src.counter[.]ts/, 'the missing name was not traced to the file that exports it')
+    assert.match(fix, /import [{] reset [}] from '.*counter'/, 'the missing import was not spelled out')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a run that never touches the file it was asked for still stops instead of looping forever', async () => {
   const root = project({ 'src/a.ts': 'export const a = 1\n' })
   const { complete } = scripted([finish, finish, finish, finish, finish, finish])

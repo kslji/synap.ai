@@ -435,16 +435,80 @@ async function describeFile(host: CodeAgentHost, path: string, budget: number): 
 async function fixPrompt(host: CodeAgentHost, failure: string, targets: readonly string[]): Promise<string> {
   const files = await describeFiles(host, targets.slice(0, CONTEXT_FILES), 'Those files as they are now:')
   const faults = faultLines(host, failure)
+  const hints = importHints(host, failure, targets)
   return [
     'Not finished: the check failed.',
     '',
     await truncateToTokens(host.counter, failure, 500),
     ...(faults ? ['', 'The lines it names:', faults] : []),
+    ...(hints ? ['', 'What to change:', hints] : []),
     '',
     files,
     '',
     'Fix the cause with one propose_edit, then call finish.',
   ].join('\n')
+}
+
+/**
+ * The import a compiler error is asking for, spelled out against the project's own files. A 2B
+ * reads `import count from` past "has no default export" three times in a row; `import { count }`
+ * written as the line to use is what it follows.
+ */
+function importHints(host: CodeAgentHost, failure: string, targets: readonly string[]): string {
+  const hints: string[] = []
+  const seen = new Set<string>()
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS2613: .*Did you mean to use 'import \{ (\w+) \} from ["']([^"']+)["']'/gm)) {
+    const file = normPath(match[1]!.trim())
+    const row = Number(match[2])
+    const name = match[3]!
+    const specifier = importSpecifier(host.root, file, match[4]!)
+    if (!specifier || seen.has(`${file}:${name}`)) continue
+    seen.add(`${file}:${name}`)
+    hints.push(`${file} line ${row} uses a default import. ${name} is a named export, so write: import { ${name} } from '${specifier}'`)
+  }
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS(?:2304|2552): Cannot find name '([A-Za-z_$][\w$]*)'/gm)) {
+    const file = normPath(match[1]!.trim())
+    const name = match[3]!
+    if (seen.has(`${file}:${name}`)) continue
+    const from = exporterOf(host, name, file, targets)
+    seen.add(`${file}:${name}`)
+    if (!from) continue
+    hints.push(`${name} is exported by ${from}. Add this with the imports at the top of ${file}: import { ${name} } from '${importSpecifier(host.root, file, from)!}'`)
+  }
+  return hints.join('\n')
+}
+
+/** The first file that exports `name`, the request's own files first, then the rest of the project. */
+function exporterOf(host: CodeAgentHost, name: string, file: string, targets: readonly string[]): string | null {
+  const pool = [...new Set([...targets, ...host.facts?.files ?? []])].filter((path) => normPath(path) !== file)
+  const pattern = new RegExp(`export\\s+(?:const|let|var|function|class|type|interface)\\s+${name.replace(/\$/g, '\\$')}\\b`)
+  for (const path of pool.slice(0, 40)) {
+    const abs = resolveInside(host.root, path)
+    if (!abs || !existsSync(abs) || !/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(abs)) continue
+    if (pattern.test(readFileSync(abs, 'utf8'))) return normPath(path)
+  }
+  return null
+}
+
+/** `./counter` for a specifier the compiler wrote as an absolute path, so a 2B can paste it. */
+function importSpecifier(root: string, from: string, to: string): string | null {
+  const prefix = `${root}/`
+  const rel = to.startsWith(prefix) ? to.slice(prefix.length) : to.startsWith('/') ? null : to
+  if (!rel) return null
+  const target = rel.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '').split('\\').join('/')
+  const both = target.split('/')
+  const base = posixDirname(from).split('/').filter(Boolean)
+  while (both.length && base.length && both[0] === base[0]) {
+    both.shift()
+    base.shift()
+  }
+  const parts = [...base.map(() => '..'), ...both].join('/')
+  return parts.startsWith('.') ? parts : `./${parts}`
+}
+
+function posixDirname(path: string): string {
+  const cut = path.lastIndexOf('/')
+  return cut <= 0 ? '' : path.slice(0, cut)
 }
 
 /**

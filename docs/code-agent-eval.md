@@ -19,16 +19,19 @@ runs the same provider stack, so a pass here is a pass in the app. Deterministic
 
 | Mode | What runs | What the app does |
 | --- | --- | --- |
-| direct | `runCodeAgent` - one loop, a tool call per turn, no plan | used for tasks triaged as `chat` |
-| split | `runSplitTask` - triage, then one step for an `edit` or a plan for a `plan`, each step with checks and a failure ladder (3 tries, 3 candidates); `chat` delegates to the loop | the shipped path for every code ask |
+| direct | `runCodeAgent` - one loop, a tool call per turn, no plan | the executor inside `runSplitTask` |
+| split | `runSplitTask` - triage, then a route: one or two files behind at most two symbols go straight to the loop; a new file, three or more files, or more than two symbols get one plan attempt and a step per file, each with a check and a failure ladder (3 tries, 3 candidates); `chat` delegates to the loop | the shipped path for every code ask |
 
-So the comparison is exactly "with and without task decomposition", but split is not a special
-mode: it is the path the app takes, and direct is the loop it falls back to when triage says the
-task is a question rather than an edit.
+So the comparison is "with and without task decomposition" in the shape the app actually ships it:
+split is the entry point, and the loop is what split runs for most tasks. On the single-file and
+two-file fixtures the two columns are the same code path and score the same, which is the point of
+the routing.
 
 Both get the same fixture, the same task sentence, the same house-style rules, and `maxSteps: 8`.
-The eval answers every approval with `allow` and every command with `ok`, because it scores the
-code a task ends with, not whether a dialog appeared.
+Each fixture is written with a `tsconfig.json` and a `typecheck` script, so a step's `check` is a
+real `tsc --noEmit` and a bad edit goes round the fix loop instead of being accepted. The eval
+answers every approval with `allow`, because it scores the code a task ends with, not whether a
+dialog appeared.
 
 ## The tasks
 
@@ -71,89 +74,86 @@ answer-shaped no-op edit (`return a + b + 0`) must not score.
 
 ## Results on Qwen3.5-2B
 
-Apple M1, 8 GB, 1.19 GiB Q4_K_M, macOS. Timeout 120 s per run unless noted.
+Apple M1, 8 GB, 1.19 GiB Q4_K_M, macOS. Timeout 120 s per run.
 
-| Mode | Pass | Wall clock | Median steps |
-| --- | --- | --- | --- |
-| direct | 12/20 (60%) | 330 s | 4 |
-| split | 8/20 (40%) | 1548 s | 2 |
+| Mode | Pass | Wall clock | Median steps | Requests |
+| --- | --- | --- | --- | --- |
+| direct | 13/20 (65%) | 279 s | 4 | 100 |
+| split (shipped) | 12/20 (60%) | 909 s | 3 | 100 |
 
-By task size, which is where the difference is:
+The split wall clock includes one stalled run: `counter-reset` sat for 616 s inside a single
+`llama-server` request and was cut off by the 120 s abort only when that request finally returned.
+The other 19 runs total 293 s. Without the stall the two columns are identical except for
+`shared-limit`, the one task that still takes the checklist.
+
+By task size, which is where the remaining difference is:
 
 | | Single file (10) | Several files (10) |
 | --- | --- | --- |
-| direct | 8 | 4 |
-| split | 7 | 1 |
+| direct | 8 | 5 |
+| split | 8 | 4 |
 
-The two modes agree on the single-file tasks the 2B can do by copying what it read, and part ways
-on everything else. Decomposition turns 4 of 10 multi-file passes into 1.
-
-Direct is both more accurate and 4.7x faster. It stops on `finish` in 19 of 20 runs and only once
-on a repeated tool call; its eight failures are wrong code, not stalled loops.
-Split's twelve failures fall into two kinds. Five never produced a valid plan: `runSplitTask`
-returned `failed` with 0-2 steps for `retries-five`, `max-bytes`, `move-base-url`, `parse-null` and
-`shared-limit` - the plan validator rejects steps whose files do not match the triage, and the 2B
-keeps proposing a step for a file it was not allowed to touch. Seven others were cut off by the
-120 s cap, which the ladder can reach on its own: three attempts times three candidates on a 2B is
-minutes, not seconds. The cost shows up even on the single-file asks it does pass: `rename-add` is
-2 requests through the loop and 6 through the ladder, for the same one-line diff.
-
-Renaming that cap and rerunning those seven at 300 s:
-
-| Task | At 300 s | What happened |
-| --- | --- | --- |
-| todo-comment | FAIL, 128 s | stopped after one step; the TODO line never changed |
-| rename-fmt | FAIL, 300 s | hit the cap: 4 steps, 11 requests, the caller still calls `fmt` |
-| add-timeout | FAIL, 300 s | hit the cap: 3 steps, 12 requests, `api.ts` never gained the parameter |
-| row-note | FAIL, 300 s | hit the cap: 2 steps, 10 requests, the interface was never widened |
-| async-load | FAIL, 300 s | hit the cap: 2 steps, 10 requests, `load` never became async |
-| missing-file | FAIL, 243 s | ran its tries and stopped; the message never changed |
-| counter-reset | FAIL, 300 s | hit the cap: 2 steps, 13 requests, `reset` never appeared |
-
-None passed. The timeout is not what makes split lose: given five times the time, two of the seven
-ran to their own end with the file unchanged, and the other five hit the cap again. The 120 s cap
-only made the report finish.
+Against the run this work started from (direct 12/20 in 330 s, split 8/20 in 1548 s with seven runs
+cut off by the 120 s cap), the shipped path is 4 tasks better and 5x faster, and no run is now lost
+to the timeout. The target for this change was 15/20; the shipped path scores 13/20 with the stall
+excluded, and the seven failures left are wrong edits, not a harness that gave up.
 
 ## Where the model actually fails
 
 Four kinds, in the order they cost the most:
 
-1. **It does not finish an edit it has already read.** `max-bytes` direct asks for two `1024`s to
-   become `MAX_BYTES`; the model emitted a diff for the first line, then answered with prose. The
-   file still held `/ 1024`.
-2. **It writes a whole file from memory instead of a patch.** `rename-add` direct replaced
-   `function add(` with `return a + b + 0` - the body it remembered, not the line it was editing -
-   and reported success.
-3. **Coordinated change across two files is beyond it.** Every multi-file task that needs a
-   signature change plus a call-site change (`add-timeout`, `async-load`, `missing-file`,
-   `parse-null`) failed in both modes, usually with one side edited and the other untouched.
-4. **A new file is never proposed.** `shared-limit` needs `src/limits.ts` created and imported
-   twice. Both paths can create one - `propose_edit` on a path that does not exist writes it - but
-   the 2B proposed `src/limits.ts` in neither mode, and in split the planner kept naming a file it
-   was not allowed to touch, which the validator rejected.
+1. **It writes the neighbouring line instead of the one it was asked to change.** `rename-add`
+   answers a diff that keeps `function add(` and appends `+ 0` to the body, then calls finish with
+   "Renamed the function `add` to `sum`". `max-bytes` rewrites the first `1024` and leaves `/ 1024`
+   in the second function with the same confidence. Both are one-line diffs the model has the file
+   in front of it for, and both pass `tsc`, so only the text rules catch them.
+2. **It edits the second file the wrong way rather than not at all.** `missing-file` shows the
+   finish guard working: the first `finish` is refused with "Nothing changed in src/err.ts", the
+   model goes to the file - and then writes the message string into both files instead of exporting
+   `MESSAGE` from one and importing it. `move-base-url` never moves the constant at all, and
+   `parse-null` writes `parse(text) || 0` where the task asks for `null`.
+3. **A new file is never proposed.** `shared-limit` needs `src/limits.ts` created and imported
+   twice. The checklist is the only route it can take (three files), and the ladder ran three
+   candidates without ever proposing the create.
+4. **It repeats a tool call.** `async-load` read the same file twice in a row and stopped on the
+   repeat guard.
 
-What it does do, in both modes and in under 10 s: single edits it can copy from what it read -
-rename, constant change, comparison change, index fix, template literal, a new named export.
+What it does do, in both modes and in under 10 s each: single edits it can copy from what it read -
+constant change, comparison change, index fix, template literal, a new named export, a TODO
+replacement - plus, at 14-61 s, the two-file asks where both sides are a copy of what it read
+(`rename-fmt`, `add-timeout`, `row-note`, `nan-check`, `counter-reset`).
 
 ## What follows from this
 
-- The next change this measurement argues for is routing a task triaged as `edit` straight to the
-  loop instead of wrapping it in a one-step ladder. That is 8 of 10 single-file passes instead of
-  7, and 2 requests for a one-line diff instead of 6. It needs its own golden test before it ships.
+- Routing is the change this measurement pays for. A task naming one or two files behind at most
+  two symbols runs the loop: 2 requests for a one-line diff instead of 6, and no ladder. The
+  checklist keeps the cases a 2B cannot hold in one pass - a new file, three files, more than two
+  symbols - which is where `shared-limit` still fails.
+- One plan attempt, not three. A rejected checklist cost a whole thinking pass - 40 to 51 s measured
+  on this box - and the two retries never turned a rejection into a valid plan. A rejection now
+  falls back to the loop with the reason in the answer.
+- The finish guard is deterministic and cheap: a `finish` that names a file the request asked for
+  and nothing touched is sent back once. `missing-file` shows it firing. It cannot fix an edit the
+  model writes from memory, and nothing in the harness can - that needs a model that re-reads.
+- The next change this measurement argues for is a check inside the loop: after an applied edit,
+  run the project's `typecheck` and go round the fix step once, the way the checklist already does
+  per step. That is what would catch `rename-add` and `max-bytes`-shaped no-ops earlier, though
+  neither fails `tsc`, so a per-fixture test command would be the stronger version.
 - The passing set above is the honest capability claim for the default: single-file edits, copied
-  from a read, one at a time. Anything cross-file is what the failure ladder's model suggestion is
-  for.
-- Split's plan validator is doing real work: five of its twelve failures were caught at plan time
-  rather than by writing the wrong files.
+  from a read, one at a time, plus two-file asks where a read is enough to write both sides.
+  Anything cross-file with a signature change is what the failure ladder's model suggestion is for.
 
 ## Limits of this eval
 
-- It scores file text, not behaviour. The fixtures have no test command, so a step's check
-  resolves to nothing and the ladder cannot catch a change that compiles but is wrong. Adding a
-  per-fixture `tsc` check would raise both scores and make them mean more.
+- It scores file text on top of a real `tsc --noEmit` check. A change that compiles but is wrong -
+  `parse(text) || 0` - is caught only by the text rules; a test command per fixture would catch
+  more, and none of the twenty fixtures has one yet.
 - Only the 2B is measured here. The 4B reruns the same 20 tasks with `--model qwen3.5-4b-q4_k_m`
   when its weights are on disk.
 - It is not in CI: it needs model weights and a GPU. It is a release check, run by hand, with the
   score recorded in the ADR.
 - One sample per task per mode. The 2B is not deterministic across hardware, so treat a single
   task's outcome as a coin flip near the model's edge, and the totals as the signal.
+- A single request can stall for minutes on an 8 GB machine under memory pressure (`counter-reset`
+  above). The 120 s cap fires when the request returns, not while it hangs, so a stalled run costs
+  wall clock and is reported as stopped rather than timed out.

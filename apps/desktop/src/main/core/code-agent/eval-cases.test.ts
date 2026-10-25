@@ -141,3 +141,16 @@ test('the reference solution also typechecks', async () => {
   }
   assert.deepEqual(failures, [], failures.join('\n\n'))
 })
+
+test('a correct answer is not failed for choosing the other quote mark', async () => {
+  // A fixture test that pins a quote style fails work that behaves right, and its failure message
+  // then sends a small model back to edit code that was already correct.
+  const quote = String.fromCharCode(34)
+  const failures: string[] = []
+  for (const c of AGENT_EVAL_CASES) {
+    const doubled = Object.fromEntries(Object.entries(c.solution).map(([path, text]) => [path, text.replace(/from '([^']+)'/g, `from ${quote}$1${quote}`)]))
+    const run = await runFixture(c, { ...c.files, ...doubled })
+    if (!run.ok) failures.push(`${c.id}: ${run.output.slice(-700)}`)
+  }
+  assert.deepEqual(failures, [], failures.join('\n\n'))
+})

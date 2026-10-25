@@ -39,7 +39,19 @@ export interface LlamaClientOptions {
   apiKey: string;
   sampling?: Record<string, number>;
   chatTemplateKwargs?: Record<string, unknown>;
+  /** How long one non-streaming request may run before it is dropped and retried once. */
+  requestTimeoutMs?: number;
+  /** The budget for a thinking turn: a capped 512-token plan legitimately takes 40-50 s here. */
+  thinkingTimeoutMs?: number;
 }
+
+/**
+ * A llama-server request either answers quickly or is wedged. 45 s is generous for an answer and far
+ * below the 616 s stall the eval once sat through; a thinking turn gets double because it can be
+ * 50 s of reasoning on this hardware before the answer even starts.
+ */
+export const REQUEST_TIMEOUT_MS = 45_000
+export const THINKING_TIMEOUT_MS = 90_000
 
 export interface ChatCompletionExtras {
   response_format?: unknown;
@@ -53,12 +65,28 @@ export interface ChatCompletionExtras {
 export class LlamaClient {
   constructor(private readonly o: LlamaClientOptions) {}
 
-  private async post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  private async post<T>(path: string, body: unknown, signal?: AbortSignal, timeoutMs = this.o.requestTimeoutMs ?? REQUEST_TIMEOUT_MS): Promise<T> {
+    // One retry, only for a request this client gave up on. A caller's abort is the user stopping.
+    let failure: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await this.send<T>(path, body, signal, timeoutMs)
+      } catch (error) {
+        if (signal?.aborted || !isTimeout(error)) throw error
+        failure = timeOut(timeoutMs)
+      }
+    }
+    throw failure
+  }
+
+  private async send<T>(path: string, body: unknown, signal: AbortSignal | undefined, timeoutMs: number): Promise<T> {
+    const watchdog = AbortSignal.timeout(timeoutMs)
+    const combined = signal ? AbortSignal.any([signal, watchdog]) : watchdog
     const r = await fetch(`${this.o.baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.o.apiKey}` },
       body: JSON.stringify(body),
-      signal,
+      signal: combined,
     });
     if (!r.ok) throw new Error(`llama-server ${path}: HTTP ${r.status} ${await r.text()}`);
     return (await r.json()) as T;
@@ -120,6 +148,7 @@ export class LlamaClient {
         ...this.chatBody(messages, tools, maxTokens, false, extras),
       },
       signal,
+      extras?.enableThinking ? this.o.thinkingTimeoutMs ?? THINKING_TIMEOUT_MS : undefined,
     );
   }
 
@@ -320,6 +349,17 @@ export class LlamaClient {
       ...(sawUsage ? { usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens } } : {}),
     };
   }
+}
+
+/** A fetch this client cancelled itself, either as a TimeoutError or as its own AbortError. */
+function isTimeout(error: unknown): boolean {
+  const name = (error as {name?: string} | null)?.name
+  return name === 'TimeoutError' || name === 'AbortError'
+}
+
+function timeOut(ms: number): Error {
+  const budget = ms >= 1000 ? `${Math.round(ms / 1000)} s` : `${ms} ms`
+  return new Error(`llama-server request timed out after ${budget}`)
 }
 
 /** Image understanding (Qwen3.5 + mmproj): images are sent as data URLs in the OpenAI format. */

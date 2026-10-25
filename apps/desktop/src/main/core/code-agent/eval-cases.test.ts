@@ -1,12 +1,43 @@
 /**
- * The agent eval's own checks: 20 tasks, each with a fixture and an expectation that can actually
- * fail. No model is needed - a task whose fixture already contains the expected text is not a
- * task, so these tests pin that every "must contain" is absent at the start, every "must not
- * contain" is present at the start, and every checked path is real.
+ * The agent eval's own checks: 20 tasks, each with a fixture, a behavioural test, and an expectation
+ * that can actually fail. No model is needed - a task whose fixture already contains the expected
+ * text is not a task, so these tests pin that every "must contain" is absent at the start, every
+ * "must not contain" is present at the start, every checked path is real, and every fixture's own
+ * test fails on the fixture and passes on the reference solution.
  */
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { AGENT_EVAL_CASES, EVAL_RULES, scoreFiles, type EvalCase } from './eval-cases.js'
+import { evalProjectFiles, evalTestCommand } from './eval-project.js'
+import { runProjectCommand } from './workspace.js'
+
+const resolve = createRequire(import.meta.url).resolve
+const tsc = resolve('typescript/bin/tsc')
+const loader = resolve('tsx')
+
+function write(root: string, files: Record<string, string>): void {
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), text)
+  }
+}
+
+/** Build the fixture as the eval does, drop these files in, and run its own test. */
+async function runFixture(c: EvalCase, files: Record<string, string>, command = 'npm test'): Promise<{ ok: boolean; output: string }> {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), `surf-case-${c.id}-`)))
+  try {
+    write(root, files)
+    write(root, c.tests)
+    write(root, evalProjectFiles(tsc, { test: evalTestCommand(loader, Object.keys(c.tests)) }))
+    return await runProjectCommand(root, command)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
 
 /** The file text after a run: an unchanged fixture unless the test says otherwise. */
 function texts(c: EvalCase, patch: Record<string, string | null> = {}): Record<string, string | null> {
@@ -87,4 +118,26 @@ test('a deleted file fails instead of counting as changed', () => {
   const scored = scoreFiles(texts(c, { 'src/eq.ts': null }), c)
   assert.equal(scored.pass, false)
   assert.match(scored.why, /missing/)
+})
+
+test('every fixture test fails on the fixture and passes on the reference solution', async () => {
+  const failures: string[] = []
+  for (const c of AGENT_EVAL_CASES) {
+    assert.ok(Object.keys(c.tests).length > 0, `${c.id} has no behavioural test`)
+    assert.ok(Object.keys(c.solution).length > 0, `${c.id} has no reference solution`)
+    const before = await runFixture(c, c.files)
+    if (before.ok) failures.push(`${c.id}: the fixture already passes its own test`)
+    const after = await runFixture(c, { ...c.files, ...c.solution })
+    if (!after.ok) failures.push(`${c.id}: the solution fails its own test\n${after.output.slice(-900)}`)
+  }
+  assert.deepEqual(failures, [], failures.join('\n\n'))
+})
+
+test('the reference solution also typechecks', async () => {
+  const failures: string[] = []
+  for (const c of AGENT_EVAL_CASES) {
+    const run = await runFixture(c, { ...c.files, ...c.solution }, 'npm run typecheck')
+    if (!run.ok) failures.push(`${c.id}: ${run.output.slice(-500)}`)
+  }
+  assert.deepEqual(failures, [], failures.join('\n\n'))
 })

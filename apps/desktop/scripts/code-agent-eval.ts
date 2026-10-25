@@ -31,7 +31,7 @@ import { runSplitTask, type SplitHost } from '../src/main/core/code-agent/split.
 import { createProjectSearch } from '../src/main/core/code-agent/project-search.js'
 import type { PlanFacts } from '../src/main/core/code-agent/plan.js'
 import { AGENT_EVAL_CASES, EVAL_RULES, scoreFiles, type EvalCase } from '../src/main/core/code-agent/eval-cases.js'
-import { evalProjectFiles } from '../src/main/core/code-agent/eval-project.js'
+import { evalProjectFiles, evalTestCommand } from '../src/main/core/code-agent/eval-project.js'
 import { runProjectCommand } from '../src/main/core/code-agent/workspace.js'
 import { heuristicCounter } from '../src/main/core/token-budget.js'
 import { providerToComplete, type CompletionRequest, type ModelTurn } from '@surf/agent-core'
@@ -39,6 +39,10 @@ import { providerToComplete, type CompletionRequest, type ModelTurn } from '@sur
 const DESKTOP = join(dirname(fileURLToPath(import.meta.url)), '..')
 /** The repo's own TypeScript, so a fixture can typecheck without installing anything. */
 const TSC = createRequire(import.meta.url).resolve('typescript/bin/tsc')
+/** The repo's own tsx, so `npm test` runs a fixture's TypeScript test with no build step. */
+const TSX = createRequire(import.meta.url).resolve('tsx')
+/** What the loop runs before it accepts a finish: the compiler, then the fixture's own test. */
+const VERIFY = ['npm run typecheck', 'npm test']
 
 type Mode = 'direct' | 'split'
 
@@ -93,7 +97,8 @@ async function runCase(
   writeFixture(root, c.files)
   // A real check: without one the ladder cannot tell a bad edit from a good one, and a skipped
   // second file still scores as a pass.
-  writeFixture(root, evalProjectFiles(TSC))
+  writeFixture(root, c.tests)
+  writeFixture(root, evalProjectFiles(TSC, { test: evalTestCommand(TSX, Object.keys(c.tests)) }))
   const facts: PlanFacts = { indexed: false, files: Object.keys(c.files), symbols: [], edges: [] }
   let requests = 0
   const controller = new AbortController()
@@ -121,6 +126,8 @@ async function runCase(
       // The eval scores the code a task ends with, so approvals never block a run.
       ask: async () => ({ allow: true }),
       runCommand: (command, signal, hooks) => runProjectCommand(root, command, signal, hooks),
+      // The loop verifies a finished edit itself; this is the same pair of commands.
+      verify: VERIFY,
     }
     if (mode === 'direct') {
       const result = await runCodeAgent(c.task, host)
@@ -139,6 +146,12 @@ async function runCase(
   }
   const texts = finishedTexts(root, c)
   const scored = scoreFiles(texts, c)
+  // The behavioural test is scored here too, independently of whatever the run claimed: a file
+  // that reads right but behaves wrong is not a pass.
+  const behaviour = await runProjectCommand(root, 'npm test')
+  const why = scored.pass
+    ? (behaviour.ok ? (stopped === 'finish' ? '' : `stopped: ${stopped}`) : `fixture test failed\n${behaviour.output.slice(-800)}`)
+    : scored.why
   // A verbose failure prints what the files ended as, which is the only way to tell a bad edit
   // from a bad score.
   if (verbose && !scored.pass) {
@@ -148,12 +161,12 @@ async function runCase(
   return {
     id: c.id,
     mode,
-    pass: scored.pass && stopped === 'finish',
+    pass: scored.pass && stopped === 'finish' && behaviour.ok,
     stopped,
     steps,
     requests,
     ms: Date.now() - started,
-    why: scored.pass ? (stopped === 'finish' ? '' : `stopped: ${stopped}`) : scored.why,
+    why,
   }
 }
 

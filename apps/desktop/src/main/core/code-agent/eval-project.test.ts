@@ -43,7 +43,7 @@ test('an eval fixture has a real typecheck, so a half-done edit fails the step',
 
 test('every eval fixture starts with a clean typecheck', async () => {
   const root = project()
-  for (const [path, text] of Object.entries(evalProjectFiles(tsc, ['*/src']))) writeFileSync(join(root, path), text)
+  for (const [path, text] of Object.entries(evalProjectFiles(tsc, { include: ['*/src'] }))) writeFileSync(join(root, path), text)
   for (const c of AGENT_EVAL_CASES) {
     mkdirSync(join(root, c.id), { recursive: true })
     for (const [path, text] of Object.entries(c.files)) {

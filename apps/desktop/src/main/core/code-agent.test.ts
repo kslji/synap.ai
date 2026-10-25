@@ -284,14 +284,26 @@ test('the step cap and a repeated call stop the loop', async () => {
   let calls = 0
   const repeated = await runCodeAgent('again', {
     ...baseHost(root),
+    limits: { maxSteps: 3 },
     async complete() {
       calls++
       return { content: '{"tool":"read_file","arguments":{"path":"same.txt"}}' }
     },
   })
-  assert.equal(repeated.stopped, 'repeat')
-  assert.equal(calls, 2)
-  assert.equal(repeated.steps.length, 1)
+  // A file it has already been shown is answered, not fatal: the run keeps going until the cap.
+  assert.equal(repeated.stopped, 'limit')
+  assert.ok(calls > 2, 'the second read of one file must not end the run')
+
+  let lists = 0
+  const stalled = await runCodeAgent('again', {
+    ...baseHost(root),
+    async complete() {
+      lists++
+      return { content: '{"tool":"list_dir","arguments":{"path":"."}}' }
+    },
+  })
+  assert.equal(stalled.stopped, 'repeat')
+  assert.equal(lists, 2)
 })
 
 test('old tool results drop so the prompt stays inside the budget', async () => {

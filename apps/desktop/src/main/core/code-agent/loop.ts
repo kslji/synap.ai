@@ -3,10 +3,13 @@
  * Ask mode waits on edits and on commands that were not allowed before.
  * Auto writes inside the project and runs the allowlist. Other commands pause.
  */
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { CodeDiffView, CodeStepView } from '../../../shared/ipc-contract.js'
 import type { ChatMessage } from '../llama-client.js'
 import { truncateToTokens, type TokenCounter } from '../token-budget.js'
 import { fitAgentMessages } from './budget.js'
+import { detectCheck, fullTestCommand } from './checks.js'
 import { applyPlannedEdit, planEdit } from './edit.js'
 import { toolCallGbnf, toolCallJsonSchema } from './grammar.js'
 import { parseModelTurn, type ModelTurn } from './parse-tool.js'
@@ -27,13 +30,27 @@ export interface CodeAgentLimits {
   maxSteps: number
   maxParseRetries: number
   maxSameCall: number
+  /** Extra turns after a failed check: read the diagnostic, edit, look, and try again. */
+  maxFixTurns: number
 }
 
 export const CODE_AGENT_LIMITS: CodeAgentLimits = {
   maxSteps: 8,
   maxParseRetries: 2,
   maxSameCall: 2,
+  maxFixTurns: 3,
 }
+
+/** How many of the files a request names are quoted in the first prompt, and the next one. */
+const CONTEXT_FILES = 4
+
+/** Words that carry no information about what the edit changed, so a leftover hint skips them. */
+const KEYWORDS = new Set([
+  'const', 'return', 'export', 'function', 'import', 'from', 'let', 'var', 'if', 'else',
+  'async', 'await', 'type', 'interface', 'void', 'new', 'true', 'false', 'null', 'undefined',
+  'number', 'string', 'boolean', 'public', 'private', 'class', 'extends', 'implements', 'default',
+  'this', 'that', 'with', 'then', 'for', 'while', 'throw', 'try', 'catch',
+])
 
 export interface CodeAgentHost {
   complete(req: CompletionRequest): Promise<ModelTurn>
@@ -58,7 +75,14 @@ export interface CodeAgentHost {
   ask(request: { kind: 'command' | 'edit'; id: string; command?: string; path?: string; diff?: string }): Promise<{ allow: boolean; remember?: boolean; all?: boolean }>
   runCommand?(command: string, signal?: AbortSignal, hooks?: { onOutput?: (chunk: string) => void }): Promise<{ ok: boolean; output: string; note?: string }>
   onRememberCommand?(command: string): void
+  /**
+   * The commands that decide whether the work is right, run before a finish is accepted. Defaults
+   * to whatever `checks.ts` detects in the folder; pass an empty list to verify nothing.
+   */
+  verify?: readonly string[]
 }
+
+export type CommandRunner = NonNullable<CodeAgentHost['runCommand']>
 
 export interface CodeAgentResult {
   answer: string
@@ -71,6 +95,13 @@ const REMINDER = 'The last reply was not a tool call. Reply with one JSON object
 
 type Constraint = 'native' | 'json_schema' | 'gbnf'
 
+interface CallOptions {
+  /** A fix turn thinks once: the failure has to be read before the next edit is guessed. */
+  thinking: boolean
+  /** A repeated read leaves no choice: the next reply has to be an edit. */
+  forceTool: string | null
+}
+
 export async function runCodeAgent(task: string, host: CodeAgentHost, history: { user: string; assistant: string }[] = []): Promise<CodeAgentResult> {
   const limits = { ...CODE_AGENT_LIMITS, ...host.limits }
   const mode = host.mode ?? 'ask'
@@ -80,7 +111,11 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   const steps: CodeStepView[] = []
   const diffs: CodeDiffView[] = []
   const seen = new Map<string, number>()
-  let finishChecked = false
+  const targets = requestedPaths(task, host.facts?.files ?? [])
+  let finishRefusals = 0
+  let fixTurns = 0
+  let thinking = false
+  let forceTool: string | null = null
   let lastSig = ''
   let seq = 0
   const messages: ChatMessage[] = [
@@ -90,11 +125,18 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
     messages.push({ role: 'user', content: turn.user })
     messages.push({ role: 'assistant', content: turn.assistant })
   }
-  messages.push({ role: 'user', content: task })
+  // The files the request names, exactly as they are. A 2B that has to read first spends a step on
+  // it and often guesses a neighbouring line when it edits from memory; quoting the file is cheaper
+  // than either, and a file that is not there yet is marked so it gets created.
+  messages.push({ role: 'user', content: await taskWithContext(task, host, targets) })
 
-  for (let n = 0; n < limits.maxSteps; n++) {
+  // A fix turn is the only turn that extends the budget: nothing else earns extra steps.
+  let allowedTurns = limits.maxSteps
+  for (let n = 0; n < allowedTurns; n++) {
     throwIfAborted(host.signal)
-    const parsed = await obtainCall(host, messages, limits.maxParseRetries)
+    const parsed = await obtainCall(host, messages, limits.maxParseRetries, { thinking, forceTool })
+    thinking = false
+    forceTool = null
     if (!parsed) {
       return { answer: 'I could not read a tool call from the model.', steps, diffs, stopped: 'parse' }
     }
@@ -102,26 +144,49 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
     const times = (seen.get(sig) ?? 0) + 1
     seen.set(sig, times)
     if (sig === lastSig || times > limits.maxSameCall) {
-      return { answer: 'Stopped because that step repeated.', steps, diffs, stopped: 'repeat' }
+      const advice = repeatAdvice(parsed.call.name, parsed.call.arguments)
+      if (!advice) {
+        return { answer: 'Stopped because that step repeated.', steps, diffs, stopped: 'repeat' }
+      }
+      // Reading a file that is already in the prompt is the 2B's way of stalling. Answering with
+      // the edit request keeps the run alive; a second identical read is not a step, it is a pause.
+      const id = `step-${++seq}`
+      pushStep(host, steps, { id, index: steps.length + 1, tool: parsed.call.name, status: 'ok', title: stepTitle(parsed.call.name, parsed.call.arguments), detail: advice.detail })
+      messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
+      messages.push({ role: 'user', content: advice.message })
+      lastSig = ''
+      forceTool = 'propose_edit'
+      continue
     }
     lastSig = sig
     const id = `step-${++seq}`
     const title = stepTitle(parsed.call.name, parsed.call.arguments)
     if (parsed.call.name === 'finish') {
       const summary = stringArg(parsed.call.arguments, 'summary') || 'Done.'
-      if (!finishChecked) {
-        // A 2B finishes after the first file and its summary claims both. Naming the file nothing
-        // touched is what it needs to go again; a review of its own output it simply finishes over.
-        const skipped = skippedTargets(task, host, diffs)
-        if (skipped.length) {
-          finishChecked = true
-          pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'error', title, detail: `Nothing changed in ${skipped.join(', ')}` })
-          messages.push({ role: 'assistant', content: JSON.stringify({ tool: 'finish', arguments: parsed.call.arguments }) })
-          messages.push({ role: 'user', content: `Not finished: the request names ${skipped.join(', ')} and nothing was changed there. Continue with that file, then call finish.` })
-          // The same finish again is the answer the check asked for, not a repeated step.
-          lastSig = ''
-          continue
-        }
+      // Two refusals are enough: a model that will not move on is better reported than looped.
+      const problem = finishRefusals < 2 ? finishProblem(host, diffs, targets) : null
+      if (problem) {
+        finishRefusals += 1
+        seen.delete(sig)
+        pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'error', title, detail: problem })
+        messages.push({ role: 'assistant', content: JSON.stringify({ tool: 'finish', arguments: parsed.call.arguments }) })
+        messages.push({ role: 'user', content: `Not finished: ${problem}` })
+        // The same finish again is the answer the check asked for, not a repeated step.
+        lastSig = ''
+        continue
+      }
+      // A compile is not a fix. The check runs here, before the finish is accepted, and its own
+      // output is the next prompt - a 2B reads a failing assertion far better than a description.
+      const failure = await verifyWork(host, steps, diffs, () => `check-${++seq}`)
+      if (failure && fixTurns < limits.maxFixTurns) {
+        fixTurns += 1
+        allowedTurns = Math.min(limits.maxSteps + limits.maxFixTurns, allowedTurns + 1)
+        thinking = fixTurns === 1
+        seen.delete(sig)
+        messages.push({ role: 'assistant', content: JSON.stringify({ tool: 'finish', arguments: parsed.call.arguments }) })
+        messages.push({ role: 'user', content: await fixPrompt(host, failure, targets) })
+        lastSig = ''
+        continue
       }
       pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'ok', title, detail: summary })
       return { answer: summary, steps, diffs, stopped: 'finish' }
@@ -133,8 +198,8 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   return { answer: 'Stopped after the step limit.', steps, diffs, stopped: 'limit' }
 }
 
-async function obtainCall(host: CodeAgentHost, messages: ChatMessage[], maxParseRetries: number): Promise<{ call: NonNullable<ReturnType<typeof parseModelTurn>> } | null> {
-  let constraint: Constraint = 'native'
+async function obtainCall(host: CodeAgentHost, messages: ChatMessage[], maxParseRetries: number, options: CallOptions): Promise<{ call: NonNullable<ReturnType<typeof parseModelTurn>> } | null> {
+  let constraint: Constraint = options.forceTool ? 'json_schema' : 'native'
   let reminder = false
   for (let attempt = 0; attempt <= maxParseRetries; attempt++) {
     throwIfAborted(host.signal)
@@ -144,7 +209,7 @@ async function obtainCall(host: CodeAgentHost, messages: ChatMessage[], maxParse
       : fitted
     let turn: ModelTurn
     try {
-      turn = await host.complete(requestFor(constraint, requestMessages, host))
+      turn = await host.complete(requestFor(constraint, requestMessages, host, options))
     } catch (error) {
       if (isAbort(error) || host.signal?.aborted) throw error
       if (constraint === 'gbnf') throw error
@@ -161,15 +226,16 @@ async function obtainCall(host: CodeAgentHost, messages: ChatMessage[], maxParse
   return null
 }
 
-function requestFor(constraint: Constraint, messages: ChatMessage[], host: CodeAgentHost): CompletionRequest {
+function requestFor(constraint: Constraint, messages: ChatMessage[], host: CodeAgentHost, options: CallOptions): CompletionRequest {
   const stepKind = 'triage' as const
-  // Each turn of the loop is a step: short and specified, so it never thinks.
-  const thinking = thinkingFor('edit-step')
+  // A fix turn reads a compiler or test failure, which is the one step worth thinking about.
+  const thinking = options.thinking ? thinkingFor('fix') : thinkingFor('edit-step')
+  const only = options.forceTool ? [options.forceTool] : undefined
   if (constraint === 'json_schema') {
-    return { messages, responseFormat: toolCallJsonSchema(), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
+    return { messages, responseFormat: toolCallJsonSchema(only), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
   }
   if (constraint === 'gbnf') {
-    return { messages, grammar: toolCallGbnf(), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
+    return { messages, grammar: toolCallGbnf(only), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
   }
   return { messages, tools: codeToolSchemas(), maxTokens: host.answerTokens, signal: host.signal, stepKind, thinking }
 }
@@ -250,7 +316,8 @@ async function act(
     diff.status = 'applied'
     host.onDiff?.(diff)
     pushStep(host, steps, { id, index, tool: name, status: 'applied', title, detail: planned.path })
-    return `Applied the diff to ${planned.path}.`
+    // The model sees the whole file it just changed, and anything its own diff left behind.
+    return editedObservation(host, planned.path, planned.diff)
   }
   if (name === 'run_command') {
     const command = stringArg(args, 'command')
@@ -304,13 +371,144 @@ function gateContext(remembered: ReadonlySet<string>, allowlist: ReadonlySet<str
 }
 
 /**
- * Files the request asked for that no applied patch touched. A run that changed nothing at all is a
- * read or an answer, not a skipped edit, and a file the task says to leave alone is never a target.
+ * Files the request asked for that no applied patch touched, plus any it asked for that is not on
+ * disk yet. A run that changed nothing at all is a read or an answer, not a skipped edit, and a file
+ * the task says to leave alone is never a target.
  */
-function skippedTargets(task: string, host: CodeAgentHost, diffs: CodeDiffView[]): string[] {
+function finishProblem(host: CodeAgentHost, diffs: CodeDiffView[], targets: readonly string[]): string | null {
+  const absent = targets.filter((path) => !existsSync(join(host.root, path)))
+  if (absent.length) {
+    return `${absent.join(', ')} does not exist yet. Create ${absent.length === 1 ? 'it' : 'them'} with propose_edit - an empty old and the whole file as new - then call finish.`
+  }
   const applied = new Set(diffs.filter((diff) => diff.status === 'applied').map((diff) => normPath(diff.path)))
-  if (!applied.size) return []
-  return requestedPaths(task, host.facts?.files ?? []).filter((path) => !applied.has(path))
+  if (!applied.size) return null
+  const untouched = targets.filter((path) => !applied.has(path))
+  if (untouched.length) {
+    return `the request names ${untouched.join(', ')} and nothing was changed there. Continue with that file, then call finish.`
+  }
+  return null
+}
+
+/**
+ * The task, then the files it names as they are on disk. The 2B edits what it can see: a prompt
+ * without the text spends a step on read_file and, when it types the file from memory, often
+ * rewrites the line above the one it meant to change.
+ */
+function taskWithContext(task: string, host: CodeAgentHost, targets: readonly string[]): Promise<string> {
+  const files = targets.slice(0, CONTEXT_FILES)
+  if (!files.length) return Promise.resolve(task)
+  return describeFiles(host, files, 'Those files as they are now. Edit them from this text; do not read them again:').then((block) => `${task}\n\n${block}`)
+}
+
+/** One numbered block per file, in the order the request named them. */
+async function describeFiles(host: CodeAgentHost, files: readonly string[], heading: string): Promise<string> {
+  const budget = Math.max(120, Math.min(600, Math.floor(host.promptBudget / Math.max(1, files.length * 2))))
+  const parts: string[] = [heading]
+  for (const path of files) parts.push(await describeFile(host, path, budget))
+  return parts.join('\n')
+}
+
+/** One file for the prompt: its numbered contents, or the marker that says it has to be created. */
+async function describeFile(host: CodeAgentHost, path: string, budget: number): Promise<string> {
+  const text = readProjectFile(host.root, { path })
+  if (text.startsWith('error:')) {
+    return `--- ${path}\n[MISSING FILE — must be created with propose_edit: pass an empty old and the whole file as new]`
+  }
+  return `--- ${await truncateToTokens(host.counter, text, budget)}`
+}
+
+/** The current state of every target, for the turn after a failed check. */
+async function fixPrompt(host: CodeAgentHost, failure: string, targets: readonly string[]): Promise<string> {
+  const files = await describeFiles(host, targets.slice(0, CONTEXT_FILES), 'Those files as they are now:')
+  return [
+    'Not finished: the check failed.',
+    '',
+    await truncateToTokens(host.counter, failure, 400),
+    '',
+    files,
+    '',
+    'Fix the cause with one propose_edit, then call finish.',
+  ].join('\n')
+}
+
+/**
+ * The commands that decide whether the work is right. `checks.ts` detects them so the loop agrees
+ * with the checklist runner; an explicit list wins, and an empty one verifies nothing.
+ */
+function verifyCommands(host: CodeAgentHost): string[] {
+  if (host.verify) return [...host.verify]
+  const found = [detectCheck(host.root, 'typecheck'), fullTestCommand(host.root)]
+  return [...new Set(found.filter((command): command is string => Boolean(command)))]
+}
+
+/**
+ * Run the checks before a finish is accepted. Returns the first failure's own output, which is what
+ * the fix turn is given: a 2B reads `AssertionError: 1024 !== undefined` better than a description.
+ */
+async function verifyWork(host: CodeAgentHost, steps: CodeStepView[], diffs: CodeDiffView[], nextId: () => string): Promise<string | null> {
+  if (!diffs.some((diff) => diff.status === 'applied')) return null
+  const run: CommandRunner = host.runCommand ?? ((command, signal, hooks) => runProjectCommand(host.root, command, signal, hooks))
+  for (const command of verifyCommands(host)) {
+    throwIfAborted(host.signal)
+    const id = nextId()
+    const title = `Check ${command}`
+    pushStep(host, steps, { id, index: steps.length + 1, tool: 'run_command', status: 'running', title, detail: command, output: '' })
+    let result: Awaited<ReturnType<CommandRunner>>
+    try {
+      result = await run(command, host.signal)
+    } catch (error) {
+      if (isAbort(error) || host.signal?.aborted) throw error
+      result = { ok: false, output: error instanceof Error ? error.message : 'the check could not run' }
+    }
+    pushStep(host, steps, { id, index: steps.length + 1, tool: 'run_command', status: result.ok ? 'ok' : 'error', title, detail: oneLine(result.output) || (result.ok ? 'passed' : 'failed'), output: tail(result.output) })
+    if (!result.ok) return `$ ${command}\n${result.output || 'the check failed with no output'}`
+  }
+  return null
+}
+
+/** A repeated read is a pause, not a step: hand back the file it already has and ask for the edit. */
+function repeatAdvice(name: string, args: Record<string, unknown>): { detail: string; message: string } | null {
+  if (name !== 'read_file') return null
+  const path = stringArg(args, 'path')
+  return {
+    detail: `${path || 'the file'} is already in the prompt`,
+    message: `File already read above: ${path || 'the file'}. Call propose_edit now with the required change.`,
+  }
+}
+
+/**
+ * What an applied edit left behind. The text this diff removed may still be further down the file -
+ * the second of two 1024s, the old name at another call site - and the model finishes without
+ * looking. Naming the token and its line is what makes it look.
+ */
+function editedObservation(host: CodeAgentHost, path: string, diff: string): Promise<string> {
+  const text = readProjectFile(host.root, { path })
+  if (text.startsWith('error:')) return Promise.resolve(`Applied the diff to ${path}.`)
+  const body = text.split('\n').slice(1).join('\n')
+  const lines = [`Applied the diff to ${path}.`, '', `${path} now reads:`, body]
+  const left = leftover(diff, body)
+  if (left.length) {
+    const named = left.map((item) => `"${item.token}" on ${item.lines.length > 1 ? `lines ${item.lines.join(', ')}` : `line ${item.lines[0]}`}`)
+    lines.push('', `Still in ${path}: ${named.join(', ')}. Change ${left.length === 1 ? 'it' : 'them'} too, or the task is not done.`)
+  }
+  return truncateToTokens(host.counter, lines.join('\n'), host.observationTokens ?? 900)
+}
+
+/** Text the diff removed that the file still has somewhere else, with the lines it is on. */
+function leftover(diff: string, body: string): { token: string; lines: number[] }[] {
+  const lines = diff.split('\n')
+  const removed = lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).map((line) => line.slice(1))
+  const added = lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).join('\n')
+  const out: { token: string; lines: number[] }[] = []
+  for (const line of removed) {
+    for (const token of new Set(line.match(/[A-Za-z_][A-Za-z0-9_]{2,}|\d+/g) ?? [])) {
+      if (KEYWORDS.has(token) || out.some((item) => item.token === token)) continue
+      if (new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(added)) continue
+      const found = body.split('\n').map((text, index) => (text.includes(token) ? index + 1 : 0)).filter(Boolean)
+      if (found.length) out.push({ token, lines: found })
+    }
+  }
+  return out.slice(0, 3)
 }
 
 function pushStep(host: CodeAgentHost, steps: CodeStepView[], step: CodeStepView): void {

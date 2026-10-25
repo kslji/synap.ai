@@ -296,6 +296,46 @@ test('accept all applies later edits and still asks before a command', async () 
   }
 })
 
+test('a finish that skipped a file the request named is sent back once', async () => {
+  const root = tempDir()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/a.ts'), 'export const a = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const b = 1\n')
+  const requests: string[] = []
+  let turn = 0
+  try {
+    const result = await runCodeAgent('Bump the constants in src/a.ts and src/b.ts to 2', {
+      root,
+      rules: '',
+      counter: heuristicCounter,
+      promptBudget: 2000,
+      searchBudget: 200,
+      answerTokens: 200,
+      mode: 'auto',
+      search: { async context() { return { snippets: [], files: [], tokens: 0, dropped: 0 } } },
+      async complete(req) {
+        requests.push(req.messages.map((message) => String(message.content ?? '')).join('\n'))
+        turn += 1
+        if (turn === 1) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/a.ts', old: 'a = 1', new: 'a = 2' } }) }
+        if (turn === 2) return { content: '{"tool":"finish","arguments":{"summary":"Bumped both."}}' }
+        if (turn === 3) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/b.ts', old: 'b = 1', new: 'b = 2' } }) }
+        return { content: '{"tool":"finish","arguments":{"summary":"Bumped both."}}' }
+      },
+      async ask() { return { allow: true } },
+      async runCommand() { return { ok: true, output: '' } },
+    })
+    assert.equal(turn, 4)
+    assert.equal(result.stopped, 'finish')
+    // The refused finish names the file that nothing touched.
+    assert.match(requests[2] ?? '', /src\/b\.ts/)
+    assert.match(requests[2] ?? '', /nothing was changed there/)
+    assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const a = 2\n')
+    assert.equal(readFileSync(join(root, 'src/b.ts'), 'utf8'), 'export const b = 2\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the code agent shows the mode toggle, accept all, step edit, and undo all', () => {
   const messageId = '11111111-1111-4111-8111-111111111111'
   const mode = renderToStaticMarkup(createElement(CodeModeBar, {

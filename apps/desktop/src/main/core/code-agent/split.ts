@@ -312,25 +312,23 @@ export async function executeSteps(steps: PlanStep[], host: SplitHost, allowRepl
 }
 
 async function plannedSteps(task: string, host: SplitHost): Promise<{ ok: true; steps: PlanStep[] } | { ok: false; message: string }> {
-  let feedback = ''
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    throwIfAborted(host.signal)
-    const turn = await host.complete({
-      messages: [
-        { role: 'system', content: PLAN_SYSTEM },
-        { role: 'user', content: planPrompt(task, host, feedback, attempt) },
-      ],
-      responseFormat: planResponseFormat(),
-      thinking: thinkingFor('plan'),
-      stepKind: 'plan',
-      maxTokens: host.answerTokens,
-      signal: host.signal,
-    })
-    const validated = validatePlan(readJson(turn), host.facts)
-    if (validated.ok) return validated
-    feedback = validated.message
-  }
-  return { ok: false, message: feedback || 'I could not make a valid checklist for that task.' }
+  throwIfAborted(host.signal)
+  // One attempt. A rejected checklist costs a whole thinking pass - 40 to 51 s measured on the 2B -
+  // and the two retries never turned a rejection into a valid plan. The caller makes the change in
+  // the loop instead, which is cheaper and surer than asking a third time.
+  const turn = await host.complete({
+    messages: [
+      { role: 'system', content: PLAN_SYSTEM },
+      { role: 'user', content: planPrompt(task, host, '', 1) },
+    ],
+    responseFormat: planResponseFormat(),
+    thinking: thinkingFor('plan'),
+    stepKind: 'plan',
+    maxTokens: host.answerTokens,
+    signal: host.signal,
+  })
+  const validated = validatePlan(readJson(turn), host.facts)
+  return validated.ok ? validated : { ok: false, message: validated.message }
 }
 
 async function replan(note: string, _group: PlanStep[], host: SplitHost): Promise<PlanStep[] | null> {

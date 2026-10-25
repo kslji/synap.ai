@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test as nodeTest } from 'node:test'
@@ -23,7 +23,9 @@ import { heuristicCounter } from './token-budget.js'
 const grammarDir = join(dirname(fileURLToPath(import.meta.url)), '../../../resources/tree-sitter')
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'surf-split-'))
+  // realpath: on macOS tmpdir() is /var/folders/... (a symlink to /private/var/...), and a patch
+  // resolved against the link lands outside the project. Production roots are already real.
+  return realpathSync(mkdtempSync(join(tmpdir(), 'surf-split-')))
 }
 
 function step(partial: Partial<PlanStep> & Pick<PlanStep, 'id' | 'files'>): PlanStep {
@@ -458,6 +460,41 @@ test('the checklist renders before the run and undo is offered after', () => {
   })
   assert.equal(withPlan[0]?.plan?.status, 'done')
   assert.equal(withPlan[0]?.plan?.undos?.[0]?.stepId, 'def')
+})
+
+test('a rejected checklist costs one plan request and the loop still makes the change', async () => {
+  const root = tempDir()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/a.ts'), 'export const a = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const b = 1\n')
+  let plans = 0
+  let turns = 0
+  try {
+    const result = await runSplitTask('Bump the constants in src/a.ts and src/b.ts to 2', base(
+      root,
+      facts({ indexed: false, files: ['src/a.ts', 'src/b.ts'] }),
+      async (req) => {
+        // A plan attempt is a whole thinking pass on the 2B (measured at 40-51 s each), so one is
+        // the budget: a rejected checklist goes to the loop instead of being asked three times.
+        if (req.stepKind === 'plan') {
+          plans += 1
+          return { content: '{"steps":[]}' }
+        }
+        turns += 1
+        if (turns === 1) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/a.ts', old: 'a = 1', new: 'a = 2' } }) }
+        if (turns === 2) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/b.ts', old: 'b = 1', new: 'b = 2' } }) }
+        return { content: '{"tool":"finish","arguments":{"summary":"Bumped both."}}' }
+      },
+      async () => ({ ok: true, output: '' }),
+    ))
+    assert.equal(plans, 1)
+    assert.equal(result.stopped, 'finish')
+    assert.match(result.answer, /one pass/)
+    assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const a = 2\n')
+    assert.equal(readFileSync(join(root, 'src/b.ts'), 'utf8'), 'export const b = 2\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 function planStep(id: string, goal: string, file: string, depends: string[] = []) {

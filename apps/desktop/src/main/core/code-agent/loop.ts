@@ -12,6 +12,7 @@ import { toolCallGbnf, toolCallJsonSchema } from './grammar.js'
 import { parseModelTurn, type ModelTurn } from './parse-tool.js'
 import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode } from './permission.js'
 import type { ProjectSearch } from './project-search.js'
+import { normPath, requestedPaths, type PlanFacts } from './plan.js'
 import { codeSystemPrompt } from './system-rules.js'
 import { takeOutputUpdate } from '../../../shared/stream-batch.js'
 import { thinkingFor } from '../thinking.js'
@@ -43,6 +44,8 @@ export interface CodeAgentHost {
   promptBudget: number
   searchBudget: number
   answerTokens: number
+  /** The project's files and symbols, when the caller has them: a finish is checked against them. */
+  facts?: PlanFacts
   mode?: PermissionMode
   allowedCommands?: Iterable<string>
   /** Test, lint, typecheck, and build commands Auto may run without asking. */
@@ -77,6 +80,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   const steps: CodeStepView[] = []
   const diffs: CodeDiffView[] = []
   const seen = new Map<string, number>()
+  let finishChecked = false
   let lastSig = ''
   let seq = 0
   const messages: ChatMessage[] = [
@@ -105,6 +109,20 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
     const title = stepTitle(parsed.call.name, parsed.call.arguments)
     if (parsed.call.name === 'finish') {
       const summary = stringArg(parsed.call.arguments, 'summary') || 'Done.'
+      if (!finishChecked) {
+        // A 2B finishes after the first file and its summary claims both. Naming the file nothing
+        // touched is what it needs to go again; a review of its own output it simply finishes over.
+        const skipped = skippedTargets(task, host, diffs)
+        if (skipped.length) {
+          finishChecked = true
+          pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'error', title, detail: `Nothing changed in ${skipped.join(', ')}` })
+          messages.push({ role: 'assistant', content: JSON.stringify({ tool: 'finish', arguments: parsed.call.arguments }) })
+          messages.push({ role: 'user', content: `Not finished: the request names ${skipped.join(', ')} and nothing was changed there. Continue with that file, then call finish.` })
+          // The same finish again is the answer the check asked for, not a repeated step.
+          lastSig = ''
+          continue
+        }
+      }
       pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'ok', title, detail: summary })
       return { answer: summary, steps, diffs, stopped: 'finish' }
     }
@@ -283,6 +301,16 @@ async function act(
 
 function gateContext(remembered: ReadonlySet<string>, allowlist: ReadonlySet<string>): ApprovalContext {
   return { remembered, allowlist, checkpointPaths: new Set() }
+}
+
+/**
+ * Files the request asked for that no applied patch touched. A run that changed nothing at all is a
+ * read or an answer, not a skipped edit, and a file the task says to leave alone is never a target.
+ */
+function skippedTargets(task: string, host: CodeAgentHost, diffs: CodeDiffView[]): string[] {
+  const applied = new Set(diffs.filter((diff) => diff.status === 'applied').map((diff) => normPath(diff.path)))
+  if (!applied.size) return []
+  return requestedPaths(task, host.facts?.files ?? []).filter((path) => !applied.has(path))
 }
 
 function pushStep(host: CodeAgentHost, steps: CodeStepView[], step: CodeStepView): void {

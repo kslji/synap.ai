@@ -166,6 +166,24 @@ export function mentionedPaths(task: string, knownFiles: readonly string[]): str
   return found
 }
 
+/** Words that turn a named file into a file to leave alone. */
+const LEAVE_ALONE = /\b(?:leave|don'?t|do not|never|without|except|aside)\b/
+
+/**
+ * Paths the task asks to change: `mentionedPaths` minus any path a clause rules out
+ * ("leave src/legacy.ts alone", "do not touch src/b.ts"). A finish is refused when one of these was
+ * skipped, so a mention that is not a target has to be dropped here.
+ */
+export function requestedPaths(task: string, knownFiles: readonly string[]): string[] {
+  const clauses = task.split(/[.;!?]\s*/).map((clause) => clause.toLowerCase())
+  return mentionedPaths(task, knownFiles).filter((path) => {
+    const needle = path.toLowerCase()
+    const clause = clauses.find((item) => item.includes(needle))
+    if (!clause) return true
+    return !LEAVE_ALONE.test(clause.slice(0, clause.indexOf(needle)))
+  })
+}
+
 /** Indexed symbols the task names, deduplicated by name. Short names are ignored as noise. */
 export function mentionedSymbols(task: string, symbols: readonly PlanSymbol[]): string[] {
   const idents = new Set(task.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])

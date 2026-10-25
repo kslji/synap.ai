@@ -425,6 +425,36 @@ test('paths outside the project and shell syntax are refused', () => {
   assert.equal(applied.ok && applied.text, 'two\n')
 })
 
+test('a hunk with stale line numbers lands where its text is, and only in the file it names', () => {
+  const before = "export const MESSAGE = 'Not found'\nexport function fail(): string {\n  return MESSAGE\n}\n"
+  // The model counted the lines wrong; the text it wants to replace is still unambiguous.
+  const stale = [
+    '--- a/src/err.ts', '+++ b/src/err.ts', '@@ -9,2 +9,2 @@',
+    "-export const MESSAGE = 'Not found'",
+    "+export const MESSAGE = 'Missing file'",
+    ' export function fail(): string {',
+  ].join('\n')
+  const applied = applyUnifiedDiff(before, stale)
+  assert.equal(applied.ok, true)
+  assert.equal(applied.ok && applied.text, "export const MESSAGE = 'Missing file'\nexport function fail(): string {\n  return MESSAGE\n}\n")
+
+  // One diff covering two files: an edit is for one path, so only that file's hunks apply.
+  const both = [
+    '--- a/src/err.ts', '+++ b/src/err.ts', '@@ -1,2 +1,2 @@',
+    "-export const MESSAGE = 'Not found'",
+    "+export const MESSAGE = 'Missing file'",
+    ' export function fail(): string {',
+    '--- a/src/handle.ts', '+++ b/src/handle.ts', '@@ -1 +1 @@',
+    "-export const fallback = 'Something went wrong'",
+    '+export const fallback = MESSAGE',
+  ].join('\n')
+  const one = applyUnifiedDiff(before, both, 'src/err.ts')
+  assert.equal(one.ok && one.text, "export const MESSAGE = 'Missing file'\nexport function fail(): string {\n  return MESSAGE\n}\n")
+  const wrongFile = applyUnifiedDiff(before, both, 'src/other.ts')
+  assert.equal(wrongFile.ok, false)
+  assert.match(wrongFile.ok ? '' : wrongFile.message, /src\/err\.ts/)
+})
+
 test('the chat step list and diff card render apply and reject', () => {
   const messageId = '11111111-1111-4111-8111-111111111111'
   const html = renderToStaticMarkup(createElement(CodeTrace, {

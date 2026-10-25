@@ -3,7 +3,7 @@
  * Ask mode waits on edits and on commands that were not allowed before.
  * Auto writes inside the project and runs the allowlist. Other commands pause.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CodeDiffView, CodeStepView } from '../../../shared/ipc-contract.js'
 import type { ChatMessage } from '../llama-client.js'
@@ -16,6 +16,7 @@ import { parseModelTurn, type ModelTurn } from './parse-tool.js'
 import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode } from './permission.js'
 import type { ProjectSearch } from './project-search.js'
 import { normPath, requestedPaths, type PlanFacts } from './plan.js'
+import { resolveInside } from './paths.js'
 import { codeSystemPrompt } from './system-rules.js'
 import { takeOutputUpdate } from '../../../shared/stream-batch.js'
 import { thinkingFor } from '../thinking.js'
@@ -420,15 +421,53 @@ async function describeFile(host: CodeAgentHost, path: string, budget: number): 
 /** The current state of every target, for the turn after a failed check. */
 async function fixPrompt(host: CodeAgentHost, failure: string, targets: readonly string[]): Promise<string> {
   const files = await describeFiles(host, targets.slice(0, CONTEXT_FILES), 'Those files as they are now:')
+  const faults = faultLines(host, failure)
   return [
     'Not finished: the check failed.',
     '',
-    await truncateToTokens(host.counter, failure, 400),
+    await truncateToTokens(host.counter, failure, 500),
+    ...(faults ? ['', 'The lines it names:', faults] : []),
     '',
     files,
     '',
     'Fix the cause with one propose_edit, then call finish.',
   ].join('\n')
+}
+
+/**
+ * The lines a compiler error points at, quoted. `src/ui.ts(8,3): error` and the numbered file next
+ * to it still leave a 2B guessing which of the eight lines is the one; two of its own characters,
+ * quoted back, do not.
+ */
+function faultLines(host: CodeAgentHost, failure: string): string {
+  const quoted: string[] = []
+  const seen = new Set<string>()
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error/gm)) {
+    const path = normPath(match[1]!.trim())
+    const row = Number(match[2])
+    if (!path || seen.has(`${path}:${row}`)) continue
+    seen.add(`${path}:${row}`)
+    const abs = resolveInside(host.root, path)
+    if (!abs || !existsSync(abs)) continue
+    const text = readFileSync(abs, 'utf8').split('\n')[row - 1]
+    if (text == null) continue
+    quoted.push(`${path} line ${row}: ${JSON.stringify(text)}`)
+  }
+  return quoted.join('\n')
+}
+
+/**
+ * A check's output without the noise: stack frames and TAP bookkeeping crowd out the one line that
+ * says what is wrong when the whole failure has to fit in a few hundred tokens.
+ */
+function failureDigest(output: string): string {
+  const noise = (line: string): boolean => {
+    const text = line.trim()
+    if (!text) return false
+    return /^at\s/.test(text) || text.startsWith('stack:') || text.startsWith('code:') || text === '...' || text === '---' || /^(TAP version|\d+\.\.$|ok \d+ -)/.test(text)
+  }
+  const kept = output.split('\n').filter((line) => !noise(line))
+  return kept.length ? kept.join('\n') : output
 }
 
 /**
@@ -442,12 +481,14 @@ function verifyCommands(host: CodeAgentHost): string[] {
 }
 
 /**
- * Run the checks before a finish is accepted. Returns the first failure's own output, which is what
- * the fix turn is given: a 2B reads `AssertionError: 1024 !== undefined` better than a description.
+ * Run the checks before a finish is accepted. Returns every failure's own output, which is what the
+ * fix turn is given: a 2B reads `AssertionError: 1024 !== undefined` better than a description, and
+ * a compile error that stops the first check must not stop the second from being reported too.
  */
 async function verifyWork(host: CodeAgentHost, steps: CodeStepView[], diffs: CodeDiffView[], nextId: () => string): Promise<string | null> {
   if (!diffs.some((diff) => diff.status === 'applied')) return null
   const run: CommandRunner = host.runCommand ?? ((command, signal, hooks) => runProjectCommand(host.root, command, signal, hooks))
+  const failures: string[] = []
   for (const command of verifyCommands(host)) {
     throwIfAborted(host.signal)
     const id = nextId()
@@ -461,9 +502,9 @@ async function verifyWork(host: CodeAgentHost, steps: CodeStepView[], diffs: Cod
       result = { ok: false, output: error instanceof Error ? error.message : 'the check could not run' }
     }
     pushStep(host, steps, { id, index: steps.length + 1, tool: 'run_command', status: result.ok ? 'ok' : 'error', title, detail: oneLine(result.output) || (result.ok ? 'passed' : 'failed'), output: tail(result.output) })
-    if (!result.ok) return `$ ${command}\n${result.output || 'the check failed with no output'}`
+    if (!result.ok) failures.push(`$ ${command}\n${failureDigest(result.output) || 'the check failed with no output'}`)
   }
-  return null
+  return failures.length ? failures.join('\n\n') : null
 }
 
 /** A repeated read is a pause, not a step: hand back the file it already has and ask for the edit. */

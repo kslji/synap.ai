@@ -172,6 +172,37 @@ test('a failed check is fed back with the file contents before a finish is accep
   }
 })
 
+test('a fix turn sees every check that failed, the lines the compiler named, and no stack frames', async () => {
+  const root = project({ 'src/a.ts': "export const a: 1 = 1\nexport const b = a\n" })
+  const { complete, requests } = scripted([
+    edit('src/a.ts', 'export const b = a', 'export const b = 2'),
+    finish,
+    edit('src/a.ts', 'export const b = 2', 'export const b = a'),
+    finish,
+  ])
+  const commands: string[] = []
+  let round = 0
+  try {
+    const result = await runCodeAgent('Point b at 2 in src/a.ts.', makeHost(root, complete, ['npm run typecheck', 'npm test'], async (command) => {
+      commands.push(command)
+      round += 1
+      if (round > 2) return { ok: true, output: 'ok' }
+      return command === 'npm test'
+        ? { ok: false, output: 'TAP version 13\nnot ok 1 - b is two\n  AssertionError: 1 !== 2\n  stack: |-\n    at check.test.ts:9:3\n' }
+        : { ok: false, output: "src/a.ts(2,14): error TS2322: Type '1' is not assignable to type '2'.\n" }
+    }))
+    assert.equal(result.stopped, 'finish')
+    assert.deepEqual(commands, ['npm run typecheck', 'npm test', 'npm run typecheck', 'npm test'], 'a failing first check skipped the second')
+    const fix = promptOf(requests[2])
+    assert.match(fix, /error TS2322/, 'the type error did not reach the model')
+    assert.match(fix, /AssertionError: 1 !== 2/, 'the failing assertion did not reach the model')
+    assert.match(fix, /src\/a\.ts line 2: "export const b = 2"/, 'the line the compiler named was not quoted')
+    assert.doesNotMatch(fix, /at check\.test\.ts/, 'stack frames took the room the failure needed')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a run that never touches the file it was asked for still stops instead of looping forever', async () => {
   const root = project({ 'src/a.ts': 'export const a = 1\n' })
   const { complete } = scripted([finish, finish, finish, finish, finish, finish])

@@ -7,6 +7,9 @@ import { clipWords, SPEAK_LIMIT } from '../../shared/reply-text.js'
 
 export const NO_VOICE = 'No system voice is available on this computer.'
 
+/** Long enough for any OS voice to start a short line, short enough that a wedged one is killed. */
+export const SPEAK_TIMEOUT_MS = 45_000
+
 const DETAIL_LIMIT = 2_000
 
 let child: ChildProcess | null = null
@@ -79,8 +82,8 @@ export function stopSpeak(): void {
   if (current && !current.killed) current.kill()
 }
 
-/** Start the OS voice. Resolves false when the program cannot be started or exits non-zero. */
-export function startSpeak(text: string, platform: NodeJS.Platform = process.platform): Promise<boolean> {
+/** Start the OS voice. Resolves false when the program cannot be started, exits non-zero, or hangs. */
+export function startSpeak(text: string, platform: NodeJS.Platform = process.platform, timeoutMs: number = SPEAK_TIMEOUT_MS): Promise<boolean> {
   generation += 1
   const mine = generation
   stopSpeak()
@@ -88,36 +91,64 @@ export function startSpeak(text: string, platform: NodeJS.Platform = process.pla
   lastDetail = ''
   const spec = speakArgs(platform, text)
   if (!spec) return Promise.resolve(false)
+  return runVoiceProcess(spec, {
+    timeoutMs,
+    onSpawn: (next) => { child = next },
+    onExit: (next) => { if (child === next) child = null },
+  }).then((run) => {
+    lastDetail = run.detail
+    return mine !== generation || stoppedByUser || run.ok
+  })
+}
+
+/**
+ * Run one voice program. `timeoutMs` kills a program that never exits: a voice with no audio device
+ * behind it would otherwise hold the app - or a unit run - open indefinitely.
+ */
+export function runVoiceProcess(
+  spec: { file: string; args: string[] },
+  options: { timeoutMs?: number; onSpawn?: (next: ChildProcess) => void; onExit?: (next: ChildProcess) => void } = {},
+): Promise<{ ok: boolean; detail: string }> {
+  const timeoutMs = options.timeoutMs ?? SPEAK_TIMEOUT_MS
   return new Promise((resolve) => {
     let settled = false
     let detail = ''
-    const done = (ok: boolean) => {
+    let next: ChildProcess | null = null
+    const done = (ok: boolean, why = detail) => {
       if (settled) return
       settled = true
-      lastDetail = detail
-      resolve(ok)
+      clearTimeout(timer)
+      resolve({ ok, detail: why })
     }
     const take = (chunk: Buffer) => {
       if (detail.length >= DETAIL_LIMIT) return
       detail += chunk.toString('utf8').slice(0, DETAIL_LIMIT - detail.length)
     }
+    const timer = setTimeout(() => {
+      const running = next
+      if (running && running.exitCode == null) {
+        running.kill('SIGKILL')
+        options.onExit?.(running)
+      }
+      done(false, 'timeout')
+    }, timeoutMs)
+    timer.unref?.()
     try {
-      const next = spawn(spec.file, spec.args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
-      child = next
+      next = spawn(spec.file, spec.args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+      options.onSpawn?.(next)
       next.stderr?.on('data', take)
       next.on('error', (err: NodeJS.ErrnoException) => {
         if (!detail) detail = err.code ?? 'error'
-        if (child === next) child = null
-        done(mine !== generation ? true : false)
+        options.onExit?.(next as ChildProcess)
+        done(false)
       })
       next.on('close', (code) => {
-        if (child === next) child = null
-        done(mine !== generation || stoppedByUser || code === 0)
+        options.onExit?.(next as ChildProcess)
+        done(code === 0)
       })
     } catch {
-      child = null
-      detail = 'error'
-      done(false)
+      next = null
+      done(false, 'error')
     }
   })
 }

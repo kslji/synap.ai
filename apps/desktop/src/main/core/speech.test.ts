@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import {
   NO_VOICE,
   lastSpeakDetail,
+  runVoiceProcess,
   speakArgs,
   speakBlockedByHardware,
   startSpeak,
@@ -85,6 +86,18 @@ function runVoice(spec: { file: string; args: string[] }): Promise<{ code: numbe
   })
 }
 
+test('a voice program that never exits is killed instead of holding the run open', async () => {
+  // A wedged `say` on a machine with no audio device used to hang the whole unit run for 28 minutes.
+  const started = Date.now()
+  const run = await runVoiceProcess(
+    { file: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'] },
+    { timeoutMs: 300 },
+  )
+  assert.equal(run.ok, false)
+  assert.match(run.detail, /timeout/)
+  assert.ok(Date.now() - started < 5_000)
+})
+
 test('the operating system voice speaks a short line', { timeout: 25_000 }, async () => {
   const spec = speakArgs(process.platform, 'Surf')
   assert.ok(spec)
@@ -94,9 +107,12 @@ test('the operating system voice speaks a short line', { timeout: 25_000 }, asyn
     }
     return
   }
-  const spoke = await startSpeak('Surf')
+  // A machine with no audio device leaves `say` running forever. Three seconds is long enough for a
+  // spoken line to start, so a timeout means "no voice here", not a broken script.
+  const spoke = await startSpeak('Surf', process.platform, 3_000)
   if (spoke) return
   const detail = lastSpeakDetail()
+  if (detail === 'timeout') return
   if (process.platform === 'win32') {
     // A runner with no audio device cannot play a line, and the PowerShell error
     // text differs per image, so fall back to the wav route that needs no device.

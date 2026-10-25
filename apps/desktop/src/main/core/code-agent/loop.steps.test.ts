@@ -166,6 +166,8 @@ test('a failed check is fed back with the file contents before a finish is accep
     assert.match(fix, /AssertionError: 1024 !== undefined/, 'the failure text did not reach the model')
     assert.match(fix, /1\|export function fits/, 'the current file contents did not reach the model')
     assert.equal(requests[2]?.thinking, true, 'the first fix turn did not think')
+    const format = requests[2]?.responseFormat as { json_schema: { schema: { properties: { tool: { enum: string[] } } } } } | undefined
+    assert.deepEqual(format?.json_schema.schema.properties.tool.enum, ['propose_edit'], 'the turn after a failed check was not forced to an edit')
     assert.equal(readFileSync(join(root, 'src/limits.ts'), 'utf8').includes('const MAX_BYTES = 1024'), true)
   } finally {
     rmSync(root, { recursive: true, force: true })

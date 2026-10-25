@@ -183,6 +183,9 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
         fixTurns += 1
         allowedTurns = Math.min(limits.maxSteps + limits.maxFixTurns, allowedTurns + 1)
         thinking = fixTurns === 1
+        // The check has spoken: the next move is an edit in the files the request named. A free
+        // choice spends the turn reading the test it is failing or re-reading a file in the prompt.
+        forceTool = targets.length ? 'propose_edit' : null
         seen.delete(sig)
         messages.push({ role: 'assistant', content: JSON.stringify({ tool: 'finish', arguments: parsed.call.arguments }) })
         messages.push({ role: 'user', content: await fixPrompt(host, failure, targets) })

@@ -460,6 +460,20 @@ test('a hunk with stale line numbers lands where its text is, and only in the fi
   const wrongFile = applyUnifiedDiff(before, both, 'src/other.ts')
   assert.equal(wrongFile.ok, false)
   assert.match(wrongFile.ok ? '' : wrongFile.message, /src\/err\.ts/)
+
+  // Context lines copied from the file the model remembers, not the one on disk: the lines it
+  // removes are exact, so the hunk still goes where they are.
+  const ui = "import { count } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n"
+  const wrongContext = [
+    '--- a/src/ui.ts', '+++ b/src/ui.ts', '@@ -1,4 +1,4 @@',
+    ' import { other } from "./other"',
+    "-import { count } from './counter'",
+    "+import { count, reset } from './counter'",
+    ' export function label(): string {',
+  ].join('\n')
+  const placed = applyUnifiedDiff(ui, wrongContext)
+  assert.equal(placed.ok, true)
+  assert.equal(placed.ok && placed.text, "import { count, reset } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n")
 })
 
 test('the chat step list and diff card render apply and reject', () => {

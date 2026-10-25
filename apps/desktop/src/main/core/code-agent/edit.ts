@@ -148,14 +148,25 @@ export function applyUnifiedDiff(original: string, diff: string, path?: string):
   const blankFile = original.length === 0
   const placed: Hunk[] = []
   for (const hunk of hunks.hunks) {
-    const need = contextOf(hunk)
     const declared = Math.max(0, hunk.start - 1)
+    const need = contextOf(hunk)
     const at = blankFile ? 0 : findAt(src, need, declared)
-    if (at === null) {
-      const first = need.find((text) => text.trim().length > 0) ?? ''
-      return { ok: false, message: `could not find the lines this hunk changes${first ? ` ("${first.trim().slice(0, 60)}")` : ''}; read the file again and edit the text it has now` }
+    if (at !== null) {
+      placed.push({ start: at, body: hunk.body })
+      continue
     }
-    placed.push({ start: at, body: hunk.body })
+    // The context lines were copied from the file the model remembers. The lines it removes are
+    // usually exact, so anchor on those and drop the context: the removal and insertion still land
+    // in the right place, and nothing else in the file is touched.
+    const removed = hunk.body.filter((line) => line.startsWith('-')).map((line) => line.slice(1))
+    const narrow = hunk.body.filter((line) => line.startsWith('-') || line.startsWith('+'))
+    const anchor = removed.length ? findAt(src, removed, declared) : null
+    if (anchor !== null) {
+      placed.push({ start: anchor, body: narrow })
+      continue
+    }
+    const first = need.find((text) => text.trim().length > 0) ?? ''
+    return { ok: false, message: `could not find the lines this hunk changes${first ? ` ("${first.trim().slice(0, 60)}")` : ''}; read the file again and edit the text it has now` }
   }
   placed.sort((a, b) => a.start - b.start)
 

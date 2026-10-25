@@ -25,11 +25,24 @@ test('two files behind one or two symbols still go straight to the loop', () => 
   assert.equal(routeTask('Make load async in src/app.ts and await it in src/math.ts', facts), 'loop')
 })
 
-test('a new file, three files, or a third symbol need the checklist', () => {
+test('a new file, three files, or a third symbol without a file need the checklist', () => {
   assert.equal(routeTask('Define LIMIT in a new file src/limits.ts', facts), 'split')
   assert.equal(routeTask('Rename add in src/math.ts, src/app.ts and src/render.ts', facts), 'split')
   assert.equal(routeTask('Rename add, load, and paint everywhere', facts), 'split')
   assert.equal(routeTask('Make the client retry', facts), 'split')
+})
+
+test('two named files stay on the loop even with a third symbol in the sentence', () => {
+  // Measured: every checklist pass on the 20-task eval was a task that edits one or two files.
+  assert.equal(routeTask('Add reset beside add and load in src/math.ts and src/app.ts', facts), 'loop')
+  const many: PlanFacts = {
+    ...facts,
+    symbols: [
+      ...facts.symbols,
+      { name: 'reset', qualified: 'src/math.ts:reset', kind: 'function', path: 'src/math.ts' },
+    ],
+  }
+  assert.equal(routeTask('In src/math.ts add reset, then call add and load in src/app.ts', many), 'loop')
 })
 
 test('a file the checkpoint never wrote is named as missing', () => {

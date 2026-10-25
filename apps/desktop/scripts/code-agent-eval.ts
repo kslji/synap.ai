@@ -43,6 +43,8 @@ const TSC = createRequire(import.meta.url).resolve('typescript/bin/tsc')
 const TSX = createRequire(import.meta.url).resolve('tsx')
 /** What the loop runs before it accepts a finish: the compiler, then the fixture's own test. */
 const VERIFY = ['npm run typecheck', 'npm test']
+/** SURF_EVAL_TRACE=1 prints the last user turn and the model's reply, for a run that fails. */
+const TRACE = process.env.SURF_EVAL_TRACE === '1'
 
 type Mode = 'direct' | 'split'
 
@@ -120,9 +122,18 @@ async function runCase(
       signal: controller.signal,
       search: createProjectSearch(root, { runner: 'substring' }),
       // Only a verbose run prints what the model tried; a silent run only prints the score.
-      onStep: verbose ? (step) => console.log(`  ${c.id}/${mode} ${step.tool} ${step.status}${step.detail ? `: ${step.detail.slice(0, 160)}` : ''}`) : undefined,
+      onStep: verbose ? (step) => console.log(`  ${c.id}/${mode} ${step.tool} ${step.status}${step.detail ? `: ${step.detail.slice(0, 160)}` : ''}${step.status === 'error' && step.output ? `\n${step.output.slice(-700)}` : ''}`) : undefined,
       onDiff: verbose ? (diff) => console.log(`  ${c.id}/${mode} diff ${diff.path} ${diff.status}`) : undefined,
-      complete: (req) => { requests += 1; return complete(req) },
+      complete: async (req) => {
+        requests += 1
+        const answer = await complete(req)
+        if (TRACE) {
+          const last = [...req.messages].reverse().find((message) => message.role === 'user')
+          const text = typeof last?.content === 'string' ? last.content : ''
+          console.log(`  ${c.id}/${mode} << ${text.slice(-500)}\n  ${c.id}/${mode} >> ${(answer.content ?? '').slice(0, 900)}\n  ${c.id}/${mode} >> ${JSON.stringify(answer.toolCalls ?? []).slice(0, 1200)}`)
+        }
+        return answer
+      },
       // The eval scores the code a task ends with, so approvals never block a run.
       ask: async () => ({ allow: true }),
       runCommand: (command, signal, hooks) => runProjectCommand(root, command, signal, hooks),
@@ -154,8 +165,9 @@ async function runCase(
     : scored.why
   // A verbose failure prints what the files ended as, which is the only way to tell a bad edit
   // from a bad score.
-  if (verbose && !scored.pass) {
+  if (verbose && (!scored.pass || !behaviour.ok)) {
     for (const [path, text] of Object.entries(texts)) console.log(`  ${c.id}/${mode} ${path}:\n${text ?? '(missing)'}`)
+    if (!behaviour.ok) console.log(`  ${c.id}/${mode} npm test:\n${behaviour.output.slice(-1500)}`)
   }
   rmSync(root, { recursive: true, force: true })
   return {

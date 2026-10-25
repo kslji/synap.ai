@@ -192,7 +192,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'ok', title, detail: summary })
       return { answer: summary, steps, diffs, stopped: 'finish' }
     }
-    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`)
+    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0 })
     messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
     messages.push({ role: 'user', content: `Result:\n${observation}` })
   }
@@ -254,6 +254,8 @@ async function act(
   steps: CodeStepView[],
   diffs: CodeDiffView[],
   nextDiffId: () => string,
+  /** The files the request named, and whether a check has already failed. */
+  scope: { targets: readonly string[]; fixing: boolean },
 ): Promise<string> {
   const index = steps.length + 1
   if (name === 'read_file') {
@@ -283,6 +285,14 @@ async function act(
     if ('error' in planned) {
       pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: planned.error })
       return `error: ${planned.error}`
+    }
+    // Once a check has failed, the check is the judge: a run that edits something else - the test
+    // file it is failing, a neighbour it was not asked about - can make the failure go away without
+    // doing the task. The fix belongs in the files the request named.
+    if (scope.fixing && scope.targets.length && !scope.targets.includes(normPath(planned.path))) {
+      const message = `${planned.path} is not what the request asked to change (${scope.targets.join(', ')}). The check decides when the work is done, so change the requested files instead.`
+      pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
+      return `error: ${message}`
     }
     const diffId = nextDiffId()
     const diff: CodeDiffView = { id: diffId, stepId: id, path: planned.path, diff: planned.diff, status: 'pending' }

@@ -203,6 +203,27 @@ test('a fix turn sees every check that failed, the lines the compiler named, and
   }
 })
 
+test('a fix turn cannot edit a file the request did not name', async () => {
+  const check = "import { a } from './src/a'\nexport const expected = 2\n"
+  const root = project({ 'src/a.ts': 'export const a = 1\n', 'check.test.ts': check })
+  const { complete, requests } = scripted([
+    edit('src/a.ts', 'export const a = 1', 'export const a = 2'),
+    finish,
+    edit('check.test.ts', 'export const expected = 2', 'export const expected = 1'),
+    edit('src/a.ts', 'export const a = 2', 'export const a = 1'),
+    finish,
+  ])
+  try {
+    const result = await runCodeAgent('Set a to 2 in src/a.ts.', makeHost(root, complete, ['npm test'], async () => ({ ok: false, output: 'AssertionError: 1 !== 2' })))
+    assert.equal(readFileSync(join(root, 'check.test.ts'), 'utf8'), check, 'the check itself was edited to make it pass')
+    assert.match(promptOf(requests[3]), /not what the request asked to change/i, 'the refusal does not say why the edit was refused')
+    assert.match(promptOf(requests[3]), /src\/a\.ts/, 'the refusal does not name the file to change')
+    assert.equal(result.diffs.some((diff) => diff.path === 'check.test.ts' && diff.status === 'applied'), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a run that never touches the file it was asked for still stops instead of looping forever', async () => {
   const root = project({ 'src/a.ts': 'export const a = 1\n' })
   const { complete } = scripted([finish, finish, finish, finish, finish, finish])

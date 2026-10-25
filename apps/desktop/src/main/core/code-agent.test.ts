@@ -265,6 +265,13 @@ test('shipped system.md is the bundled default and states the three rules', () =
   assert.match(codeSystemPrompt(loaded.text), /run tests after edits/i)
 })
 
+test('the prompt says how a named export is imported and that the check is not the fix', () => {
+  const prompt = codeSystemPrompt('Use tabs.')
+  assert.match(prompt, /`import \{ NAME \} from/, 'a default import is what the model writes for a named export')
+  assert.match(prompt, /only for `export default`/, 'the prompt does not say when a default import is right')
+  assert.match(prompt, /Never edit a test or check file/i, 'the prompt invites the model to edit the check')
+})
+
 test('the step cap and a repeated call stop the loop', async () => {
   const root = tempProject()
   let reads = 0

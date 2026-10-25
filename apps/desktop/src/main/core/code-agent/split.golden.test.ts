@@ -136,7 +136,7 @@ test('golden: a two-file edit task plans, edits both files, and passes its check
         return { allow: true }
       },
     }
-    const result = await runSplitTask('Update src/a.ts and src/b.ts to bump the constants', host)
+    const result = await runSplitTask('Update src/a.ts and src/b.ts to bump the constants, and leave package.json alone', host)
     matchSnapshot('split-edit', canonical({
       kind: result.kind,
       answer: result.answer,

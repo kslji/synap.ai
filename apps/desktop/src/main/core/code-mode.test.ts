@@ -117,7 +117,7 @@ test('ask mode does not write or run until the user allows it', async () => {
     ? { content: JSON.stringify({ steps: [{ id: 's1', goal: 'bump n', files: ['src/a.ts'], symbols: [], depends_on: [], check: { kind: 'typecheck', command: '' }, create: false }] }) }
     : editTurn
   try {
-    const denied = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', host(root, complete, async (command) => {
+    const denied = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', host(root, complete, async (command) => {
       ran.push(command)
       return { ok: true, output: 'ok' }
     }, async () => {
@@ -129,7 +129,7 @@ test('ask mode does not write or run until the user allows it', async () => {
     assert.equal(readFileSync(file, 'utf8'), 'export const n = 1\n')
     assert.deepEqual(ran, [])
 
-    const allowed = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', host(root, complete, async () => ({ ok: true, output: 'ok' }), async (request) => {
+    const allowed = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', host(root, complete, async () => ({ ok: true, output: 'ok' }), async (request) => {
       if (request.kind === 'edit') assert.equal(readFileSync(file, 'utf8'), 'export const n = 1\n')
       return { allow: true }
     }))
@@ -150,7 +150,7 @@ test('auto runs an allow-listed check and pauses before an install', async () =>
   const ran: string[] = []
   const asked: string[] = []
   try {
-    const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', {
+    const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', {
       ...host(root, async (req) => {
         const user = text(req)
         if (user.includes('Kind: plan')) {
@@ -186,7 +186,7 @@ test('stop keeps the finished step undoable and undo all restores the start', as
   const ac = new AbortController()
   let asks = 0
   try {
-    const result = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts', {
+    const result = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts, and leave package.json alone', {
       ...host(root, async (req) => {
         const user = text(req)
         if (user.includes('Kind: plan')) {

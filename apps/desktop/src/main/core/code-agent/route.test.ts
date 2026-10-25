@@ -19,9 +19,15 @@ test('one file and at most two symbols go straight to the loop', () => {
   assert.equal(routeTask('Rename add in src/math.ts', facts), 'loop')
 })
 
-test('two files, a new file, or a third symbol need the checklist', () => {
-  assert.equal(routeTask('Rename add in src/math.ts and src/render.ts', facts), 'split')
+test('two files behind one or two symbols still go straight to the loop', () => {
+  // Measured: on the 20-task eval the loop finished these and the checklist did not.
+  assert.equal(routeTask('Rename add in src/math.ts and src/render.ts', facts), 'loop')
+  assert.equal(routeTask('Make load async in src/app.ts and await it in src/math.ts', facts), 'loop')
+})
+
+test('a new file, three files, or a third symbol need the checklist', () => {
   assert.equal(routeTask('Define LIMIT in a new file src/limits.ts', facts), 'split')
+  assert.equal(routeTask('Rename add in src/math.ts, src/app.ts and src/render.ts', facts), 'split')
   assert.equal(routeTask('Rename add, load, and paint everywhere', facts), 'split')
   assert.equal(routeTask('Make the client retry', facts), 'split')
 })

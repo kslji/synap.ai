@@ -367,7 +367,7 @@ test('a regression is rolled back and the next patch sees the restored file', as
   const outputs: string[] = []
   let rolledBack = false
   try {
-    const result = await runSplitTask('Fix the type error in src/add.ts and leave src/legacy.ts alone', {
+    const result = await runSplitTask('Fix the type error in src/add.ts, and leave src/legacy.ts and package.json alone', {
       ...host(root, facts(['src/add.ts', 'src/legacy.ts']), async (req) => {
         const user = userText(req)
         if (user.includes('Kind: plan')) {
@@ -424,7 +424,7 @@ test('ask mode does not run a check until it is approved, and auto runs an allow
   const ran: string[] = []
   const plan = (check: { kind: 'test' | 'typecheck'; command: string }) => ({ content: JSON.stringify({ steps: [{ id: 's1', goal: 'bump n', files: ['src/a.ts'], symbols: [], depends_on: [], check, create: false }] }) })
   try {
-    const denied = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', host(root, facts(['src/a.ts', 'src/b.ts']), async (req) => {
+    const denied = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', host(root, facts(['src/a.ts', 'src/b.ts']), async (req) => {
       const user = userText(req)
       if (user.includes('Kind: plan')) return plan({ kind: 'typecheck', command: '' })
       return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
@@ -437,7 +437,7 @@ test('ask mode does not run a check until it is approved, and auto runs an allow
     assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const n = 1\n')
 
     const asked: string[] = []
-    const auto = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', {
+    const auto = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', {
       ...host(root, facts(['src/a.ts', 'src/b.ts']), async (req) => {
         const user = userText(req)
         if (user.includes('Kind: plan')) return plan({ kind: 'test', command: '' })

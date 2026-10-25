@@ -306,7 +306,7 @@ test('retries feed the exact check output back and then keep the patch that pass
     const thinking: boolean[] = []
     let edits = 0
     try {
-      const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', base(root, facts({ files: ['src/a.ts', 'src/b.ts'] }), async (req) => {
+      const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', base(root, facts({ files: ['src/a.ts', 'src/b.ts'] }), async (req) => {
         const user = userText(req)
         if (user.includes('Kind: plan')) return { content: JSON.stringify({ steps: [planStep('s1', 'bump n', 'src/a.ts')] }) }
         seen.push(user)
@@ -340,7 +340,7 @@ test('best-of-N keeps the candidate that passes after the retries miss', async (
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
   let checks = 0
   try {
-    const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts', base(root, facts({ files: ['src/a.ts', 'src/b.ts'] }), async (req) => {
+    const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', base(root, facts({ files: ['src/a.ts', 'src/b.ts'] }), async (req) => {
       const user = userText(req)
       if (user.includes('Kind: plan')) return { content: JSON.stringify({ steps: [planStep('s1', 'bump n', 'src/a.ts')] }) }
       const good = user.includes('Candidate: 2')
@@ -376,7 +376,7 @@ test('a failed step is replanned with its dependents, and a dead end names a lar
     { id: 'qwen3.5-4b-q6_k', family: 'qwen3.5', paramsB: 4, sizeBytes: 3_525_956_768, minRamGb: 16, agents: ['code'], sizeName: '4B' },
   ]
   try {
-    const repaired = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts', {
+    const repaired = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts, and leave package.json alone', {
       ...base(root, index, async (req) => {
         const user = userText(req)
         if (user.includes('Kind: replan')) {
@@ -409,7 +409,7 @@ test('a failed step is replanned with its dependents, and a dead end names a lar
     assert.equal(repaired.suggestion, null)
 
     writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
-    const stuck = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts', {
+    const stuck = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts, and leave package.json alone', {
       ...base(root, index, async (req) => {
         const user = userText(req)
         if (user.includes('Kind: replan')) return { content: 'not json' }
@@ -470,7 +470,7 @@ test('a rejected checklist costs one plan request and the loop still makes the c
   let plans = 0
   let turns = 0
   try {
-    const result = await runSplitTask('Bump the constants in src/a.ts and src/b.ts to 2', base(
+    const result = await runSplitTask('Define LIMIT once in a new file src/limits.ts and import it in src/a.ts and src/b.ts', base(
       root,
       facts({ indexed: false, files: ['src/a.ts', 'src/b.ts'] }),
       async (req) => {

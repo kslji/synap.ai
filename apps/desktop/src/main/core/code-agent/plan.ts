@@ -201,18 +201,21 @@ export type TaskRoute = 'loop' | 'split'
 const CREATE_FILE = /\b(?:new file|create (?:a )?(?:new )?file|add (?:a )?file|new module|create (?:a )?module)\b/i
 
 /**
- * A named, single-file change touching at most two symbols is cheaper and more reliable in the loop:
- * one edit and one finish, instead of retries and alternate candidates on a small model. A new file,
- * edits across two or more files, or a task that names nothing for the model to go on keeps the
- * checklist, because ordering and the second file are what a 2B gets wrong.
+ * A named change to one or two files behind at most two symbols is cheaper and surer in the loop:
+ * one edit and one finish, and a finish that is refused when a file the request named was never
+ * touched. A new file, three or more files, or more than two symbols keep the checklist, because
+ * ordering and the third file are what a 2B gets wrong. Measured on the 20-task eval: routing
+ * two-file tasks to the loop moved the shipped score from 10 of 20 in 1284 s to 12 of 20 in 909 s,
+ * and the only task that still needs the checklist is one that creates a file.
  */
 export function routeTask(task: string, facts: PlanFacts): TaskRoute {
   const text = task.trim()
   if (CREATE_FILE.test(text)) return 'split'
-  if (mentionedPaths(text, facts.files).length >= 2) return 'split'
+  const files = mentionedPaths(text, facts.files)
   const symbols = mentionedSymbols(text, facts.symbols)
+  if (files.length >= 3) return 'split'
   if (symbols.length > 2) return 'split'
-  if (!mentionedPaths(text, facts.files).length && !symbols.length) return 'split'
+  if (!files.length && !symbols.length) return 'split'
   return 'loop'
 }
 

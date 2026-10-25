@@ -131,9 +131,9 @@ async function runSplitBody(
 ): Promise<SplitResult> {
   const kind = triageTask(task, host.facts.files)
   const grounded = host.reference ? `${task.trim()}\n\n${host.reference}` : task
-  // A task that names one file and at most two symbols is cheaper and surer in the loop: one edit
-  // and one finish, instead of retries and alternate candidates. A new file, edits that have to
-  // land together across two or more files, or a task that names nothing keeps the checklist.
+  // A task that names one or two files and at most two symbols is cheaper and surer in the loop: one
+  // edit and one finish, with a finish that is refused when a named file was never touched. A new
+  // file, three or more files, or more than two symbols keeps the checklist.
   if (kind === 'chat' || routeTask(task, host.facts) === 'loop') {
     return await runInLoop(grounded, kind, host, history, session)
   }

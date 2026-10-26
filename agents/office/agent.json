@@ -1,0 +1,9 @@
+{
+  "name": "Office",
+  "tagline": "Paperwork, processed on this computer",
+  "description": "OCR invoices, receipts, and forms on this computer, then sort and export them without any cloud leakage.",
+  "icon": "spark",
+  "accent": "#F97316",
+  "status": "available",
+  "order": 7
+}

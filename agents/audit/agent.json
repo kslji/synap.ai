@@ -1,0 +1,9 @@
+{
+  "name": "Audit",
+  "tagline": "Compliance checks, on this computer",
+  "description": "Vendor payment verification, balance sheet cross-checks, and tax working papers prepared locally with zero cloud leak.",
+  "icon": "spark",
+  "accent": "#B45309",
+  "status": "available",
+  "order": 8
+}

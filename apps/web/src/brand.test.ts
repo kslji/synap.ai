@@ -59,7 +59,11 @@ test('every agent.json has the required fields and the page renders one card eac
     assert.ok(html.includes(agent.name), agent.name)
     if (agentCanOpen(agent)) assert.match(html, /href="#download"/)
   }
+  const available = agents.filter((agent) => agent.status === 'available').map((agent) => agent.id)
   const closed = agents.filter((agent) => !agentCanOpen(agent))
+  // The desktop build ships these four agents. The website still advertises only Code as ready,
+  // gated independently by websiteAgentState and asserted in marketing.test.ts.
+  assert.deepEqual(available, ['general', 'code', 'office', 'audit'])
+  assert.equal(closed.length, agents.length - available.length)
   assert.ok(closed.length >= 3)
-  assert.equal(agents.filter((agent) => agent.status === 'available').map((agent) => agent.id).join(','), 'code')
 })

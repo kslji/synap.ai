@@ -91,7 +91,7 @@ test('the download page is one installer, and the sizes are a reference list', (
     assert.equal(model.sha256, row?.sha256)
     assert.equal(model.file, row?.file)
     assert.equal(model.sizeBytes, row?.size_bytes)
-    assert.equal(model.size, formatModelSize((row?.size_bytes ?? 0) + 309_855_520))
+    assert.equal(model.size, formatModelSize((row?.size_bytes ?? 0) + SEARCH_MODEL_BYTES))
     assert.match(model.parts, /search model/)
   }
   const page = readFileSync(new URL('./pages.tsx', import.meta.url), 'utf8')
@@ -99,7 +99,7 @@ test('the download page is one installer, and the sizes are a reference list', (
   assert.match(page, /data-model-list="yes"/)
   assert.match(page, /data-model-size=\{model\.id\}/)
   assert.match(page, /data-model-parts=\{model\.id\}/)
-  assert.match(page, /309\.9 MB search model/)
+  assert.match(page, /\{formatSearchSize\(SEARCH_MODEL_BYTES\)\} search model/)
   assert.match(page, /data-model-ram=\{model\.id\}/)
   assert.match(page, /Download for Mac/)
   assert.match(page, /Download for Windows/)
@@ -131,9 +131,9 @@ test('the download page is one installer, and the sizes are a reference list', (
   assert.match(smallInstallerHref(hrefs, 'mac', 'arm64'), /\.dmg$/)
   assert.match(smallInstallerHref(hrefs, 'mac', 'x64'), /\.dmg$/)
   assert.match(smallInstallerHref(hrefs, 'windows', 'x64'), /\.exe$/)
-  assert.equal(offlineSizeLabel(undefined, 1_280_835_840 + SEARCH_MODEL_BYTES).bytesLabel, '1.59 GB of models')
-  assert.equal(offlineSizeLabel(undefined, 2_740_937_888 + SEARCH_MODEL_BYTES).bytesLabel, '3.05 GB of models')
-  assert.equal(offlineSizeLabel(undefined, 5_680_522_464 + SEARCH_MODEL_BYTES).bytesLabel, '5.99 GB of models')
+  assert.equal(offlineSizeLabel(undefined, 1_280_835_840 + SEARCH_MODEL_BYTES).bytesLabel, '1.40 GB of models')
+  assert.equal(offlineSizeLabel(undefined, 2_740_937_888 + SEARCH_MODEL_BYTES).bytesLabel, '2.86 GB of models')
+  assert.equal(offlineSizeLabel(undefined, 5_680_522_464 + SEARCH_MODEL_BYTES).bytesLabel, '5.80 GB of models')
   assert.equal(offlineSizeLabel(undefined, SEARCH_MODEL_BYTES).href, null)
   const published = {
     name: 'Synap.surf-0.2.0-arm64-2b-offline.zip',

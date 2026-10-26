@@ -322,17 +322,17 @@ jobs:
             rm -rf node_modules
           done
           exit 1
-      - name: Qwen 4B file id
+      - name: Qwen 2B file id
         id: weights
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
-      - name: Download and verify Qwen 4B
+      - name: Download and verify Qwen 2B
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --ids qwen3.5-4b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Build the desktop app
         run: npm run build -w @surf/desktop
       - name: Fetch llama.cpp sidecar
@@ -447,7 +447,7 @@ jobs:
         run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
-          path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
+          path: .surf-models/Qwen3.5-4B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
       - name: Download and verify Qwen 4B
         working-directory: apps/desktop
@@ -487,17 +487,17 @@ jobs:
             rm -rf node_modules
           done
           exit 1
-      - name: Qwen 4B file id
+      - name: Qwen 2B file id
         id: weights
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
-      - name: Download and verify Qwen 4B
+      - name: Download and verify Qwen 2B
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --ids qwen3.5-4b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs

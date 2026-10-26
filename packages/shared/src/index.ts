@@ -25,5 +25,7 @@ export interface PackManifestShape {
   version: string
 }
 
-export { agents } from './agent-catalog'
+// The agent list is loaded through a bundler-only `import.meta.glob`, so it lives in
+// `./agent-catalog` and is imported directly by the Vite apps. Re-exporting it here would
+// force that call to run for every Node consumer of `@surf/shared` (tests, scripts) and throw.
 export { agentCanChat, agentCanOpen, parseAgentFile, sortAgents, type AgentMeta, type AgentStatus } from './agents'

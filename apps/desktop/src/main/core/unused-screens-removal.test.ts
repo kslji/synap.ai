@@ -48,3 +48,53 @@ test('no source names the screens that were deleted', () => {
   }
   assert.deepEqual(pointing, [], 'an unused file is only dead while nothing refers to it')
 })
+
+/**
+ * The other half of the audit: files a name search calls unreferenced but the compiler
+ * reads anyway. Ambient `.d.ts` declarations are picked up by a tsconfig `include`, never
+ * by an `import`, so deleting one because nothing names it breaks the typecheck silently.
+ */
+const ROOT = resolve(DESKTOP, '../..')
+const AMBIENT: [string, string | null][] = [
+  // re-export shim: the package's own index.d.ts is hidden from moduleResolution NodeNext,
+  // and several storage modules import the native driver by that name
+  ['apps/desktop/src/main/better-sqlite3-multiple-ciphers.d.ts', "from 'better-sqlite3-multiple-ciphers'"],
+  // declares import.meta.glob, which the agent catalog uses to read the agents/ tree
+  ['packages/shared/src/vite-glob.d.ts', 'import.meta.glob'],
+  // declares the asset modules; needed the moment one is imported again
+  ['packages/ui/src/assets.d.ts', null],
+]
+
+test('the ambient declarations nothing imports are still there', () => {
+  for (const [rel] of AMBIENT) {
+    assert.equal(existsSync(join(ROOT, rel)), true, `${rel} is read by the compiler, not imported; it must stay`)
+  }
+})
+
+test('each ambient declaration still answers a real need', () => {
+  for (const [rel, need] of AMBIENT) {
+    if (!need) continue
+    const users: string[] = []
+    for (const dir of ['apps/desktop/src', 'apps/web/src', 'packages', 'services']) {
+      const base = join(ROOT, dir)
+      if (!existsSync(base)) continue
+      for (const file of sourcesFlat(base)) {
+        if (file === join(ROOT, rel)) continue
+        if (readFileSync(file, 'utf8').toLowerCase().includes(need.toLowerCase())) users.push(file)
+      }
+    }
+    assert.ok(users.length > 0, `${rel} guards ${need}, but nothing uses it any more - retire both together`)
+  }
+})
+
+/** Every .ts/.tsx file under `dir`, recursively; a broken symlink is skipped, not fatal. */
+function sourcesFlat(dir: string): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'out') continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...sourcesFlat(path))
+    else if (entry.isFile() && /\.[cm]?[jt]sx?$/.test(entry.name)) out.push(path)
+  }
+  return out
+}

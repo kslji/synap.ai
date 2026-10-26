@@ -34,6 +34,13 @@ export function planEdit(root: string, args: Record<string, unknown>): PlannedEd
   const newText = typeof args.new === 'string' ? args.new : null
   if (diffText.trim()) {
     if (diffText.length > MAX_DIFF_CHARS) return { error: 'diff is too large' }
+    // A model that types two files into one diff believes both halves landed when only one does, and
+    // the steps that undo that belief - re-reading a file it never wrote, retyping the same pair -
+    // are the ones a short run cannot spare. Refuse the call before a line of it is written.
+    const named = [...new Set(sectionsOf(diffText).flatMap((item) => item.path === null ? [] : [relPath(item.path)]))]
+    if (named.length > 1) {
+      return { error: `this diff changes ${named.join(' and ')}; one propose_edit carries one file, so send the edit for ${display} first and ${named.filter((name) => name !== display).join(' then ')} after it` }
+    }
     const current = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
     const applied = applyUnifiedDiff(current, diffText, display)
     // A model that types the whole new file into `diff` and the real pair into old and new has
@@ -49,7 +56,11 @@ export function planEdit(root: string, args: Record<string, unknown>): PlannedEd
   const current = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
   const replaced = replaceOnce(current, oldText, newText)
   if (!replaced.ok) return { error: replaced.message }
-  if (replaced.text === current) return { error: 'edit does not change the file' }
+  if (replaced.text === current) {
+    // The pair says the file is already what the model wants. The one thing that keeps a run alive
+    // here is the text it is looking at, so it can name the change it has not made yet.
+    return { error: `${display} already holds exactly the text you sent. If the check still fails, the change it wants is somewhere else in this file: ${preview(current)}` }
+  }
   const diff = unifiedDiff(display, current, replaced.text)
   if (diff.length > MAX_DIFF_CHARS) return { error: 'diff is too large' }
   return { path: display, abs, diff }
@@ -112,39 +123,7 @@ interface Section {
  * edit is for, because `propose_edit` writes one path.
  */
 export function applyUnifiedDiff(original: string, diff: string, path?: string): { ok: true; text: string } | { ok: false; message: string } {
-  const lines = diff.replace(/\r\n/g, '\n').split('\n')
-  const sections: Section[] = []
-  let section: Section | null = null
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i] ?? ''
-    if (line.startsWith('+++')) {
-      const named = headerPath(line)
-      if (named) {
-        if (section && !section.hunks.length) section.path = named
-        else {
-          section = { path: named, hunks: [] }
-          sections.push(section)
-        }
-      }
-      i++
-      continue
-    }
-    const header = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/.exec(line)
-    if (!header) { i++; continue }
-    if (!section) {
-      section = { path: null, hunks: [] }
-      sections.push(section)
-    }
-    const body: string[] = []
-    i++
-    while (i < lines.length && !lines[i]!.startsWith('@@') && !lines[i]!.startsWith('diff ') && !lines[i]!.startsWith('---') && !lines[i]!.startsWith('+++')) {
-      body.push(lines[i] ?? '')
-      i++
-    }
-    section.hunks.push({ start: Number(header[1]), body })
-  }
-  const filled = sections.filter((item) => item.hunks.length)
+  const filled = sectionsOf(diff)
   if (!filled.length) return { ok: false, message: 'diff has no hunks' }
   const hunks = hunksFor(filled, path)
   if ('message' in hunks) return hunks
@@ -230,6 +209,43 @@ function hunksFor(sections: Section[], path?: string): { hunks: Hunk[] } | { ok:
     return { ok: false, message: `this diff changes ${names}; this edit is for ${want}. Send one file per propose_edit.` }
   }
   return { hunks: sections.flatMap((item) => item.hunks) }
+}
+
+/** Split a unified diff into the files it names and the hunks under each header. */
+function sectionsOf(diff: string): Section[] {
+  const lines = diff.replace(/\r\n/g, '\n').split('\n')
+  const sections: Section[] = []
+  let section: Section | null = null
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i] ?? ''
+    if (line.startsWith('+++')) {
+      const named = headerPath(line)
+      if (named) {
+        if (section && !section.hunks.length) section.path = named
+        else {
+          section = { path: named, hunks: [] }
+          sections.push(section)
+        }
+      }
+      i++
+      continue
+    }
+    const header = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/.exec(line)
+    if (!header) { i++; continue }
+    if (!section) {
+      section = { path: null, hunks: [] }
+      sections.push(section)
+    }
+    const body: string[] = []
+    i++
+    while (i < lines.length && !lines[i]!.startsWith('@@') && !lines[i]!.startsWith('diff ') && !lines[i]!.startsWith('---') && !lines[i]!.startsWith('+++')) {
+      body.push(lines[i] ?? '')
+      i++
+    }
+    section.hunks.push({ start: Number(header[1]), body })
+  }
+  return sections.filter((item) => item.hunks.length)
 }
 
 /** The lines a hunk needs to see before it can be applied: its context and the text it removes. */

@@ -599,6 +599,36 @@ test('an edit whose old text lost its indentation still lands, with the file ind
   }
 })
 
+test('one propose_edit carries one file: a diff that changes two is refused, not half applied', () => {
+  // A 2B that types both halves of a two-file task into one diff gets its first hunk applied and
+  // believes the second one landed too. It then reads a file it never wrote, retypes the same diff,
+  // and spends the run on the pair of steps that repeat each other.
+  const root = tempProject()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/load.ts'), 'export function load(path: string): string {\n  return path.toUpperCase()\n}\n')
+  writeFileSync(join(root, 'src/main.ts'), "import { load } from './load'\n\nexport async function main(): Promise<string> {\n  return load('a')\n}\n")
+  const both = [
+    '--- a/src/load.ts', '+++ b/src/load.ts', '@@ -1,4 +1,4 @@',
+    '-export function load(path: string): string {',
+    '+export async function load(path: string): Promise<string> {',
+    '   return path.toUpperCase()',
+    ' }',
+    '--- a/src/main.ts', '+++ b/src/main.ts', '@@ -1,5 +1,5 @@',
+    ' export async function main(): Promise<string> {',
+    "-  return load('a')",
+    "+  return await load('a')",
+    ' }',
+  ].join('\n')
+  const refused = planEdit(root, { path: 'src/load.ts', diff: both })
+  assert.ok('error' in refused, 'a two-file diff was accepted as a one-file edit')
+  if ('error' in refused) {
+    assert.match(refused.error, /src\/main\.ts/, 'the file left out of the edit was not named')
+    assert.match(refused.error, /one propose_edit carries one file/)
+  }
+})
+
+
+
 test('the chat step list and diff card render apply and reject', () => {
   const messageId = '11111111-1111-4111-8111-111111111111'
   const html = renderToStaticMarkup(createElement(CodeTrace, {

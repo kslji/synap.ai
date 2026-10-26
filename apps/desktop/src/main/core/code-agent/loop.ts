@@ -312,8 +312,12 @@ async function act(
   if (name === 'propose_edit') {
     const planned = planEdit(host.root, args)
     if ('error' in planned) {
-      pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: planned.error })
-      return `error: ${planned.error}`
+      // When a failed edit is refused but the compile still pending, the hint is the answer to the
+      // question the model has not asked yet: what the actual fix is.
+      const pending = [...scope.notes.entries()].find(([key]) => key.startsWith(PENDING))
+      const detail = pending ? `${planned.error}\n\n${pending[1]}` : planned.error
+      pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail })
+      return `error: ${detail}`
     }
     // Once a check has failed, the check is the judge: a run that edits something else - the test
     // file it is failing, a neighbour it was not asked about - can make the failure go away without
@@ -609,7 +613,9 @@ function importHints(host: CodeAgentHost, failure: string, targets: readonly str
       if (/^\s*(export\s+)?function\s+/.test(lines[i] ?? '')) { decl = i; break }
     }
     if (decl >= 0 && !(lines[decl] ?? '').includes('async')) {
-      hints.push(`add async before function on ${file} line ${decl + 1}: ${(lines[decl] ?? '').trim()}`)
+      const current = (lines[decl] ?? '').trim()
+      const fixed = current.replace(/^(export\s+)?function\s/, '$1async function ')
+      hints.push(`${file} line ${decl + 1} needs async: old = ${current}  new = ${fixed}`)
     }
   }
   return hints.join('\n')

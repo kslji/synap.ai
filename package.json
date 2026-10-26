@@ -13,6 +13,14 @@
   "installConfig": {
     "hoistingLimits": "workspaces"
   },
+  "overrides": {
+    "node-gyp": {
+      "undici": "^6.29.1"
+    },
+    "@electron/get": {
+      "undici": "^7.30.1"
+    }
+  },
   "scripts": {
     "dev:desktop": "npm run dev -w @surf/desktop",
     "dev:web": "npm run dev -w @surf/web",

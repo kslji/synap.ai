@@ -183,18 +183,25 @@ test('a fix turn sees every check that failed, the lines the compiler named, and
     finish,
   ])
   const commands: string[] = []
-  let round = 0
+  const times = new Map<string, number>()
   try {
     const result = await runCodeAgent('Point b at 2 in src/a.ts.', makeHost(root, complete, ['npm run typecheck', 'npm test'], async (command) => {
       commands.push(command)
-      round += 1
-      if (round > 2) return { ok: true, output: 'ok' }
-      return command === 'npm test'
+      // Each command answers for the file as it stands, not for the number of times it has run: a
+      // compile is now reported while the edit is fresh, so the check order is part of the behaviour.
+      if (command === 'npm run typecheck') {
+        return readFileSync(join(root, 'src/a.ts'), 'utf8').includes('export const b = 2')
+          ? { ok: false, output: "src/a.ts(2,14): error TS2322: Type '1' is not assignable to type '2'.\n" }
+          : { ok: true, output: 'ok' }
+      }
+      const seen = (times.get(command) ?? 0) + 1
+      times.set(command, seen)
+      return seen === 1
         ? { ok: false, output: 'TAP version 13\nnot ok 1 - b is two\n  AssertionError: 1 !== 2\n  stack: |-\n    at check.test.ts:9:3\n' }
-        : { ok: false, output: "src/a.ts(2,14): error TS2322: Type '1' is not assignable to type '2'.\n" }
+        : { ok: true, output: 'ok' }
     }))
     assert.equal(result.stopped, 'finish')
-    assert.deepEqual(commands, ['npm run typecheck', 'npm test', 'npm run typecheck', 'npm test'], 'a failing first check skipped the second')
+    assert.deepEqual(commands, ['npm run typecheck', 'npm run typecheck', 'npm test', 'npm run typecheck', 'npm test'], 'a failing first check skipped the second')
     const fix = promptOf(requests[2])
     assert.match(fix, /error TS2322/, 'the type error did not reach the model')
     assert.match(fix, /AssertionError: 1 !== 2/, 'the failing assertion did not reach the model')
@@ -471,6 +478,31 @@ test('a fix that does not do what the failed check asked for is refused', async 
     assert.match(promptOf(requests[3]), /the failed check asked/, 'the refusal never reached the model')
     assert.equal(readFileSync(join(root, 'src/limits.ts'), 'utf8'), 'export const MAX_BYTES = 1024\n\nexport function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n')
     assert.equal(result.stopped, 'finish')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a broken compile is reported when the edit is made, not when the run finishes', async () => {
+  // The edit was accepted and the model finished on top of it. The typecheck only spoke at the
+  // finish, a turn too late for a 2B to connect the error to the line it had just typed, so the
+  // same broken hunk came back. The compile has to answer while the edit is the freshest thing.
+  const root = project({ 'src/load.ts': 'export function load(path: string): string {\n  return path.toUpperCase()\n}\n' })
+  const commands: string[] = []
+  const { complete, requests } = scripted([
+    edit('src/load.ts', 'export function load(path: string): string {', 'export async function load(path: string): string {'),
+    edit('src/load.ts', '  return path.toUpperCase()', '  return (await fetch(path)).url'),
+    finish,
+  ])
+  try {
+    await runCodeAgent('Make load async in src/load.ts.', makeHost(root, complete, ['npm run typecheck'], async (command) => {
+      commands.push(command)
+      return { ok: false, output: "src/load.ts(1,8): error TS1005: '}' expected.\n" }
+    }))
+    assert.match(promptOf(requests[1]), /does not compile|error TS1005/, 'the edit that broke the compile was accepted in silence')
+    assert.equal(commands[0], 'npm run typecheck')
+    assert.doesNotMatch(promptOf(requests[2]), /does not compile/, 'the second edit of the same file paid for the typecheck again')
+    assert.equal(commands.filter((command) => command === 'npm test').length, 0, 'the full suite ran on the back of an edit')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

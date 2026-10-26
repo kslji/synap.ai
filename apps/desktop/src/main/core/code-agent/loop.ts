@@ -122,6 +122,9 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   // What the last failed check requires of a file. A fix turn that takes the required line away is
   // a way out of the error, not out of the failure, and it costs the turn the fix needed.
   const needs: Need[] = []
+  // A compile's answer, held against the file the check spoke about, so a step that moves something
+  // else does not pay for the typecheck again.
+  const compileNotes = new Map<string, string>()
   const targets = requestedPaths(task, host.facts?.files ?? [])
   let finishRefusals = 0
   let fixTurns = 0
@@ -217,7 +220,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'ok', title, detail: summary })
       return { answer: summary, steps, diffs, stopped: 'finish' }
     }
-    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0, rejected, needs })
+    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0, rejected, needs, notes: compileNotes })
     if (observation.startsWith('error: ')) failed.set(sig, observation.slice('error: '.length))
     messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
     messages.push({ role: 'user', content: `Result:\n${observation}` })
@@ -281,7 +284,7 @@ async function act(
   diffs: CodeDiffView[],
   nextDiffId: () => string,
   /** The files the request named, whether a check has already failed, and what it saw fail. */
-  scope: { targets: readonly string[]; fixing: boolean; rejected: Map<string, string>; needs: Need[] },
+  scope: { targets: readonly string[]; fixing: boolean; rejected: Map<string, string>; needs: Need[]; notes: Map<string, string> },
 ): Promise<string> {
   const index = steps.length + 1
   if (name === 'read_file') {
@@ -380,8 +383,9 @@ async function act(
     diff.status = 'applied'
     host.onDiff?.(diff)
     pushStep(host, steps, { id, index, tool: name, status: 'applied', title, detail: planned.path })
-    // The model sees the whole file it just changed, and anything its own diff left behind.
-    return editedObservation(host, planned.path, planned.diff)
+    // The model sees the whole file it just changed, anything its own diff left behind, and - while
+    // the edit is still fresh - whether the project still compiles.
+    return editedObservation(host, planned.path, planned.diff, diffs, scope.notes)
   }
   if (name === 'run_command') {
     const command = stringArg(args, 'command')
@@ -742,7 +746,7 @@ function repeatAdvice(name: string, args: Record<string, unknown>): { detail: st
  * the second of two 1024s, the old name at another call site - and the model finishes without
  * looking. Naming the token and its line is what makes it look.
  */
-function editedObservation(host: CodeAgentHost, path: string, diff: string): Promise<string> {
+async function editedObservation(host: CodeAgentHost, path: string, diff: string, diffs: readonly CodeDiffView[], cache: Map<string, string>): Promise<string> {
   const text = readProjectFile(host.root, { path })
   if (text.startsWith('error:')) return Promise.resolve(`Applied the diff to ${path}.`)
   const body = text.split('\n').slice(1).join('\n')
@@ -753,7 +757,53 @@ function editedObservation(host: CodeAgentHost, path: string, diff: string): Pro
     const named = left.map((item) => `"${item.token}" on ${item.lines.length > 1 ? `lines ${item.lines.join(', ')}` : `line ${item.lines[0]}`}`)
     lines.push('', `Still in ${path}: ${named.join(', ')}. Change ${left.length === 1 ? 'it' : 'them'} too, or the task is not done.`)
   }
+  const compile = await compileNote(host, diffs, cache)
+  if (compile) lines.push('', compile)
   return truncateToTokens(host.counter, lines.join('\n'), host.observationTokens ?? 900)
+}
+
+/** The run's last applied file, kept in the same record as the compile answers. */
+const LAST_EDIT = '\0last'
+
+/**
+ * The compile check, run while the edit that may have broken it is still the freshest thing in the
+ * prompt. Waiting for the finish to speak costs a 2B the link between the error and the line it
+ * typed, so the same broken hunk comes back. Only a command that reads like a compile is used - a
+ * full test suite does not belong on the back of every edit - and a file that has been checked and
+ * not moved since is not checked again.
+ */
+async function compileNote(host: CodeAgentHost, diffs: readonly CodeDiffView[], cache: Map<string, string>): Promise<string | null> {
+  const run = host.runCommand ?? ((command: string, signal?: AbortSignal) => runProjectCommand(host.root, command, signal))
+  const command = verifyCommands(host).find((candidate) => /typecheck|check-types|\btsc\b|compile/.test(candidate))
+  if (!command) return null
+  const active = [...diffs].reverse().find((diff) => diff.status === 'applied') ?? null
+  const file = active ? resolveInside(host.root, active.path) : null
+  const text = file && existsSync(file) ? readFileSync(file, 'utf8') : null
+  // The first edit is where a 2B is most confident and least checked; later ones are reported only
+  // when they move a different file, so the same block is not repeated on every step.
+  const previous = cache.get(LAST_EDIT)
+  if (active) cache.set(LAST_EDIT, active.path)
+  if (text === null || (previous !== undefined && active !== null && previous === active.path)) return null
+  const key = `${command}\n${text}`
+  const known = cache.get(key)
+  if (known !== undefined) return known || null
+  let answer = ''
+  try {
+    const result = await run(command, host.signal)
+    if (result.ok) return null
+    answer = `The project does not compile after this edit (${command}):\n${compileDigest(result.output)}`
+  } catch (error) {
+    if (isAbort(error) || host.signal?.aborted) throw error
+    return null
+  }
+  cache.set(key, answer)
+  return answer
+}
+
+/** The error lines of a compile - the noise around them is what crowds the one that matters out. */
+function compileDigest(output: string): string {
+  const lines = output.split('\n').filter((line) => /error TS\d+/.test(line))
+  return (lines.length ? lines : output.split('\n').filter((line) => line.trim())).slice(0, 6).join('\n').trim()
 }
 
 /** Text the diff removed that the file still has somewhere else, with the lines it is on. */

@@ -36,9 +36,14 @@ export function planEdit(root: string, args: Record<string, unknown>): PlannedEd
     if (diffText.length > MAX_DIFF_CHARS) return { error: 'diff is too large' }
     const current = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
     const applied = applyUnifiedDiff(current, diffText, display)
-    if (!applied.ok) return { error: applied.message }
-    if (applied.text === current) return { error: 'diff does not change the file' }
-    return { path: display, abs, diff: diffText.endsWith('\n') ? diffText : `${diffText}\n` }
+    // A model that types the whole new file into `diff` and the real pair into old and new has
+    // already answered the call: the pair is the edit. Any other failure stays the answer.
+    const unusable = !applied.ok && applied.message.includes('no hunks') && oldText != null && newText != null
+    if (!applied.ok && !unusable) return { error: applied.message }
+    if (applied.ok) {
+      if (applied.text === current) return { error: 'diff does not change the file' }
+      return { path: display, abs, diff: diffText.endsWith('\n') ? diffText : `${diffText}\n` }
+    }
   }
   if (oldText == null || newText == null) return { error: 'propose_edit needs a diff, or old and new text' }
   const current = existsSync(abs) ? readFileSync(abs, 'utf8') : ''

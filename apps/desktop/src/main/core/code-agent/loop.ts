@@ -677,7 +677,8 @@ function editedObservation(host: CodeAgentHost, path: string, diff: string): Pro
   if (text.startsWith('error:')) return Promise.resolve(`Applied the diff to ${path}.`)
   const body = text.split('\n').slice(1).join('\n')
   const lines = [`Applied the diff to ${path}.`, '', `${path} now reads:`, body]
-  const left = leftover(diff, body)
+  const bare = body.split('\n').map((line) => line.replace(/^\s*\d+\|/, ''))
+  const left = leftover(diff, bare)
   if (left.length) {
     const named = left.map((item) => `"${item.token}" on ${item.lines.length > 1 ? `lines ${item.lines.join(', ')}` : `line ${item.lines[0]}`}`)
     lines.push('', `Still in ${path}: ${named.join(', ')}. Change ${left.length === 1 ? 'it' : 'them'} too, or the task is not done.`)
@@ -686,7 +687,7 @@ function editedObservation(host: CodeAgentHost, path: string, diff: string): Pro
 }
 
 /** Text the diff removed that the file still has somewhere else, with the lines it is on. */
-function leftover(diff: string, body: string): { token: string; lines: number[] }[] {
+function leftover(diff: string, body: readonly string[]): { token: string; lines: number[] }[] {
   const lines = diff.split('\n')
   const removed = lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).map((line) => line.slice(1))
   const added = lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).join('\n')
@@ -698,7 +699,7 @@ function leftover(diff: string, body: string): { token: string; lines: number[] 
     for (const token of new Set(line.match(/[A-Za-z_][A-Za-z0-9_]{2,}|\d+/g) ?? [])) {
       if (KEYWORDS.has(token) || out.some((item) => item.token === token)) continue
       if (new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(added)) continue
-      const found = body.split('\n').map((text, index) => (text.includes(token) ? index + 1 : 0)).filter(Boolean)
+      const found = body.map((text, index) => (text.includes(token) ? index + 1 : 0)).filter(Boolean)
       if (found.length) out.push({ token, lines: found })
     }
   }

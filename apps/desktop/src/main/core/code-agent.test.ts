@@ -538,6 +538,24 @@ test('an edit that retypes the whole file is taken as the file, when it keeps ev
   if ('error' in lossy) assert.match(lossy.error, /^old text was not found/)
 })
 
+test('a diff that is not a diff is read as the old and new text beside it', () => {
+  const root = tempProject()
+  const file = 'src/b.ts'
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, file), "export const name = 'b'\n")
+  // The model typed the whole new file into `diff` and the real pair into old and new. The pair is
+  // the edit it made; "diff has no hunks" costs a step for a call that already has the answer.
+  const planned = planEdit(root, {
+    path: file,
+    diff: "export const BASE_URL = 'https://example.test'",
+    old: "export const name = 'b'",
+    new: "export const BASE_URL = 'https://example.test'",
+  })
+  if ('error' in planned) throw new Error(planned.error)
+  assert.equal(applyPlannedEdit(root, planned.path, planned.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), "export const BASE_URL = 'https://example.test'\n")
+})
+
 test('an edit whose old text lost its indentation still lands, with the file indentation', () => {
   const root = tempProject()
   const file = 'src/sizes.ts'

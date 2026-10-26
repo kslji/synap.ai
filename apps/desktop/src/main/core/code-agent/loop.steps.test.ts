@@ -429,3 +429,20 @@ test('a name declared twice is pointed at the one line that can do both jobs', a
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('the nudge about text left behind reads the file, not the numbers beside its lines', async () => {
+  // The edit was finished. The "still in the file" check read the numbered listing, took the digit
+  // in "2|" for text the task left behind, and sent a done model back to change a line number.
+  const root = project({ 'src/first.ts': 'export function first(items: string[]): string | undefined {\n  return items[items.length - 1]\n}\n' })
+  const { complete, requests } = scripted([
+    edit('src/first.ts', '  return items[items.length - 1]', '  return items[0]'),
+    finish,
+  ])
+  try {
+    const result = await runCodeAgent('In src/first.ts, first should return the first item, not the last.', makeHost(root, complete))
+    assert.doesNotMatch(promptOf(requests[1]), /Still in src\/first\.ts/, 'the line number was read as text the file still had')
+    assert.equal(result.stopped, 'finish')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

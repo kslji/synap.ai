@@ -23,6 +23,63 @@ export interface PlannedEdit {
   diff: string
 }
 
+/** A propose_edit whose diff spans files, planned per file: the halves that land, and why the rest do not. */
+export interface PlannedBatch {
+  edits: PlannedEdit[]
+  skipped: { path: string; error: string }[]
+}
+
+/**
+ * Plan every file a propose_edit touches. A 2B that types a two-file task into one diff believes
+ * both halves landed; answering with only one of them is how the run loses the step it cannot
+ * spare. Splitting the diff per file and applying each half says the same thing the model meant,
+ * and a half that cannot be placed is reported by name instead of silently dropped.
+ */
+export function planEdits(root: string, args: Record<string, unknown>): PlannedBatch | { error: string } {
+  const diffText = typeof args.diff === 'string' ? args.diff : ''
+  if (diffText.trim() && diffText.length <= MAX_DIFF_CHARS) {
+    const sections = sectionsOf(diffText)
+    const named = [...new Set(sections.flatMap((item) => (item.path === null ? [] : [item.path])))]
+    if (named.length > 1) {
+      const edits: PlannedEdit[] = []
+      const skipped: { path: string; error: string }[] = []
+      for (const path of named) {
+        const sub = subDiff(path, sections.filter((item) => item.path === path))
+        const abs = resolveInside(root, path)
+        if (!abs) {
+          skipped.push({ path, error: 'path is outside the project' })
+          continue
+        }
+        if (existsSync(abs) && statSync(abs).size > 1024 * 1024) {
+          skipped.push({ path, error: 'file is too large to edit' })
+          continue
+        }
+        const current = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
+        const applied = applyUnifiedDiff(current, sub, path)
+        if (!applied.ok) skipped.push({ path, error: applied.message })
+        else if (applied.text === current) skipped.push({ path, error: 'diff does not change the file' })
+        else edits.push({ path, abs, diff: sub.endsWith('\n') ? sub : `${sub}\n` })
+      }
+      if (!edits.length) return { error: skipped.map((item) => `${item.path}: ${item.error}`).join('\n') }
+      return { edits, skipped }
+    }
+  }
+  const planned = planEdit(root, args)
+  if ('error' in planned) return planned
+  return { edits: [planned], skipped: [] }
+}
+
+/** One file's half of a multi-file diff, with its own header, so it can be planned on its own. */
+function subDiff(path: string, sections: Section[]): string {
+  const parts: string[] = [`--- a/${path}`, `+++ b/${path}`]
+  for (const hunk of sections.flatMap((item) => item.hunks)) {
+    const oldCount = hunk.body.filter((line) => line === '' || line.startsWith(' ') || line.startsWith('-')).length
+    const newCount = hunk.body.filter((line) => line === '' || line.startsWith(' ') || line.startsWith('+')).length
+    parts.push(`@@ -${hunk.start},${oldCount} +${hunk.start},${newCount} @@`, ...hunk.body)
+  }
+  return parts.join('\n')
+}
+
 export function planEdit(root: string, args: Record<string, unknown>): PlannedEdit | { error: string } {
   const rel = typeof args.path === 'string' ? args.path.trim() : ''
   const abs = resolveInside(root, rel)
@@ -34,19 +91,17 @@ export function planEdit(root: string, args: Record<string, unknown>): PlannedEd
   const newText = typeof args.new === 'string' ? args.new : null
   if (diffText.trim()) {
     if (diffText.length > MAX_DIFF_CHARS) return { error: 'diff is too large' }
-    // A model that types two files into one diff believes both halves landed when only one does, and
-    // the steps that undo that belief - re-reading a file it never wrote, retyping the same pair -
-    // are the ones a short run cannot spare. Refuse the call before a line of it is written.
-    const named = [...new Set(sectionsOf(diffText).flatMap((item) => item.path === null ? [] : [relPath(item.path)]))]
-    if (named.length > 1) {
-      return { error: `this diff changes ${named.join(' and ')}; one propose_edit carries one file, so send the edit for ${display} first and ${named.filter((name) => name !== display).join(' then ')} after it` }
-    }
     const current = existsSync(abs) ? readFileSync(abs, 'utf8') : ''
     const applied = applyUnifiedDiff(current, diffText, display)
     // A model that types the whole new file into `diff` and the real pair into old and new has
     // already answered the call: the pair is the edit. Any other failure stays the answer.
     const unusable = !applied.ok && applied.message.includes('no hunks') && oldText != null && newText != null
-    if (!applied.ok && !unusable) return { error: applied.message }
+    if (!applied.ok && !unusable) {
+      // Plain text in the diff field is a 2B asking for the edit without knowing the form. Saying
+      // "no hunks" back teaches it nothing; naming the two shapes that work is the lesson.
+      if (applied.message.includes('no hunks')) return { error: `${applied.message} - write it as a unified diff (--- a/${display}, +++ b/${display}, and @@ lines), or pass the text as it is now as old and the text you want as new` }
+      return { error: applied.message }
+    }
     if (applied.ok) {
       if (applied.text === current) return { error: 'diff does not change the file' }
       return { path: display, abs, diff: diffText.endsWith('\n') ? diffText : `${diffText}\n` }
@@ -146,7 +201,13 @@ export function applyUnifiedDiff(original: string, diff: string, path?: string):
     const narrow = hunk.body.filter((line) => line.startsWith('-') || line.startsWith('+'))
     const anchor = removed.length ? findAt(src, removed, declared) : null
     if (anchor !== null) {
-      placed.push({ start: anchor, body: narrow })
+      // A hunk that opens with an insertion the file already holds came from two places at once:
+      // the model pasted the import it thought was missing above the line it really meant to fix.
+      // Dropping those leading lines keeps the rest where the removal anchors it, instead of
+      // pasting a duplicate import into the middle of a function.
+      let cut = 0
+      while (cut < narrow.length && narrow[cut]!.startsWith('+') && src.some((text) => text.trim() && text.trim() === narrow[cut]!.slice(1).trim())) cut++
+      placed.push({ start: anchor, body: cut < narrow.length ? narrow.slice(cut) : narrow })
       continue
     }
     const first = need.find((text) => text.trim().length > 0) ?? ''

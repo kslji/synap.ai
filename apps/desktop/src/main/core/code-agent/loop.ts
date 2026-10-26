@@ -10,7 +10,7 @@ import type { ChatMessage } from '../llama-client.js'
 import { truncateToTokens, type TokenCounter } from '../token-budget.js'
 import { fitAgentMessages } from './budget.js'
 import { detectCheck, fullTestCommand } from './checks.js'
-import { applyPlannedEdit, applyUnifiedDiff, planEdit } from './edit.js'
+import { applyPlannedEdit, applyUnifiedDiff, planEdits } from './edit.js'
 import { toolCallGbnf, toolCallJsonSchema } from './grammar.js'
 import { parseModelTurn, type ModelTurn } from './parse-tool.js'
 import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode } from './permission.js'
@@ -204,6 +204,9 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       if (failure && fixTurns < limits.maxFixTurns) {
         fixTurns += 1
         rememberFailures(host, targets, failure, rejected)
+        // The check that refused the finish is the failure every next step has to answer: kept with
+        // the compile notes, a repeated edit is answered with it instead of with silence.
+        compileNotes.set(`${PENDING}check`, failureDigest(failure))
         needs.length = 0
         needs.push(...checkNeeds(host, failure, targets))
         allowedTurns = Math.min(limits.maxSteps + limits.maxFixTurns, allowedTurns + 1)
@@ -310,86 +313,100 @@ async function act(
     return clip(host, output)
   }
   if (name === 'propose_edit') {
-    const planned = planEdit(host.root, args)
-    if ('error' in planned) {
-      // When a failed edit is refused but the compile still pending, the hint is the answer to the
-      // question the model has not asked yet: what the actual fix is.
-      const pending = [...scope.notes.entries()].find(([key]) => key.startsWith(PENDING))
-      const detail = pending ? `${planned.error}\n\n${pending[1]}` : planned.error
+    const batch = planEdits(host.root, args)
+    if ('error' in batch) {
+      // When a failed edit is refused but a check failure is still pending, the hint is the answer
+      // to the question the model has not asked yet: what the actual fix is.
+      const pending = [...scope.notes.entries()].filter(([key]) => key.startsWith(PENDING)).pop()
+      const detail = pending ? `${batch.error}\n\n${pending[1]}` : batch.error
       pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail })
       return `error: ${detail}`
     }
-    // Once a check has failed, the check is the judge: a run that edits something else - the test
-    // file it is failing, a neighbour it was not asked about - can make the failure go away without
-    // doing the task. The fix belongs in the files the request named.
-    if (scope.fixing && scope.targets.length && !scope.targets.includes(normPath(planned.path))) {
-      const message = `${planned.path} is not what the request asked to change (${scope.targets.join(', ')}). The check decides when the work is done, so change the requested files instead.`
-      pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
-      return `error: ${message}`
-    }
-    // The text this diff would write is knowable before it is written, so a state the check has
-    // already rejected, and a fix that leaves out what the check asked for, can be refused here.
-    const wanted = scope.needs.filter((need) => need.path === normPath(planned.path))
-    if (scope.rejected.size || wanted.length) {
-      const current = existsSync(planned.abs) ? readFileSync(planned.abs, 'utf8') : ''
-      const next = applyUnifiedDiff(current, planned.diff, planned.path)
-      const written = next.ok ? next.text : null
-      const before = written === null ? undefined : scope.rejected.get(`${normPath(planned.path)}\n${written}`)
-      if (before) {
-        const message = `${planned.path} would go back to text that already failed the check there: ${before}. Change something the check has not seen.`
+    // Every half is judged before a line of any half is written: a batch that would touch a file
+    // the request did not name, or walk back into text the check has already rejected, is refused
+    // whole, not taken apart mid-apply.
+    for (const planned of batch.edits) {
+      // Once a check has failed, the check is the judge: a run that edits something else - the test
+      // file it is failing, a neighbour it was not asked about - can make the failure go away without
+      // doing the task. The fix belongs in the files the request named.
+      if (scope.fixing && scope.targets.length && !scope.targets.includes(normPath(planned.path))) {
+        const message = `${planned.path} is not what the request asked to change (${scope.targets.join(', ')}). The check decides when the work is done, so change the requested files instead.`
         pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
         return `error: ${message}`
       }
-      if (written !== null) {
-        const unmet = wanted.find((need) => !need.holds(written))
-        if (unmet) {
-          const message = `${planned.path} still does not do what the failed check asked: ${unmet.ask}`
+      // The text this diff would write is knowable before it is written, so a state the check has
+      // already rejected, and a fix that leaves out what the check asked for, can be refused here.
+      const wanted = scope.needs.filter((need) => need.path === normPath(planned.path))
+      if (scope.rejected.size || wanted.length) {
+        const current = existsSync(planned.abs) ? readFileSync(planned.abs, 'utf8') : ''
+        const next = applyUnifiedDiff(current, planned.diff, planned.path)
+        const written = next.ok ? next.text : null
+        const before = written === null ? undefined : scope.rejected.get(`${normPath(planned.path)}\n${written}`)
+        if (before) {
+          const message = `${planned.path} would go back to text that already failed the check there: ${before}. Change something the check has not seen.`
           pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
           return `error: ${message}`
         }
-        // Spliced, not replaced: the array belongs to the run, and the next step reads it.
-        for (let at = scope.needs.length - 1; at >= 0; at--) {
-          const need = scope.needs[at]!
-          if (need.path === normPath(planned.path) && need.holds(written)) scope.needs.splice(at, 1)
+        if (written !== null) {
+          const unmet = wanted.find((need) => !need.holds(written))
+          if (unmet) {
+            const message = `${planned.path} still does not do what the failed check asked: ${unmet.ask}`
+            pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
+            return `error: ${message}`
+          }
+          // Spliced, not replaced: the array belongs to the run, and the next step reads it.
+          for (let at = scope.needs.length - 1; at >= 0; at--) {
+            const need = scope.needs[at]!
+            if (need.path === normPath(planned.path) && need.holds(written)) scope.needs.splice(at, 1)
+          }
         }
       }
     }
-    const diffId = nextDiffId()
-    const diff: CodeDiffView = { id: diffId, stepId: id, path: planned.path, diff: planned.diff, status: 'pending' }
-    host.onDiff?.(diff)
-    diffs.push(diff)
-    const editGate = decideApproval(mode, { kind: 'edit' }, gateContext(allowed, allowlist))
-    if (editGate.action === 'deny') {
-      diff.status = 'rejected'
+    const appliedPaths: string[] = []
+    for (const planned of batch.edits) {
+      const diffId = nextDiffId()
+      const diff: CodeDiffView = { id: diffId, stepId: id, path: planned.path, diff: planned.diff, status: 'pending' }
       host.onDiff?.(diff)
-      pushStep(host, steps, { id, index, tool: name, status: 'rejected', title, detail: editGate.reason })
-      return `error: ${editGate.reason}`
-    }
-    if (editGate.action === 'ask' && !session.acceptAll) {
-      pushStep(host, steps, { id, index, tool: name, status: 'waiting', title, detail: planned.path })
-      const decision = await host.ask({ kind: 'edit', id: diffId, path: planned.path, diff: planned.diff })
-      throwIfAborted(host.signal)
-      if (decision.all) session.acceptAll = true
-      if (!decision.allow && !decision.all) {
+      diffs.push(diff)
+      const editGate = decideApproval(mode, { kind: 'edit' }, gateContext(allowed, allowlist))
+      if (editGate.action === 'deny') {
         diff.status = 'rejected'
         host.onDiff?.(diff)
-        pushStep(host, steps, { id, index, tool: name, status: 'rejected', title, detail: 'Rejected' })
-        return 'The user rejected the edit. The file was not changed.'
+        pushStep(host, steps, { id, index, tool: name, status: 'rejected', title, detail: editGate.reason })
+        return `error: ${editGate.reason}`
       }
-    }
-    const applied = applyPlannedEdit(host.root, planned.path, planned.diff)
-    if (!applied.ok) {
-      diff.status = 'error'
+      if (editGate.action === 'ask' && !session.acceptAll) {
+        pushStep(host, steps, { id, index, tool: name, status: 'waiting', title, detail: planned.path })
+        const decision = await host.ask({ kind: 'edit', id: diffId, path: planned.path, diff: planned.diff })
+        throwIfAborted(host.signal)
+        if (decision.all) session.acceptAll = true
+        if (!decision.allow && !decision.all) {
+          diff.status = 'rejected'
+          host.onDiff?.(diff)
+          pushStep(host, steps, { id, index, tool: name, status: 'rejected', title, detail: 'Rejected' })
+          return 'The user rejected the edit. The file was not changed.'
+        }
+      }
+      const applied = applyPlannedEdit(host.root, planned.path, planned.diff)
+      if (!applied.ok) {
+        diff.status = 'error'
+        host.onDiff?.(diff)
+        pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: applied.message })
+        return `error: ${applied.message}`
+      }
+      diff.status = 'applied'
       host.onDiff?.(diff)
-      pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: applied.message })
-      return `error: ${applied.message}`
+      appliedPaths.push(planned.path)
     }
-    diff.status = 'applied'
-    host.onDiff?.(diff)
-    pushStep(host, steps, { id, index, tool: name, status: 'applied', title, detail: planned.path })
+    pushStep(host, steps, { id, index, tool: name, status: 'applied', title, detail: appliedPaths.join(', ') })
     // The model sees the whole file it just changed, anything its own diff left behind, and - while
-    // the edit is still fresh - whether the project still compiles.
-    return editedObservation(host, planned.path, planned.diff, diffs, scope.notes, scope.targets)
+    // the edit is still fresh - whether the project still compiles. For a split diff the compile
+    // answers for the whole batch, because it reads the project, not one file.
+    const last = batch.edits[batch.edits.length - 1]!
+    const observation = await editedObservation(host, last.path, last.diff, diffs, scope.notes, scope.targets)
+    const heads = batch.edits.length > 1 ? `Applied the diff to ${batch.edits.slice(0, -1).map((edit) => edit.path).join(', ')} as well.\n\n` : ''
+    const skipped = batch.skipped.length ? `\n\nNot applied: ${batch.skipped.map((item) => `${item.path}: ${item.error}`).join('. ')}` : ''
+    return `${heads}${observation}${skipped}`
   }
   if (name === 'run_command') {
     const command = stringArg(args, 'command')
@@ -598,9 +615,23 @@ function importHints(host: CodeAgentHost, failure: string, targets: readonly str
     seen.add(`${file}:${name}:redeclare`)
     hints.push(`${name} is declared twice in ${file}. Delete one of the two lines and make the other do both jobs, like: export const ${name} = <the value>`)
   }
-  // TS1308: the model put await in a function body without making it async. A 2B reads the exact
-  // line to change far better than it reads a grammar rule and works out which header the fix is.
-  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS1308: 'await' expressions/gm)) {
+  // TS2322 with a nullable source: widening the receiving type makes the compiler quiet but moves
+  // the null to whoever reads the value next, and the failing check that follows says nothing about
+  // where it came from. The default belongs on the line the compiler named.
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS2322: Type '([^']*)' is not assignable to type '([^']*)'/gm)) {
+    const file = normPath(match[1]!.trim())
+    const line = Number(match[2])
+    const source = match[3]!
+    const nullish = /\b(null|undefined)\b/.exec(source)
+    if (!nullish || new RegExp(`\\b${nullish[1]}\\b`).test(match[4]!)) continue
+    if (seen.has(`${file}:nullable:${line}`)) continue
+    seen.add(`${file}:nullable:${line}`)
+    hints.push(`${file} line ${line}: the value there can be ${nullish[1]}, but ${match[4]} does not allow it. Answer it on this line with a default, written like: ?? <the value the task asks for>. Making the type allow ${nullish[1]} only hands the problem to whoever reads it next`)
+  }
+  // TS1308: the model put await in a body whose function is not async. TS1064: async is there but
+  // the return type never became a Promise. Both are answered with the one line to rewrite, because
+  // a 2B reads an exact line far better than it reads a grammar rule and works out the header.
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS(1308|1064)[^\n]*/gm)) {
     const file = normPath(match[1]!.trim())
     const line = Number(match[2])
     if (seen.has(`${file}:async:${line}`)) continue
@@ -610,15 +641,75 @@ function importHints(host: CodeAgentHost, failure: string, targets: readonly str
     const lines = readFileSync(abs, 'utf8').split('\n')
     let decl = -1
     for (let i = line - 1; i >= 0; i--) {
-      if (/^\s*(export\s+)?function\s+/.test(lines[i] ?? '')) { decl = i; break }
+      if (/^\s*(export\s+)?(async\s+)?function\s+/.test(lines[i] ?? '')) { decl = i; break }
     }
-    if (decl >= 0 && !(lines[decl] ?? '').includes('async')) {
-      const current = (lines[decl] ?? '').trim()
-      const fixed = current.replace(/^(export\s+)?function\s/, '$1async function ')
-      hints.push(`${file} line ${decl + 1} needs async: old = ${current}  new = ${fixed}`)
+    if (decl < 0) continue
+    const current = (lines[decl] ?? '').trim()
+    const fixed = asyncForm(current)
+    if (fixed === current) continue
+    const why = /\basync\b/.test(current) ? 'has to return a Promise' : 'needs async'
+    // Spelled as the edit itself: a 2B copies a ready diff exactly, where an old/new pair in prose
+    // is one more thing it can put the wrong way round.
+    hints.push(`${file} line ${decl + 1} ${why}. Send exactly this edit:\n--- a/${file}\n+++ b/${file}\n@@ -${decl + 1},1 +${decl + 1},1 @@\n-${current}\n+${fixed}`)
+  }
+  // An import pasted inside a function is a model that followed the import hint from memory and
+  // placed it under the function line instead of above it. The file usually has it already.
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS1232[^\n]*/gm)) {
+    const file = normPath(match[1]!.trim())
+    const line = Number(match[2])
+    if (seen.has(`${file}:import-row:${line}`)) continue
+    seen.add(`${file}:import-row:${line}`)
+    const abs = resolveInside(host.root, file)
+    if (!abs || !existsSync(abs)) continue
+    const rows = readFileSync(abs, 'utf8').split('\n')
+    const text = (rows[line - 1] ?? '').trim()
+    if (!text.startsWith('import')) continue
+    const twin = rows.findIndex((row, at) => at !== line - 1 && row.trim() === text)
+    hints.push(twin >= 0
+      ? `${file} line ${line}: an import cannot live inside a function, and the file already has it on line ${twin + 1} - delete line ${line} and change nothing else`
+      : `${file} line ${line}: an import cannot live inside a function - move it above the first function in the file`)
+  }
+  // A void helper interpolated into a string writes the word "undefined" into the text, and a 2B
+  // reads that as a string problem instead of a call placed in the wrong seat.
+  if (/\bactual\b/.test(failure) && /'[^']*undefined[^']*'/.test(failure)) {
+    for (const file of targets) {
+      const abs = resolveInside(host.root, file)
+      if (!abs || !existsSync(abs)) continue
+      const lines = readFileSync(abs, 'utf8').split('\n')
+      for (let i = 0; i < lines.length && hints.length < 6; i++) {
+        for (const call of (lines[i] ?? '').matchAll(/\$\{\s*([A-Za-z_$][\w$]*)\s*\(/g)) {
+          const name = call[1]!
+          if (seen.has(`${file}:void:${name}`)) continue
+          if (!returnsVoid(host, name, targets)) continue
+          seen.add(`${file}:void:${name}`)
+          hints.push(`${file} line ${i + 1}: ${name}() returns nothing, so inside a string it writes "undefined". Call ${name}() as its own statement on the line before the return, and leave the returned string exactly as it is`)
+        }
+      }
     }
   }
   return hints.join('\n')
+}
+
+/** The same declaration line with async added and a bare return type wrapped in Promise<...>. */
+function asyncForm(line: string): string {
+  let out = /\basync\b/.test(line) ? line : line.replace(/function\s+/, 'async function ')
+  const typed = /\)\s*:\s*([^{]+?)\s*\{\s*$/.exec(out)
+  if (typed && !/^Promise\b/.test(typed[1]!.trim())) {
+    out = `${out.slice(0, typed.index + 1)}: Promise<${typed[1]!.trim()}> {`
+  }
+  return out
+}
+
+/** Whether some file in the project declares `name` as returning void. */
+function returnsVoid(host: CodeAgentHost, name: string, targets: readonly string[]): boolean {
+  const pool = [...new Set([...targets, ...host.facts?.files ?? []])]
+  const pattern = new RegExp(`function\\s+${name.replace(/\$/g, '\\$')}\\s*\\([^)]*\\)\\s*:\\s*void\\b`)
+  for (const path of pool.slice(0, 40)) {
+    const abs = resolveInside(host.root, normPath(path))
+    if (!abs || !existsSync(abs) || !/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(abs)) continue
+    if (pattern.test(readFileSync(abs, 'utf8'))) return true
+  }
+  return false
 }
 
 /** The first file that exports `name`, the request's own files first, then the rest of the project. */
@@ -770,13 +861,16 @@ async function repeatAdvice(host: CodeAgentHost, name: string, args: Record<stri
   const path = stringArg(args, 'path') || 'the file'
   const text = readProjectFile(host.root, { path })
   if (text.startsWith('error:')) return { detail: `${path} is already in the prompt`, message: `That edit was already sent. ${path} has not changed since: write the change the failure names.` }
-  const failed = [...cache.entries()].find(([key]) => key.startsWith(PENDING))
+  const failed = [...cache.entries()].filter(([key]) => key.startsWith(PENDING)).pop()
   const lines = [`That ${path} edit was already sent and the file has not changed since.`, `${path} as it is now:`, text.trimEnd()]
   if (failed) {
     lines.push('', 'The failure it still has to answer:', failed[1])
-    // The error is raw; a 2B reads the line to write better than it reads the code to deduce.
-    const hints = importHints(host, failed[1], targets)
-    if (hints) lines.push('', 'What to change:', hints)
+    // The error is raw; a 2B reads the line to write better than it reads the code to deduce. A
+    // stored compile note already carries its hints, so they are only added when they are missing.
+    if (!failed[1].includes('What to change:')) {
+      const hints = importHints(host, failed[1], targets)
+      if (hints) lines.push('', 'What to change:', hints)
+    }
   }
   lines.push('', 'Edit the text above, not the text you remember.')
   return { detail: `${path} was already sent; it was answered with the file`, message: await truncateToTokens(host.counter, lines.join('\n'), (host.observationTokens ?? 900) + 200) }
@@ -833,7 +927,9 @@ async function compileNote(host: CodeAgentHost, diffs: readonly CodeDiffView[], 
   try {
     const result = await run(command, host.signal)
     if (result.ok) {
-      for (const [pending] of [...cache.entries()]) if (pending.startsWith(PENDING)) cache.delete(pending)
+      // A passing compile answers the compile's own pending note; a check failure the run is still
+      // fixing stays, because a compile that passes does not mean the task is done.
+      cache.delete(`${PENDING}${command}`)
       cache.set(key, '')
       return null
     }
@@ -846,7 +942,7 @@ async function compileNote(host: CodeAgentHost, diffs: readonly CodeDiffView[], 
       : `The project does not compile after this edit (${command}):\n${digest}`
     const hints = importHints(host, digest, targets)
     answer = hints ? `${base}\nWhat to change:\n${hints}` : base
-    for (const [pending] of [...cache.entries()]) if (pending.startsWith(PENDING)) cache.delete(pending)
+    cache.delete(`${PENDING}${command}`)
     cache.set(`${PENDING}${command}`, answer)
   } catch (error) {
     if (isAbort(error) || host.signal?.aborted) throw error

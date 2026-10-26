@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { applyEvent, type UiMsg } from '../../renderer/src/types.js'
 import { CodeTrace } from '../../renderer/src/screens/CodeTrace.js'
 import { fitAgentMessages } from './code-agent/budget.js'
-import { applyPlannedEdit, applyUnifiedDiff, planEdit, unifiedDiff } from './code-agent/edit.js'
+import { applyPlannedEdit, applyUnifiedDiff, planEdit, planEdits, unifiedDiff } from './code-agent/edit.js'
 import { toolCallGbnf, toolCallJsonSchema } from './code-agent/grammar.js'
 import { llamaCompletionExtras } from './code-agent/llama.js'
 import { CODE_AGENT_LIMITS, nativeToolsRejected, runCodeAgent, type CompletionRequest } from './code-agent/loop.js'
@@ -599,10 +599,9 @@ test('an edit whose old text lost its indentation still lands, with the file ind
   }
 })
 
-test('one propose_edit carries one file: a diff that changes two is refused, not half applied', () => {
-  // A 2B that types both halves of a two-file task into one diff gets its first hunk applied and
-  // believes the second one landed too. It then reads a file it never wrote, retypes the same diff,
-  // and spends the run on the pair of steps that repeat each other.
+test('a propose_edit whose diff carries two files is split per file and every half is applied', () => {
+  // A 2B types both halves of a two-file task into one diff because it thinks of the task as one
+  // change. Refusing it costs the run the step it cannot spare; splitting keeps both halves.
   const root = tempProject()
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src/load.ts'), 'export function load(path: string): string {\n  return path.toUpperCase()\n}\n')
@@ -619,12 +618,30 @@ test('one propose_edit carries one file: a diff that changes two is refused, not
     "+  return await load('a')",
     ' }',
   ].join('\n')
-  const refused = planEdit(root, { path: 'src/load.ts', diff: both })
-  assert.ok('error' in refused, 'a two-file diff was accepted as a one-file edit')
-  if ('error' in refused) {
-    assert.match(refused.error, /src\/main\.ts/, 'the file left out of the edit was not named')
-    assert.match(refused.error, /one propose_edit carries one file/)
-  }
+  const batch = planEdits(root, { path: 'src/load.ts', diff: both })
+  if ('error' in batch) throw new Error(batch.error)
+  assert.deepEqual(batch.edits.map((edit) => edit.path), ['src/load.ts', 'src/main.ts'])
+  assert.equal(batch.skipped.length, 0)
+  for (const edit of batch.edits) assert.equal(applyPlannedEdit(root, edit.path, edit.diff).ok, true)
+  assert.match(readFileSync(join(root, 'src/load.ts'), 'utf8'), /export async function load\(path: string\): Promise<string> \{/)
+  assert.match(readFileSync(join(root, 'src/main.ts'), 'utf8'), /return await load\('a'\)/)
+})
+
+test('a split diff still reports the half it cannot place instead of losing it', () => {
+  const root = tempProject()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/one.ts'), 'export const a = 1\n')
+  writeFileSync(join(root, 'src/two.ts'), 'export const b = 2\n')
+  const both = [
+    '--- a/src/one.ts', '+++ b/src/one.ts', '@@ -1,1 +1,1 @@', '-export const a = 1', '+export const a = 9',
+    '--- a/src/two.ts', '+++ b/src/two.ts', '@@ -1,1 +1,1 @@', '-export const never = 0', '+export const never = 1',
+  ].join('\n')
+  const batch = planEdits(root, { path: 'src/one.ts', diff: both })
+  if ('error' in batch) throw new Error(batch.error)
+  assert.deepEqual(batch.edits.map((edit) => edit.path), ['src/one.ts'])
+  assert.equal(batch.skipped.length, 1)
+  assert.equal(batch.skipped[0]!.path, 'src/two.ts')
+  assert.match(batch.skipped[0]!.error, /could not find the lines/)
 })
 
 

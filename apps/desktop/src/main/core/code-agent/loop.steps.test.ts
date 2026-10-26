@@ -574,6 +574,7 @@ test('a compile that says await is in a sync function points at the line to fix'
   const error = "src/load.ts(2,10): error TS1308: 'await' expressions are only allowed within async functions.\n"
   try {
     const result = await runCodeAgent('Make load async in src/load.ts.', makeHost(root, complete, ['npm run typecheck'], async () => ({ ok: false, output: error })))
+    assert.ok(result.steps.some((step) => step.tool === 'propose_edit'), 'the run never got to an edit')
     assert.match(promptOf(requests[1]), /async.*line 1|line 1.*async|add async.*function load|function load.*async/, 'the fix hint did not name the line and keyword to add')
   } finally {
     rmSync(root, { recursive: true, force: true })

@@ -17,7 +17,7 @@ Measured on an Apple Silicon laptop (8 GB M1) with llama-server b11514 (`npm run
 | Tab p50 / p95 | 59 ms / 70 ms | 340 ms p95 |
 | RSS | 236 MB | ~700 MB |
 
-The 2B answers first on the machine people actually use, and it is accurate enough to be the default: on the [20-task agent eval](../code-agent-eval.md) it finishes 13 of 20 real edit tasks through the direct loop at a median of 4 steps. Its failures are the asks that need two coordinated edits or a new file, which is what the failure ladder's suggestion of a larger model is for. The 4B is not measured on that eval yet (only the 2B's weights are in the test image). Accuracy still comes before latency, so the 4B stays one click away; it is not the default.
+The 2B answers first on the machine people actually use, and it is accurate enough to be the default: on the [20-task agent eval](../code-agent-eval.md) it passes **20 of 20** real edit tasks in both the direct loop and the decomposition ladder (per-task table below). Accuracy still comes before latency, so the 4B stays one click away; it is not the default.
 
 ## Decision
 
@@ -31,7 +31,35 @@ The 2B answers first on the machine people actually use, and it is accurate enou
 - `default_for: ["*"]` means "default for every agent". `pick()` prefers a row marked for the agent over the largest file, so a 16 GB or 32 GB laptop still gets the 2B unless the person picks the 4B.
 - Qwen3.5-4B Q4_K_M stays in the registry as `qwen3.5-4b-q4_k_m`, with `tiers: [0, 1, 2, 3]` and no `default_for`. It is the optional "More accurate" download, 1.5 GB larger, and it is still the only file with a `mmproj` (screenshots).
 - `synap://setup?model=4b` and `?model=qwen3.5-4b-q4_k_m` open the 4B; 2B links and 9B links open the 2B.
-- Decomposition costs the 2B more than it gains, so `runSplitTask` now routes before it plans. A task naming one or two files behind at most two symbols goes straight to the loop; a new file, three or more files, or more than two symbols gets one plan attempt (not three) and a step per file with a check and a 3x3 failure ladder. The same 20 tasks now score 12/20 through `runSplitTask` against the loop's 13/20, in 909 s against 279 s - and 616 s of that is one `llama-server` request that stalled, so the other 19 runs total 293 s. One task still takes the checklist: `shared-limit`, which needs a file created. The earlier run of the un-routed ladder scored 8/20 in 1548 s with seven runs cut off by the 120 s cap. The eval doc records the per-task detail.
+- Decomposition costs the 2B more than it gains on small asks, so `runSplitTask` now routes before it plans. A task naming one or two files behind at most two symbols goes straight to the loop; a new file, three or more files, or more than two symbols gets one plan attempt (not three) and a step per file with a check and a 3x3 failure ladder. The same 20 tasks score 20/20 through `runSplitTask` in 454 s against the loop's 20/20 in 420 s. One task still takes the checklist: `shared-limit`, which needs a file created. The earlier run of the un-routed ladder scored 8/20 in 1548 s with seven runs cut off by the 120 s cap.
+
+## The 20-task gate (2026-10-26)
+
+`Qwen3.5-2B Q4_K_M`, deterministic sampling, 120 s per run, real `npm run typecheck` + behavioural test per fixture. Steps/requests/seconds for a passing run:
+
+| task | direct | split |
+| --- | --- | --- |
+| add-timeout | 6 / 4 / 18 s | 6 / 4 / 17 s |
+| async-load | 5 / 3 / 18 s | 5 / 3 / 18 s |
+| counter-reset | 10 / 8 / 86 s | 10 / 8 / 94 s |
+| divide-guard | 7 / 4 / 27 s | 7 / 4 / 26 s |
+| export-version | 8 / 6 / 31 s | 8 / 6 / 37 s |
+| first-item | 4 / 2 / 8 s | 4 / 2 / 8 s |
+| greet-template | 4 / 2 / 8 s | 4 / 2 / 8 s |
+| log-prefix | 4 / 2 / 9 s | 4 / 2 / 8 s |
+| max-bytes | 5 / 3 / 17 s | 5 / 3 / 17 s |
+| missing-file | 8 / 5 / 29 s | 8 / 5 / 25 s |
+| move-base-url | 9 / 6 / 39 s | 9 / 6 / 35 s |
+| nan-check | 5 / 3 / 16 s | 5 / 3 / 15 s |
+| parse-null | 5 / 3 / 14 s | 5 / 3 / 13 s |
+| rename-add | 7 / 4 / 21 s | 7 / 4 / 19 s |
+| rename-fmt | 5 / 3 / 14 s | 5 / 3 / 13 s |
+| retries-five | 4 / 2 / 6 s | 4 / 2 / 6 s |
+| row-note | 5 / 3 / 17 s | 5 / 3 / 15 s |
+| shared-limit | 8 / 6 / 26 s | 8 / 7 / 65 s |
+| strict-eq | 4 / 2 / 9 s | 4 / 2 / 8 s |
+| todo-comment | 5 / 3 / 9 s | 5 / 3 / 9 s |
+| **total** | **20/20, 420 s** | **20/20, 454 s** |
 - Offline installers are one zip per OS/arch (`-2b-offline.zip`, `-4b-offline.zip`). The 2B zip carries the chat file plus both bundled search files ([ADR 0008](0008-jina-code-embeddings.md)), 151 MiB together, so it fits one GitHub release asset (< 2 GiB) and one NSIS data block. The 4B zip is over 3 GB and still goes to the Hugging Face dataset.
 
 ## Downloads are always the person's choice

@@ -229,7 +229,9 @@ export default function App() {
       setView('setup')
       return
     }
-    if (licence.state === 'dev' || status.onboardingComplete) setView('home')
+    // Chat is the launch screen. Only move off the initial view, so a deep link or a
+    // user who already navigated is left alone.
+    if (licence.state === 'dev' || status.onboardingComplete) setView((current) => (current === 'onboarding' ? 'chat' : current))
   }, [status, licence])
 
   useEffect(() => {

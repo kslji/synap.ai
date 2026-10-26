@@ -39,7 +39,7 @@ test('a chat download brings the search and rerank files that are missing on dis
 
 test('the disk check covers the whole bundle plus ten percent', () => {
   const files = missingBundleFiles(asDownload(chat), searchFiles, new Set())
-  const total = 1_280_835_840 + 121_387_072 + 37_323_936
+  const total = 1_280_835_840 + 121_395_616 + 37_323_936
   assert.equal(bundling(files), Math.ceil(total * 1.1))
   assert.equal(bundling([]), 0)
 })

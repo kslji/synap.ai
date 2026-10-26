@@ -375,7 +375,7 @@ export interface SetupSnapshot {
   localCopy?: boolean
 }
 
-const EMBED_BYTES = 121_387_072
+const EMBED_BYTES = 121_395_616
 const RERANK_BYTES = 37_323_936
 
 /** Screenshot harness only. Counts are the registry sizes, passed through the same formatters. */

@@ -52,7 +52,7 @@
       "doc_template": "{title}\n{text}",
       "file": "jina-embeddings-v2-base-code-Q5_K_M.gguf",
       "url": "https://huggingface.co/second-state/jina-embeddings-v2-base-code-GGUF/resolve/main/jina-embeddings-v2-base-code-Q5_K_M.gguf",
-      "size_bytes": 121387072,
+      "size_bytes": 121395616,
       "sha256": "4fb1c5f15462f12a083e19721c7a43e9eddfe6377dc845fa73bedf2461089919",
       "min_llama_cpp_build": 11452,
       "bundled_with_chat": true,

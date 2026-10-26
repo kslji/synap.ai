@@ -48,8 +48,8 @@ export function formatModelSize(bytes: number): string {
   return `${(bytes / 1_000_000_000).toFixed(2)} GB`
 }
 
-/** jina-embeddings-v2-base-code-Q5_K_M.gguf from the model registry. 121387072 bytes is 121.4 MB. */
-export const SEARCH_MODEL_BYTES = 121_387_072
+/** jina-embeddings-v2-base-code-Q5_K_M.gguf from the model registry. 121395616 bytes is 121.4 MB. */
+export const SEARCH_MODEL_BYTES = 121_395_616
 
 export function formatSearchSize(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`

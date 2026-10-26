@@ -76,7 +76,7 @@ test('the search files are the Jina code embedding and its reranker', () => {
   assert.equal(embedding.doc_template, '{title}\n{text}')
   assert.equal(embedding.bundled_with_chat, true)
   assert.equal(embedding.file, 'jina-embeddings-v2-base-code-Q5_K_M.gguf')
-  assert.equal(embedding.size_bytes, 121387072)
+  assert.equal(embedding.size_bytes, 121395616)
   assert.equal(reranker.id, 'jina-reranker-v1-turbo-en-q5_k_m')
   assert.equal(reranker.bundled_with_chat, true)
   assert.equal(reranker.file, 'jina-reranker-v1-turbo-en-Q5_K_M.gguf')

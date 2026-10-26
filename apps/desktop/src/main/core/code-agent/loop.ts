@@ -112,6 +112,10 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   const steps: CodeStepView[] = []
   const diffs: CodeDiffView[] = []
   const seen = new Map<string, number>()
+  // A call that ended in an error will end in the same error with the same arguments. Reading the
+  // file and sending the old text again is how a 2B spends its last steps, so the repeat is
+  // answered from the record instead of run.
+  const failed = new Map<string, string>()
   // File contents the check has already seen fail, so a fix that only walks back to one of them is
   // not a fix. Two failures that answer each other are how a small model swings between them.
   const rejected = new Map<string, string>()
@@ -163,6 +167,15 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       continue
     }
     lastSig = sig
+    const tried = failed.get(sig)
+    if (tried) {
+      const id = `step-${++seq}`
+      const message = `the same ${parsed.call.name} already failed: ${tried}`
+      pushStep(host, steps, { id, index: steps.length + 1, tool: parsed.call.name, status: 'error', title: stepTitle(parsed.call.name, parsed.call.arguments), detail: message })
+      messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
+      messages.push({ role: 'user', content: `Result:\nerror: ${message}` })
+      continue
+    }
     const id = `step-${++seq}`
     const title = stepTitle(parsed.call.name, parsed.call.arguments)
     if (parsed.call.name === 'finish') {
@@ -200,6 +213,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       return { answer: summary, steps, diffs, stopped: 'finish' }
     }
     const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0, rejected })
+    if (observation.startsWith('error: ')) failed.set(sig, observation.slice('error: '.length))
     messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
     messages.push({ role: 'user', content: `Result:\n${observation}` })
   }
@@ -497,6 +511,15 @@ function importHints(host: CodeAgentHost, failure: string, targets: readonly str
     }
     hints.push(`${name} is exported by ${from}. Add this with the imports at the top of ${file}: import { ${name} } from '${importSpecifier(host.root, file, from)!.trim()}'`)
   }
+  // "Cannot redeclare" is the sound of a model that exported a name by writing a second line with
+  // the same name on it. The move is one line that declares and exports, not a third declaration.
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS2451: Cannot redeclare (?:block-scoped variable|a variable of name) '([A-Za-z_$][\w$]*)'/gm)) {
+    const file = normPath(match[1]!.trim())
+    const name = match[3]!
+    if (seen.has(`${file}:${name}:redeclare`)) continue
+    seen.add(`${file}:${name}:redeclare`)
+    hints.push(`${name} is declared twice in ${file}. Delete one of the two lines and make the other do both jobs, like: export const ${name} = <the value>`)
+  }
   return hints.join('\n')
 }
 
@@ -667,6 +690,9 @@ function leftover(diff: string, body: string): { token: string; lines: number[] 
   const lines = diff.split('\n')
   const removed = lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).map((line) => line.slice(1))
   const added = lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).join('\n')
+  // A deletion has no other half. The words a removed line shared with the rest of the file are the
+  // file's own business, and nudging about them sends the model to change lines the task left alone.
+  if (!added.trim()) return []
   const out: { token: string; lines: number[] }[] = []
   for (const line of removed) {
     for (const token of new Set(line.match(/[A-Za-z_][A-Za-z0-9_]{2,}|\d+/g) ?? [])) {

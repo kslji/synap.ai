@@ -476,6 +476,68 @@ test('a hunk with stale line numbers lands where its text is, and only in the fi
   assert.equal(placed.ok && placed.text, "import { count, reset } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n")
 })
 
+test('a hunk that keeps typing past the end of the file is placed by the lines that are there', () => {
+  // The model wrote the import line where it wanted it, then went on typing the other file into the
+  // same hunk. Its own lines still match the top of this file, so the insertion goes there and the
+  // lines that are not in the file are dropped - not used to anchor the edit somewhere else.
+  const ui = "import { count } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n"
+  const long = [
+    '--- a/src/ui.ts', '+++ b/src/ui.ts', '@@ -1,5 +1,6 @@',
+    " import { count } from './counter'",
+    "+import { reset } from './counter'",
+    ' ',
+    ' export function label(): string {',
+    '   return `count: ${count}`',
+    ' }',
+    ' ',
+    ' export function reset(): void {',
+    '   count = 0',
+    ' }',
+  ].join('\n')
+  const placed = applyUnifiedDiff(ui, long, 'src/ui.ts')
+  assert.equal(placed.ok, true)
+  assert.equal(
+    placed.ok && placed.text,
+    "import { count } from './counter'\nimport { reset } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n",
+  )
+})
+
+test('a hunk whose lines are already in the file is said to be already done', () => {
+  // The change was made a step ago. Telling the model the lines are missing sends it round the same
+  // edit again; the work is done and the check failed for a different reason.
+  const current = 'export function load(path: string): string {\n  return await path.toUpperCase()\n}\n'
+  const stale = [
+    '--- a/src/load.ts', '+++ b/src/load.ts', '@@ -1,3 +1,3 @@',
+    ' export function load(path: string): string {',
+    '-  return path.toUpperCase()',
+    '+  return await path.toUpperCase()',
+    ' }',
+  ].join('\n')
+  const applied = applyUnifiedDiff(current, stale)
+  assert.equal(applied.ok, false)
+  assert.match(applied.ok ? '' : applied.message, /already in the file/)
+})
+
+test('an edit that retypes the whole file is taken as the file, when it keeps every line', () => {
+  const root = tempProject()
+  const file = 'src/limits.ts'
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, file), 'export function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n')
+  const added = 'export const MAX_BYTES = 1024\n\nexport function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n'
+  // The model retyped the file with the declaration at the top, and described the file it remembers
+  // as the text it replaced. Every line it kept is still there, so what it sent is the file it wants.
+  const whole = planEdit(root, { path: file, old: 'export const MAX_BYTES = 1024\n\nexport function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n', new: added })
+  if ('error' in whole) throw new Error(whole.error)
+  assert.equal(applyPlannedEdit(root, whole.path, whole.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), added)
+
+  // A rewrite that drops a line is not the same kind of mistake: that is where the file stops being
+  // the file, and it has to be said so rather than written.
+  const lossy = planEdit(root, { path: file, old: 'something the file never had', new: 'export const MAX_BYTES = 1024\n' })
+  assert.ok('error' in lossy)
+  if ('error' in lossy) assert.match(lossy.error, /^old text was not found/)
+})
+
 test('an edit whose old text lost its indentation still lands, with the file indentation', () => {
   const root = tempProject()
   const file = 'src/sizes.ts'

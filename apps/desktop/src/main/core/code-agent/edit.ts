@@ -150,7 +150,7 @@ export function applyUnifiedDiff(original: string, diff: string, path?: string):
   for (const hunk of hunks.hunks) {
     const declared = Math.max(0, hunk.start - 1)
     const need = contextOf(hunk)
-    const at = blankFile ? 0 : findAt(src, need, declared)
+    const at = blankFile ? 0 : findAt(src, need, declared) ?? findPrefixAt(src, need, declared)
     if (at !== null) {
       placed.push({ start: at, body: hunk.body })
       continue
@@ -166,6 +166,12 @@ export function applyUnifiedDiff(original: string, diff: string, path?: string):
       continue
     }
     const first = need.find((text) => text.trim().length > 0) ?? ''
+    // The change was probably made a step ago and sent again from memory. "Not found" sends the
+    // model round the same hunk; the lines being there already is a different answer.
+    const added = hunk.body.filter((line) => line.startsWith('+')).map((line) => line.slice(1).trim())
+    if (added.length && added.every((line) => src.some((text) => text.trim() === line))) {
+      return { ok: false, message: 'the lines this hunk adds are already in the file, so it would change nothing - the check failed for another reason, so change the line it names' }
+    }
     return { ok: false, message: `could not find the lines this hunk changes${first ? ` ("${first.trim().slice(0, 60)}")` : ''}; read the file again and edit the text it has now` }
   }
   placed.sort((a, b) => a.start - b.start)
@@ -182,8 +188,16 @@ export function applyUnifiedDiff(original: string, diff: string, path?: string):
       const tag = line[0]
       const text = line.slice(1)
       if (tag === ' ') {
-        out.push(blankFile ? text : (src[at] ?? ''))
-        at++
+        if (blankFile) {
+          out.push(text)
+        } else if (at < src.length) {
+          out.push(src[at] ?? '')
+          at++
+        } else {
+          // The hunk ran past the end of the file. What the model typed there is not in this file,
+          // and the change it made before that point is the one it asked for.
+          break
+        }
       } else if (tag === '-') {
         at++
       } else if (tag === '+') {
@@ -236,6 +250,19 @@ function matchesAt(src: string[], need: string[], at: number): boolean {
   return true
 }
 
+/**
+ * Where the head of the hunk is, when the whole of it is not. A model that keeps typing adds
+ * context lines from another file, or past the end of this one: anchoring on the part that is real
+ * keeps the edit where it belongs, instead of sliding it to a removal line somewhere else.
+ */
+function findPrefixAt(src: string[], need: string[], declared: number): number | null {
+  for (let k = need.length - 1; k >= 2; k--) {
+    const at = findAt(src, need.slice(0, k), declared)
+    if (at !== null) return at
+  }
+  return null
+}
+
 /** The path on a `+++` line, without the a/ or b/ prefix git writes. */
 function headerPath(line: string): string | null {
   const raw = (line.slice(3).trim().split('\t')[0] ?? '').trim()
@@ -275,6 +302,13 @@ function replaceOnce(original: string, oldText: string, newText: string): { ok: 
     return { ok: true, text: original.slice(0, start) + body + original.slice(start + matched.length) }
   }
   if (loose && loose.hits.length > 1) return { ok: false, message: 'old text matched more than once' }
+  // A model that retypes a file it has not re-read is describing the file it wants, not the one it
+  // sent. When every line the file has is in what it wrote, nothing is lost by taking that as the
+  // file; a rewrite that drops a line is not that edit and stays an error.
+  const kept = textLines(newText).map((line) => line.trim())
+  if (kept.some((line) => line) && textLines(original).filter((line) => line.trim()).every((line) => kept.includes(line.trim()))) {
+    return { ok: true, text: newText.endsWith(LF) || !newText.trim() ? newText : `${newText}${LF}` }
+  }
   return { ok: false, message: `old text was not found. ${preview(original)}` }
 }
 

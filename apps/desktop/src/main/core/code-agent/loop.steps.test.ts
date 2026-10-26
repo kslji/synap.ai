@@ -370,3 +370,62 @@ test('a name nothing in the project defines is declared, not imported from nowhe
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('an edit that already failed with these arguments is answered, not run again', async () => {
+  // A small model that is told "not found" tends to read the file and send the same text again from
+  // memory. Running it twice costs a step for the same words; the answer has to say it is a repeat.
+  const root = project({ 'src/load.ts': 'export function load(path: string): string {\n  return path.toUpperCase()\n}\n' })
+  const stale = edit('src/load.ts', 'return path.toLowerCase()', 'return path.toUpperCase()')
+  const { complete, requests } = scripted([
+    stale,
+    read('src/load.ts'),
+    stale,
+    edit('src/load.ts', 'export function load(path: string): string {\n  return path.toUpperCase()', 'export async function load(path: string): Promise<string> {\n  return path.toUpperCase()'),
+    finish,
+  ])
+  try {
+    const result = await runCodeAgent('Make load in src/load.ts async and give it a Promise return type.', makeHost(root, complete))
+    assert.match(promptOf(requests[3]), /already (tried|sent).*same|the same .*already failed/i, 'the repeat was answered with the plain error again')
+    assert.equal(readFileSync(join(root, 'src/load.ts'), 'utf8'), 'export async function load(path: string): Promise<string> {\n  return path.toUpperCase()\n}\n')
+    assert.equal(result.stopped, 'finish')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a line that was removed is not nagged about the text the rest of the file keeps', async () => {
+  // The "still in the file" nudge exists for a change only half made. A deletion has no other half:
+  // the words the removed line shared with the rest of the file are the file's own business.
+  const root = project({ 'src/a.ts': 'export const a = 1\nexport const b = 1\n' })
+  const { complete, requests } = scripted([edit('src/a.ts', 'export const a = 1\n', ''), finish])
+  try {
+    const result = await runCodeAgent('Delete the export of a from src/a.ts.', makeHost(root, complete))
+    assert.doesNotMatch(promptOf(requests[1]), /Still in src\/a\.ts/, 'a deletion was nagged about a number the other line still has')
+    assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const b = 1\n')
+    assert.equal(result.stopped, 'finish')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a name declared twice is pointed at the one line that can do both jobs', async () => {
+  // The model answered "export VERSION as a named export" by adding a second declaration. The
+  // compiler says "redeclare"; the fix it needs is the one line that declares and exports.
+  const root = project({ 'src/version.ts': "const VERSION = '1.0.0'\nexport default VERSION\n" })
+  const { complete, requests } = scripted([
+    edit('src/version.ts', "const VERSION = '1.0.0'\nexport default VERSION", "const VERSION = '1.0.0'\nexport const VERSION = '1.0.0'\nexport default VERSION"),
+    finish,
+    finish,
+  ])
+  try {
+    await runCodeAgent('In src/version.ts, also export VERSION as a named export.', makeHost(root, complete, ['npm test'], async () => ({
+      ok: false,
+      output: "src/version.ts(1,7): error TS2451: Cannot redeclare block-scoped variable 'VERSION'.\nsrc/version.ts(2,14): error TS2451: Cannot redeclare block-scoped variable 'VERSION'.\n",
+    })))
+    const fix = promptOf(requests[2])
+    assert.match(fix, /VERSION is declared twice in src\/version\.ts/, 'the duplicate declaration was not said plainly')
+    assert.match(fix, /export const VERSION = /, 'the one line that fixes it was not written out')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

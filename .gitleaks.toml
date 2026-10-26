@@ -17,4 +17,5 @@ paths = [
   '''services/api/app/auth_service\.py''',
   '''services/api/MYSQL_AUTH_README\.md''',
   '''apps/desktop/src/main/core/search/fixtures/''',
+  '''apps/desktop/src/main/core/fixtures/''',
 ]

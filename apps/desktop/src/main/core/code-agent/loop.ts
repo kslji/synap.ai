@@ -158,7 +158,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
     const times = (seen.get(sig) ?? 0) + 1
     seen.set(sig, times)
     if (sig === lastSig || times > limits.maxSameCall) {
-      const advice = repeatAdvice(parsed.call.name, parsed.call.arguments)
+      const advice = await repeatAdvice(host, parsed.call.name, parsed.call.arguments, compileNotes, targets)
       if (!advice) {
         return { answer: 'Stopped because that step repeated.', steps, diffs, stopped: 'repeat' }
       }
@@ -385,7 +385,7 @@ async function act(
     pushStep(host, steps, { id, index, tool: name, status: 'applied', title, detail: planned.path })
     // The model sees the whole file it just changed, anything its own diff left behind, and - while
     // the edit is still fresh - whether the project still compiles.
-    return editedObservation(host, planned.path, planned.diff, diffs, scope.notes)
+    return editedObservation(host, planned.path, planned.diff, diffs, scope.notes, scope.targets)
   }
   if (name === 'run_command') {
     const command = stringArg(args, 'command')
@@ -594,6 +594,24 @@ function importHints(host: CodeAgentHost, failure: string, targets: readonly str
     seen.add(`${file}:${name}:redeclare`)
     hints.push(`${name} is declared twice in ${file}. Delete one of the two lines and make the other do both jobs, like: export const ${name} = <the value>`)
   }
+  // TS1308: the model put await in a function body without making it async. A 2B reads the exact
+  // line to change far better than it reads a grammar rule and works out which header the fix is.
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS1308: 'await' expressions/gm)) {
+    const file = normPath(match[1]!.trim())
+    const line = Number(match[2])
+    if (seen.has(`${file}:async:${line}`)) continue
+    seen.add(`${file}:async:${line}`)
+    const abs = resolveInside(host.root, file)
+    if (!abs || !existsSync(abs)) continue
+    const lines = readFileSync(abs, 'utf8').split('\n')
+    let decl = -1
+    for (let i = line - 1; i >= 0; i--) {
+      if (/^\s*(export\s+)?function\s+/.test(lines[i] ?? '')) { decl = i; break }
+    }
+    if (decl >= 0 && !(lines[decl] ?? '').includes('async')) {
+      hints.push(`add async before function on ${file} line ${decl + 1}: ${(lines[decl] ?? '').trim()}`)
+    }
+  }
   return hints.join('\n')
 }
 
@@ -732,13 +750,30 @@ function rememberFailures(host: CodeAgentHost, targets: readonly string[], failu
 }
 
 /** A repeated read is a pause, not a step: hand back the file it already has and ask for the edit. */
-function repeatAdvice(name: string, args: Record<string, unknown>): { detail: string; message: string } | null {
-  if (name !== 'read_file') return null
-  const path = stringArg(args, 'path')
-  return {
-    detail: `${path || 'the file'} is already in the prompt`,
-    message: `File already read above: ${path || 'the file'}. Call propose_edit now with the required change.`,
+async function repeatAdvice(host: CodeAgentHost, name: string, args: Record<string, unknown>, cache: Map<string, string>, targets: readonly string[]): Promise<{ detail: string; message: string } | null> {
+  if (name === 'read_file') {
+    const path = stringArg(args, 'path')
+    return {
+      detail: `${path || 'the file'} is already in the prompt`,
+      message: `File already read above: ${path || 'the file'}. Call propose_edit now with the required change.`,
+    }
   }
+  // The same hunk again is a 2B answering a compile from memory. Stopping throws the run away: the
+  // file as it stands now, under the failure it has to answer, is what the second send needs.
+  if (name !== 'propose_edit') return null
+  const path = stringArg(args, 'path') || 'the file'
+  const text = readProjectFile(host.root, { path })
+  if (text.startsWith('error:')) return { detail: `${path} is already in the prompt`, message: `That edit was already sent. ${path} has not changed since: write the change the failure names.` }
+  const failed = [...cache.entries()].find(([key]) => key.startsWith(PENDING))
+  const lines = [`That ${path} edit was already sent and the file has not changed since.`, `${path} as it is now:`, text.trimEnd()]
+  if (failed) {
+    lines.push('', 'The failure it still has to answer:', failed[1])
+    // The error is raw; a 2B reads the line to write better than it reads the code to deduce.
+    const hints = importHints(host, failed[1], targets)
+    if (hints) lines.push('', 'What to change:', hints)
+  }
+  lines.push('', 'Edit the text above, not the text you remember.')
+  return { detail: `${path} was already sent; it was answered with the file`, message: await truncateToTokens(host.counter, lines.join('\n'), (host.observationTokens ?? 900) + 200) }
 }
 
 /**
@@ -746,7 +781,7 @@ function repeatAdvice(name: string, args: Record<string, unknown>): { detail: st
  * the second of two 1024s, the old name at another call site - and the model finishes without
  * looking. Naming the token and its line is what makes it look.
  */
-async function editedObservation(host: CodeAgentHost, path: string, diff: string, diffs: readonly CodeDiffView[], cache: Map<string, string>): Promise<string> {
+async function editedObservation(host: CodeAgentHost, path: string, diff: string, diffs: readonly CodeDiffView[], cache: Map<string, string>, targets: readonly string[]): Promise<string> {
   const text = readProjectFile(host.root, { path })
   if (text.startsWith('error:')) return Promise.resolve(`Applied the diff to ${path}.`)
   const body = text.split('\n').slice(1).join('\n')
@@ -757,47 +792,74 @@ async function editedObservation(host: CodeAgentHost, path: string, diff: string
     const named = left.map((item) => `"${item.token}" on ${item.lines.length > 1 ? `lines ${item.lines.join(', ')}` : `line ${item.lines[0]}`}`)
     lines.push('', `Still in ${path}: ${named.join(', ')}. Change ${left.length === 1 ? 'it' : 'them'} too, or the task is not done.`)
   }
-  const compile = await compileNote(host, diffs, cache)
+  const compile = await compileNote(host, diffs, cache, targets)
   if (compile) lines.push('', compile)
   return truncateToTokens(host.counter, lines.join('\n'), host.observationTokens ?? 900)
 }
 
-/** The run's last applied file, kept in the same record as the compile answers. */
-const LAST_EDIT = '\0last'
+/** Where a compile says the code is wrong, in the order the compiler named them. */
+function errorFiles(output: string): string[] {
+  return [...new Set([...output.matchAll(/^([^\s()]+\.[A-Za-z]+)\(\d+,\d+\): error TS/g)].map((match) => normPath(match[1]!)))]
+}
+
+/** The compile the run has not answered yet, under the same record as the answers. */
+const PENDING = '\0pending'
 
 /**
  * The compile check, run while the edit that may have broken it is still the freshest thing in the
  * prompt. Waiting for the finish to speak costs a 2B the link between the error and the line it
  * typed, so the same broken hunk comes back. Only a command that reads like a compile is used - a
- * full test suite does not belong on the back of every edit - and a file that has been checked and
- * not moved since is not checked again.
+ * full test suite does not belong on the back of every edit - and the answer is kept against the
+ * files this run has touched, so it is paid for once per state, not once per step.
  */
-async function compileNote(host: CodeAgentHost, diffs: readonly CodeDiffView[], cache: Map<string, string>): Promise<string | null> {
+async function compileNote(host: CodeAgentHost, diffs: readonly CodeDiffView[], cache: Map<string, string>, targets: readonly string[]): Promise<string | null> {
   const run = host.runCommand ?? ((command: string, signal?: AbortSignal) => runProjectCommand(host.root, command, signal))
   const command = verifyCommands(host).find((candidate) => /typecheck|check-types|\btsc\b|compile/.test(candidate))
   if (!command) return null
-  const active = [...diffs].reverse().find((diff) => diff.status === 'applied') ?? null
-  const file = active ? resolveInside(host.root, active.path) : null
-  const text = file && existsSync(file) ? readFileSync(file, 'utf8') : null
-  // The first edit is where a 2B is most confident and least checked; later ones are reported only
-  // when they move a different file, so the same block is not repeated on every step.
-  const previous = cache.get(LAST_EDIT)
-  if (active) cache.set(LAST_EDIT, active.path)
-  if (text === null || (previous !== undefined && active !== null && previous === active.path)) return null
+  const active = [...diffs].reverse().find((diff) => diff.status === 'applied')
+  if (!active) return null
+  const text = touchedText(host.root, diffs)
+  if (text === null) return null
   const key = `${command}\n${text}`
   const known = cache.get(key)
   if (known !== undefined) return known || null
   let answer = ''
   try {
     const result = await run(command, host.signal)
-    if (result.ok) return null
-    answer = `The project does not compile after this edit (${command}):\n${compileDigest(result.output)}`
+    if (result.ok) {
+      for (const [pending] of [...cache.entries()]) if (pending.startsWith(PENDING)) cache.delete(pending)
+      cache.set(key, '')
+      return null
+    }
+    const digest = compileDigest(result.output)
+    // The edit may be right with the file beside it still wrong. Blamed on the edit, that error sends
+    // a small model to take the correct change back; named where it is, the other file is the work.
+    const elsewhere = errorFiles(digest).filter((name) => name !== active.path)
+    const base = elsewhere.length
+      ? `The failure is in another file, not in the one you just changed (${elsewhere.join(', ')}). It stays until that file is edited too (${command}):\n${digest}`
+      : `The project does not compile after this edit (${command}):\n${digest}`
+    const hints = importHints(host, digest, targets)
+    answer = hints ? `${base}\nWhat to change:\n${hints}` : base
+    for (const [pending] of [...cache.entries()]) if (pending.startsWith(PENDING)) cache.delete(pending)
+    cache.set(`${PENDING}${command}`, answer)
   } catch (error) {
     if (isAbort(error) || host.signal?.aborted) throw error
     return null
   }
   cache.set(key, answer)
   return answer
+}
+
+/** Every file this run has written, as it stands. A compile reads the project, not one file. */
+function touchedText(root: string, diffs: readonly CodeDiffView[]): string | null {
+  const paths = [...new Set(diffs.filter((diff) => diff.status === 'applied').map((diff) => normPath(diff.path)))].sort()
+  const parts: string[] = []
+  for (const path of paths) {
+    const abs = resolveInside(root, path)
+    if (!abs || !existsSync(abs)) return null
+    parts.push(`${path}\n${readFileSync(abs, 'utf8')}`)
+  }
+  return parts.join('\n')
 }
 
 /** The error lines of a compile - the noise around them is what crowds the one that matters out. */

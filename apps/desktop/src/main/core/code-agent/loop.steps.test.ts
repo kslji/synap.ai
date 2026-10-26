@@ -553,7 +553,28 @@ test('a propose_edit sent twice is answered with the file and the failure, not s
     })))
     assert.match(promptOf(requests[2]), /Cannot find name/, 'the repeat did not come back with the failure it has to answer')
     assert.match(promptOf(requests[2]), /1\|import/, 'the repeat did not come back with the file as it is now')
+    assert.match(promptOf(requests[2]), /reset is exported by src\/counter/, 'the repeat did not say where the missing name comes from')
     assert.notEqual(result.stopped, 'repeat', 'the run was thrown away at the first repeat')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a compile that says await is in a sync function points at the line to fix', async () => {
+  // The model put await in the body without making the function async. The compileNote shows the
+  // TS1308 error, but a 2B needs the line to change spelled out: the header above the await.
+  const root = project({
+    'src/load.ts': 'export function load(path: string): string {\n  return path.toUpperCase()\n}\n',
+    'src/main.ts': "import { load } from './load'\n\nexport async function main(): Promise<string> {\n  return load('a')\n}\n",
+  })
+  const { complete, requests } = scripted([
+    edit('src/load.ts', '  return path.toUpperCase()', '  return await path.toUpperCase()'),
+    finish,
+  ])
+  const error = "src/load.ts(2,10): error TS1308: 'await' expressions are only allowed within async functions.\n"
+  try {
+    const result = await runCodeAgent('Make load async in src/load.ts.', makeHost(root, complete, ['npm run typecheck'], async () => ({ ok: false, output: error })))
+    assert.match(promptOf(requests[1]), /async.*line 1|line 1.*async|add async.*function load|function load.*async/, 'the fix hint did not name the line and keyword to add')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

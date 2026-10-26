@@ -253,7 +253,69 @@ function replaceOnce(original: string, oldText: string, newText: string): { ok: 
     return { ok: true, text: newText.endsWith('\n') || newText.length === 0 ? newText : `${newText}\n` }
   }
   const first = original.indexOf(oldText)
-  if (first < 0) return { ok: false, message: 'old text was not found' }
-  if (original.indexOf(oldText, first + oldText.length) >= 0) return { ok: false, message: 'old text matched more than once' }
-  return { ok: true, text: original.slice(0, first) + newText + original.slice(first + oldText.length) }
+  const loose = matchLoose(original, oldText)
+  const unique = loose !== null && loose.hits.length === 1
+  // A line named without its indentation is still that line: match it whole and give the new text
+  // the file's own indent. That is only asked for when the exact match starts part way into a line
+  // and what replaces it spans lines, because that splice is what breaks the indentation. An edit
+  // of one word inside a line still goes where the word is.
+  const anchored = unique && first >= 0 && original[first - 1] !== undefined && original[first - 1] !== LF && newText.includes(LF)
+  if (first >= 0 && !anchored) {
+    if (original.indexOf(oldText, first + oldText.length) >= 0) return { ok: false, message: 'old text matched more than once' }
+    return { ok: true, text: original.slice(0, first) + newText + original.slice(first + oldText.length) }
+  }
+  // A 2B told "not found" spends its next step re-reading the file, and often guesses the same
+  // text again. Leading whitespace is the one difference that never changes what a line means.
+  if (unique && loose) {
+    const at = loose.hits[0]!
+    const matched = loose.src.slice(at, at + loose.want.length).join(LF)
+    const indent = leading(loose.src[at]!)
+    const body = reindent(textLines(newText), indent).join(LF) + (newText.endsWith(LF) ? LF : '')
+    const start = loose.src.slice(0, at).join(LF).length + (at ? 1 : 0)
+    return { ok: true, text: original.slice(0, start) + body + original.slice(start + matched.length) }
+  }
+  if (loose && loose.hits.length > 1) return { ok: false, message: 'old text matched more than once' }
+  return { ok: false, message: `old text was not found. ${preview(original)}` }
+}
+
+/** The lines of `oldText` as the file has them, ignoring only their indentation. */
+function matchLoose(original: string, oldText: string): { src: string[]; want: string[]; hits: number[] } | null {
+  // Offsets are counted in the text as lines, which is only exact while the file uses one newline.
+  if (original.includes(CRLF)) return null
+  const want = textLines(oldText).map((line) => line.trim())
+  while (want.length && !want[0]) want.shift()
+  while (want.length && !want[want.length - 1]) want.pop()
+  if (!want.length) return null
+  const src = textLines(original)
+  const trimmed = src.map((line) => line.trim())
+  const hits: number[] = []
+  for (let at = 0; at + want.length <= trimmed.length; at++) {
+    if (want.every((line, step) => trimmed[at + step] === line)) hits.push(at)
+  }
+  return { src, want, hits }
+}
+
+function leading(line: string): string {
+  const spaces = line.match(/^[ \t]*/)
+  return spaces ? spaces[0] : ''
+}
+
+/** Move a block of new text from the indentation it was typed at to the one the file has. */
+function reindent(lines: string[], indent: string): string[] {
+  const base = lines.length ? leading(lines[0]!) : ''
+  const delta = indent.length - base.length
+  if (!delta) return lines
+  return lines.map((line) => {
+    if (!line.trim()) return line
+    if (delta > 0) return ' '.repeat(delta) + line
+    return line.slice(Math.min(-delta, leading(line).length))
+  })
+}
+
+/** The head of the file, numbered: the text a model has to copy to land an edit at all. */
+function preview(text: string): string {
+  const lines = textLines(text)
+  const shown = lines.slice(0, 6).map((line, at) => `${at + 1}|${line}`)
+  const more = lines.length > shown.length ? `\n... ${lines.length - shown.length} more lines` : ''
+  return `the file reads:\n${shown.join(LF)}${more}`
 }

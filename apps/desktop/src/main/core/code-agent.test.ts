@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { applyEvent, type UiMsg } from '../../renderer/src/types.js'
 import { CodeTrace } from '../../renderer/src/screens/CodeTrace.js'
 import { fitAgentMessages } from './code-agent/budget.js'
-import { applyUnifiedDiff, planEdit, unifiedDiff } from './code-agent/edit.js'
+import { applyPlannedEdit, applyUnifiedDiff, planEdit, unifiedDiff } from './code-agent/edit.js'
 import { toolCallGbnf, toolCallJsonSchema } from './code-agent/grammar.js'
 import { llamaCompletionExtras } from './code-agent/llama.js'
 import { CODE_AGENT_LIMITS, nativeToolsRejected, runCodeAgent, type CompletionRequest } from './code-agent/loop.js'
@@ -474,6 +474,49 @@ test('a hunk with stale line numbers lands where its text is, and only in the fi
   const placed = applyUnifiedDiff(ui, wrongContext)
   assert.equal(placed.ok, true)
   assert.equal(placed.ok && placed.text, "import { count, reset } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n")
+})
+
+test('an edit whose old text lost its indentation still lands, with the file indentation', () => {
+  const root = tempProject()
+  const file = 'src/sizes.ts'
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, file), 'export function chunk(size: number): number {\n  return size / 1024\n}\n')
+  // A line copied out of a numbered listing arrives without its indent. The text is still the
+  // line, so the edit is still the edit - and the file keeps the indentation it had.
+  const one = planEdit(root, { path: file, old: 'return size / 1024', new: 'return size / MAX_BYTES' })
+  assert.equal('error' in one ? one.error : 'ok', 'ok')
+  if ('error' in one) throw new Error(one.error)
+  assert.equal(applyPlannedEdit(root, one.path, one.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), 'export function chunk(size: number): number {\n  return size / MAX_BYTES\n}\n')
+
+  // Two lines added where one indented line was: both take the place the file had, not the shape
+  // the model typed.
+  const two = planEdit(root, { path: file, old: 'return size / MAX_BYTES', new: 'const kb = 1024\nreturn size / kb' })
+  if ('error' in two) throw new Error(two.error)
+  assert.equal(applyPlannedEdit(root, two.path, two.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), 'export function chunk(size: number): number {\n  const kb = 1024\n  return size / kb\n}\n')
+
+  // Several lines named at once, still without the file's indentation: the whole block goes and
+  // nothing of it is left behind.
+  writeFileSync(join(root, file), 'export function chunk(size: number): number {\n  const q = size > 0\n  return q ? size / MAX_BYTES : 0\n}\n')
+  const three = planEdit(root, { path: file, old: 'const q = size > 0\nreturn q ? size / MAX_BYTES : 0', new: 'const kb = 1024\nreturn kb' })
+  if ('error' in three) throw new Error(three.error)
+  assert.equal(applyPlannedEdit(root, three.path, three.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), 'export function chunk(size: number): number {\n  const kb = 1024\n  return kb\n}\n')
+
+  // A loose match that fits two places is not a match: guessing which one is worse than asking.
+  writeFileSync(join(root, file), 'export function one(): number {\n  return 1\n}\n\nexport function two(): number {\n  return 1\n}\n')
+  const twice = planEdit(root, { path: file, old: 'return 1', new: 'return 2' })
+  assert.equal('error' in twice ? twice.error : 'ok', 'old text matched more than once')
+
+  // When it is not there at all, the answer says what the file does say.
+  writeFileSync(join(root, file), 'export const a = 1\nexport const b = 1\n')
+  const miss = planEdit(root, { path: file, old: 'export const zzz = 9', new: 'export const zzz = 1' })
+  assert.ok('error' in miss, 'a text that is not in the file was accepted')
+  if ('error' in miss) {
+    assert.match(miss.error, /^old text was not found/)
+    assert.match(miss.error, /the file reads[\s\S]*export const a = 1/)
+  }
 })
 
 test('the chat step list and diff card render apply and reject', () => {

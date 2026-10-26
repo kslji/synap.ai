@@ -201,7 +201,7 @@ test('a fix turn sees every check that failed, the lines the compiler named, and
         : { ok: true, output: 'ok' }
     }))
     assert.equal(result.stopped, 'finish')
-    assert.deepEqual(commands, ['npm run typecheck', 'npm run typecheck', 'npm test', 'npm run typecheck', 'npm test'], 'a failing first check skipped the second')
+    assert.deepEqual(commands, ['npm run typecheck', 'npm run typecheck', 'npm test', 'npm run typecheck', 'npm run typecheck', 'npm test'], 'a failing first check skipped the second')
     const fix = promptOf(requests[2])
     assert.match(fix, /error TS2322/, 'the type error did not reach the model')
     assert.match(fix, /AssertionError: 1 !== 2/, 'the failing assertion did not reach the model')
@@ -489,20 +489,71 @@ test('a broken compile is reported when the edit is made, not when the run finis
   // same broken hunk came back. The compile has to answer while the edit is the freshest thing.
   const root = project({ 'src/load.ts': 'export function load(path: string): string {\n  return path.toUpperCase()\n}\n' })
   const commands: string[] = []
-  const { complete, requests } = scripted([
-    edit('src/load.ts', 'export function load(path: string): string {', 'export async function load(path: string): string {'),
-    edit('src/load.ts', '  return path.toUpperCase()', '  return (await fetch(path)).url'),
-    finish,
-  ])
+  const broken = edit('src/load.ts', 'export function load(path: string): string {', 'export async function load(path: string): string {')
+  const { complete, requests } = scripted([broken, broken, finish])
   try {
-    await runCodeAgent('Make load async in src/load.ts.', makeHost(root, complete, ['npm run typecheck'], async (command) => {
+    const result = await runCodeAgent('Make load async in src/load.ts.', makeHost(root, complete, ['npm run typecheck'], async (command) => {
       commands.push(command)
       return { ok: false, output: "src/load.ts(1,8): error TS1005: '}' expected.\n" }
     }))
     assert.match(promptOf(requests[1]), /does not compile|error TS1005/, 'the edit that broke the compile was accepted in silence')
     assert.equal(commands[0], 'npm run typecheck')
-    assert.doesNotMatch(promptOf(requests[2]), /does not compile/, 'the second edit of the same file paid for the typecheck again')
+    // The same call twice is not the same edit twice, and the compile is not paid for twice.
+    assert.equal(result.steps.filter((step) => step.tool === 'propose_edit' && step.status === 'applied').length, 1, 'the repeated edit was applied again')
+    assert.match(promptOf(requests[2]), /already sent|not finished/i, 'the repeated edit was answered with nothing to act on')
     assert.equal(commands.filter((command) => command === 'npm test').length, 0, 'the full suite ran on the back of an edit')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a compile that fails in the file beside the one just edited says so', async () => {
+  // The edit was right and the sibling was still broken. A model told "does not compile after this
+  // edit" - with a line number from the other file - answered by taking the correct edit back.
+  const root = project({
+    'src/load.ts': 'export function load(path: string): string {\n  return await path.toUpperCase()\n}\n',
+    'src/main.ts': "import { load } from './load'\n\nexport async function main(): Promise<string> {\n  return load('a')\n}\n",
+    'src/notes.ts': 'export const note = 1\n',
+  })
+  const loadFault = "src/load.ts(2,10): error TS1308: 'await' expressions are only allowed within async functions.\n"
+  const { complete, requests } = scripted([
+    edit('src/main.ts', "  return load('a')", "  return await load('a')"),
+    edit('src/notes.ts', 'export const note = 1', 'export const note = 2'),
+  ])
+  try {
+    const result = await runCodeAgent('Await load in src/main.ts and take the note up in src/notes.ts.', makeHost(root, complete, ['npm run typecheck'], async () => {
+      // A compiler reads the project: load.ts is broken while its body awaits under a sync header.
+      const load = readFileSync(join(root, 'src/load.ts'), 'utf8')
+      const broken = load.includes('  return await ') && !load.includes('export async function load')
+      return broken ? { ok: false, output: loadFault } : { ok: true, output: 'ok\n' }
+    }))
+    assert.match(promptOf(requests[1]), /The failure is in another file/, 'a fault in the file beside the edit was blamed on the edit')
+    assert.match(promptOf(requests[1]), /src\/load\.ts\(2,10\)/, 'the compile line from the other file was not quoted')
+    assert.match(promptOf(requests[2]), /The failure is in another file/, 'the fault moved on without being named')
+    assert.notEqual(result.stopped, 'repeat', 'the run was thrown away for editing a second file')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a propose_edit sent twice is answered with the file and the failure, not stopped', async () => {
+  // The compile named the import the file does not have. The model sent the same stale hunk again,
+  // and a run that stops at the first repeat throws away every step it had left.
+  const q = String.fromCharCode(39)
+  const root = project({
+    'src/counter.ts': 'export let count = 0\nexport function bump(): void {\n  count += 1\n}\n\nexport function reset(): void {\n  count = 0\n}\n',
+    'src/ui.ts': `import { count } from ${q}./counter${q}\n\nexport function label(): string {\n  return count\n}\n`,
+  })
+  const stale = edit('src/ui.ts', '  return count', "  reset()\n  return String(count)")
+  const { complete, requests } = scripted([stale, stale, finish])
+  try {
+    const result = await runCodeAgent('In src/ui.ts, reset the counter in src/counter.ts before building the label.', makeHost(root, complete, ['npm run typecheck'], async () => ({
+      ok: false,
+      output: `src/ui.ts(3,3): error TS2304: Cannot find name ${q}reset${q}.${q}\n`,
+    })))
+    assert.match(promptOf(requests[2]), /Cannot find name/, 'the repeat did not come back with the failure it has to answer')
+    assert.match(promptOf(requests[2]), /1\|import/, 'the repeat did not come back with the file as it is now')
+    assert.notEqual(result.stopped, 'repeat', 'the run was thrown away at the first repeat')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

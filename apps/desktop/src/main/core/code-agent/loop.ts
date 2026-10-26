@@ -119,6 +119,9 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   // File contents the check has already seen fail, so a fix that only walks back to one of them is
   // not a fix. Two failures that answer each other are how a small model swings between them.
   const rejected = new Map<string, string>()
+  // What the last failed check requires of a file. A fix turn that takes the required line away is
+  // a way out of the error, not out of the failure, and it costs the turn the fix needed.
+  const needs: Need[] = []
   const targets = requestedPaths(task, host.facts?.files ?? [])
   let finishRefusals = 0
   let fixTurns = 0
@@ -198,6 +201,8 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       if (failure && fixTurns < limits.maxFixTurns) {
         fixTurns += 1
         rememberFailures(host, targets, failure, rejected)
+        needs.length = 0
+        needs.push(...checkNeeds(host, failure, targets))
         allowedTurns = Math.min(limits.maxSteps + limits.maxFixTurns, allowedTurns + 1)
         thinking = fixTurns === 1
         // The check has spoken: the next move is an edit in the files the request named. A free
@@ -212,7 +217,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'ok', title, detail: summary })
       return { answer: summary, steps, diffs, stopped: 'finish' }
     }
-    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0, rejected })
+    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0, rejected, needs })
     if (observation.startsWith('error: ')) failed.set(sig, observation.slice('error: '.length))
     messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
     messages.push({ role: 'user', content: `Result:\n${observation}` })
@@ -276,7 +281,7 @@ async function act(
   diffs: CodeDiffView[],
   nextDiffId: () => string,
   /** The files the request named, whether a check has already failed, and what it saw fail. */
-  scope: { targets: readonly string[]; fixing: boolean; rejected: Map<string, string> },
+  scope: { targets: readonly string[]; fixing: boolean; rejected: Map<string, string>; needs: Need[] },
 ): Promise<string> {
   const index = steps.length + 1
   if (name === 'read_file') {
@@ -316,15 +321,30 @@ async function act(
       return `error: ${message}`
     }
     // The text this diff would write is knowable before it is written, so a state the check has
-    // already rejected can be refused instead of spent.
-    if (scope.rejected.size) {
+    // already rejected, and a fix that leaves out what the check asked for, can be refused here.
+    const wanted = scope.needs.filter((need) => need.path === normPath(planned.path))
+    if (scope.rejected.size || wanted.length) {
       const current = existsSync(planned.abs) ? readFileSync(planned.abs, 'utf8') : ''
       const next = applyUnifiedDiff(current, planned.diff, planned.path)
-      const before = next.ok ? scope.rejected.get(`${normPath(planned.path)}\n${next.text}`) : undefined
+      const written = next.ok ? next.text : null
+      const before = written === null ? undefined : scope.rejected.get(`${normPath(planned.path)}\n${written}`)
       if (before) {
         const message = `${planned.path} would go back to text that already failed the check there: ${before}. Change something the check has not seen.`
         pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
         return `error: ${message}`
+      }
+      if (written !== null) {
+        const unmet = wanted.find((need) => !need.holds(written))
+        if (unmet) {
+          const message = `${planned.path} still does not do what the failed check asked: ${unmet.ask}`
+          pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
+          return `error: ${message}`
+        }
+        // Spliced, not replaced: the array belongs to the run, and the next step reads it.
+        for (let at = scope.needs.length - 1; at >= 0; at--) {
+          const need = scope.needs[at]!
+          if (need.path === normPath(planned.path) && need.holds(written)) scope.needs.splice(at, 1)
+        }
       }
     }
     const diffId = nextDiffId()
@@ -450,6 +470,56 @@ async function describeFiles(host: CodeAgentHost, files: readonly string[], head
   const parts: string[] = [heading]
   for (const path of files) parts.push(await describeFile(host, path, budget))
   return parts.join('\n')
+}
+
+/** One file's obligation from the last failed check, testable against the text an edit would write. */
+interface Need {
+  path: string
+  holds: (text: string) => boolean
+  ask: string
+}
+
+/**
+ * What "Cannot find name X" asks of the file it names: the import when someone else has X, the
+ * declaration when nobody has it. The same reading the fix prompt gives the model, kept as a test
+ * the next edit can be held to.
+ */
+function checkNeeds(host: CodeAgentHost, failure: string, targets: readonly string[]): Need[] {
+  const out: Need[] = []
+  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error TS(?:2304|2552): Cannot find name '([A-Za-z_$][\w$]*)'/gm)) {
+    const file = projectPath(host.root, match[1]!.trim()) ?? normPath(match[1]!.trim())
+    const name = match[3]!
+    if (!targets.includes(file) || out.some((need) => need.path === file && need.ask.includes(name))) continue
+    const from = exporterOf(host, name, file, targets)
+    out.push(from
+      ? { path: file, holds: (text) => importsName(text, name), ask: `${file} has to import ${name} from ${from}` }
+      : { path: file, holds: (text) => declaresName(text, name), ask: `${file} has to define ${name} itself` })
+  }
+  return out
+}
+
+const DECLARERS = new Set(['const', 'let', 'var', 'function', 'class', 'interface', 'type', 'enum'])
+
+/** The words of a line, so a name is matched as a name and not as part of a longer one. */
+function wordsOf(line: string): string[] {
+  return line.split(/[^A-Za-z0-9_$]+/)
+}
+
+function importsName(text: string, name: string): boolean {
+  return text.split('\n').some((line) => {
+    const at = line.indexOf('import')
+    if (at < 0) return false
+    const from = line.indexOf(' from ', at)
+    return wordsOf(line.slice(at, from > at ? from : line.length)).includes(name)
+  })
+}
+
+function declaresName(text: string, name: string): boolean {
+  return text.split('\n').some((line) => {
+    const parts = wordsOf(line.replace(/^\s*export\s+/, ''))
+    const at = parts.findIndex((part) => DECLARERS.has(part))
+    return at >= 0 && parts[at + 1] === name
+  })
 }
 
 /** One file for the prompt: its numbered contents, or the marker that says it has to be created. */

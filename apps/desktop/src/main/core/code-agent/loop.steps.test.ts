@@ -446,3 +446,32 @@ test('the nudge about text left behind reads the file, not the numbers beside it
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('a fix that does not do what the failed check asked for is refused', async () => {
+  // The check said the name is not defined. The model answered by taking the name away, which is a
+  // way out of the error that leaves the task undone - and a fix turn is too short to spend on it.
+  const source = 'export function fits(size: number): boolean {\n  return size <= 1024\n}\n'
+  const root = project({ 'src/limits.ts': source })
+  const { complete, requests } = scripted([
+    edit('src/limits.ts', '  return size <= 1024', '  return size <= MAX_BYTES'),
+    finish,
+    edit('src/limits.ts', '  return size <= MAX_BYTES', '  return size <= 1024'),
+    edit('src/limits.ts', 'export function fits', 'export const MAX_BYTES = 1024\n\nexport function fits'),
+    finish,
+  ])
+  try {
+    const result = await runCodeAgent('In src/limits.ts, replace the 1024 with a constant named MAX_BYTES.', makeHost(root, complete, ['npm test'], async () => {
+      const text = readFileSync(join(root, 'src/limits.ts'), 'utf8')
+      return text.includes('export const MAX_BYTES')
+        ? { ok: true, output: 'ok 1 - the constant is exported' }
+        : { ok: false, output: "src/limits.ts(2,18): error TS2304: Cannot find name 'MAX_BYTES'.\n" }
+    }))
+    const refused = result.steps.find((step) => step.status === 'error' && /the failed check asked/.test(step.detail ?? ''))
+    assert.ok(refused, 'the fix that undid the change was applied')
+    assert.match(promptOf(requests[3]), /the failed check asked/, 'the refusal never reached the model')
+    assert.equal(readFileSync(join(root, 'src/limits.ts'), 'utf8'), 'export const MAX_BYTES = 1024\n\nexport function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n')
+    assert.equal(result.stopped, 'finish')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

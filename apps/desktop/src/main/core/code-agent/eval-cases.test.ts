@@ -19,6 +19,12 @@ const resolve = createRequire(import.meta.url).resolve
 const tsc = resolve('typescript/bin/tsc')
 const loader = resolve('tsx')
 
+const NL = String.fromCharCode(10)
+/** A whole file from its lines, so a case reads as source rather than as escapes. */
+function lines(...parts: string[]): string {
+  return parts.join(NL) + NL
+}
+
 function write(root: string, files: Record<string, string>): void {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true })
@@ -47,11 +53,25 @@ function texts(c: EvalCase, patch: Record<string, string | null> = {}): Record<s
 }
 
 /** True when a file text already satisfies one rule, so the rule could never fail. */
-function ruleHolds(text: string | undefined, rule: { has?: string[]; missing?: string[] }): boolean {
+function ruleHolds(text: string | undefined, rule: { has?: string[]; missing?: string[]; anyOf?: string[][] }): boolean {
   if (text === undefined) return false
   const has = (needle: string): boolean => text.includes(needle)
-  return (rule.has ?? []).every(has) && !(rule.missing ?? []).some(has)
+  const oneGroup = (rule.anyOf ?? []).some((needles) => needles.every(has))
+  return (rule.has ?? []).every(has) && !(rule.missing ?? []).some(has) && (!(rule.anyOf?.length) || oneGroup)
 }
+
+test('the reference solution satisfies its own expectations', () => {
+  // A rule the solution itself does not meet is a rule the loop cannot see: the check says the
+  // behaviour is right, the score says it is not, and no fix turn can close that gap.
+  const problems: string[] = []
+  for (const c of AGENT_EVAL_CASES) {
+    const after: Record<string, string | null> = {}
+    for (const rule of c.check) after[rule.path] = c.solution[rule.path] ?? c.files[rule.path] ?? null
+    const scored = scoreFiles(after, c)
+    if (!scored.pass) problems.push(`${c.id}: ${scored.why}`)
+  }
+  assert.deepEqual(problems, [], problems.join(NL + NL))
+})
 
 test('the suite is 20 tasks with unique ids and a sentence each', () => {
   assert.equal(AGENT_EVAL_CASES.length, 20)
@@ -152,5 +172,57 @@ test('a correct answer is not failed for choosing the other quote mark', async (
     const run = await runFixture(c, { ...c.files, ...doubled })
     if (!run.ok) failures.push(`${c.id}: ${run.output.slice(-700)}`)
   }
-  assert.deepEqual(failures, [], failures.join('\n\n'))
+  assert.deepEqual(failures, [], failures.join(NL + NL))
+})
+
+test('a second correct answer is accepted by the test and by the score', async () => {
+  // A rule that only the reference solution's phrasing satisfies fails work that behaves right,
+  // and the loop has no way to know it: the check it runs says the code is fine.
+  const alternates: Record<string, Record<string, string>> = {
+    'divide-guard': { 'src/divide.ts': lines('export function divide(a: number, b: number): number {', '  return b === 0 ? 0 : a / b', '}') },
+    'export-version': { 'src/version.ts': lines("const VERSION = '1.0.0'", 'export { VERSION }', 'export default VERSION') },
+    'async-load': {
+      'src/load.ts': lines('export function load(path: string): Promise<string> {', '  return Promise.resolve(path.toUpperCase())', '}'),
+      'src/main.ts': lines("import { load } from './load'", '', 'export async function main(): Promise<string> {', "  return await load('a')", '}'),
+    },
+  }
+  const problems: string[] = []
+  for (const [id, patch] of Object.entries(alternates)) {
+    const c = AGENT_EVAL_CASES.find((item) => item.id === id)
+    assert.ok(c, `${id} is not a task`)
+    const run = await runFixture(c, { ...c.files, ...patch })
+    if (!run.ok) problems.push(`${id}: the alternative fails the fixture's own test${NL}${run.output.slice(-700)}`)
+    const after: Record<string, string | null> = {}
+    for (const rule of c.check) after[rule.path] = patch[rule.path] ?? c.files[rule.path] ?? null
+    const scored = scoreFiles(after, c)
+    if (!scored.pass) problems.push(`${id}: the alternative behaves right but is scored "${scored.why}"`)
+  }
+  assert.deepEqual(problems, [], problems.join(NL + NL))
+})
+
+test('an edit that compiles but leaves the job half done fails the fixture test', async () => {
+  // The loop is told by the check, so a wrong answer the check accepts is a task the agent cannot
+  // lose - and a score the check never asks for is a rule the agent cannot see.
+  const halfDone: Record<string, Record<string, string>> = {
+    'max-bytes': {
+      'src/limits.ts': lines('export const MAX_BYTES = 1024', '', 'export function fits(size: number): boolean {', '  return size <= MAX_BYTES', '}', '', 'export function chunk(size: number): number {', '  return size / 1024', '}'),
+    },
+    'move-base-url': {
+      'src/a.ts': lines('export function url(path: string): string {', "  return 'https://example.test' + path", '}'),
+      'src/b.ts': lines("export const BASE_URL = 'https://example.test'", '', "export const name = 'b'")
+    },
+    'shared-limit': {
+      'src/limits.ts': lines('export const LIMIT = 10'),
+      'src/x.ts': lines('export const LIMIT = 10', '', 'export const x = LIMIT + 1'),
+    },
+  }
+  const problems: string[] = []
+  for (const [id, patch] of Object.entries(halfDone)) {
+    const c = AGENT_EVAL_CASES.find((item) => item.id === id)
+    assert.ok(c, `${id} is not a task`)
+    const run = await runFixture(c, { ...c.files, ...patch })
+    if (run.ok) problems.push(`${id}: its own test accepts an edit that does not do the task`)
+    else if (!/not |does |still |left|should/.test(run.output)) problems.push(`${id}: the failure says nothing about the task${NL}${run.output.slice(-500)}`)
+  }
+  assert.deepEqual(problems, [], problems.join(NL + NL))
 })

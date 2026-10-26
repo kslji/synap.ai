@@ -17,6 +17,12 @@ export interface Check {
   has?: string[]
   /** Text the finished file must no longer contain. */
   missing?: string[]
+  /**
+   * Groups of text of which one whole group must be present. A task usually has more than one
+   * correct spelling - `export const X` and `export { X }`, `async` and a returned `Promise` - and
+   * a rule that only accepts the reference wording fails work that behaves right.
+   */
+  anyOf?: string[][]
 }
 
 export interface EvalCase {
@@ -89,7 +95,7 @@ test('a zero divisor returns 0 instead of Infinity', () => {
     solution: {
       'src/divide.ts': 'export function divide(a: number, b: number): number {\n  if (b === 0) return 0\n  return a / b\n}\n',
     },
-    check: [{ path: 'src/divide.ts', has: ['b === 0', 'return 0'] }],
+    check: [{ path: 'src/divide.ts', has: ['b === 0'] }],
   },
   {
     id: 'greet-template',
@@ -146,13 +152,18 @@ test('log takes an optional prefix and still prints a bare message', () => {
       'src/limits.ts': 'export function fits(size: number): boolean {\n  return size <= 1024\n}\n\nexport function chunk(size: number): number {\n  return size / 1024\n}\n',
     },
     tests: {
-      'check.test.ts': `${NODE}import { MAX_BYTES, chunk, fits } from './src/limits'
+      'check.test.ts': `${NODE}import { readFileSync } from 'node:fs'
+import { MAX_BYTES, chunk, fits } from './src/limits'
 
 test('both functions use the MAX_BYTES constant', () => {
   assert.equal(MAX_BYTES, 1024)
   assert.equal(fits(1024), true)
   assert.equal(fits(1025), false)
   assert.equal(chunk(2048), 2)
+  const text = readFileSync('src/limits.ts', 'utf8')
+  assert.ok(text.includes('size <= MAX_BYTES'), 'fits still compares against a bare 1024')
+  assert.ok(text.includes('size / MAX_BYTES'), 'chunk still divides by a bare 1024')
+  assert.equal(text.split('1024').length, 2, 'a bare 1024 is left in src/limits.ts where MAX_BYTES should be used')
 })
 `,
     },
@@ -210,7 +221,7 @@ test('VERSION is a named export and the default still works', () => {
 `,
     },
     solution: { 'src/version.ts': "export const VERSION = '1.0.0'\nexport default VERSION\n" },
-    check: [{ path: 'src/version.ts', has: ['export const VERSION'] }],
+    check: [{ path: 'src/version.ts', anyOf: [['export const VERSION'], ['export { VERSION }']] }],
   },
   {
     id: 'todo-comment',
@@ -294,13 +305,17 @@ test('fetchUser takes a timeout and the caller passes 1000', () => {
       'src/b.ts': "export const name = 'b'\n",
     },
     tests: {
-      'check.test.ts': `${NODE}import * as a from './src/a'
+      'check.test.ts': `${NODE}import { readFileSync } from 'node:fs'
+import * as a from './src/a'
 import * as b from './src/b'
 
 test('BASE_URL is defined in b and imported by a', () => {
   assert.equal(b.BASE_URL, 'https://example.test')
   assert.equal((a as Record<string, unknown>).BASE_URL, undefined, 'a still defines BASE_URL')
   assert.equal(a.url('/x'), 'https://example.test/x')
+  const text = readFileSync('src/a.ts', 'utf8')
+  assert.ok(text.includes('./b'), 'src/a.ts never imports BASE_URL from src/b.ts')
+  assert.ok(!text.includes('example.test'), 'src/a.ts still spells the base url instead of importing it')
 })
 `,
     },
@@ -341,7 +356,7 @@ test('run handles the null instead of passing it on', () => {
     },
     check: [
       { path: 'src/parse.ts', has: ['null'] },
-      { path: 'src/run.ts', has: ['null'] },
+      { path: 'src/run.ts', anyOf: [['?? '], ['null']] },
     ],
   },
   {
@@ -352,7 +367,7 @@ test('run handles the null instead of passing it on', () => {
       'src/y.ts': 'export const LIMIT = 10\nexport const y = LIMIT + 2\n',
     },
     tests: {
-      'check.test.ts': `${NODE}
+      'check.test.ts': `${NODE}import { readFileSync } from 'node:fs'
 import { LIMIT } from './src/limits'
 import { x } from './src/x'
 import { y } from './src/y'
@@ -361,6 +376,11 @@ test('LIMIT is defined once and imported twice', () => {
   assert.equal(LIMIT, 10)
   assert.equal(x, 11)
   assert.equal(y, 12)
+  for (const path of ['src/x.ts', 'src/y.ts']) {
+    const text = readFileSync(path, 'utf8')
+    assert.ok(text.includes('./limits'), path + ' still defines LIMIT instead of importing it from src/limits.ts')
+    assert.ok(!text.includes('export const LIMIT = 10'), path + ' still defines its own LIMIT')
+  }
 })
 `,
     },
@@ -424,7 +444,7 @@ test('load is async and main awaits it', async () => {
       'src/main.ts': "import { load } from './load'\n\nexport async function main(): Promise<string> {\n  return await load('a')\n}\n",
     },
     check: [
-      { path: 'src/load.ts', has: ['async'] },
+      { path: 'src/load.ts', has: ['Promise'] },
       { path: 'src/main.ts', has: ['await'] },
     ],
   },
@@ -533,6 +553,11 @@ export function scoreFiles(texts: Record<string, string | null>, c: EvalCase): {
     }
     for (const needle of rule.missing ?? []) {
       if (text.includes(needle)) return { pass: false, why: `${rule.path} still has "${needle}"` }
+    }
+    // One whole group has to be there; the message names the wording it was looking for.
+    const groups = rule.anyOf
+    if (groups && !groups.some((needles) => needles.every((needle) => text.includes(needle)))) {
+      return { pass: false, why: `${rule.path} has none of ${groups.flat().map((needle) => `"${needle}"`).join(' or ')}` }
     }
   }
   return { pass: true, why: '' }

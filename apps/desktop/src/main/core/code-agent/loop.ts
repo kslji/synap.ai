@@ -10,7 +10,7 @@ import type { ChatMessage } from '../llama-client.js'
 import { truncateToTokens, type TokenCounter } from '../token-budget.js'
 import { fitAgentMessages } from './budget.js'
 import { detectCheck, fullTestCommand } from './checks.js'
-import { applyPlannedEdit, planEdit } from './edit.js'
+import { applyPlannedEdit, applyUnifiedDiff, planEdit } from './edit.js'
 import { toolCallGbnf, toolCallJsonSchema } from './grammar.js'
 import { parseModelTurn, type ModelTurn } from './parse-tool.js'
 import { decideApproval, exactCommand, type ApprovalContext, type PermissionMode } from './permission.js'
@@ -112,6 +112,9 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
   const steps: CodeStepView[] = []
   const diffs: CodeDiffView[] = []
   const seen = new Map<string, number>()
+  // File contents the check has already seen fail, so a fix that only walks back to one of them is
+  // not a fix. Two failures that answer each other are how a small model swings between them.
+  const rejected = new Map<string, string>()
   const targets = requestedPaths(task, host.facts?.files ?? [])
   let finishRefusals = 0
   let fixTurns = 0
@@ -181,6 +184,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       const failure = await verifyWork(host, steps, diffs, () => `check-${++seq}`)
       if (failure && fixTurns < limits.maxFixTurns) {
         fixTurns += 1
+        rememberFailures(host, targets, failure, rejected)
         allowedTurns = Math.min(limits.maxSteps + limits.maxFixTurns, allowedTurns + 1)
         thinking = fixTurns === 1
         // The check has spoken: the next move is an edit in the files the request named. A free
@@ -195,7 +199,7 @@ export async function runCodeAgent(task: string, host: CodeAgentHost, history: {
       pushStep(host, steps, { id, index: steps.length + 1, tool: 'finish', status: 'ok', title, detail: summary })
       return { answer: summary, steps, diffs, stopped: 'finish' }
     }
-    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0 })
+    const observation = await act(host, mode, allowed, allowlist, session, id, title, parsed.call.name, parsed.call.arguments, steps, diffs, () => `diff-${++seq}`, { targets, fixing: fixTurns > 0, rejected })
     messages.push({ role: 'assistant', content: JSON.stringify({ tool: parsed.call.name, arguments: parsed.call.arguments }) })
     messages.push({ role: 'user', content: `Result:\n${observation}` })
   }
@@ -257,8 +261,8 @@ async function act(
   steps: CodeStepView[],
   diffs: CodeDiffView[],
   nextDiffId: () => string,
-  /** The files the request named, and whether a check has already failed. */
-  scope: { targets: readonly string[]; fixing: boolean },
+  /** The files the request named, whether a check has already failed, and what it saw fail. */
+  scope: { targets: readonly string[]; fixing: boolean; rejected: Map<string, string> },
 ): Promise<string> {
   const index = steps.length + 1
   if (name === 'read_file') {
@@ -296,6 +300,18 @@ async function act(
       const message = `${planned.path} is not what the request asked to change (${scope.targets.join(', ')}). The check decides when the work is done, so change the requested files instead.`
       pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
       return `error: ${message}`
+    }
+    // The text this diff would write is knowable before it is written, so a state the check has
+    // already rejected can be refused instead of spent.
+    if (scope.rejected.size) {
+      const current = existsSync(planned.abs) ? readFileSync(planned.abs, 'utf8') : ''
+      const next = applyUnifiedDiff(current, planned.diff, planned.path)
+      const before = next.ok ? scope.rejected.get(`${normPath(planned.path)}\n${next.text}`) : undefined
+      if (before) {
+        const message = `${planned.path} would go back to text that already failed the check there: ${before}. Change something the check has not seen.`
+        pushStep(host, steps, { id, index, tool: name, status: 'error', title, detail: message })
+        return `error: ${message}`
+      }
     }
     const diffId = nextDiffId()
     const diff: CodeDiffView = { id: diffId, stepId: id, path: planned.path, diff: planned.diff, status: 'pending' }
@@ -434,12 +450,13 @@ async function describeFile(host: CodeAgentHost, path: string, budget: number): 
 /** The current state of every target, for the turn after a failed check. */
 async function fixPrompt(host: CodeAgentHost, failure: string, targets: readonly string[]): Promise<string> {
   const files = await describeFiles(host, targets.slice(0, CONTEXT_FILES), 'Those files as they are now:')
+  // The frames are read for the line they name before they are dropped for the room they take.
   const faults = faultLines(host, failure)
   const hints = importHints(host, failure, targets)
   return [
     'Not finished: the check failed.',
     '',
-    await truncateToTokens(host.counter, failure, 500),
+    await truncateToTokens(host.counter, failureDigest(failure), 500),
     ...(faults ? ['', 'The lines it names:', faults] : []),
     ...(hints ? ['', 'What to change:', hints] : []),
     '',
@@ -472,8 +489,13 @@ function importHints(host: CodeAgentHost, failure: string, targets: readonly str
     if (seen.has(`${file}:${name}`)) continue
     const from = exporterOf(host, name, file, targets)
     seen.add(`${file}:${name}`)
-    if (!from) continue
-    hints.push(`${name} is exported by ${from}. Add this with the imports at the top of ${file}: import { ${name} } from '${importSpecifier(host.root, file, from)!}'`)
+    if (!from) {
+      // Nobody exports it, so importing is not the answer and the 2B goes back to the text that
+      // compiled. The one move left is to declare it where it is used.
+      hints.push(`${name} is not defined anywhere here, so ${file} has to declare it itself - a line like: export const ${name} = <the value the task asks for>`)
+      continue
+    }
+    hints.push(`${name} is exported by ${from}. Add this with the imports at the top of ${file}: import { ${name} } from '${importSpecifier(host.root, file, from)!.trim()}'`)
   }
   return hints.join('\n')
 }
@@ -512,17 +534,18 @@ function posixDirname(path: string): string {
 }
 
 /**
- * The lines a compiler error points at, quoted. `src/ui.ts(8,3): error` and the numbered file next
- * to it still leave a 2B guessing which of the eight lines is the one; two of its own characters,
- * quoted back, do not.
+ * The lines a check points at, quoted. `src/ui.ts(8,3): error` and the numbered file next to it
+ * still leave a 2B guessing which of the eight lines is the one, and a failing assertion says the
+ * requirement it missed in the test's own words - so the frame inside the project is followed to its
+ * line and read back. Two of the file's own characters, quoted, do not need guessing.
  */
 function faultLines(host: CodeAgentHost, failure: string): string {
   const quoted: string[] = []
   const seen = new Set<string>()
-  for (const match of failure.matchAll(/^(.+?)\((\d+),\d+\): error/gm)) {
-    const path = normPath(match[1]!.trim())
+  for (const match of failure.matchAll(/([^\s()"']+\.(?:ts|tsx|js|jsx|mjs|cjs))[(,:](\d+)[,:]\d+/g)) {
+    const path = projectPath(host.root, match[1]!)
     const row = Number(match[2])
-    if (!path || seen.has(`${path}:${row}`)) continue
+    if (!path || !row || seen.has(`${path}:${row}`)) continue
     seen.add(`${path}:${row}`)
     const abs = resolveInside(host.root, path)
     if (!abs || !existsSync(abs)) continue
@@ -533,6 +556,15 @@ function faultLines(host: CodeAgentHost, failure: string): string {
   return quoted.join('\n')
 }
 
+/** `/tmp/p/check.test.ts` and `./check.test.ts` are the same file to this project. */
+function projectPath(root: string, raw: string): string | null {
+  const path = normPath(raw.trim())
+  if (!path) return null
+  const prefix = `${normPath(root)}/`
+  const rel = path.startsWith('/') ? (path.startsWith(prefix) ? path.slice(prefix.length) : null) : path
+  return rel || null
+}
+
 /**
  * A check's output without the noise: stack frames and TAP bookkeeping crowd out the one line that
  * says what is wrong when the whole failure has to fit in a few hundred tokens.
@@ -541,7 +573,8 @@ function failureDigest(output: string): string {
   const noise = (line: string): boolean => {
     const text = line.trim()
     if (!text) return false
-    return /^at\s/.test(text) || text.startsWith('stack:') || text.startsWith('code:') || text === '...' || text === '---' || /^(TAP version|\d+\.\.$|ok \d+ -)/.test(text)
+    if (/^(at\s|TestContext|Test\.|async Test|process\.|startSubtest|node:)/.test(text)) return true
+    return /^#\s*(tests|suites|pass|fail|cancelled|skipped|todo|duration_ms)\b/.test(text) || /^(stack:|code:|type:|failureType:|location:|duration_ms:|operator:|TAP version|\.\.\.|---|\d+\.\.$|ok \d+ -)/.test(text)
   }
   const kept = output.split('\n').filter((line) => !noise(line))
   return kept.length ? kept.join('\n') : output
@@ -579,9 +612,26 @@ async function verifyWork(host: CodeAgentHost, steps: CodeStepView[], diffs: Cod
       result = { ok: false, output: error instanceof Error ? error.message : 'the check could not run' }
     }
     pushStep(host, steps, { id, index: steps.length + 1, tool: 'run_command', status: result.ok ? 'ok' : 'error', title, detail: oneLine(result.output) || (result.ok ? 'passed' : 'failed'), output: tail(result.output) })
-    if (!result.ok) failures.push(`$ ${command}\n${failureDigest(result.output) || 'the check failed with no output'}`)
+    if (!result.ok) failures.push(`$ ${command}\n${result.output || 'the check failed with no output'}`)
   }
   return failures.length ? failures.join('\n\n') : null
+}
+
+/** The one line of a failure worth repeating when the state that produced it is named again. */
+function failureLine(failure: string): string {
+  const lines = failure.split('\n').filter((line) => line.trim() && !line.startsWith('$ '))
+  const named = lines.find((line) => /error|Error|not ok|assert/i.test(line)) ?? lines[0] ?? ''
+  return named.trim().slice(0, 160)
+}
+
+/** Every file the request named, exactly as it read when the check failed, kept against that failure. */
+function rememberFailures(host: CodeAgentHost, targets: readonly string[], failure: string, rejected: Map<string, string>): void {
+  const line = failureLine(failure)
+  for (const path of targets) {
+    const abs = resolveInside(host.root, path)
+    if (!abs || !existsSync(abs)) continue
+    rejected.set(`${normPath(path)}\n${readFileSync(abs, 'utf8')}`, line)
+  }
 }
 
 /** A repeated read is a pause, not a step: hand back the file it already has and ask for the edit. */

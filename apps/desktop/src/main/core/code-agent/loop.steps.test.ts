@@ -266,3 +266,107 @@ test('a run that never touches the file it was asked for still stops instead of 
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+/** A `node:test` failure as the runner prints it, with the frames a 2B cannot use. */
+function tapFailure(file: string, row: number): string {
+  return [
+    'TAP version 13',
+    '# Subtest: the constant is exported',
+    'not ok 1 - the constant is exported',
+    '  ---',
+    '  duration_ms: 1.20875',
+    "  failureType: 'testCodeFailure'",
+    '  error: |-',
+    '    Expected values to be strictly equal:',
+    '    + undefined',
+    '    - 1024',
+    "  code: 'ERR_ASSERTION'",
+    '  stack: |-',
+    `    TestContext.<anonymous> (${file}:${row}:10)`,
+    '    Test.runInAsyncScope (node:async_hooks:214:14)',
+    '    Test.run (node:internal/test_runner/test:1047:25)',
+    '  ...',
+    '1..1',
+    '# tests 1',
+    '# pass 0',
+    '# fail 1',
+    '# duration_ms 263.943875',
+  ].join('\n')
+}
+
+test('the fix prompt quotes the line of the check that failed and drops the runner noise', async () => {
+  // A failing assertion says what is wrong in the test's own words. The file it names is the one
+  // requirement the model missed, and it is the only line of the failure worth its tokens.
+  const root = project({
+    'src/limits.ts': LIMITS,
+    'check.test.ts': "import assert from 'node:assert/strict'\nimport { test } from 'node:test'\nimport { MAX_BYTES } from './src/limits'\n\ntest('the constant is exported', () => {\n  assert.equal(MAX_BYTES, 1024)\n})\n",
+  })
+  const { complete, requests } = scripted([
+    edit('src/limits.ts', '  return size <= 1024', '  return size <= MAX_BYTES'),
+    finish,
+    edit('src/limits.ts', 'export function fits(', 'export const MAX_BYTES = 1024\n\nexport function fits('),
+    finish,
+  ])
+  try {
+    await runCodeAgent('In src/limits.ts, replace both 1024s with a constant named MAX_BYTES.', makeHost(root, complete, ['npm test'], async () => {
+      const round = requests.length
+      if (round > 2) return { ok: true, output: 'ok 1 - the constant is exported' }
+      return { ok: false, output: tapFailure(join(root, 'check.test.ts'), 6) }
+    }))
+    const fix = promptOf(requests[2])
+    assert.match(fix, /check\.test\.ts line 6: " {2}assert\.equal\(MAX_BYTES, 1024\)"/, 'the failing line of the check was not quoted')
+    assert.match(fix, /assert\.equal\(MAX_BYTES, 1024\)/, 'the assertion the run failed was not shown')
+    assert.doesNotMatch(fix, /TestContext|runInAsyncScope|duration_ms|node:internal/, 'the runner noise took the room the failure needed')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a fix turn that puts a file back where the check already failed is refused', async () => {
+  // Two states that fail two different checks are how a small model oscillates: it answers the
+  // compiler by undoing the test failure, and the test by undoing the compiler error, forever.
+  const root = project({ 'src/a.ts': 'export const a = 1\n' })
+  const { complete, requests } = scripted([
+    edit('src/a.ts', 'export const a = 1', 'export const a = 2'),
+    finish,
+    edit('src/a.ts', 'export const a = 2', 'export const a = 3'),
+    finish,
+    edit('src/a.ts', 'export const a = 3', 'export const a = 2'),
+    finish,
+  ])
+  const seen: string[] = []
+  try {
+    const result = await runCodeAgent('Set a to 4 in src/a.ts.', makeHost(root, complete, ['npm test'], async () => {
+      seen.push(readFileSync(join(root, 'src/a.ts'), 'utf8'))
+      return { ok: false, output: `AssertionError: a is wrong while ${seen.at(-1)!.trim()}` }
+    }))
+    assert.equal(seen.length > 2, true, 'the check did not run again after each fix')
+    const refused = result.steps.find((step) => step.status === 'error' && /already failed|checked before/.test(step.detail ?? ''))
+    assert.ok(refused, 'the run went back to a state the check had already rejected')
+    assert.match(promptOf(requests[5]), /already failed|checked before/, 'the refusal never reached the model')
+    assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const a = 3\n', 'the refused edit was written anyway')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a name nothing in the project defines is declared, not imported from nowhere', async () => {
+  const root = project({ 'src/limits.ts': 'export function fits(size: number): boolean {\n  return size <= 1024\n}\n' })
+  const { complete, requests } = scripted([
+    edit('src/limits.ts', '  return size <= 1024', '  return size <= MAX_BYTES'),
+    finish,
+    finish,
+  ])
+  try {
+    await runCodeAgent('In src/limits.ts, replace the 1024 with a constant named MAX_BYTES.', makeHost(root, complete, ['npm test'], async () => ({
+      ok: false,
+      output: "src/limits.ts(2,17): error TS2304: Cannot find name 'MAX_BYTES'.\n",
+    })))
+    const fix = promptOf(requests[2])
+    assert.match(fix, /MAX_BYTES is not defined anywhere here/, 'the missing name was not said plainly')
+    assert.match(fix, /export const MAX_BYTES = /, 'the fix was not written out as the line to add')
+    assert.doesNotMatch(fix, /import \{ MAX_BYTES \}/, 'the model was sent to import a name nobody exports')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

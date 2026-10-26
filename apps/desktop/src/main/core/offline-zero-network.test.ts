@@ -147,7 +147,15 @@ test('the gateway base url is never contacted while the loop runs offline', asyn
         return { allow: true }
       },
     })
-    assert.deepEqual(touched.filter((url) => url.startsWith(GATEWAY)), [], 'no request to the gateway base url')
+    const gatewayOrigin = new URL(GATEWAY).origin
+    const toGateway = (url: string): boolean => {
+      try {
+        return new URL(url).origin === gatewayOrigin
+      } catch {
+        return false
+      }
+    }
+    assert.deepEqual(touched.filter(toGateway), [], 'no request to the gateway base url')
   } finally {
     globalThis.fetch = original
   }

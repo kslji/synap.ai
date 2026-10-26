@@ -700,10 +700,15 @@ function asyncForm(line: string): string {
   return out
 }
 
+/** Every regex metacharacter in `s` escaped, so a name is matched literally. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /** Whether some file in the project declares `name` as returning void. */
 function returnsVoid(host: CodeAgentHost, name: string, targets: readonly string[]): boolean {
   const pool = [...new Set([...targets, ...host.facts?.files ?? []])]
-  const pattern = new RegExp(`function\\s+${name.replace(/\$/g, '\\$')}\\s*\\([^)]*\\)\\s*:\\s*void\\b`)
+  const pattern = new RegExp(`function\\s+${escapeRegExp(name)}\\s*\\([^)]*\\)\\s*:\\s*void\\b`)
   for (const path of pool.slice(0, 40)) {
     const abs = resolveInside(host.root, normPath(path))
     if (!abs || !existsSync(abs) || !/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(abs)) continue
@@ -715,7 +720,7 @@ function returnsVoid(host: CodeAgentHost, name: string, targets: readonly string
 /** The first file that exports `name`, the request's own files first, then the rest of the project. */
 function exporterOf(host: CodeAgentHost, name: string, file: string, targets: readonly string[]): string | null {
   const pool = [...new Set([...targets, ...host.facts?.files ?? []])].filter((path) => normPath(path) !== file)
-  const pattern = new RegExp(`export\\s+(?:const|let|var|function|class|type|interface)\\s+${name.replace(/\$/g, '\\$')}\\b`)
+  const pattern = new RegExp(`export\\s+(?:const|let|var|function|class|type|interface)\\s+${escapeRegExp(name)}\\b`)
   for (const path of pool.slice(0, 40)) {
     const abs = resolveInside(host.root, path)
     if (!abs || !existsSync(abs) || !/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(abs)) continue

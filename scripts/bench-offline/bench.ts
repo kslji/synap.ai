@@ -34,6 +34,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { homedir, platform, arch } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { decodeSpeed, firstTokenMs, percentile, round } from './timing.js';
@@ -566,7 +567,7 @@ async function main(): Promise<number> {
       printReport(report);
       return 2;
     }
-    apiKey = Math.random().toString(36).slice(2);
+    apiKey = randomBytes(16).toString('hex');
     serverOpts = {
       binPath,
       modelPath,

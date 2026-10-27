@@ -116,7 +116,8 @@ test('speculative decoding stays off unless the runtime, the draft, and RAM all 
   }
   assert.equal(speculativeDecision(base).enabled, true)
   assert.equal(speculativeDecision(base).offerDownload, false)
-  assert.deepEqual(speculativeServerArgs(true, '/models/draft.gguf'), ['-md', '/models/draft.gguf', '--draft-max', '8'])
+  // --draft-max was removed upstream; the current flag is --spec-draft-n-max.
+  assert.deepEqual(speculativeServerArgs(true, '/models/draft.gguf'), ['-md', '/models/draft.gguf', '--spec-draft-n-max', '8'])
   assert.deepEqual(speculativeServerArgs(false, '/models/draft.gguf'), [])
   assert.equal(speculativeDecision({ ...base, userEnabled: false }).reason, 'off')
   assert.equal(speculativeDecision({ ...base, userEnabled: false, draftInstalled: false }).offerDownload, true)
@@ -194,11 +195,10 @@ test('storage totals add up and delete refuses a path outside app data', () => {
       { id: 'packs', label: 'Packs', bytes: 0, items: [{ id: 'marine', label: 'Marine', bytes: 4, version: '2026.10.16' }] },
       { id: 'indexes', label: 'Indexes', bytes: 0, items: [] },
       { id: 'chats', label: 'Chats', bytes: 0, items: [{ id: 'history', label: 'Chat history', bytes: 3 }] },
-      { id: 'web', label: 'Web', bytes: 0, items: [{ id: 'web', label: 'Web cache', bytes: 2 }] },
       { id: 'logs', label: 'Logs', bytes: 0, items: [{ id: 'live.log', label: 'live.log', bytes: 1 }] },
     ],
   })
-  assert.equal(report.totalBytes, 20)
+  assert.equal(report.totalBytes, 18)
   assert.equal(report.categories.find((row) => row.id === 'packs')?.items[0]?.version, '2026.10.16')
 
   const root = mkdtempSync(join(tmpdir(), 'surf-store-'))

@@ -7,13 +7,13 @@
  */
 import { evalQuestions, type EvalQuestion, type QuestionDomain } from './step11-questions.js'
 
-export const FULL_MODEL_IDS = ['qwen3.5-4b-q4_k_m'] as const
+export const FULL_MODEL_IDS = ['qwen3.5-2b-q4_k_m'] as const
 
 const SUBSET_TAKE: { domain: QuestionDomain; count: number }[] = [
   { domain: 'coding', count: 10 },
   { domain: 'splitting', count: 8 },
   { domain: 'run-fix', count: 6 },
-  { domain: 'finance', count: 12 },
+  { domain: 'finance', count: 10 },
   { domain: 'no-fabrication', count: 10 },
 ]
 
@@ -41,12 +41,10 @@ const GLOSS: Record<string, string> = {
   'finance:pnl-loss': 'a loss',
   'finance:stcg': 'India equity tax on a gain held under 365 days',
   'finance:ltcg': 'India equity tax on a gain held 365 days or more',
-  'finance:not-india': 'the India equity tax table is not used outside India',
-  'finance:symbol': 'a ticker written in quotes when the question does not mention a bhav file or fixture',
+  'finance:symbol': 'a ticker written in quotes when the question does not mention a bhav file',
   'finance:bitcoin': 'the bitcoin id',
   'finance:nav': 'a mutual-fund NAV line',
-  'finance:eod': 'a closing price from a saved bhav file, even when it is not from the network',
-  'finance:disclaimer': 'the question asks for the formula and says it is not a recommendation',
+  'finance:eod': 'a closing price read from a saved bhav file',
   'no-fabrication:keep-fact': 'a sourced fact stays',
   'no-fabrication:block-url': 'a link that is not in the source is removed',
   'no-fabrication:block-price': 'an unsourced price is removed',
@@ -60,11 +58,6 @@ const GLOSS: Record<string, string> = {
   'screenshots:describe:1': 'one screenshot to describe',
   'screenshots:mockup:1': 'one screenshot of a layout',
   'screenshots:compare:2': 'two screenshots to compare',
-  'fresh:fresh': 'the question needs current information',
-  'fresh:local': 'the question can be answered from local files',
-  'fresh:blend': 'local answer plus a fresh lookup',
-  'fresh:refuse': 'web search is not available',
-  'fresh:web': 'search the web',
   'legal:topic-legal': 'a statute question',
   'legal:topic-legal-act': 'a statute question',
   'legal:keep-section': 'the section is in the source',
@@ -132,7 +125,7 @@ export function labelsFor(questions: EvalQuestion[], domain: string): string[] {
 const DOMAIN_RULES: Partial<Record<QuestionDomain, string>> = {
   splitting: 'Rules: chat when the task does not ask to change code. plan when two different files are named, even if the verb is rename or fix. edit only for a quick fix, typo, one-line, or just change in one file. Also plan for migrate, refactor, across, and then, or step by step.',
   'run-fix': 'Rules: regression when the patch introduced a new error. fail when a check failed or an old error remains and nothing new was introduced. pass when the check is clean, the only failure was already fixed, or it was already outside the change.',
-  finance: 'Rules: held under 365 days is stcg. Held 365 days or more is ltcg. not-india only when the region is outside India. A bhav file or fixture close is eod even if it says not from the network. disclaimer only when the question asks for the formula and a non-recommendation.',
+  finance: 'Rules: held under 365 days is stcg. Held 365 days or more is ltcg. A close read from a saved bhav file is eod. A ticker written in quotes with no bhav file is symbol.',
 }
 
 /** Answer vocabulary for one question. The expected label is not included on its own. */
@@ -153,11 +146,10 @@ export function choiceLabels(question: EvalQuestion, bank: EvalQuestion[]): stri
     return ['pass', 'regression', 'fail']
   }
   if (question.domain === 'finance') {
-    if (/\b(formula|recommendation|disclaimer)\b/i.test(text)) return ['disclaimer', 'sip', 'not-india']
     if (/\bsip\b/i.test(text)) return ['sip', 'sip-zero']
     if (/\b(bought|sold)\b/i.test(text)) return ['pnl', 'pnl-loss']
-    if (/\b(equity tax|stcg|ltcg|capital gain)\b/i.test(text)) return ['stcg', 'ltcg', 'not-india']
-    if (/\b(bhav|fixture|close for)\b/i.test(text)) return ['eod', 'not-india', 'symbol']
+    if (/\b(equity tax|stcg|ltcg|capital gain)\b/i.test(text)) return ['stcg', 'ltcg']
+    if (/\b(bhav|fixture|close for)\b/i.test(text)) return ['eod', 'symbol', 'nav']
     if (/\bbitcoin\b/i.test(text)) return ['bitcoin', 'symbol', 'nav']
     if (/\bnav line\b/i.test(text)) return ['nav', 'eod', 'symbol']
     if (/"[A-Z]{2,}"/.test(text)) return ['symbol', 'eod', 'bitcoin']

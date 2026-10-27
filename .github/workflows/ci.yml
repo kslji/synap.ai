@@ -98,19 +98,6 @@ jobs:
         run: |
           cp deploy/.env.example deploy/.env
           docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config >/dev/null
-          docker compose -f deploy/docker-compose.dev.yml config >/dev/null
-
-  host:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install auth host
-        run: python -m pip install -r apps/host/requirements.txt
-      - name: Unit checks
-        run: ./scripts/check.sh
 
   eval:
     runs-on: ubuntu-latest
@@ -144,7 +131,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .surf-models
-          key: surf-models-qwen4b-embeddinggemma-v1
+          key: surf-models-qwen2b-jina-code-v1
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs
@@ -244,40 +231,6 @@ jobs:
       - name: Unit tests with coverage threshold
         run: npm run test:coverage -w @surf/desktop
 
-  no-fabrication:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Compiler tools for native prebuilds
-        run: sudo apt-get update && sudo apt-get install -y make g++
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in 1 2 3; do
-            if npm ci; then exit 0; fi
-            echo "npm ci failed (attempt ${attempt})"
-            rm -rf node_modules
-          done
-          exit 1
-      - name: No-fabrication gate
-        working-directory: apps/desktop
-        run: |
-          set -euo pipefail
-          npx tsx src/main/core/search/no-fabrication-suite.ts > /tmp/no-fabrication.json
-          python3 - <<'PY'
-          import json
-          rows = json.load(open("/tmp/no-fabrication.json"))
-          bad = [row["id"] for row in rows if not row.get("fields", {}).get("ok")]
-          print(f"no-fabrication {len(rows) - len(bad)}/{len(rows)}")
-          if bad or not rows:
-              raise SystemExit("failed: " + ", ".join(bad[:12]))
-          PY
-
   security:
     runs-on: ubuntu-latest
     steps:
@@ -341,13 +294,10 @@ jobs:
       - name: Python packages
         run: |
           python -m pip install -r services/api/requirements.txt -r harness/requirements.txt
-          python -m venv /tmp/host-venv
-          /tmp/host-venv/bin/pip install -r apps/host/requirements.txt
       - name: Dependency and asset licences
         run: |
           node scripts/check-licences.mjs
           python scripts/check_python_licences.py services/api/requirements.txt harness/requirements.txt
-          /tmp/host-venv/bin/python scripts/check_python_licences.py apps/host/requirements.txt
 
   e2e:
     runs-on: ubuntu-24.04
@@ -372,17 +322,17 @@ jobs:
             rm -rf node_modules
           done
           exit 1
-      - name: Qwen 4B file id
+      - name: Qwen 2B file id
         id: weights
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
-      - name: Download and verify Qwen 4B
+      - name: Download and verify Qwen 2B
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --ids qwen3.5-4b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Build the desktop app
         run: npm run build -w @surf/desktop
       - name: Fetch llama.cpp sidecar
@@ -497,7 +447,7 @@ jobs:
         run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
-          path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
+          path: .surf-models/Qwen3.5-4B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
       - name: Download and verify Qwen 4B
         working-directory: apps/desktop
@@ -537,17 +487,17 @@ jobs:
             rm -rf node_modules
           done
           exit 1
-      - name: Qwen 4B file id
+      - name: Qwen 2B file id
         id: weights
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --print qwen3.5-4b-q4_k_m >> "$GITHUB_OUTPUT"
+        run: node scripts/model-weights.mjs --print qwen3.5-2b-q4_k_m >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: .surf-models/Qwen3.5-2B-Q4_K_M.gguf
           key: gguf-${{ steps.weights.outputs.file }}-${{ steps.weights.outputs.sha256 }}
-      - name: Download and verify Qwen 4B
+      - name: Download and verify Qwen 2B
         working-directory: apps/desktop
-        run: node scripts/model-weights.mjs --ids qwen3.5-4b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
+        run: node scripts/model-weights.mjs --ids qwen3.5-2b-q4_k_m --dir "${GITHUB_WORKSPACE}/.surf-models"
       - name: Fetch llama.cpp sidecar for this OS
         working-directory: apps/desktop
         run: node scripts/fetch-sidecars.mjs

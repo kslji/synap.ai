@@ -5,6 +5,7 @@
  * publishing a new registry entry - no app update needed, as long as llama.cpp supports the architecture.
  */
 import { z } from 'zod';
+import { isDefaultFor as sharedIsDefaultFor } from '../../shared/model-label.js';
 
 const FileRef = z.object({
   file: z.string(),
@@ -15,7 +16,7 @@ const FileRef = z.object({
 
 export const ModelEntry = FileRef.extend({
   id: z.string(),
-  role: z.enum(['chat', 'embedding', 'asr', 'vad']),
+  role: z.enum(['chat', 'embedding', 'reranker', 'asr', 'vad']),
   family: z.string(),
   license: z.string(),
   params_b: z.number().optional(),
@@ -27,7 +28,9 @@ export const ModelEntry = FileRef.extend({
   query_prefix: z.string().optional(),
   doc_template: z.string().optional(),
   spec_id: z.string().optional(), // embedding compatibility key (embedding.ts)
-  min_llama_cpp_build: z.number().int().optional(), // e.g. 11452 = first llama.cpp release with gemma-embedding2
+  min_llama_cpp_build: z.number().int().optional(), // e.g. 11452 = first llama.cpp release with the jina embedding architecture
+  /** True when the file ships with every offline chat download (the embedding and reranker models). */
+  bundled_with_chat: z.boolean().optional(),
   mmproj: FileRef.optional(),
   min_ram_gb: z.number(),
   /** Measured process peak, when we have one. */
@@ -77,16 +80,27 @@ export function mmprojDestName(modelId: string, mmprojFile: string): string {
   return `${modelId}--${mmprojFile}`;
 }
 
+/** `default_for: ["*"]` marks the default for every agent, which is how the 2B is shipped. */
+export function isDefaultFor(model: { default_for?: string[] }, agentId: string): boolean {
+  return sharedIsDefaultFor(model, agentId);
+}
+
 export function pick(reg: ModelRegistry, role: ModelEntry['role'], tier: number, agentId = 'general'): ModelEntry {
   const candidates = reg.models.filter((m) => m.role === role && m.tiers.includes(tier) && (role !== 'chat' || servesAgent(m, agentId)));
   if (candidates.length === 0) throw new Error(`no ${role} model for tier ${tier}`);
+  if (role === 'chat') {
+    // A row marked as the default wins over size: the recommended model is the one we chose,
+    // not the largest file that happens to fit. Optional rows (the 4B) are bigger, not better.
+    const marked = candidates.filter((m) => isDefaultFor(m, agentId));
+    if (marked.length) return marked.sort((a, b) => (a.params_b ?? 0) - (b.params_b ?? 0))[0];
+  }
   // largest model that fits the tier wins
   return candidates.sort((a, b) => (b.params_b ?? 0) - (a.params_b ?? 0))[0];
 }
 
 /** Smallest model marked as the default for an agent. Code uses this when the user has not picked. */
 export function defaultForAgent(reg: ModelRegistry, agentId: string): ModelEntry | null {
-  const marked = reg.models.filter((m) => m.role === 'chat' && servesAgent(m, agentId) && m.default_for?.includes(agentId));
+  const marked = reg.models.filter((m) => m.role === 'chat' && servesAgent(m, agentId) && isDefaultFor(m, agentId));
   if (!marked.length) return null;
   return [...marked].sort((a, b) => (a.params_b ?? 0) - (b.params_b ?? 0) || a.min_ram_gb - b.min_ram_gb)[0];
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { applyEvent, type UiMsg } from '../../renderer/src/types.js'
 import { CodeTrace } from '../../renderer/src/screens/CodeTrace.js'
 import { fitAgentMessages } from './code-agent/budget.js'
-import { applyUnifiedDiff, planEdit, unifiedDiff } from './code-agent/edit.js'
+import { applyPlannedEdit, applyUnifiedDiff, planEdit, planEdits, unifiedDiff } from './code-agent/edit.js'
 import { toolCallGbnf, toolCallJsonSchema } from './code-agent/grammar.js'
 import { llamaCompletionExtras } from './code-agent/llama.js'
 import { CODE_AGENT_LIMITS, nativeToolsRejected, runCodeAgent, type CompletionRequest } from './code-agent/loop.js'
@@ -27,7 +27,9 @@ const chars: { name: string; count(text: string): Promise<number> } = {
 }
 
 function tempProject(): string {
-  return mkdtempSync(join(tmpdir(), 'surf-code-agent-'))
+  // realpath: on macOS tmpdir() is /var/folders/... (a symlink to /private/var/...).
+  // The edit engine realpaths the root, so relative(root, abs) must not span that link.
+  return realpathSync(mkdtempSync(join(tmpdir(), 'surf-code-agent-')))
 }
 
 test('native tool calls win, and broken JSON is repaired', () => {
@@ -263,6 +265,13 @@ test('shipped system.md is the bundled default and states the three rules', () =
   assert.match(codeSystemPrompt(loaded.text), /run tests after edits/i)
 })
 
+test('the prompt says how a named export is imported and that the check is not the fix', () => {
+  const prompt = codeSystemPrompt('Use tabs.')
+  assert.match(prompt, /`import \{ NAME \} from/, 'a default import is what the model writes for a named export')
+  assert.match(prompt, /only for `export default`/, 'the prompt does not say when a default import is right')
+  assert.match(prompt, /Never edit a test or check file/i, 'the prompt invites the model to edit the check')
+})
+
 test('the step cap and a repeated call stop the loop', async () => {
   const root = tempProject()
   let reads = 0
@@ -282,14 +291,26 @@ test('the step cap and a repeated call stop the loop', async () => {
   let calls = 0
   const repeated = await runCodeAgent('again', {
     ...baseHost(root),
+    limits: { maxSteps: 3 },
     async complete() {
       calls++
       return { content: '{"tool":"read_file","arguments":{"path":"same.txt"}}' }
     },
   })
-  assert.equal(repeated.stopped, 'repeat')
-  assert.equal(calls, 2)
-  assert.equal(repeated.steps.length, 1)
+  // A file it has already been shown is answered, not fatal: the run keeps going until the cap.
+  assert.equal(repeated.stopped, 'limit')
+  assert.ok(calls > 2, 'the second read of one file must not end the run')
+
+  let lists = 0
+  const stalled = await runCodeAgent('again', {
+    ...baseHost(root),
+    async complete() {
+      lists++
+      return { content: '{"tool":"list_dir","arguments":{"path":"."}}' }
+    },
+  })
+  assert.equal(stalled.stopped, 'repeat')
+  assert.equal(lists, 2)
 })
 
 test('old tool results drop so the prompt stays inside the budget', async () => {
@@ -411,6 +432,220 @@ test('paths outside the project and shell syntax are refused', () => {
   assert.equal(applied.ok && applied.text, 'two\n')
 })
 
+test('a hunk with stale line numbers lands where its text is, and only in the file it names', () => {
+  const before = "export const MESSAGE = 'Not found'\nexport function fail(): string {\n  return MESSAGE\n}\n"
+  // The model counted the lines wrong; the text it wants to replace is still unambiguous.
+  const stale = [
+    '--- a/src/err.ts', '+++ b/src/err.ts', '@@ -9,2 +9,2 @@',
+    "-export const MESSAGE = 'Not found'",
+    "+export const MESSAGE = 'Missing file'",
+    ' export function fail(): string {',
+  ].join('\n')
+  const applied = applyUnifiedDiff(before, stale)
+  assert.equal(applied.ok, true)
+  assert.equal(applied.ok && applied.text, "export const MESSAGE = 'Missing file'\nexport function fail(): string {\n  return MESSAGE\n}\n")
+
+  // One diff covering two files: an edit is for one path, so only that file's hunks apply.
+  const both = [
+    '--- a/src/err.ts', '+++ b/src/err.ts', '@@ -1,2 +1,2 @@',
+    "-export const MESSAGE = 'Not found'",
+    "+export const MESSAGE = 'Missing file'",
+    ' export function fail(): string {',
+    '--- a/src/handle.ts', '+++ b/src/handle.ts', '@@ -1 +1 @@',
+    "-export const fallback = 'Something went wrong'",
+    '+export const fallback = MESSAGE',
+  ].join('\n')
+  const one = applyUnifiedDiff(before, both, 'src/err.ts')
+  assert.equal(one.ok && one.text, "export const MESSAGE = 'Missing file'\nexport function fail(): string {\n  return MESSAGE\n}\n")
+  const wrongFile = applyUnifiedDiff(before, both, 'src/other.ts')
+  assert.equal(wrongFile.ok, false)
+  assert.match(wrongFile.ok ? '' : wrongFile.message, /src\/err\.ts/)
+
+  // Context lines copied from the file the model remembers, not the one on disk: the lines it
+  // removes are exact, so the hunk still goes where they are.
+  const ui = "import { count } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n"
+  const wrongContext = [
+    '--- a/src/ui.ts', '+++ b/src/ui.ts', '@@ -1,4 +1,4 @@',
+    ' import { other } from "./other"',
+    "-import { count } from './counter'",
+    "+import { count, reset } from './counter'",
+    ' export function label(): string {',
+  ].join('\n')
+  const placed = applyUnifiedDiff(ui, wrongContext)
+  assert.equal(placed.ok, true)
+  assert.equal(placed.ok && placed.text, "import { count, reset } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n")
+})
+
+test('a hunk that keeps typing past the end of the file is placed by the lines that are there', () => {
+  // The model wrote the import line where it wanted it, then went on typing the other file into the
+  // same hunk. Its own lines still match the top of this file, so the insertion goes there and the
+  // lines that are not in the file are dropped - not used to anchor the edit somewhere else.
+  const ui = "import { count } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n"
+  const long = [
+    '--- a/src/ui.ts', '+++ b/src/ui.ts', '@@ -1,5 +1,6 @@',
+    " import { count } from './counter'",
+    "+import { reset } from './counter'",
+    ' ',
+    ' export function label(): string {',
+    '   return `count: ${count}`',
+    ' }',
+    ' ',
+    ' export function reset(): void {',
+    '   count = 0',
+    ' }',
+  ].join('\n')
+  const placed = applyUnifiedDiff(ui, long, 'src/ui.ts')
+  assert.equal(placed.ok, true)
+  assert.equal(
+    placed.ok && placed.text,
+    "import { count } from './counter'\nimport { reset } from './counter'\n\nexport function label(): string {\n  return `count: ${count}`\n}\n",
+  )
+})
+
+test('a hunk whose lines are already in the file is said to be already done', () => {
+  // The change was made a step ago. Telling the model the lines are missing sends it round the same
+  // edit again; the work is done and the check failed for a different reason.
+  const current = 'export function load(path: string): string {\n  return await path.toUpperCase()\n}\n'
+  const stale = [
+    '--- a/src/load.ts', '+++ b/src/load.ts', '@@ -1,3 +1,3 @@',
+    ' export function load(path: string): string {',
+    '-  return path.toUpperCase()',
+    '+  return await path.toUpperCase()',
+    ' }',
+  ].join('\n')
+  const applied = applyUnifiedDiff(current, stale)
+  assert.equal(applied.ok, false)
+  assert.match(applied.ok ? '' : applied.message, /already in the file/)
+})
+
+test('an edit that retypes the whole file is taken as the file, when it keeps every line', () => {
+  const root = tempProject()
+  const file = 'src/limits.ts'
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, file), 'export function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n')
+  const added = 'export const MAX_BYTES = 1024\n\nexport function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n'
+  // The model retyped the file with the declaration at the top, and described the file it remembers
+  // as the text it replaced. Every line it kept is still there, so what it sent is the file it wants.
+  const whole = planEdit(root, { path: file, old: 'export const MAX_BYTES = 1024\n\nexport function fits(size: number): boolean {\n  return size <= MAX_BYTES\n}\n', new: added })
+  if ('error' in whole) throw new Error(whole.error)
+  assert.equal(applyPlannedEdit(root, whole.path, whole.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), added)
+
+  // A rewrite that drops a line is not the same kind of mistake: that is where the file stops being
+  // the file, and it has to be said so rather than written.
+  const lossy = planEdit(root, { path: file, old: 'something the file never had', new: 'export const MAX_BYTES = 1024\n' })
+  assert.ok('error' in lossy)
+  if ('error' in lossy) assert.match(lossy.error, /^old text was not found/)
+})
+
+test('a diff that is not a diff is read as the old and new text beside it', () => {
+  const root = tempProject()
+  const file = 'src/b.ts'
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, file), "export const name = 'b'\n")
+  // The model typed the whole new file into `diff` and the real pair into old and new. The pair is
+  // the edit it made; "diff has no hunks" costs a step for a call that already has the answer.
+  const planned = planEdit(root, {
+    path: file,
+    diff: "export const BASE_URL = 'https://example.test'",
+    old: "export const name = 'b'",
+    new: "export const BASE_URL = 'https://example.test'",
+  })
+  if ('error' in planned) throw new Error(planned.error)
+  assert.equal(applyPlannedEdit(root, planned.path, planned.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), "export const BASE_URL = 'https://example.test'\n")
+})
+
+test('an edit whose old text lost its indentation still lands, with the file indentation', () => {
+  const root = tempProject()
+  const file = 'src/sizes.ts'
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, file), 'export function chunk(size: number): number {\n  return size / 1024\n}\n')
+  // A line copied out of a numbered listing arrives without its indent. The text is still the
+  // line, so the edit is still the edit - and the file keeps the indentation it had.
+  const one = planEdit(root, { path: file, old: 'return size / 1024', new: 'return size / MAX_BYTES' })
+  assert.equal('error' in one ? one.error : 'ok', 'ok')
+  if ('error' in one) throw new Error(one.error)
+  assert.equal(applyPlannedEdit(root, one.path, one.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), 'export function chunk(size: number): number {\n  return size / MAX_BYTES\n}\n')
+
+  // Two lines added where one indented line was: both take the place the file had, not the shape
+  // the model typed.
+  const two = planEdit(root, { path: file, old: 'return size / MAX_BYTES', new: 'const kb = 1024\nreturn size / kb' })
+  if ('error' in two) throw new Error(two.error)
+  assert.equal(applyPlannedEdit(root, two.path, two.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), 'export function chunk(size: number): number {\n  const kb = 1024\n  return size / kb\n}\n')
+
+  // Several lines named at once, still without the file's indentation: the whole block goes and
+  // nothing of it is left behind.
+  writeFileSync(join(root, file), 'export function chunk(size: number): number {\n  const q = size > 0\n  return q ? size / MAX_BYTES : 0\n}\n')
+  const three = planEdit(root, { path: file, old: 'const q = size > 0\nreturn q ? size / MAX_BYTES : 0', new: 'const kb = 1024\nreturn kb' })
+  if ('error' in three) throw new Error(three.error)
+  assert.equal(applyPlannedEdit(root, three.path, three.diff).ok, true)
+  assert.equal(readFileSync(join(root, file), 'utf8'), 'export function chunk(size: number): number {\n  const kb = 1024\n  return kb\n}\n')
+
+  // A loose match that fits two places is not a match: guessing which one is worse than asking.
+  writeFileSync(join(root, file), 'export function one(): number {\n  return 1\n}\n\nexport function two(): number {\n  return 1\n}\n')
+  const twice = planEdit(root, { path: file, old: 'return 1', new: 'return 2' })
+  assert.equal('error' in twice ? twice.error : 'ok', 'old text matched more than once')
+
+  // When it is not there at all, the answer says what the file does say.
+  writeFileSync(join(root, file), 'export const a = 1\nexport const b = 1\n')
+  const miss = planEdit(root, { path: file, old: 'export const zzz = 9', new: 'export const zzz = 1' })
+  assert.ok('error' in miss, 'a text that is not in the file was accepted')
+  if ('error' in miss) {
+    assert.match(miss.error, /^old text was not found/)
+    assert.match(miss.error, /the file reads[\s\S]*export const a = 1/)
+  }
+})
+
+test('a propose_edit whose diff carries two files is split per file and every half is applied', () => {
+  // A 2B types both halves of a two-file task into one diff because it thinks of the task as one
+  // change. Refusing it costs the run the step it cannot spare; splitting keeps both halves.
+  const root = tempProject()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/load.ts'), 'export function load(path: string): string {\n  return path.toUpperCase()\n}\n')
+  writeFileSync(join(root, 'src/main.ts'), "import { load } from './load'\n\nexport async function main(): Promise<string> {\n  return load('a')\n}\n")
+  const both = [
+    '--- a/src/load.ts', '+++ b/src/load.ts', '@@ -1,4 +1,4 @@',
+    '-export function load(path: string): string {',
+    '+export async function load(path: string): Promise<string> {',
+    '   return path.toUpperCase()',
+    ' }',
+    '--- a/src/main.ts', '+++ b/src/main.ts', '@@ -1,5 +1,5 @@',
+    ' export async function main(): Promise<string> {',
+    "-  return load('a')",
+    "+  return await load('a')",
+    ' }',
+  ].join('\n')
+  const batch = planEdits(root, { path: 'src/load.ts', diff: both })
+  if ('error' in batch) throw new Error(batch.error)
+  assert.deepEqual(batch.edits.map((edit) => edit.path), ['src/load.ts', 'src/main.ts'])
+  assert.equal(batch.skipped.length, 0)
+  for (const edit of batch.edits) assert.equal(applyPlannedEdit(root, edit.path, edit.diff).ok, true)
+  assert.match(readFileSync(join(root, 'src/load.ts'), 'utf8'), /export async function load\(path: string\): Promise<string> \{/)
+  assert.match(readFileSync(join(root, 'src/main.ts'), 'utf8'), /return await load\('a'\)/)
+})
+
+test('a split diff still reports the half it cannot place instead of losing it', () => {
+  const root = tempProject()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/one.ts'), 'export const a = 1\n')
+  writeFileSync(join(root, 'src/two.ts'), 'export const b = 2\n')
+  const both = [
+    '--- a/src/one.ts', '+++ b/src/one.ts', '@@ -1,1 +1,1 @@', '-export const a = 1', '+export const a = 9',
+    '--- a/src/two.ts', '+++ b/src/two.ts', '@@ -1,1 +1,1 @@', '-export const never = 0', '+export const never = 1',
+  ].join('\n')
+  const batch = planEdits(root, { path: 'src/one.ts', diff: both })
+  if ('error' in batch) throw new Error(batch.error)
+  assert.deepEqual(batch.edits.map((edit) => edit.path), ['src/one.ts'])
+  assert.equal(batch.skipped.length, 1)
+  assert.equal(batch.skipped[0]!.path, 'src/two.ts')
+  assert.match(batch.skipped[0]!.error, /could not find the lines/)
+})
+
+
+
 test('the chat step list and diff card render apply and reject', () => {
   const messageId = '11111111-1111-4111-8111-111111111111'
   const html = renderToStaticMarkup(createElement(CodeTrace, {
@@ -453,59 +688,24 @@ test('the chat step list and diff card render apply and reject', () => {
   assert.equal(prev[0]?.steps, undefined)
 })
 
-test('a mocked model can call web_search only while dev web is on', async () => {
+test('the code agent never advertises or runs a web tool', async () => {
   const root = tempProject()
   const seen: string[] = []
-  const dev = await runCodeAgent('find the beacon', {
+  const turn = await runCodeAgent('find the beacon', {
     ...baseHost(root),
-    devWeb: {
-      apiBase: 'http://127.0.0.1:8000',
-      offlineOnly: false,
-      env: { NODE_ENV: 'development' },
-      fetchImpl: async () => Response.json({
-        results: [{ title: 'Pier 9 beacon', url: 'https://example.com/beacon', snippet: 'SB-4417' }],
-      }),
-    },
     async complete(req) {
-      const names = (req.tools ?? []).map((item) => (item as { function?: { name?: string } }).function?.name ?? '')
-      if (names.length) seen.push(...names)
-      const last = req.messages.at(-1)?.content
-      if (typeof last === 'string' && last.includes('URL: https://example.com/beacon')) {
-        return { content: '{"tool":"finish","arguments":{"summary":"Source https://example.com/beacon"}}' }
-      }
+      seen.push(...(req.tools ?? []).map((item) => (item as { function?: { name?: string } }).function?.name ?? ''))
       return { content: '{"tool":"web_search","arguments":{"query":"pier beacon"}}' }
     },
   })
-  assert.equal(dev.stopped, 'finish')
-  assert.match(dev.answer, /https:\/\/example\.com\/beacon/)
-  assert.equal(dev.steps[0]?.tool, 'web_search')
-  assert.equal(dev.steps[0]?.status, 'ok')
-  assert.ok(seen.includes('web_search'))
+  assert.equal(seen.includes('web_search'), false)
+  assert.equal(seen.includes('fetch_page'), false)
   assert.ok(seen.includes('read_file'))
-
-  let fetches = 0
-  const prodSeen: string[] = []
-  const prod = await runCodeAgent('find the beacon', {
-    ...baseHost(root),
-    devWeb: {
-      apiBase: 'http://127.0.0.1:8000',
-      offlineOnly: false,
-      env: { NODE_ENV: 'production' },
-      fetchImpl: async () => {
-        fetches++
-        return Response.json({ results: [] })
-      },
-    },
-    async complete(req) {
-      prodSeen.push(...(req.tools ?? []).map((item) => (item as { function?: { name?: string } }).function?.name ?? ''))
-      return { content: '{"tool":"web_search","arguments":{"query":"pier beacon"}}' }
-    },
-  })
-  assert.equal(prodSeen.includes('web_search'), false)
-  assert.ok(prodSeen.includes('read_file'))
-  assert.equal(fetches, 0)
-  assert.equal(prod.steps.length, 0)
-  assert.equal(prod.stopped, 'parse')
+  // The call is not a code tool, so nothing runs and the loop gives up on parsing.
+  assert.equal(turn.steps.length, 0)
+  assert.deepEqual(turn.diffs, [])
+  assert.equal(turn.stopped, 'parse')
+  assert.match(turn.answer, /could not read a tool call/i)
 })
 
 function baseHost(root: string) {

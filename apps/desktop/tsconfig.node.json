@@ -1,6 +1,18 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
-  "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"],
+  "include": [
+    "electron.vite.config.*",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "../../packages/ui/src/mascot.ts",
+    // The code-agent unit tests live in src/main and render the trace card, so these two
+    // renderer sources must be listed here too (composite mode needs every resolved file in
+    // one project's file list). Only tests reach across: no main-process production code may
+    // import from src/renderer.
+    "src/renderer/src/types.ts",
+    "src/renderer/src/screens/CodeTrace.tsx"
+  ],
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "composite": true,

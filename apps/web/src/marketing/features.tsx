@@ -15,7 +15,7 @@ export function FeaturesPage() {
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             <article className="card px-5 py-5">
               <h3 className="text-xl font-semibold">Qwen on the laptop</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">One model, Qwen 4B, with the search model. It works on any laptop with 8 GB of memory or more. The app downloads it after you install, or you download the offline installer that already includes both files.</p>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">One model, Qwen 2B, with the search model. It works on any laptop with 8 GB of memory or more. The app downloads it after you install, or you download the offline installer that already includes both files. Qwen 4B is a separate, optional download if you want more accuracy.</p>
             </article>
             <article className="card px-5 py-5">
               <h3 className="text-xl font-semibold">Code</h3>

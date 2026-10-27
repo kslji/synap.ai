@@ -1,8 +1,21 @@
 {
   "registry_format": "surf-models/1",
   "updated_at": "2026-10-20",
-  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-15). One chat model for every laptop and every agent: Qwen3.5-4B Q4_K_M (2.74 GB file, 0.67 GB screenshot file). It needs an 8 GB laptop and also runs on bigger machines. There is no size picker. See docs/adr/0004-single-chat-model.md.",
+  "notes": "Served as a signed file (same Ed25519 scheme as packs) from our API/R2 so new model releases can be adopted without an app update. sha256 = Hugging Face LFS object id of the exact file (checked 2026-10-24). One default chat model on every laptop, every tier, every agent: Qwen3.5-2B Q4_K_M (1.28 GB file). The 4B Q4_K_M (2.74 GB, 0.67 GB screenshot file) and Gemma 4 E2B (3.11 GB) are optional downloads. The one embedding model is Jina v2 base code Q5_K_M (121 MB, 256-d), bundled with every offline chat download. Nothing downloads unless the person asks for it. See docs/adr/0007-qwen35-2b-default.md and docs/adr/0008-jina-code-embeddings.md.",
   "models": [
+    {
+      "id": "qwen3.5-2b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 2,
+      "license": "apache-2.0", "context_default": 16384, "context_max": 262144,
+      "file": "Qwen3.5-2B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
+      "size_bytes": 1280835840,
+      "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+      "min_ram_gb": 8, "tiers": [0, 1, 2, 3],
+      "default_for": ["*"],
+      "note": "Default on every laptop. The optional Qwen 4B is more accurate and larger.",
+      "chat_template_kwargs": {"enable_thinking": false},
+      "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    },
     {
       "id": "qwen3.5-4b-q4_k_m", "role": "chat", "family": "qwen3.5", "params_b": 4,
       "license": "apache-2.0", "context_default": 16384, "context_max": 262144,
@@ -17,21 +30,44 @@
         "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
       },
       "min_ram_gb": 8, "tiers": [0, 1, 2, 3],
-      "default_for": ["code"],
+      "note": "Optional, more accurate. 1.5 GB larger than Qwen 2B, with a screenshot file.",
       "chat_template_kwargs": {"enable_thinking": false},
       "sampling": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
     },
     {
-      "id": "embeddinggemma-2-text-q8_0", "role": "embedding", "family": "embeddinggemma-2", "params_b": 0.27,
-      "license": "apache-2.0", "spec_id": "embeddinggemma-2-text@256", "native_dim": 768, "dim": 256, "pooling": "mean",
-      "query_prefix": "task: search result | query: ",
-      "doc_template": "title: {title} | text: {text}",
-      "file": "embeddinggemma-2-Q8_0.gguf",
-      "url": "https://huggingface.co/unsloth/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf",
-      "size_bytes": 309855520,
-      "sha256": "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc",
+      "id": "gemma-4-e2b-q4_k_m", "role": "chat", "family": "gemma-4", "params_b": 2,
+      "label": "Gemma 4 E2B (optional)", "size_name": "E2B",
+      "license": "apache-2.0", "context_default": 16384, "context_max": 131072,
+      "file": "gemma-4-E2B-it-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+      "size_bytes": 3106738272,
+      "sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+      "min_ram_gb": 8, "tiers": [0, 1, 2, 3],
+      "note": "Optional, never the default. Larger and slower than Qwen 2B; pick it in Settings when you want a different family. Nothing downloads until you ask."
+    },
+    {
+      "id": "jina-embeddings-v2-base-code-q5_k_m", "role": "embedding", "family": "jina", "params_b": 0.137,
+      "license": "apache-2.0", "spec_id": "jina-embeddings-v2-base-code@256", "native_dim": 768, "dim": 256, "pooling": "mean",
+      "query_prefix": "",
+      "doc_template": "{title}\n{text}",
+      "file": "jina-embeddings-v2-base-code-Q5_K_M.gguf",
+      "url": "https://huggingface.co/second-state/jina-embeddings-v2-base-code-GGUF/resolve/main/jina-embeddings-v2-base-code-Q5_K_M.gguf",
+      "size_bytes": 121395616,
+      "sha256": "4fb1c5f15462f12a083e19721c7a43e9eddfe6377dc845fa73bedf2461089919",
       "min_llama_cpp_build": 11452,
+      "bundled_with_chat": true,
       "min_ram_gb": 0, "tiers": [0, 1, 2, 3]
+    },
+    {
+      "id": "jina-reranker-v1-turbo-en-q5_k_m", "role": "reranker", "family": "jina", "params_b": 0.038,
+      "license": "apache-2.0", "file": "jina-reranker-v1-turbo-en-Q5_K_M.gguf",
+      "url": "https://huggingface.co/gpustack/jina-reranker-v1-turbo-en-GGUF/resolve/main/jina-reranker-v1-turbo-en-Q5_K_M.gguf",
+      "size_bytes": 37323936,
+      "sha256": "c633a5398bd191dec8097262ca1713a70eae62c085295d5422fc0445c3cf1c5a",
+      "min_llama_cpp_build": 11452,
+      "bundled_with_chat": true,
+      "min_ram_gb": 0, "tiers": [0, 1, 2, 3],
+      "note": "Cross-encoder reranker for code search: llama-server --reranking --pooling rank, /v1/rerank. Search still works without it (RRF + symbol boosts)."
     },
     {
       "id": "whisper-base-q8_0", "role": "asr", "family": "whisper", "license": "mit",

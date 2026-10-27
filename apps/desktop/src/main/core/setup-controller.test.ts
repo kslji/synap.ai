@@ -7,14 +7,19 @@ import { DownloadError } from './model-download.js'
 import { buildBundledManifest } from '../../shared/offline-pack.js'
 import { createSetupController, type SetupHost, type SetupSnapshot } from './setup-controller.js'
 import type { SetupEmbed, SetupModel } from '../../shared/setup-choice.js'
+import { requiredFreeBytes } from '../../shared/setup-choice.js'
 
 const four: SetupModel = {
   id: 'qwen3.5-4b-q4_k_m', token: '4b', name: 'Qwen 4B', file: 'Qwen3.5-4B-Q4_K_M.gguf',
   minRamGb: 8, sizeBytes: 200, sha256: 'bc', url: 'https://example.invalid/4b',
 }
 const embed: SetupEmbed = {
-  id: 'embeddinggemma-2-text-q8_0', name: 'Search model', file: 'embeddinggemma-2-Q8_0.gguf',
+  id: 'jina-embeddings-v2-base-code-q5_k_m', name: 'Search model', file: 'jina-embeddings-v2-base-code-Q5_K_M.gguf',
   sizeBytes: 50, sha256: 'ef', url: 'https://example.invalid/emb',
+}
+const rerank: SetupEmbed = {
+  id: 'jina-reranker-v1-turbo-en-q5_k_m', name: 'Rerank model', file: 'jina-reranker-v1-turbo-en-Q5_K_M.gguf',
+  sizeBytes: 20, sha256: 'ab', url: 'https://example.invalid/rerank',
 }
 
 function host(over: Partial<SetupHost> & { ram?: number } = {}): { host: SetupHost; events: SetupSnapshot[]; saved: string[]; downloads: string[]; copies: string[]; ready: string[] } {
@@ -73,7 +78,7 @@ test('under 8 GB the one model warns, and unknown RAM does not', async () => {
   assert.equal(unknown.events.at(-1)?.choices[0]?.warning, null)
 })
 
-test('the model still downloads under 8 GB, and EmbeddingGemma is always added', async () => {
+test('the model still downloads under 8 GB, and Jina code embeddings is always added', async () => {
   const built = host({ ram: 4 })
   const setup = createSetupController(built.host)
   await setup.choose(four.id)
@@ -88,7 +93,7 @@ test('the model still downloads under 8 GB, and EmbeddingGemma is always added',
   assert.equal(built.ready.length, 1)
 })
 
-test('Use the file in Downloads copies that Qwen and still fetches EmbeddingGemma', async () => {
+test('Use the file in Downloads copies that Qwen and still fetches Jina code embeddings', async () => {
   const built = host({
     ram: 8,
     inDownloads: async (file) => file === four.file,
@@ -103,7 +108,7 @@ test('Use the file in Downloads copies that Qwen and still fetches EmbeddingGemm
   assert.deepEqual(built.saved, [four.id])
 })
 
-test('EmbeddingGemma already in Downloads is copied without asking', async () => {
+test('Jina code embeddings already in Downloads is copied without asking', async () => {
   const built = host({
     inDownloads: async (file) => file === embed.file,
   })
@@ -120,8 +125,23 @@ test('disk full counts every file that still has to arrive', async () => {
   const last = built.events.at(-1)
   assert.equal(last?.error?.code, 'disk')
   assert.equal(last?.error?.freeBytes, 10)
-  assert.equal(last?.error?.requiredBytes, Math.ceil((four.sizeBytes + embed.sizeBytes) * 1.05))
+  assert.equal(last?.error?.requiredBytes, requiredFreeBytes(four.sizeBytes + embed.sizeBytes))
   assert.equal(built.downloads.length, 0)
+})
+
+test('the reranker arrives in the same job, after the chat file and the embedding', async () => {
+  const built = host({ reranker: () => rerank })
+  await createSetupController(built.host).choose(four.id)
+  assert.deepEqual(built.downloads, [four.url, embed.url, rerank.url])
+  const files = built.events.find((event) => event.phase === 'downloading')?.files ?? []
+  assert.deepEqual(files.map((file) => file.role), ['chat', 'embedding', 'reranker'])
+  assert.equal(built.events.at(-1)?.phase, 'done')
+})
+
+test('a reranker already installed is not downloaded again', async () => {
+  const built = host({ reranker: () => rerank, isInstalled: async (file) => file === rerank.file })
+  await createSetupController(built.host).choose(four.id)
+  assert.deepEqual(built.downloads, [four.url, embed.url])
 })
 
 test('a checksum failure asks for a fresh download', async () => {

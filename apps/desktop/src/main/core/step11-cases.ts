@@ -9,9 +9,8 @@ import { cleanAccent, cleanAnimate, cleanDensity, cleanMascotName } from './appe
 import { benchmarkFor, readBenchmarkFile, tokensPerSec, upsertBenchmark, writeBenchmarkFile, type BenchmarkRow } from './benchmark-store.js'
 import { commandAllowed } from './code-agent/checks.js'
 import { aggregateUsage, usageCsv, type UsageSample } from './live/metrics.js'
-import { indiaEquityTax, profitLoss, sipFutureValue } from './search/finance.js'
-import { unableMessage, verifyGroundedAnswer, type SourceRecord } from './search/verify-answer.js'
-import { decideWeb, wantsFresh } from './web-decision.js'
+import { indiaEquityTax, profitLoss, sipFutureValue } from './finance-maths.js'
+import { unableMessage, verifyGroundedAnswer, type SourceRecord } from './verify-answer.js'
 import { classifyShotUse } from './vision/intent.js'
 import { codeFitMark } from '../../shared/code-ram.js'
 import { MASCOT_MANIFEST, pickClick } from '../../../../../packages/ui/src/mascot.js'
@@ -87,15 +86,6 @@ export function step11Cases(): Step11Row[] {
   check('usage-local', report.localOnly === true)
   check('usage-no-prompt', !JSON.stringify(report).includes('secret prompt'))
 
-  const fresh = ['latest notice', 'the price today', 'budget 2026', 'prices of rice']
-  const stale = ['how do I boil rice', 'offline documents', 'explain SQLCipher']
-  for (const text of fresh) check(`fresh-${text.slice(0, 16)}`, wantsFresh(text) === true)
-  for (const text of stale) check(`stale-${text.slice(0, 16)}`, wantsFresh(text) === false)
-  check('web-local', decideWeb({ local: 'answer', fresh: false, online: true, offlineOnly: false, webAllowed: true }).branch === 'local')
-  check('web-blend', decideWeb({ local: 'answer', fresh: true, online: true, offlineOnly: false, webAllowed: true }).branch === 'blend')
-  check('web-refuse', decideWeb({ local: 'skip', fresh: true, online: false, offlineOnly: true, webAllowed: true }).branch === 'refuse')
-  check('web-search', decideWeb({ local: 'insufficient', fresh: false, online: true, offlineOnly: false, webAllowed: true }).branch === 'web')
-
   check('fit-recommended', codeFitMark({ family: 'qwen3.5', minRamGb: 4, defaultFor: ['code'] }, 8) === 'recommended')
   check('fit-ok', codeFitMark({ family: 'gemma', minRamGb: 8, defaultFor: [] }, 16) === 'fits')
   check('fit-big', codeFitMark({ family: 'gemma', minRamGb: 32, defaultFor: [] }, 8) === 'too-big')
@@ -162,8 +152,6 @@ export function step11Cases(): Step11Row[] {
   for (let n = 1; n <= 24; n += 1) {
     check(`sip-months-${n}`, sipFutureValue(10, 0, n) === 10 * n)
   }
-  for (const phrase of ['today', 'TODAY', 'Latest', 'Price', 'prices']) check(`word-${phrase}`, wantsFresh(phrase) === true)
-  for (const phrase of ['yesterday note', 'a document', 'hello']) check(`quiet-${phrase}`, wantsFresh(phrase) === false)
 
   rows.push(...scoreEvalQuestions())
   return rows

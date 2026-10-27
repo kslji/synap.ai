@@ -6,22 +6,28 @@ import json
 import os
 import uuid
 from decimal import Decimal
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from app.gateway.billing import apply_markup, calculate_raw_cost, extract_usage, settle_billing
-from app.gateway.preflight import (
+# issue_access_token signs with ENV["JWT_SECRET"]; set it before importing app so this
+# file passes standalone, not only when an earlier alphabetically-sorted test set it.
+os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-ok")
+os.environ.setdefault("JWT_AUDIENCE", "authenticated")
+
+from app.gateway.billing import apply_markup, calculate_raw_cost, extract_usage, settle_billing  # noqa: E402
+from app.gateway.preflight import (  # noqa: E402
     InsufficientBalanceError,
     calculate_estimated_cost,
     calculate_max_tokens,
     preflight_check,
 )
-from app.gateway.pricing import parse_model_pricing, sync_pricing
-from app.gateway.service import GatewayService
-from app.gateway.store import MemoryGatewayStore
-from app.gateway.tokenizer import count_messages_tokens, count_tokens
+from app.gateway.pricing import parse_model_pricing, sync_pricing  # noqa: E402
+from app.gateway.service import GatewayService  # noqa: E402
+from app.gateway.store import MemoryGatewayStore, PostgresGatewayStore  # noqa: E402
+from app.gateway.tokenizer import count_messages_tokens, count_tokens  # noqa: E402
 
 
 # ============================================================================
@@ -61,64 +67,93 @@ class TestAuth:
 
 
 # ============================================================================
-# Step 2: Context Engineering & Isolation Tests
+# Step 2: Context Engineering Tests (single-turn; history stays on the device)
 # ============================================================================
 
 class TestContextIsolation:
-    """Test tenant isolation and context fetching."""
+    """Test per-tenant isolation of the single-turn gateway path."""
+
+    @pytest.mark.asyncio
+    async def test_prepare_messages_is_single_turn(self):
+        """The gateway builds [system, user] for this prompt only — no server-side history."""
+        store = MemoryGatewayStore()
+        service = GatewayService(
+            store=store,
+            http_client=AsyncMock(),
+            openrouter_api_key="test-key",
+            openrouter_base_url="https://test.openrouter.ai/api/v1",
+        )
+        messages = service.prepare_messages("Hello there")
+        assert [m["role"] for m in messages] == ["system", "user"]
+        assert messages[1]["content"] == "Hello there"
+        # repeated turns never accumulate state on the server
+        again = service.prepare_messages("Second question")
+        assert len(again) == 2
+        assert again[1]["content"] == "Second question"
+
+    @pytest.mark.asyncio
+    async def test_stores_no_chat_history(self):
+        """Chat storage is gone from both stores (product rule: history lives on the device)."""
+        for store in (MemoryGatewayStore(), PostgresGatewayStore(pool=None)):
+            assert not hasattr(store, "save_chat_message")
+            assert not hasattr(store, "get_user_chat_history")
 
     @pytest.mark.asyncio
     async def test_concurrent_requests_isolated(self):
-        """Concurrent requests from user_A and user_B should have zero cross-contamination."""
+        """Concurrent requests from user_A and user_B have zero cross-contamination."""
         store = MemoryGatewayStore()
-        
-        # Setup user_A with 3 historic messages
-        user_a = str(uuid.uuid4())
-        await store.ensure_gateway_account(user_a, Decimal("10.0"))
-        await store.save_chat_message(user_a, "user", "Message 1 from user A")
-        await store.save_chat_message(user_a, "assistant", "Response 1 to user A")
-        await store.save_chat_message(user_a, "user", "Message 2 from user A")
-        
-        # Setup user_B with 0 historic messages
-        user_b = str(uuid.uuid4())
-        await store.ensure_gateway_account(user_b, Decimal("10.0"))
-        
-        # Concurrently fetch history
-        history_a = await store.get_user_chat_history(user_a, max_tokens=2000)
-        history_b = await store.get_user_chat_history(user_b, max_tokens=2000)
-        
-        # Assert user_A has exactly 3 messages
-        assert len(history_a) == 3
-        assert history_a[0]["content"] == "Message 1 from user A"
-        assert history_a[1]["content"] == "Response 1 to user A"
-        assert history_a[2]["content"] == "Message 2 from user A"
-        
-        # Assert user_B has 0 messages
-        assert len(history_b) == 0
-        
-        # Verify no cross-contamination
-        for msg in history_a:
-            assert "user B" not in msg["content"].lower() or "user A" in msg["content"]
+        await store.upsert_model_pricing(
+            model_id="openai/gpt-4.1",
+            input_price_per_million=Decimal("1.00"),
+            output_price_per_million=Decimal("2.00"),
+            context_window=4096,
+        )
 
-    @pytest.mark.asyncio
-    async def test_sliding_window_truncation(self):
-        """Old messages should be dropped when exceeding token budget."""
-        store = MemoryGatewayStore()
-        user_id = str(uuid.uuid4())
-        
-        # Add many messages (each ~10 chars = ~2-3 tokens)
-        for i in range(20):
-            await store.save_chat_message(user_id, "user", f"Message {i}")
-        
-        # Fetch with very small token budget (enough for ~3-4 messages only)
-        # Each message is ~2-3 tokens, so 10 tokens should fit ~3-4 messages
-        history = await store.get_user_chat_history(user_id, max_tokens=10)
-        
-        # Should have fewer than 20 messages
-        assert len(history) < 20, f"Expected < 20 messages, got {len(history)}"
-        assert len(history) > 0, "Expected at least some messages"
-        # Should have the newest messages (last in chronological order)
-        assert "Message 19" in history[-1]["content"], f"Expected newest message, got {history[-1]}"
+        users = [str(uuid.uuid4()) for _ in range(4)]
+        for u in users:
+            await store.ensure_gateway_account(u, Decimal("10.0"))
+            # gpt-4.1 is Tier 1; isolation is what is under test, so every user
+            # starts past the ADR-0008 access gate.
+            store.gateway_accounts[u]["max_topup_credits"] = 25
+
+        def make_service():
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.json.return_value = {
+                "id": "test-id",
+                "choices": [{"message": {"content": "Hello!"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            return GatewayService(
+                store=store,
+                http_client=mock_client,
+                openrouter_api_key="test-key",
+                openrouter_base_url="https://test.openrouter.ai/api/v1",
+            )
+
+        async def ask(user_id: str, prompt: str) -> dict[str, Any]:
+            return await make_service().handle_chat_request(  # type: ignore[return-value]
+                user_id=user_id, model="openai/gpt-4.1", prompt=prompt, stream=False
+            )
+
+        results = await asyncio.gather(*[
+            ask(users[0], "A question"), ask(users[1], "B question"),
+            ask(users[2], "C question"), ask(users[3], "D question"),
+        ])
+
+        # Each user is billed only for their own request.
+        for u in users:
+            balance_info = await store.get_user_balance(u)
+            assert balance_info is not None
+            balance, locked = balance_info
+            assert balance < Decimal("10.0")
+            assert not locked
+
+        # Per-user concurrency allowed two in-flight requests per user.
+        for r in results:
+            assert "billing" in r
 
 
 # ============================================================================
@@ -397,8 +432,9 @@ class TestIntegration:
         
         # Setup
         await store.ensure_gateway_account(user_id, Decimal("2.00"))
+        store.gateway_accounts[user_id]["max_topup_credits"] = 25
         await store.upsert_model_pricing(
-            model_id="test-model",
+            model_id="openai/gpt-4.1",
             input_price_per_million=Decimal("1.00"),
             output_price_per_million=Decimal("2.00"),
             context_window=4096,
@@ -426,7 +462,7 @@ class TestIntegration:
         # Handle request
         result = await service.handle_chat_request(
             user_id=user_id,
-            model="test-model",
+            model="openai/gpt-4.1",
             prompt="Hello",
             stream=False,
         )
@@ -444,9 +480,104 @@ class TestIntegration:
         balance, locked = balance_info
         assert balance < Decimal("2.00")
         
-        # Verify chat messages were saved
-        history = await store.get_user_chat_history(user_id, max_tokens=2000)
-        assert len(history) == 2  # user + assistant
+        # Verify chat messages were NOT saved (history stays on the device)
+        assert not hasattr(store, "save_chat_message")
+        assert not hasattr(store, "get_user_chat_history")
+
+
+class TestModelAllowlist:
+    """Curated model allowlist: policy gate + /models listing."""
+
+    def _allowlisted_service(self, store, model_id):
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "id": "resp-id",
+            "choices": [{"message": {"content": "Hi"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        service = GatewayService(
+            store=store,
+            http_client=mock_client,
+            openrouter_api_key="test-key",
+            openrouter_base_url="https://test.openrouter.ai/api/v1",
+        )
+        return service
+
+    def test_allowlist_membership(self):
+        """Famous paid models are permitted; free/unknown models are not."""
+        from app.gateway.model_allowlist import allowed_ids, is_allowed
+
+        assert is_allowed("openai/gpt-4.1") is True
+        assert is_allowed("anthropic/claude-sonnet-4.5") is True
+        assert is_allowed("google/gemini-2.5-pro") is True
+        assert is_allowed("meta/llama-3.1-8b-instruct:free") is False
+        assert is_allowed("some/random-model") is False
+        # No entry in the allowlist may be a :free model.
+        assert all(":free" not in mid for mid in allowed_ids())
+
+    @pytest.mark.asyncio
+    async def test_chat_rejects_non_allowlisted_model(self):
+        """A non-allowlisted model is rejected with 400 before any billing."""
+        from fastapi import HTTPException
+
+        store = MemoryGatewayStore()
+        user_id = str(uuid.uuid4())
+        await store.ensure_gateway_account(user_id, Decimal("2.00"))
+        await store.upsert_model_pricing(
+            model_id="meta/llama-3.1-8b-instruct:free",
+            input_price_per_million=Decimal("0"),
+            output_price_per_million=Decimal("0"),
+            context_window=4096,
+        )
+        service = self._allowlisted_service(store, "meta/llama-3.1-8b-instruct:free")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await service.handle_chat_request(
+                user_id=user_id,
+                model="meta/llama-3.1-8b-instruct:free",
+                prompt="Hello",
+                stream=False,
+            )
+        assert exc_info.value.status_code == 400
+        # The model never reached OpenRouter and nothing was billed.
+        assert service.http_client.post.await_count == 0
+        balance_info = await store.get_user_balance(user_id)
+        assert balance_info is not None
+        balance, _ = balance_info
+        assert balance == Decimal("2.00")
+
+    @pytest.mark.asyncio
+    async def test_models_lists_only_allowlisted_with_pricing(self):
+        """GET /api/v1/models returns only allowlisted models that have pricing."""
+        from app.gateway.router import list_models
+
+        store = MemoryGatewayStore()
+        # One allowlisted model synced with pricing, one free model also stored.
+        await store.upsert_model_pricing(
+            model_id="openai/gpt-4.1",
+            input_price_per_million=Decimal("2.00"),
+            output_price_per_million=Decimal("8.00"),
+            context_window=128000,
+        )
+        await store.upsert_model_pricing(
+            model_id="meta/llama-3.1-8b-instruct:free",
+            input_price_per_million=Decimal("0"),
+            output_price_per_million=Decimal("0"),
+            context_window=4096,
+        )
+        gateway = self._allowlisted_service(store, "openai/gpt-4.1")
+
+        result = await list_models(user_id="user_1", gateway=gateway)
+        ids = [m["id"] for m in result["models"]]
+        assert ids == ["openai/gpt-4.1"]
+        # Free/non-allowlisted model never appears even though pricing is synced.
+        assert "meta/llama-3.1-8b-instruct:free" not in ids
+        entry = result["models"][0]
+        assert entry["provider"] == "OpenAI"
+        assert entry["input_price_per_million"] == 2.0
 
 
 if __name__ == "__main__":

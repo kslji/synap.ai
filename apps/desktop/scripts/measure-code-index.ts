@@ -1,6 +1,6 @@
 /**
  * Measure the code index on a sample tree.
- * Uses the deterministic hash embedder so disk size matches 256-d EmbeddingGemma vectors
+ * Uses the deterministic hash embedder so disk size matches 256-d Jina code embeddings vectors
  * without starting llama-server. RSS includes the Node process, not a model.
  *
  *   npx tsx scripts/measure-code-index.ts [folder]
@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     rssAfter: after.rss,
     heapBefore: before.heapUsed,
     heapAfter: after.heapUsed,
-    note: '256-d vectors match EmbeddingGemma storage. RSS is this Node process, not llama-server.',
+    note: '256-d vectors match Jina code embeddings storage. RSS is this Node process, not llama-server.',
   }, null, 2))
 }
 

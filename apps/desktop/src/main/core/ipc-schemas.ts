@@ -1,23 +1,24 @@
 /** zod schemas for IPC payloads (main process only). The _check functions fail to compile if they drift from ipc-contract.ts. */
 import { z } from 'zod'
-import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, CodeVisionCaptureReq as CodeVisionCaptureReqT, CodeVisionSaveReq as CodeVisionSaveReqT, DevWebRunReq as DevWebRunReqT, FileDecideReq as FileDecideReqT, FileGrantReq as FileGrantReqT, FileIndexLimitsReq as FileIndexLimitsReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
+import type { ChatSendReq as ChatSendReqT, CodeAgentDecideReq as CodeAgentDecideReqT, CodeAgentReviseReq as CodeAgentReviseReqT, CodeAgentSetModeReq as CodeAgentSetModeReqT, CodeAgentUndoReq as CodeAgentUndoReqT, CodeCompleteReq as CodeCompleteReqT, CodeVisionCaptureReq as CodeVisionCaptureReqT, CodeVisionSaveReq as CodeVisionSaveReqT, FileDecideReq as FileDecideReqT, FileGrantReq as FileGrantReqT, FileIndexLimitsReq as FileIndexLimitsReqT, SettingsPatch as SettingsPatchT } from './ipc-contract.js'
 
 export const ChatSendReq = z.object({
   conversationId: z.string().uuid().nullable(),
   text: z.string().min(1).max(20_000),
   agentId: z.string().max(64).default('code'),
   images: z.array(z.object({ mime: z.enum(['image/png', 'image/jpeg', 'image/webp']), base64: z.string().max(14_000_000) })).max(4).default([]),
-  allowWeb: z.boolean().default(false),
   docScope: z.enum(['chat', 'all']).default('chat'),
   replaceMessageId: z.string().uuid().optional(),
   continueMessageId: z.string().uuid().optional(),
+  mode: z.enum(['online', 'offline']).optional(),
+  contextMessageIds: z.array(z.string().uuid()).max(50).optional(),
 })
 
 export const SettingsPatch = z.object({
   offlineOnly: z.boolean().optional(),
-  webSearchAllowed: z.boolean().optional(),
   telemetryOptIn: z.boolean().optional(),
   chatModelId: z.string().max(80).optional(),
+  onlineModelId: z.string().max(120).optional(),
   codeModelId: z.string().max(80).optional(),
   onboardingComplete: z.boolean().optional(),
   theme: z.union([z.enum(['light', 'dark']), z.literal('system').transform(() => 'light' as const)]).optional(),
@@ -38,7 +39,7 @@ export const SettingsPatch = z.object({
   accent: z.enum(['orange', 'blue', 'indigo', 'navy']).optional(),
   density: z.enum(['compact', 'comfortable', 'relaxed']).optional(),
   animateMascot: z.boolean().optional(),
-  networkMode: z.enum(['offline', 'online', 'auto']).optional(),
+  networkMode: z.enum(['offline', 'online']).optional(),
 }).strict()
 
 const Email = z.string().trim().max(200).regex(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/)
@@ -56,16 +57,16 @@ export const PackId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/)
 
 export const HttpLink = z.string().max(2000).regex(/^https?:\/\/\S+$/)
 
-export const DevWebRun = z.object({
-  tool: z.enum(['web_search', 'fetch_page']),
-  query: z.string().max(300).optional(),
-  url: z.string().max(2000).optional(),
-}).strict()
-
 export const ModelId = z.string().min(1).max(80)
 export const ConversationId = z.string().uuid()
 export const JobId = z.string().uuid()
 export const AttachmentId = z.string().uuid()
+/** Item 12: read and change one chat's Online-context consent. */
+export const ChatConsentGet = z.object({ conversationId: ConversationId })
+export const ChatConsentSet = z.object({
+  conversationId: ConversationId,
+  allowed: z.boolean(),
+})
 export const LibraryPick = z.object({
   conversationId: z.string().uuid().nullable(),
   createConversation: z.boolean().default(false),
@@ -152,10 +153,10 @@ export const CodeFilePath = z.object({
   path: z.string().min(1).max(4096),
 }).strict()
 export const StorageClearReq = z.object({
-  category: z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs', 'shots']),
+  category: z.enum(['models', 'packs', 'indexes', 'chats', 'logs', 'shots']),
   itemId: z.string().trim().min(1).max(200).optional(),
 }).strict()
-export const StorageCategoryId = z.enum(['models', 'packs', 'indexes', 'chats', 'web', 'logs', 'shots'])
+export const StorageCategoryId = z.enum(['models', 'packs', 'indexes', 'chats', 'logs', 'shots'])
 
 export const SpeechWav = z.object({
   wavBase64: z.string().min(1).max(2_800_000),
@@ -189,7 +190,6 @@ export const _codeDecideCheck = (x: z.output<typeof CodeAgentDecideReq>): CodeAg
 export const _codeReviseCheck = (x: z.output<typeof CodeAgentReviseReq>): CodeAgentReviseReqT => x
 export const _codeUndoCheck = (x: z.output<typeof CodeAgentUndoReq>): CodeAgentUndoReqT => x
 export const _codeModeCheck = (x: z.output<typeof CodeAgentSetModeReq>): CodeAgentSetModeReqT => x
-export const _devWebCheck = (x: z.output<typeof DevWebRun>): DevWebRunReqT => x
 export const _codeCompleteCheck = (x: z.output<typeof CodeCompleteReq>): CodeCompleteReqT => x
 export const _codeVisionCaptureCheck = (x: z.output<typeof CodeVisionCapture>): CodeVisionCaptureReqT => x
 export const _codeVisionSaveCheck = (x: z.output<typeof CodeVisionSave>): CodeVisionSaveReqT => x

@@ -9,7 +9,7 @@ import type { FileFolderGrant, FileIndexLimits, FileIndexProgress, FilePermissio
 import { formatIndexBytes } from '../format'
 
 export function embedderLabel(kind: 'gemma' | 'hash'): string {
-  return kind === 'gemma' ? 'EmbeddingGemma' : 'Temporary keyword embeddings'
+  return kind === 'gemma' ? 'Jina code embeddings' : 'Temporary keyword embeddings'
 }
 
 export function formatIndexedAt(ms: number | null): string {

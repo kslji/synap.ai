@@ -7,25 +7,36 @@
     "apps/desktop",
     "apps/web",
     "packages/ui",
-    "packages/shared"
+    "packages/shared",
+    "packages/agent-core"
   ],
   "installConfig": {
     "hoistingLimits": "workspaces"
   },
+  "overrides": {
+    "node-gyp": {
+      "undici": "^6.29.1"
+    },
+    "@electron/get": {
+      "undici": "^7.30.1"
+    }
+  },
   "scripts": {
     "dev:desktop": "npm run dev -w @surf/desktop",
     "dev:web": "npm run dev -w @surf/web",
-    "dev:search": "docker compose -f deploy/docker-compose.dev.yml up --build",
-    "typecheck": "npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
+    "typecheck": "npm run typecheck -w @surf/agent-core && npm run typecheck -w @surf/desktop && npm run typecheck -w @surf/web",
     "build": "npm run build -w @surf/desktop && npm run build -w @surf/web",
     "build:web": "npm run build -w @surf/web",
     "selftest": "npm run selftest -w @surf/desktop",
+    "bench:offline": "tsx scripts/bench-offline/bench.ts",
+    "eval:agent": "tsx apps/desktop/scripts/code-agent-eval.ts",
     "eval": "bash harness/run.sh quick"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
+    "electron": "44.9.1",
     "eslint": "^9.36.0",
     "typescript-eslint": "^8.44.0"
   }

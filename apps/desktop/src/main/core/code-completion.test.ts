@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { fileURLToPath } from 'node:url'
 import { acceptAll, acceptWord } from '../../shared/completion-edit.js'
 import { CodeIndex } from './code/project.js'
@@ -19,6 +20,12 @@ import { selectSnippets } from './code-agent/completion/snippets.js'
 import { completionSpan, fileWindows, predictBudget } from './code-agent/completion/windows.js'
 
 const grammarDir = join(dirname(fileURLToPath(import.meta.url)), '../../../resources/tree-sitter')
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('FIM prompt uses Qwen markers and prefix-only leaves the suffix out', () => {
   const fim = buildCompletionPrompt({
@@ -232,7 +239,9 @@ test('accepting ghost text edits the buffer and does not need a file write', () 
 })
 
 test('editor save is separate from completion, and paths stay in the project', () => {
-  const root = mkdtempSync(join(tmpdir(), 'surf-edit-'))
+  // realpath: macOS tmpdir() is /var/folders/... (symlink to /private/var/...);
+  // the editor realpaths the root, so relative(root, abs) must not span the link.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'surf-edit-')))
   try {
     writeFileSync(join(root, 'app.ts'), 'const a = 1\n')
     mkdirSync(join(root, 'src'))

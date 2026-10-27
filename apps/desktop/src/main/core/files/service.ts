@@ -1,8 +1,8 @@
 /**
  * Granted-folder search. Reads happen only after a grant.
  * Spotlight on macOS, Windows Search on Windows, and a walker everywhere else.
- * Embeddings use EmbeddingGemma. The hashed embedder is only a temporary fallback.
- * When EmbeddingGemma becomes available, folders that used the fallback are re-embedded
+ * Embeddings use Jina code embeddings. The hashed embedder is only a temporary fallback.
+ * When Jina code embeddings becomes available, folders that used the fallback are re-embedded
  * in the background and switched in one transaction so the two vector spaces are never mixed.
  */
 import { createHash } from 'node:crypto'

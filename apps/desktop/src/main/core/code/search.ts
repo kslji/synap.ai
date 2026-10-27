@@ -45,19 +45,77 @@ export function fuseRanks(keywordIds: number[], vectorHits: { id: number; cosine
   return ranks
 }
 
-export function nameBoost(name: string, kind: string, query: string): number {
-  const parts = name.toLowerCase().split(/[.\s]+/).filter((part) => part.length > 1)
+export interface BoostContext {
+  /** File the chunk lives in, so a task that names the file ranks that file's chunks first. */
+  path?: string
+  /** An exported symbol is the one a caller can import, so it beats a private helper. */
+  exported?: boolean
+  /** True when the file imports (or is imported by) the best hit: the signature is often next door. */
+  neighbour?: boolean
+}
+
+/** RRF stays the base score; these terms only reorder close neighbours. */
+export function nameBoost(name: string, kind: string, query: string, ctx: BoostContext = {}): number {
   const idents: string[] = query.toLowerCase().match(/[a-z_][a-z0-9_]*/g) ?? []
+  const parts = name.toLowerCase().split(/[.\s]+/).filter((part) => part.length > 1)
   let boost = 0
   if (parts.some((part) => idents.includes(part))) boost += 0.45
+  const fileParts = (ctx.path ?? '').toLowerCase().split(/[./]+/).filter((part) => part.length > 1)
+  if (fileParts.some((part) => idents.includes(part))) boost += 0.3
+  if (ctx.neighbour) boost += 0.15
+  if (ctx.exported) boost += 0.05
   if (kind === 'function' || kind === 'method' || kind === 'class' || kind === 'type') boost += 0.02
   return boost
 }
 
-export function rerankHits(hits: CodeHit[], query: string): CodeHit[] {
+const EXPORTED = /(^|\n)\s*export\b/
+
+/**
+ * Zero-memory reranker: RRF plus symbol, filename/path, export and import-neighbour boosts.
+ * `neighbours` holds the paths related to the best hit (see relatedFiles).
+ */
+export function rerankHits(hits: CodeHit[], query: string, neighbours: ReadonlySet<string> = new Set()): CodeHit[] {
   return hits
-    .map((hit) => ({ ...hit, score: hit.rrf + nameBoost(hit.name, hit.kind, query) }))
+    .map((hit) => ({
+      ...hit,
+      score: hit.rrf + nameBoost(hit.name, hit.kind, query, {
+        path: hit.path,
+        exported: EXPORTED.test(hit.text),
+        neighbour: neighbours.has(hit.path),
+      }),
+    }))
     .sort((a, b) => b.score - a.score || (a.bm25Rank ?? 99) - (b.bm25Rank ?? 99) || b.cosine - a.cosine || a.path.localeCompare(b.path))
+}
+
+/** The `--reranking` sidecar, or anything else that scores a query against documents. */
+export interface Reranker {
+  rerank(query: string, documents: string[]): Promise<number[]>
+}
+
+function document(hit: CodeHit): string {
+  return `${hit.path}\n${hit.name}\n${hit.text}`.slice(0, 1200)
+}
+
+/**
+ * Neural rerank on top of the boost order when the cross-encoder answers.
+ * A missing sidecar, an HTTP error or a short score list keeps the RRF + boost order:
+ * search must never fail because the reranker did.
+ */
+export async function rerankWithModel(
+  hits: CodeHit[],
+  query: string,
+  ranker?: Reranker | null,
+): Promise<{ hits: CodeHit[]; neural: boolean }> {
+  if (!ranker || !hits.length) return { hits, neural: false }
+  try {
+    const scores = await ranker.rerank(query, hits.map(document))
+    if (scores.length !== hits.length) return { hits, neural: false }
+    const ranked = hits.map((hit, index) => ({ ...hit, score: hit.score + (scores[index] ?? 0) }))
+    ranked.sort((a, b) => b.score - a.score || a.chunkId - b.chunkId)
+    return { hits: ranked, neural: true }
+  } catch {
+    return { hits, neural: false }
+  }
 }
 
 export function searchCode(db: CodeDb, query: string, qvec: Float32Array | null, k = 20): CodeHit[] {

@@ -2,7 +2,7 @@
 
 `scripts/build-code-pack` downloads the pinned sources in `scripts/code-pack-src/catalog.ts`, cleans them to text, chunks them by heading, and writes a signed pack to `apps/desktop/resources/code-pack/`.
 
-The pack is text plus a keyword index (`keyword.sqlite`). It does not contain embeddings. The desktop app builds EmbeddingGemma vectors on the device and caches them under the user data directory.
+The pack is text plus a keyword index (`keyword.sqlite`). It does not contain embeddings. The desktop app builds Jina code embeddings on the device and caches them under the user data directory.
 
 ## One-time signing setup
 

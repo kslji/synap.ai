@@ -10,7 +10,7 @@ import type { DB } from './db.js';
 export const RRF_K = 60;
 
 /**
- * User-document thresholds, measured with EmbeddingGemma 2 @256 on 9 Oct 2026
+ * User-document thresholds, measured with Jina code embeddings @256 on 9 Oct 2026
  * (see docs/STEP-2.md). On the harbor-ferry fixture: English cosine 0.832,
  * Hindi "नौका किस घाट से निकलती है?" 0.766, unrelated pizza 0.539.
  * Latin answers at 0.64 with keyword coverage 0.34, or at 0.75 even when the

@@ -6,13 +6,12 @@ from urllib.parse import urlsplit
 os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-ok")
 os.environ.setdefault("JWT_AUDIENCE", "authenticated")
 os.environ["SURF_API_LITE"] = "1"
-os.environ["SEARXNG_URL"] = "http://stub.local/search"
 os.environ["MAIL_MODE"] = "console"
-os.environ["FETCH_ALLOW_HOSTS"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
+from app.pack_catalog import signed_file_url  # noqa: E402
 
 
 def _login(client: TestClient) -> str:
@@ -78,3 +77,19 @@ def test_pack_catalog_reports_changed_files(tmp_path, monkeypatch):
         downloaded = client.get(f"{parts.path}?{parts.query}")
         assert downloaded.status_code == 200
         assert downloaded.content == b"new-pack"
+
+
+def test_pack_download_link_cannot_escape_the_pack_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("PACK_ROOT", str(tmp_path / "packs"))
+    monkeypatch.setenv("PACK_BACKEND", "file")
+    _write(tmp_path / "packs" / "general-starter" / "2026.10.09", b"new-pack")
+    (tmp_path / "secret.txt").write_bytes(b"outside-the-root")
+    with TestClient(app) as client:
+        for bad in ("../secret.txt", "general-starter/../../secret.txt", "/etc/passwd", "general-starter/2026.10.09/nope.sqlite"):
+            parts = urlsplit(signed_file_url("http://testserver", bad))
+            refused = client.get(f"{parts.path}?{parts.query}")
+            assert refused.status_code == 403, (bad, refused.text)
+        good = urlsplit(signed_file_url("http://testserver", "general-starter/2026.10.09/pack.sqlite"))
+        served = client.get(f"{good.path}?{good.query}")
+        assert served.status_code == 200, served.text
+        assert served.content == b"new-pack"

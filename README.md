@@ -159,10 +159,9 @@ SURF_MODELS_DIR=~/surf-models npm run eval
 |---|---|
 | `apps/desktop` | Electron app |
 | `apps/web` | Marketing site. Download is macOS .dmg and Windows .exe only |
-| `apps/host` | Existing OTP / feedback API. The new app and site do not call it |
-| `services/api` | FastAPI search proxy, email OTP login, and the pack catalog |
+| `services/api` | FastAPI backend: email OTP login, gateway (credits), licences, pack catalog |
 | `services/packs` | Build and sign a knowledge pack from a folder of documents |
-| `deploy` | Docker Compose: Caddy, API, Postgres/pgvector, Valkey, SearXNG |
+| `deploy` | Docker Compose: Caddy, API, Postgres/pgvector, Valkey |
 | `pipelines/ingest` | Day 6 placeholder |
 | `packages/ui` | Theme and the Surf Bot blob |
 | `packages/shared` | Product constants |
@@ -176,16 +175,9 @@ The portable zip pack (RAM picker, `LOCAL-SETUP`, `SURF-OPEN`, in-zip `check-pac
 
 No paid services, no bundled model weights. `resources/bin` and `*.gguf` are gitignored.
 
-## Auth host
+## Auth
 
-`apps/host` is the existing OTP, account, and feedback API. The desktop app and the marketing site do not call it. The desktop signs in through `services/api` (email code, device row, access and refresh tokens). The host reuses the same OTP hash and attempt rules from `services/api/app/otp_policy.py`. Rate limits, health routes, and the VPS unit files are in `apps/host/README.md`.
-
-```bash
-python3 -m venv apps/host/.venv
-apps/host/.venv/bin/pip install -r apps/host/requirements.txt
-cp .env.example .env
-apps/host/.venv/bin/python -m uvicorn main:app --app-dir apps/host --host 127.0.0.1 --port 18765
-```
+The desktop signs in through `services/api` (email code, device row, access and refresh tokens). The legacy auth host (`apps/host`, Ollama/LiveKit/Moss proxy, server-side conversations) was removed with the release cut; nothing calls it any more.
 
 Checks that do not need a model:
 

@@ -2,10 +2,11 @@
  * Reply text stays whole: stream pieces join without splitting a character,
  * a length stop ends on a sentence or a word, and titles and previews clip
  * on a word with an ellipsis.
+ *
+ * The words the model is asked to obey are not here: since item 13 both sub-chats
+ * take them from @surf/agent-core (chatSystemPrompt), and this file only shapes the
+ * text that comes back. That keeps the rules in one place and this file renderer-safe.
  */
-
-export const MARKDOWN_ASK =
-  'Write the answer in Markdown with headings, lists, and fenced code when they help. Close every fence and every bold mark. Finish each sentence, and do not stop in the middle of a word. When a source is provided, cite it in the sentence as [S1]. Do not move the citation under a Source heading.'
 
 /** Stored chat title. The header can wrap this; it is already on a word. */
 export const TITLE_LIMIT = 64

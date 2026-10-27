@@ -10,8 +10,15 @@
  *
  * productName is the display name (Synap.surf). executableName has no dot,
  * because a Windows binary named Synap.surf.exe is treated as a .surf file.
+ *
+ * macOS leaves .DS_Store and AppleDouble ._* files inside any folder Finder has
+ * opened, and cp -a carries them into the bundle. They are excluded from the
+ * packaged files and from every copied resource folder.
  */
 const signing = Boolean(process.env.CSC_LINK)
+
+/** Copies a resource folder without dragging Finder's litter along. */
+const junkFree = ['**/*', '!**/.DS_Store', '!**/._*']
 
 const config = {
   appId: 'ai.surf.desktop',
@@ -19,7 +26,7 @@ const config = {
   executableName: 'SynapSurf',
   artifactName: 'Synap.surf-${version}-${arch}.${ext}',
   directories: { buildResources: 'build', output: 'dist' },
-  files: ['out/**', 'package.json', '!**/*.map', '!**/*.mp4', '!animation/**'],
+  files: ['out/**', 'package.json', '!**/*.map', '!**/*.mp4', '!animation/**', '!**/.DS_Store', '!**/._*'],
   asar: true,
   asarUnpack: [
     '**/*.node',
@@ -33,17 +40,17 @@ const config = {
     'node_modules/web-tree-sitter/**/*.wasm',
   ],
   extraResources: [
-    { from: 'resources/bin/${platform}-${arch}', to: 'bin' },
-    { from: 'resources/whisper/${platform}-${arch}', to: 'whisper' },
-    { from: 'resources/tree-sitter', to: 'tree-sitter' },
+    { from: 'resources/bin/${platform}-${arch}', to: 'bin', filter: junkFree },
+    { from: 'resources/whisper/${platform}-${arch}', to: 'whisper', filter: junkFree },
+    { from: 'resources/tree-sitter', to: 'tree-sitter', filter: junkFree },
     { from: 'resources/models.registry.json', to: 'models.registry.json' },
-    { from: 'resources/tessdata', to: 'tessdata' },
+    { from: 'resources/tessdata', to: 'tessdata', filter: junkFree },
     { from: 'resources/pack-keys.json', to: 'pack-keys.json' },
     { from: 'resources/licence-public.json', to: 'licence-public.json' },
     { from: 'resources/release-mode.json', to: 'release-mode.json' },
     { from: 'resources/code/system.md', to: 'code/system.md' },
-    { from: 'resources/code-pack', to: 'code-pack' },
-    { from: 'resources/geo', to: 'geo' },
+    { from: 'resources/code-pack', to: 'code-pack', filter: junkFree },
+    { from: 'resources/geo', to: 'geo', filter: junkFree },
   ],
   npmRebuild: false,
   mac: {
@@ -66,9 +73,9 @@ const config = {
     notarize: signing && Boolean(process.env.APPLE_ID),
   },
   win: {
-    // build/icon.ico is not used: the checked-in ico was 32px and electron-builder rejects that.
-    // The png is 1024 and is converted during the Windows build.
-    icon: 'build/icon.png',
+    // build/icon.ico is a real multi-size ICO (16/24/32/48/64/128/256 @ 32bpp);
+    // electron-builder requires a 256px frame, which this satisfies.
+    icon: 'build/icon.ico',
     target: [{ target: 'nsis', arch: ['x64'] }],
   },
   nsis: {

@@ -5,16 +5,10 @@
  */
 import { parseModelJson } from '../../shared/model-output.js';
 import { createStreamJoiner } from '../../shared/reply-text.js';
+import type { ChatMessage, ToolCall } from '@surf/agent-core'
 
-export type Role = 'system' | 'user' | 'assistant' | 'tool';
-export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
-export interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
-export interface ChatMessage {
-  role: Role;
-  content: string | ContentPart[] | null;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-}
+// Chat envelope is the shared @surf/agent-core contract, re-exported here for existing main-process importers.
+export type { ChatMessage, ContentPart, Role, ToolCall } from '@surf/agent-core'
 export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
 
 const QWEN_SAMPLING = { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 };
@@ -45,7 +39,19 @@ export interface LlamaClientOptions {
   apiKey: string;
   sampling?: Record<string, number>;
   chatTemplateKwargs?: Record<string, unknown>;
+  /** How long one non-streaming request may run before it is dropped and retried once. */
+  requestTimeoutMs?: number;
+  /** The budget for a thinking turn: a capped 512-token plan legitimately takes 40-50 s here. */
+  thinkingTimeoutMs?: number;
 }
+
+/**
+ * A llama-server request either answers quickly or is wedged. 45 s is generous for an answer and far
+ * below the 616 s stall the eval once sat through; a thinking turn gets double because it can be
+ * 50 s of reasoning on this hardware before the answer even starts.
+ */
+export const REQUEST_TIMEOUT_MS = 45_000
+export const THINKING_TIMEOUT_MS = 90_000
 
 export interface ChatCompletionExtras {
   response_format?: unknown;
@@ -59,22 +65,59 @@ export interface ChatCompletionExtras {
 export class LlamaClient {
   constructor(private readonly o: LlamaClientOptions) {}
 
-  private async post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  private async post<T>(path: string, body: unknown, signal?: AbortSignal, timeoutMs = this.o.requestTimeoutMs ?? REQUEST_TIMEOUT_MS): Promise<T> {
+    // One retry, only for a request this client gave up on. A caller's abort is the user stopping.
+    let failure: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await this.send<T>(path, body, signal, timeoutMs)
+      } catch (error) {
+        if (signal?.aborted || !isTimeout(error)) throw error
+        failure = timeOut(timeoutMs)
+      }
+    }
+    throw failure
+  }
+
+  private async send<T>(path: string, body: unknown, signal: AbortSignal | undefined, timeoutMs: number): Promise<T> {
+    const watchdog = AbortSignal.timeout(timeoutMs)
+    const combined = signal ? AbortSignal.any([signal, watchdog]) : watchdog
     const r = await fetch(`${this.o.baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.o.apiKey}` },
       body: JSON.stringify(body),
-      signal,
+      signal: combined,
     });
     if (!r.ok) throw new Error(`llama-server ${path}: HTTP ${r.status} ${await r.text()}`);
     return (await r.json()) as T;
   }
 
   /** Raw /v1/embeddings call (llama-server L2-normalises the full vector). Use embedding.ts `Embedder`,
-   *  which adds the EmbeddingGemma 2 prefixes and does Matryoshka truncation + re-normalisation. */
+   *  which adds the Jina code embeddings prefixes and does Matryoshka truncation + re-normalisation. */
   async embed(texts: string[]): Promise<Float32Array[]> {
     const j = await this.post<{ data: { index: number; embedding: number[] }[] }>('/v1/embeddings', { input: texts, model: 'embed' });
     return j.data.sort((a, b) => a.index - b.index).map((d) => Float32Array.from(d.embedding));
+  }
+
+  /**
+   * Cross-encoder rerank scores in the order the documents were sent, from the `--reranking` sidecar.
+   * Any HTTP or shape problem throws; callers keep their RRF order rather than failing a search.
+   */
+  async rerank(query: string, documents: string[]): Promise<number[]> {
+    const j = await this.post<{ results?: { index: number; relevance_score: number }[] }>('/v1/rerank', {
+      model: 'rerank',
+      query,
+      documents,
+      top_n: documents.length,
+    });
+    const results = j.results ?? [];
+    if (results.length !== documents.length) throw new Error(`reranker returned ${results.length} scores for ${documents.length} documents`);
+    const out = new Array<number>(documents.length).fill(0);
+    for (const row of results) {
+      if (!Number.isFinite(row.relevance_score) || row.index < 0 || row.index >= documents.length) throw new Error('reranker returned a bad row');
+      out[row.index] = row.relevance_score;
+    }
+    return out;
   }
 
   private chatBody(messages: ChatMessage[], tools: readonly unknown[] | undefined, maxTokens: number, stream: boolean, extras?: ChatCompletionExtras) {
@@ -105,6 +148,7 @@ export class LlamaClient {
         ...this.chatBody(messages, tools, maxTokens, false, extras),
       },
       signal,
+      extras?.enableThinking ? this.o.thinkingTimeoutMs ?? THINKING_TIMEOUT_MS : undefined,
     );
   }
 
@@ -162,6 +206,8 @@ export class LlamaClient {
 
   /**
    * Stream a chat completion, forwarding content deltas, and return the assembled message.
+   * Qwen3.5 sends its thinking as `reasoning_content` before any content; those deltas go to
+   * `onReasoning` and are returned as `reasoning`, never mixed into the answer.
    * Tool-call deltas are collected so the caller still sees native tool_calls.
    */
   async chatCollect(
@@ -171,7 +217,8 @@ export class LlamaClient {
     maxTokens: number,
     extras: ChatCompletionExtras | undefined,
     onDelta: (text: string) => void,
-  ): Promise<{ choices: { message: ChatMessage; finish_reason: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }> {
+    onReasoning?: (text: string) => void,
+  ): Promise<{ choices: { message: ChatMessage; finish_reason: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number }; reasoning?: string }> {
     const r = await fetch(`${this.o.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.o.apiKey}` },
@@ -184,6 +231,7 @@ export class LlamaClient {
     const joiner = createStreamJoiner();
     let buf = '';
     let content = '';
+    let reasoning = '';
     let finish = 'stop';
     let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
@@ -194,13 +242,18 @@ export class LlamaClient {
       if (!data || data === '[DONE]') return;
       try {
         const json = JSON.parse(data) as {
-          choices?: { finish_reason?: string | null; delta?: { content?: string; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[]
-          usage?: { prompt_tokens?: number; completion_tokens?: number }
+          choices?: { finish_reason?: string | null; delta?: { content?: string; reasoning_content?: string; reasoning?: string; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[]
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
         };
         if (json.usage) usage = json.usage;
         const choice = json.choices?.[0];
         if (choice?.finish_reason) finish = choice.finish_reason;
         const delta = choice?.delta;
+        const thought = delta?.reasoning_content ?? delta?.reasoning;
+        if (thought) {
+          reasoning += thought;
+          onReasoning?.(thought);
+        }
         if (delta?.content) {
           const piece = joiner.pushText(delta.content);
           if (piece) {
@@ -243,12 +296,12 @@ export class LlamaClient {
       content,
       ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
     };
-    return { choices: [{ message, finish_reason: finish }], ...(usage ? { usage } : {}) };
+    return { choices: [{ message, finish_reason: finish }], ...(usage ? { usage } : {}), ...(reasoning ? { reasoning } : {}) };
   }
 
   /** Let the model call tools until it produces a final answer (bounded to avoid loops). Content tokens stream as they arrive. */
   async runWithTools(messages: ChatMessage[], tools: readonly unknown[], handlers: Record<string, ToolHandler>,
-    maxSteps = 4, signal?: AbortSignal, hooks?: { onDelta?: (text: string) => void; maxTokens?: number; cachePrompt?: boolean }): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[]; finishReason: string; usage?: { prompt_tokens: number; completion_tokens: number } }> {
+    maxSteps = 4, signal?: AbortSignal, hooks?: { onDelta?: (text: string) => void; onReasoning?: (text: string) => void; maxTokens?: number; cachePrompt?: boolean }): Promise<{ answer: string; messages: ChatMessage[]; toolCalls: ToolCall[]; finishReason: string; usage?: { prompt_tokens: number; completion_tokens: number } }> {
     const msgs = [...messages];
     const used: ToolCall[] = [];
     let promptTokens = 0;
@@ -256,7 +309,7 @@ export class LlamaClient {
     let sawUsage = false;
     let finishReason = 'stop';
     for (let step = 0; step < maxSteps; step++) {
-      const res = await this.chatCollect(msgs, tools, signal, hooks?.maxTokens ?? 1024, hooks?.cachePrompt ? { cachePrompt: true } : undefined, (piece) => hooks?.onDelta?.(piece));
+      const res = await this.chatCollect(msgs, tools, signal, hooks?.maxTokens ?? 1024, hooks?.cachePrompt ? { cachePrompt: true } : undefined, (piece) => hooks?.onDelta?.(piece), hooks?.onReasoning);
       if (res.usage) {
         sawUsage = true;
         promptTokens += res.usage.prompt_tokens ?? 0;
@@ -296,6 +349,17 @@ export class LlamaClient {
       ...(sawUsage ? { usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens } } : {}),
     };
   }
+}
+
+/** A fetch this client cancelled itself, either as a TimeoutError or as its own AbortError. */
+function isTimeout(error: unknown): boolean {
+  const name = (error as {name?: string} | null)?.name
+  return name === 'TimeoutError' || name === 'AbortError'
+}
+
+function timeOut(ms: number): Error {
+  const budget = ms >= 1000 ? `${Math.round(ms / 1000)} s` : `${ms} ms`
+  return new Error(`llama-server request timed out after ${budget}`)
 }
 
 /** Image understanding (Qwen3.5 + mmproj): images are sent as data URLs in the OpenAI format. */

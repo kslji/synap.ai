@@ -115,7 +115,7 @@ function indexLabel(pack: PackRow): string {
     const pct = pack.indexProgress == null ? 0 : Math.round(pack.indexProgress * 100)
     return `Building embeddings on this computer: ${pct}%`
   }
-  if (pack.indexState === 'off') return 'EmbeddingGemma is not downloaded, so search uses the keyword index only.'
+  if (pack.indexState === 'off') return 'Jina code embeddings is not downloaded, so search uses the keyword index only.'
   if (pack.indexState === 'blocked') return 'Embeddings wait until the pack can be opened.'
   if (pack.indexState === 'error') return 'The embedding index stopped.'
   return 'Keyword index is ready. Embeddings have not been built on this computer yet.'

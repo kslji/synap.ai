@@ -16,13 +16,13 @@ This is the **short version** (about 20 pages). It covers what you need to under
 **The core ideas**
 
 1. **Offline is the default, not a fallback.** Chat, search over your documents, packs, the calculator and login (with a 30-day grace period) all work without internet.
-2. **Private by design.** Chats and documents stay on the laptop in an encrypted database. The server never sees your prompts. Web search goes through our own private search proxy, and the laptop fetches the pages itself.
-3. **Grounded answers.** The app finds sources first and checks that they are relevant (the **relevance gate**). The model must cite them as [S1], [S2] and so on. If the sources are weak, the app shows a polite refusal (or searches the web when online).
+2. **Private by design.** Chats and documents stay on the laptop in an encrypted database. The server never sees your prompts. Nothing is fetched from the public web: an answer comes from the packs, your own documents, or the model you chose for that chat.
+3. **Grounded answers.** The app finds sources first and checks that they are relevant (the **relevance gate**). The model must cite them as [S1], [S2] and so on. If the sources are weak, the app shows a polite refusal.
 4. **Numbers are computed, not guessed.** Arithmetic and unit conversions go to a sandboxed **calculator tool**.
 5. **One small model, used carefully.** Qwen3.5 4B runs on any laptop with 8 GB of RAM or more (ADR 0004). A **token budget** keeps every request inside the model's working memory.
 6. **Same machinery for every niche.** An agent is just a signed *manifest* (prompt, tools, rules) plus signed packs. There is no new code per niche.
 
-**Why it can be built in 7 days.** Everything is TypeScript (desktop) or Python (doc conversion and server pipeline), using proven open-source parts: Electron, llama.cpp, SQLite, Postgres, SearXNG and Supabase Auth. The riskiest parts were tested in advance (section 10).
+**Why it can be built in 7 days.** Everything is TypeScript (desktop) or Python (doc conversion and server pipeline), using proven open-source parts: Electron, llama.cpp, SQLite, Postgres and Supabase Auth. The riskiest parts were tested in advance (section 10).
 
 **Jargon in one line each**
 - **Electron:** builds desktop apps with web technology (Chromium + Node.js).
@@ -66,10 +66,9 @@ This is the **short version** (about 20 pages). It covers what you need to under
   - `packs/*.sqlite`: signed, read-only knowledge packs.
   - `models/`: the downloaded model files.
 - **Online (optional).**
-  - **FastAPI** for accounts, devices, licences, search proxy, pack and agent catalogue.
+  - **FastAPI** for accounts, devices, licences, and the pack and agent catalogue.
   - **Postgres + pgvector** for the server data and corpus.
-  - **SearXNG**, a private meta-search engine.
-  - All three run in Docker Compose on one GCP VM behind Caddy (HTTPS).
+  - They run in Docker Compose on one GCP VM behind Caddy (HTTPS).
   - **Supabase Auth** handles login.
   - Packs live on **Cloudflare R2** (or Google Cloud Storage), installers on **GitHub Releases**, and models are downloaded straight from **Hugging Face**.
 
@@ -77,7 +76,7 @@ This is the **short version** (about 20 pages). It covers what you need to under
 
 1. **Offline chat:** UI → main process → retrieve → gate → token budget → local model → answer with citations.
 2. **Attachment:** a file is copied in, the doc-worker extracts text, then it is chunked, embedded and indexed in `user.db`.
-3. **Online answer:** if the gate fails and you are online and web search is allowed, the laptop asks official public sources, then DuckDuckGo lite only if those return nothing. Pages are fetched and cleaned on the device. See `docs/STEP-10.md`. SearXNG stays in the API for the eval fixture.
+3. **Online answer:** if the gate fails and you put the chat on Online, the turn goes to the gateway model instead of the local sidecar. It answers from what that turn sends it. There is no web search step.
 4. **Pack update:** check every 6 hours, download, verify the Ed25519 signature and SHA-256 checksums, then swap the files in one step. The same works from a USB stick.
 5. **Login:** done once online in the system browser (PKCE). The app then holds a signed device licence valid for 30 days offline.
 6. **App update:** electron-updater uses GitHub Releases. Offline, use "Install update from file…" with a signed installer.
@@ -101,7 +100,6 @@ This is the **short version** (about 20 pages). It covers what you need to under
 | Hardware detection | Node `os` + **systeminformation** | RAM, CPU, GPU, then a tier. |
 | Backend API | **FastAPI** (Python) | Simple, typed, shares code with the pipeline. |
 | Server database | **Postgres 17 + pgvector** (Docker on the VM) | Users, devices, sources, corpus, packs, agents, evals. |
-| Web search | Laptop connectors, then DuckDuckGo lite. SearXNG stays in the API for the eval fixture. | No search API key. Production search does not call our backend. |
 | Hosting | **GCP e2-medium VM** in Mumbai (`asia-south1`), Docker Compose + Caddy | Paid for by the $300 free trial for about 3 months. |
 | Login | **Supabase Auth** (free tier, 50,000 monthly active users) | Email OTP + Google; we don't store passwords. |
 | File hosting | **GitHub Releases** (installers), **Hugging Face** (models), **Cloudflare R2** or **GCS** (packs) | Free, or close to free. R2 has no download (egress) fees. |
@@ -139,13 +137,13 @@ flowchart TD
   U["User message from the UI (IPC, checked with zod)<br/>Load agent manifest + history<br/>Obvious maths or units? Pre-compute with the calculator, add as a fact"] --> S["Embed question (EmbeddingGemma 2, 256-d), then hybrid search:<br/>FTS5 keywords + sqlite-vec vectors, merged by RRF, over user.db + packs"]
   S --> G{{"Relevance gate: similarity + keyword coverage"}}
   G -->|"borderline"| Y{{"Ask model YES/NO: do sources answer it?"}}
-  G -->|"weak"| W{{"Online and web allowed?"}}
+  G -->|"weak"| W{{"Is this chat on Online?"}}
   Y -->|"NO"| W
   W -->|"no"| R["Refusal template<br/>(no model call)"]
-  W -->|"yes"| WS["SearXNG via our API,<br/>fetch + clean pages on the laptop"]
+  W -->|"yes"| WS["Gateway model takes the turn<br/>(what you sent, plus context the chat consented to)"]
   G -->|"strong"| B["Token budget allocator: count with /tokenize<br/>top 3-5 chunks, summary + last 3-4 turns, reserve answer space"]
   Y -->|"YES"| B
-  WS --> B
+  WS --> V
   B --> M["llama-server with Qwen3.5<br/>thinking off, cached stable system prompt"]
   M -->|"tool call"| CW["calculator / unit_convert<br/>mathjs in a worker thread<br/>1 s timeout, no file or network access"]
   CW -->|"result back, max 4 steps"| M
@@ -226,7 +224,6 @@ Full table definitions are in `code-samples/local_user_db.sql`, `pack_db.sql` an
 | Universal Table (the corpus) | `documents` (doc_uid, version, is_current, url, title, text, lang, quality, tags), `chunks` (document_id, ord, text, token_count), `chunk_embeddings` (chunk_id, embedding_model_id, embedding vector(256)), `embedding_models` |
 | Packs | `packs` (niche_id, title, target_size_mb), `pack_versions` (version, embedding_model_id, chunk_count, manifest, signature, eval_run_id), `pack_files` (role, size_bytes, sha256), `pack_deltas`, `device_pack_installs` |
 | Agents & evaluation | `agents`, `agent_versions` (manifest, signature, base_model_req, required_packs), `tools`, `agent_tools`, `eval_sets`, `eval_items`, `eval_runs` (metrics, thresholds), `eval_results`, `training_examples` (consent required) |
-| Search | `search_requests` (no query text stored), `search_quota_daily` (device_id, day, count) |
 
 ---
 
@@ -323,10 +320,10 @@ Example: `code-samples/marine-engineer.agent.yaml`.
 
 | What | Where | Cost |
 |---|---|---|
-| API + Postgres/pgvector + SearXNG + Caddy (Docker Compose) | 1 × **e2-medium** VM (2 vCPU, 4 GB), Mumbai | ~$29/month* |
+| API + Postgres/pgvector + Valkey + Caddy (Docker Compose) | 1 × **e2-medium** VM (2 vCPU, 4 GB), Mumbai | ~$29/month* |
 | Disk | 50 GB balanced persistent disk | ~$5/month |
 | Public IP | 1 static IPv4 | $3.65/month |
-| Network egress | API JSON + search results | ~$1–5/month |
+| Network egress | API JSON + pack metadata | ~$1–5/month |
 | Bigger VM for monthly pack builds (a few hours, then deleted) | e2-standard-4 | ~$3–4/month |
 | Installers | GitHub Releases (public repo) | free |
 | Models | Hugging Face (direct download) | free |
@@ -389,12 +386,11 @@ Example: `code-samples/marine-engineer.agent.yaml`.
 - [ ] Hybrid search + relevance gate + refusal; source cards.
 - [ ] **Done when:** a 50-page PDF is searchable in under 2 minutes; an off-topic question gets a polite refusal.
 
-**Day 4: tools, server and web search.** *Goal: computed numbers; fresh answers online.*
+**Day 4: tools and the backend.** *Goal: computed numbers; an online turn that talks to our API.*
 - [ ] `calculator` + `unit_convert` (mathjs worker), up to 4 tool steps, logged in `tool_runs`.
-- [ ] GCP VM: Caddy + FastAPI + Postgres/pgvector + SearXNG; `/v1/search` with no query logging.
-- [ ] Web fallback: fetch and clean pages on the laptop; "From the web" label.
+- [ ] GCP VM: Caddy + FastAPI + Postgres/pgvector + Valkey; the gateway answers an online turn and stores no reply text.
 - [ ] *Stretch:* image understanding with `--mmproj`.
-- [ ] **Done when:** "35 knots in km/h" uses the tool; current events are answered online and refused offline.
+- [ ] **Done when:** "35 knots in km/h" uses the tool; an Online chat gets its answer from the gateway model and an Offline chat refuses what the packs cannot answer.
 
 **Day 5: login and packs.** *Goal: login never blocks offline use; packs are verifiable.*
 - [ ] Supabase Auth (email OTP + Google) through the system browser and `surf://` deep link; our device licence (Ed25519, 30-day grace).
@@ -449,7 +445,7 @@ curl -s localhost/v1/health
 | Install + type check + build (Electron 44.7, electron-vite 5, React 19, TS 5.9) | clean; 12 s install from lockfile |
 | Self-test **inside Electron** and inside the **packaged AppImage** (`npmRebuild: false`) | 7/7: SQLCipher + sqlite-vec + FTS5, calculator worker, EmbeddingGemma 2 sidecar (256-d), Qwen3.5 chat sidecar, sandboxed window with no Node |
 | Core test runner (`code-samples/ts`) | 8/8: DB, pack signatures, retrieval + gate, tool calls + vision, token counts, resumable download |
-| Docker backend (Caddy, FastAPI, Postgres 17 + pgvector 0.8.7, Valkey, SearXNG) | health ok; real web results in 2.7 s; 401 without login; 429 after 10/min; no query text stored |
+| Docker backend (Caddy, FastAPI, Postgres 17 + pgvector 0.8.7, Valkey) | health ok; 401 without login; 429 after 10/min; no prompt text stored |
 | EmbeddingGemma 2 in llama.cpp vs the reference library | cosine ≥ 0.999 |
 
 **Not verified yet (needs a Mac and a Windows PC — checklist in `IMPLEMENTATION.md` §9):** `.dmg`/NSIS installers, safeStorage with a real keychain, Metal/Vulkan speed, Qwen3.5-4B/9B speed and memory, Gatekeeper/SmartScreen with unsigned builds, auto-update.
@@ -478,7 +474,6 @@ Interview material (HLD, LLD, sequences, cheat sheet): **`HLD-LLD.pdf`**.
 | Embeddings | <https://huggingface.co/google/embeddinggemma-2> · GGUF <https://huggingface.co/unsloth/embeddinggemma-2-GGUF> |
 | Doc conversion / OCR | <https://github.com/microsoft/markitdown> · <https://github.com/RapidAI/RapidOCR> |
 | Backend | <https://fastapi.tiangolo.com/> · <https://github.com/pgvector/pgvector> |
-| Web search | <https://docs.searxng.org/admin/installation-docker.html> |
 | Auth | <https://supabase.com/docs/guides/auth/sessions/pkce-flow> |
 | Pipeline | <https://commoncrawl.org/get-started> · <https://github.com/huggingface/datatrove> |
 | Evaluation | <https://docs.ragas.io/en/stable/getstarted/> |

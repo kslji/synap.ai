@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -18,7 +18,9 @@ import { CodeModeBar, CodeTrace } from '../../renderer/src/screens/CodeTrace.js'
 import { heuristicCounter } from './token-budget.js'
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'surf-mode-'))
+  // realpath: on macOS tmpdir() is /var/folders/... (a symlink to /private/var/...).
+  // Patch paths stay project-relative now, but keep the root real so fs checks match.
+  return realpathSync(mkdtempSync(join(tmpdir(), 'surf-mode-')))
 }
 
 function gate(partial: Partial<ApprovalContext> = {}): ApprovalContext {
@@ -106,13 +108,16 @@ test('ask mode does not write or run until the user allows it', async () => {
   const file = join(root, 'src', 'a.ts')
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(file, 'export const n = 1\n')
+  writeFileSync(join(root, 'src', 'b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
   const ran: string[] = []
   let sawWrite = false
+  const editTurn = { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
+  const complete = async (req: CompletionRequest): Promise<ModelTurn> => text(req).includes('Kind: plan')
+    ? { content: JSON.stringify({ steps: [{ id: 's1', goal: 'bump n', files: ['src/a.ts'], symbols: [], depends_on: [], check: { kind: 'typecheck', command: '' }, create: false }] }) }
+    : editTurn
   try {
-    const denied = await runSplitTask('Fix the typo in src/a.ts', host(root, async () => ({
-      content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }),
-    }), async (command) => {
+    const denied = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', host(root, complete, async (command) => {
       ran.push(command)
       return { ok: true, output: 'ok' }
     }, async () => {
@@ -124,9 +129,7 @@ test('ask mode does not write or run until the user allows it', async () => {
     assert.equal(readFileSync(file, 'utf8'), 'export const n = 1\n')
     assert.deepEqual(ran, [])
 
-    const allowed = await runSplitTask('Fix the typo in src/a.ts', host(root, async () => ({
-      content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }),
-    }), async () => ({ ok: true, output: 'ok' }), async (request) => {
+    const allowed = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', host(root, complete, async () => ({ ok: true, output: 'ok' }), async (request) => {
       if (request.kind === 'edit') assert.equal(readFileSync(file, 'utf8'), 'export const n = 1\n')
       return { allow: true }
     }))
@@ -142,11 +145,12 @@ test('auto runs an allow-listed check and pauses before an install', async () =>
   const file = join(root, 'src', 'a.ts')
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(file, 'export const n = 1\n')
+  writeFileSync(join(root, 'src', 'b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }))
   const ran: string[] = []
   const asked: string[] = []
   try {
-    const result = await runSplitTask('Fix the typo in src/a.ts and keep the test', {
+    const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', {
       ...host(root, async (req) => {
         const user = text(req)
         if (user.includes('Kind: plan')) {
@@ -182,7 +186,7 @@ test('stop keeps the finished step undoable and undo all restores the start', as
   const ac = new AbortController()
   let asks = 0
   try {
-    const result = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts', {
+    const result = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts, and leave package.json alone', {
       ...host(root, async (req) => {
         const user = text(req)
         if (user.includes('Kind: plan')) {
@@ -287,6 +291,46 @@ test('accept all applies later edits and still asks before a command', async () 
     assert.deepEqual(asked, ['edit', 'command'])
     assert.equal(readFileSync(join(root, 'a.txt'), 'utf8'), 'three\n')
     assert.deepEqual(ran, ['npm test'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a finish that skipped a file the request named is sent back once', async () => {
+  const root = tempDir()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/a.ts'), 'export const a = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const b = 1\n')
+  const requests: string[] = []
+  let turn = 0
+  try {
+    const result = await runCodeAgent('Bump the constants in src/a.ts and src/b.ts to 2', {
+      root,
+      rules: '',
+      counter: heuristicCounter,
+      promptBudget: 2000,
+      searchBudget: 200,
+      answerTokens: 200,
+      mode: 'auto',
+      search: { async context() { return { snippets: [], files: [], tokens: 0, dropped: 0 } } },
+      async complete(req) {
+        requests.push(req.messages.map((message) => String(message.content ?? '')).join('\n'))
+        turn += 1
+        if (turn === 1) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/a.ts', old: 'a = 1', new: 'a = 2' } }) }
+        if (turn === 2) return { content: '{"tool":"finish","arguments":{"summary":"Bumped both."}}' }
+        if (turn === 3) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/b.ts', old: 'b = 1', new: 'b = 2' } }) }
+        return { content: '{"tool":"finish","arguments":{"summary":"Bumped both."}}' }
+      },
+      async ask() { return { allow: true } },
+      async runCommand() { return { ok: true, output: '' } },
+    })
+    assert.equal(turn, 4)
+    assert.equal(result.stopped, 'finish')
+    // The refused finish names the file that nothing touched.
+    assert.match(requests[2] ?? '', /src\/b\.ts/)
+    assert.match(requests[2] ?? '', /nothing was changed there/)
+    assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const a = 2\n')
+    assert.equal(readFileSync(join(root, 'src/b.ts'), 'utf8'), 'export const b = 2\n')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

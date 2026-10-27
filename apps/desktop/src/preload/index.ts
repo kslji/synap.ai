@@ -14,12 +14,19 @@ const api: SurfApi = {
   chat: {
     send: (req) => ipcRenderer.invoke(IPC.chatSend, req),
     cancel: (id) => ipcRenderer.invoke(IPC.chatCancel, id),
+    getConsent: (conversationId) => ipcRenderer.invoke(IPC.chatConsentGet, { conversationId }),
+    setConsent: (req) => ipcRenderer.invoke(IPC.chatConsentSet, req),
+    onlineModels: () => ipcRenderer.invoke(IPC.chatOnlineModels),
+    onlineBalance: () => ipcRenderer.invoke(IPC.chatOnlineBalance),
+    setOnlineModel: (modelId) => ipcRenderer.invoke(IPC.chatSetOnlineModel, modelId),
+    openTopUp: () => ipcRenderer.invoke(IPC.chatOpenTopUp),
     onEvent: (cb) => subscribe<ChatEvent>(IPC.chatEvent, cb),
   },
   models: {
     status: () => ipcRenderer.invoke(IPC.modelsStatus),
     download: (id) => ipcRenderer.invoke(IPC.modelsDownload, id),
     benchmark: (id) => ipcRenderer.invoke(IPC.modelsBenchmark, id),
+    remove: (id) => ipcRenderer.invoke(IPC.modelsRemove, id),
     onEvent: (cb) => subscribe<ModelEvent>(IPC.modelsEvent, cb),
   },
   setup: {
@@ -67,10 +74,6 @@ const api: SurfApi = {
     open: (id) => ipcRenderer.invoke(IPC.conversationsOpen, id),
     remove: (id) => ipcRenderer.invoke(IPC.conversationsDelete, id),
   },
-  webCache: {
-    status: () => ipcRenderer.invoke(IPC.webCacheStatus),
-    clear: () => ipcRenderer.invoke(IPC.webCacheClear),
-  },
   usage: {
     get: () => ipcRenderer.invoke(IPC.usageGet),
     reset: () => ipcRenderer.invoke(IPC.usageReset),
@@ -104,9 +107,6 @@ const api: SurfApi = {
     mode: () => ipcRenderer.invoke(IPC.codeAgentMode),
     setMode: (req) => ipcRenderer.invoke(IPC.codeAgentSetMode, req),
   },
-  devWeb: {
-    run: (req) => ipcRenderer.invoke(IPC.devWebRun, req),
-  },
   documents: {
     pick: (title) => ipcRenderer.invoke(IPC.documentsPick, title),
     convert: (input, format) => ipcRenderer.invoke(IPC.documentsConvert, { ...input, format }),
@@ -120,6 +120,9 @@ const api: SurfApi = {
     status: () => ipcRenderer.invoke(IPC.codeStatus),
     storage: () => ipcRenderer.invoke(IPC.codeStorage),
     onEvent: (cb) => subscribe<CodeProjectStatus>(IPC.codeEvent, cb),
+  },
+codeIde: {
+    launch: (root: string) => ipcRenderer.invoke(IPC.codeIdeLaunch, root),
   },
   codeComplete: {
     suggest: (req) => ipcRenderer.invoke(IPC.codeCompleteSuggest, req),

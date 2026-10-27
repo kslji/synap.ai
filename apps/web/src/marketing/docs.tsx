@@ -62,7 +62,7 @@ export function DocsPage() {
           <section id="model" aria-labelledby="model-title">
             <h2 id="model-title" className="text-2xl font-semibold">The model</h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">
-              After you install, the first open downloads Qwen 4B, one model that works on any laptop with 8 GB of memory or more. There is no size to pick. The search model, about 310 MB, downloads with it. If that Qwen file is already in Downloads and the check matches, the app offers to use it. An offline installer already includes both files, checks them, and copies them into the app. No download on that first open.
+              After you install, the first open downloads Qwen 2B, one model that works on any laptop with 8 GB of memory or more. The search model, about 310 MB, downloads with it. There is nothing to pick first. Qwen 4B is optional and more accurate: a larger download you choose later. If that Qwen file is already in Downloads and the check matches, the app offers to use it. An offline installer already includes both files, checks them, and copies them into the app. No download on that first open.
             </p>
             <p className="mt-3"><a href="/#download">Go to the download</a></p>
           </section>

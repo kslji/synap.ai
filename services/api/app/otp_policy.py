@@ -1,8 +1,8 @@
-"""OTP rules shared with apps/host.
+"""OTP policy: the single set of code rules the API applies to sign-in.
 
-The host in apps/host is the owner's login service (argon2, five tries, one-time
-consume). This module is that policy with no database and no HTTP types, so the
-desktop API can apply the same checks. The host calls these functions too.
+argon2 hashing, five tries, one-time consume. This module has no database and
+no HTTP types so any caller can apply the same checks. (It was originally
+shared with the legacy apps/host service; that host has been removed.)
 """
 from __future__ import annotations
 

@@ -12,6 +12,11 @@ log = logging.getLogger("surf.gateway.preflight")
 # Safety buffer multiplier to absorb tokenizer discrepancies
 SAFETY_BUFFER = Decimal("1.15")
 
+# Ceiling for a zero-priced model. A 0 output price must not translate into "generate
+# up to the entire context window": Surf bills paid models only, so a 0-priced row is
+# an anomaly and we cap its output instead of trusting the free branch.
+ZERO_PRICE_MAX_OUTPUT_TOKENS = 4096
+
 
 class PreFlightError(Exception):
     """Base exception for pre-flight failures."""
@@ -78,8 +83,10 @@ def calculate_max_tokens(
         Maximum tokens the user can afford
     """
     if output_price_per_million <= Decimal("0"):
-        # Free model or invalid pricing; use context window or a default
-        return context_window if context_window else 4096
+        # A paid gateway should never bill a 0-output-price model. Cap its output at a
+        # safe ceiling rather than handing back the whole context window (the old
+        # behaviour, which let a mispriced row trigger an enormous un-metered reply).
+        return min(ZERO_PRICE_MAX_OUTPUT_TOKENS, context_window or ZERO_PRICE_MAX_OUTPUT_TOKENS)
     
     remaining_budget = balance - estimated_input_cost
     if remaining_budget <= Decimal("0"):

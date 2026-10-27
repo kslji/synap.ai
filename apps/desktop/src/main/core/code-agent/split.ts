@@ -2,9 +2,12 @@
  * Step 4: triage, plan, validate, then run each step with a checkpoint and a failure ladder.
  * Counts, ordering, checks, and the model suggestion stay in code.
  */
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { CodeDiagnosticView, CodeDiffView, CodePlanView, CodeStepView } from '../../../shared/ipc-contract.js'
 import { takeOutputUpdate } from '../../../shared/stream-batch.js'
 import type { ChatMessage } from '../llama-client.js'
+import { thinkingFor } from '../thinking.js'
 import { commandScript, fullTestCommand, resolveCheck } from './checks.js'
 import { captureCheckpoint, extendCheckpoint, restoreCheckpoint, type Checkpoint } from './checkpoint.js'
 import { parseCommandDiagnostics, type Diagnostic } from './diagnostics.js'
@@ -29,8 +32,10 @@ import {
   applyPlanEdit,
   dependentSteps,
   mentionedPaths,
+  missingTargets,
   patchResponseFormat,
   planResponseFormat,
+  routeTask,
   targetFiles,
   triageTask,
   validatePlan,
@@ -126,25 +131,22 @@ async function runSplitBody(
 ): Promise<SplitResult> {
   const kind = triageTask(task, host.facts.files)
   const grounded = host.reference ? `${task.trim()}\n\n${host.reference}` : task
-  if (kind === 'chat') {
-    const result = await runCodeAgent(grounded, { ...host, mode: session.mode, commandAllowlist: session.allowlist }, history)
-    return {
-      answer: result.answer,
-      kind,
-      steps: result.steps,
-      diffs: result.diffs,
-      plan: null,
-      checkpoints: [],
-      suggestion: null,
-      stopped: result.stopped === 'finish' ? 'finish' : 'failed',
-      attempts: [],
-    }
+  // A task that names one or two files and at most two symbols is cheaper and surer in the loop: one
+  // edit and one finish, with a finish that is refused when a named file was never touched. A new
+  // file, three or more files, or more than two symbols keeps the checklist.
+  if (kind === 'chat' || routeTask(task, host.facts) === 'loop') {
+    return await runInLoop(grounded, kind, host, history, session)
   }
 
-  const planned = kind === 'edit'
-    ? { ok: true as const, steps: [singleStep(task, host.facts)] }
-    : await plannedSteps(task, host)
-  if (!planned.ok) return empty(kind, planned.message, 'failed')
+  const planned = await plannedSteps(task, host)
+  if (!planned.ok) {
+    // A 2B that cannot write a checklist can still make the change. The run is not thrown away.
+    const fallback = await runInLoop(grounded, kind, host, history, session)
+    return {
+      ...fallback,
+      answer: [fallback.answer, `I could not split that task into steps (${oneLine(planned.message)}), so I made the change in one pass.`].join('\n\n'),
+    }
+  }
   let runnable = planned.steps
   if (session.mode !== 'auto' && host.reviewPlan) {
     host.onPlan?.(toPlanView(runnable, 'review'))
@@ -172,22 +174,78 @@ async function runSplitBody(
       attempts: executed.attempts,
     }
   }
-  const suite = executed.ok ? await runSuite(host, session, executed.views) : null
+  let done = executed.done
+  let views = executed.views
+  let diffs = executed.diffs
+  let attempts = executed.attempts
+  let ok = executed.ok
+  // The skipped second file, or the new file the task asked for, is the failure a small model makes
+  // most often. One continuation step names it before the run is called finished.
+  const fresh = mentionedPaths(task, host.facts.files).filter((file) => !existsSync(join(host.root, file)))
+  const missing = ok ? missingTargets(runnable, diffs, host.facts, fresh) : []
+  if (missing.length) {
+    const step = continuationStep(missing, host)
+    host.onPlan?.(toPlanView([...runnable, step], 'running'))
+    const more = await executeSteps([step], host, false, session)
+    done = [...done, ...more.done]
+    views = [...views, ...more.views]
+    diffs = [...diffs, ...more.diffs]
+    attempts = [...attempts, ...more.attempts]
+    ok = more.ok
+  }
+  const suite = ok ? await runSuite(host, session, views) : null
   throwIfAborted(host.signal)
-  const suggestion = executed.ok ? null : suggest(host)
-  const answer = summarize(executed.done, suite, suggestion, executed.attempts.some((item) => item.replanned))
-  const plan = donePlan(executed.done)
+  const suggestion = ok ? null : suggest(host)
+  const answer = summarize(done, suite, suggestion, attempts.some((item) => item.replanned))
+  const plan = donePlan(done)
   host.onPlan?.(plan)
   return {
     answer,
     kind,
-    steps: executed.views,
-    diffs: executed.diffs,
+    steps: views,
+    diffs,
     plan,
-    checkpoints: checkpointsOf(executed.done),
+    checkpoints: checkpointsOf(done),
     suggestion,
-    stopped: executed.ok ? 'finish' : 'failed',
-    attempts: executed.attempts,
+    stopped: ok ? 'finish' : 'failed',
+    attempts,
+  }
+}
+
+/** The tool loop, and the result shape the split runner hands back for it. */
+async function runInLoop(
+  task: string,
+  kind: TriageKind,
+  host: SplitHost,
+  history: { user: string; assistant: string }[],
+  session: GateSession,
+): Promise<SplitResult> {
+  const result = await runCodeAgent(task, { ...host, mode: session.mode, commandAllowlist: session.allowlist }, history)
+  return {
+    answer: result.answer,
+    kind,
+    steps: result.steps,
+    diffs: result.diffs,
+    plan: null,
+    checkpoints: [],
+    suggestion: null,
+    stopped: result.stopped === 'finish' ? 'finish' : 'failed',
+    attempts: [],
+  }
+}
+
+/** One step that names the files the run never wrote, so the model can finish what it started. */
+function continuationStep(missing: readonly string[], host: SplitHost): PlanStep {
+  const files = missing.slice(0, 4)
+  const fresh = files.filter((file) => !existsSync(join(host.root, file)))
+  return {
+    id: 'continuation',
+    goal: `The task also asked for ${files.join(', ')}, and no step changed ${files.length === 1 ? 'it' : 'them'}. Make that change now.`,
+    files: [...files],
+    symbols: [],
+    depends_on: [],
+    check: { kind: 'typecheck', command: '' },
+    create: fresh.length > 0,
   }
 }
 
@@ -254,25 +312,23 @@ export async function executeSteps(steps: PlanStep[], host: SplitHost, allowRepl
 }
 
 async function plannedSteps(task: string, host: SplitHost): Promise<{ ok: true; steps: PlanStep[] } | { ok: false; message: string }> {
-  let feedback = ''
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    throwIfAborted(host.signal)
-    const turn = await host.complete({
-      messages: [
-        { role: 'system', content: PLAN_SYSTEM },
-        { role: 'user', content: planPrompt(task, host, feedback, attempt) },
-      ],
-      responseFormat: planResponseFormat(),
-      thinking: true,
-      stepKind: 'plan',
-      maxTokens: host.answerTokens,
-      signal: host.signal,
-    })
-    const validated = validatePlan(readJson(turn), host.facts)
-    if (validated.ok) return validated
-    feedback = validated.message
-  }
-  return { ok: false, message: feedback || 'I could not make a valid checklist for that task.' }
+  throwIfAborted(host.signal)
+  // One attempt. A rejected checklist costs a whole thinking pass - 40 to 51 s measured on the 2B -
+  // and the two retries never turned a rejection into a valid plan. The caller makes the change in
+  // the loop instead, which is cheaper and surer than asking a third time.
+  const turn = await host.complete({
+    messages: [
+      { role: 'system', content: PLAN_SYSTEM },
+      { role: 'user', content: planPrompt(task, host, '', 1) },
+    ],
+    responseFormat: planResponseFormat(),
+    thinking: thinkingFor('plan'),
+    stepKind: 'plan',
+    maxTokens: host.answerTokens,
+    signal: host.signal,
+  })
+  const validated = validatePlan(readJson(turn), host.facts)
+  return validated.ok ? validated : { ok: false, message: validated.message }
 }
 
 async function replan(note: string, _group: PlanStep[], host: SplitHost): Promise<PlanStep[] | null> {
@@ -285,7 +341,7 @@ async function replan(note: string, _group: PlanStep[], host: SplitHost): Promis
         { role: 'user', content: planPrompt(note, host, feedback, attempt).replace('Kind: plan', 'Kind: replan') },
       ],
       responseFormat: planResponseFormat(),
-      thinking: true,
+      thinking: thinkingFor('plan'),
       stepKind: 'plan',
       maxTokens: host.answerTokens,
       signal: host.signal,
@@ -321,7 +377,7 @@ async function runLadder(
   try {
     await ensureBaseline(resolveCheck(host.root, step.check).command, host, session, views)
     for (let attempt = 1; attempt <= STEP_RETRIES; attempt++) {
-      const result = await tryOnce(step, host, state, views, diffs, session, { attempt, candidate: 0, error, thinking: attempt > 1 })
+      const result = await tryOnce(step, host, state, views, diffs, session, { attempt, candidate: 0, error, thinking: attempt > 1 ? thinkingFor('fix') : thinkingFor('edit-step') })
       lastReport = result.report ?? lastReport
       if (result.halted) return finish(false, result.detail, attempt, 0, result.halted, state.wrote)
       if (result.ok) return finish(true, result.detail, attempt, 0, null, state.wrote)
@@ -329,7 +385,7 @@ async function runLadder(
       rememberFocus(session, result.report)
     }
     for (let candidate = 1; candidate <= STEP_CANDIDATES; candidate++) {
-      const result = await tryOnce(step, host, state, views, diffs, session, { attempt: STEP_RETRIES, candidate, error, thinking: true })
+      const result = await tryOnce(step, host, state, views, diffs, session, { attempt: STEP_RETRIES, candidate, error, thinking: thinkingFor('fix') })
       lastReport = result.report ?? lastReport
       if (result.halted) return finish(false, result.detail, STEP_RETRIES, candidate, result.halted, state.wrote)
       if (result.ok) return finish(true, result.detail, STEP_RETRIES, candidate, null, state.wrote)
@@ -706,20 +762,6 @@ export function summarize(
   if (suggestion) lines.push(suggestionSentence(suggestion))
   if (!lines.length) return 'Nothing was changed.'
   return lines.join('\n')
-}
-
-function singleStep(task: string, facts: PlanFacts): PlanStep {
-  const files = mentionedPaths(task, facts.files).slice(0, 1)
-  const kind = /\blint\b/i.test(task) ? 'lint' : /\btest\b/i.test(task) ? 'test' : 'typecheck'
-  return {
-    id: 'edit',
-    goal: task.trim(),
-    files,
-    symbols: [],
-    depends_on: [],
-    check: { kind, command: '' },
-    create: /\b(new file|create file|add a file|add file)\b/i.test(task),
-  }
 }
 
 function planPrompt(task: string, host: SplitHost, feedback: string, attempt: number): string {

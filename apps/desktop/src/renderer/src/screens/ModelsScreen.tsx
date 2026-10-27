@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import type { CatalogModel, ModelStatus } from '../../../shared/ipc-contract'
-import { friendlyModelName, servesAgent } from '../../../shared/model-label'
+import { friendlyModelName, modelMarkLabel, servesAgent } from '../../../shared/model-label'
+import { formatIndexBytes } from '../format'
 
 /** Chat rows for an agent. The registry holds one generic chat model, shared by every agent. */
 export function chatModels(status: ModelStatus, agentId = 'general'): CatalogModel[] {
@@ -18,32 +20,71 @@ export function activeCodeModel(status: ModelStatus): CatalogModel | undefined {
     ?? chatModels(status, 'code')[0]
 }
 
-export function ModelsScreen({ status }: { status: ModelStatus }) {
+export function ModelsScreen({ status, onRefresh }: { status: ModelStatus; onRefresh?: () => void }) {
   return (
     <section className="flex-1 overflow-auto px-8 py-8" data-screen="models">
       <div className="mx-auto flex max-w-xl flex-col gap-8">
-        <ModelPanel status={status} chats={chatModels(status)} />
+        <ModelPanel status={status} chats={chatModels(status)} onRefresh={onRefresh} />
       </div>
     </section>
   )
 }
 
-export function ModelPanel({ status, chats }: { status: ModelStatus; chats: CatalogModel[] }) {
-  const installed = chats.filter((model) => model.installed)
+export function ModelPanel({ status, chats, onRefresh }: { status: ModelStatus; chats: CatalogModel[]; onRefresh?: () => void }) {
+  const [busy, setBusy] = useState('')
+  const [note, setNote] = useState('')
+  const recommended = chats.find((model) => model.defaultFor.includes('*')) ?? chats.find((model) => model.recommended) ?? chats[0]
+  if (!recommended) return null
+  const act = (model: CatalogModel, run: Promise<unknown>, doing: string) => {
+    setBusy(model.id)
+    setNote('')
+    void run.then(() => {
+      setNote(doing === 'remove' ? `${shownName(model)} deleted.` : `${shownName(model)} is on this computer.`)
+      onRefresh?.()
+    }).catch((error: unknown) => setNote((error as Error).message)).finally(() => setBusy(''))
+  }
   return (
     <div data-model-panel="yes">
       <h2 className="text-lg font-semibold tracking-tight">Model</h2>
-      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">One model for every agent. It needs 8 GB of memory.</p>
-      {installed.length > 0 && (
-        <ul className="mt-4 flex flex-col gap-2">
-          {installed.map((model) => (
-            <li key={model.id} className="card px-4 py-3" data-installed-model={model.id}>
-              <div className="text-sm font-semibold">{shownName(model)}, on this computer</div>
-              <div className="text-xs text-[var(--muted)]" data-model-speed={model.id}>{speedLine(status, model)}</div>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">Qwen 2B is the default for every agent and needs 8 GB of memory. Qwen 4B is optional, larger, and more accurate. Gemma 4 E2B is a second family you can pick instead. Nothing downloads until you ask.</p>
+      <ul className="mt-4 flex flex-col gap-2">
+        {chats.map((model) => {
+          const isDefault = model.id === recommended.id
+          return (
+            <li key={model.id} className="card px-4 py-3" data-model-choice={model.id} data-model-default={isDefault ? 'yes' : 'no'} data-installed-model={model.installed ? model.id : undefined}>
+              <div className="text-sm font-semibold">
+                {shownName(model)}
+                {' · '}
+                <span data-model-mark={model.id}>{modelMarkLabel(model.id, isDefault)}</span>
+              </div>
+              <div className="text-xs text-[var(--muted)]" data-model-size={model.id}>
+                {formatIndexBytes(model.sizeBytes)} · needs {model.minRamGb} GB memory · {model.installed ? 'on this computer' : 'not downloaded'}
+              </div>
+              {model.installed && <div className="text-xs text-[var(--muted)]" data-model-speed={model.id}>{speedLine(status, model)}</div>}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {model.installed ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    data-remove-model={model.id}
+                    disabled={busy === model.id}
+                    onClick={() => act(model, window.surf.models.remove(model.id), 'remove')}
+                  >Delete</button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    data-download-model={model.id}
+                    disabled={busy === model.id || !model.fitsRam}
+                    onClick={() => act(model, window.surf.models.download(model.id), 'download')}
+                  >Download</button>
+                )}
+              </div>
             </li>
-          ))}
-        </ul>
-      )}
+          )
+        })}
+      </ul>
+      {note && <p className="mt-2 text-xs" data-model-note="yes">{note}</p>}
     </div>
   )
 }

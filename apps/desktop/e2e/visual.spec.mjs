@@ -190,8 +190,14 @@ test('chat header is the bot name and agent badge, and device control is refused
     const reply = page.locator('[data-assistant-message="yes"]')
     await expect(reply).toContainText("isn't available yet", { timeout: 20_000 })
     await expect(reply).not.toContainText('I opened')
-    await expect(reply.locator('[data-assistant-name="yes"]')).toHaveText('Surf')
-    await expect(page.locator('[data-user-message="yes"]')).toHaveText('take control of my Mac and open files')
+    // The name sits beside a per-reply mode badge, so match the name and the badge.
+    await expect(reply.locator('[data-assistant-name="yes"]')).toContainText('Surf')
+    await expect(reply.locator('[data-mode-badge]')).toHaveText('Offline')
+    // The bubble is followed by its own mode badge and an add-to-context button.
+    const asked = page.locator('[data-user-message="yes"]')
+    await expect(asked.locator('.user-bubble')).toHaveText('take control of my Mac and open files')
+    await expect(asked.locator('[data-mode-badge]')).toHaveText('Offline')
+    await expect(asked.locator('[data-add-context="yes"]')).toBeVisible()
     await expect(page.locator('[data-chat-row].is-on')).toContainText('take control')
     await expect(page.locator('[data-agent-pill="yes"]')).toHaveText('Code')
     await expect(page.locator('header')).not.toContainText('take control')
@@ -294,6 +300,12 @@ test('the microphone explains a denied permission and a missing microphone', asy
   const missing = await launch({})
   try {
     await go(missing.page, 'chat')
+    // A computer with a real microphone would start listening here, so make "no device"
+    // explicit: the test must describe the missing microphone, not this machine's audio.
+    await missing.page.evaluate(() => {
+      navigator.mediaDevices.getUserMedia = () =>
+        Promise.reject(new DOMException('Requested device not found', 'NotFoundError'))
+    })
     await missing.page.locator('[data-mic="yes"]').click()
     await expect(missing.page.locator('[data-mic-note="yes"]')).toContainText('No microphone was found')
     await expect(missing.page.locator('[data-listening="yes"]')).toHaveCount(0)

@@ -30,7 +30,7 @@ test('subset stays inside 30 to 50 and keeps the required domains', () => {
   const all = evalQuestions()
   const everyday = all.filter((row) => row.domain === 'everyday')
   assert.ok(everyday.length >= 8)
-  assert.equal(all.length, 101 + everyday.length)
+  assert.equal(all.length, 87 + everyday.length)
   const subset = selectModelEvalQuestions('subset', all)
   assert.ok(subset.length >= 30 && subset.length <= 50)
   for (const domain of ['coding', 'splitting', 'run-fix', 'finance', 'no-fabrication']) {
@@ -38,7 +38,7 @@ test('subset stays inside 30 to 50 and keeps the required domains', () => {
   }
   assert.equal(subset.filter((row) => row.domain === 'no-fabrication').length, 10)
   assert.equal(subset.filter((row) => row.domain === 'everyday').length, 0)
-  assert.equal(selectModelEvalQuestions('full', all).length, 101)
+  assert.equal(selectModelEvalQuestions('full', all).length, 87)
   assert.equal(selectModelEvalQuestions('full', all).some((row) => row.domain === 'everyday'), false)
 })
 
@@ -61,9 +61,9 @@ test('a reply scores only when the first label matches', () => {
 test('finance labels stay a real choice and follow the question shape', () => {
   const bank = evalQuestions()
   const tax = bank.find((row) => row.id === 'q-finance-stcg')!
-  assert.deepEqual(choiceLabels(tax, bank), ['stcg', 'ltcg', 'not-india'])
+  assert.deepEqual(choiceLabels(tax, bank), ['stcg', 'ltcg'])
   const close = bank.find((row) => row.id === 'q-finance-eod-fixture')!
-  assert.deepEqual(choiceLabels(close, bank), ['eod', 'not-india', 'symbol'])
+  assert.deepEqual(choiceLabels(close, bank), ['eod', 'symbol', 'nav'])
   const prompt = modelEvalPrompt(bank.find((row) => row.domain === 'splitting' && row.expect === 'chat')!, ['chat', 'edit', 'plan'])
   assert.match(prompt, /quick fix/)
   assert.match(prompt, /two different files/)
@@ -138,10 +138,8 @@ test('the release gate reads a saved full run when this machine skipped a model'
 
 test('finance answers are the in-app formula, not a model label', () => {
   const finance = evalQuestions().filter((row) => row.domain === 'finance')
-  assert.equal(finance.length, 12)
+  assert.equal(finance.length, 10)
   assert.equal(finance.every((row) => financeAnswerOk(row)), true)
-  const disclaimer = finance.find((row) => row.expect === 'disclaimer')!
-  assert.equal(financeAnswerOk(disclaimer), true)
 })
 
 test('the committed real-model floors do not sit under a measured miss', () => {

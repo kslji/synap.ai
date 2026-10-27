@@ -49,6 +49,11 @@ export function codeSystemPrompt(rules: string): string {
     '',
     'Tools: read_file, list_dir, search_project, propose_edit, run_command, finish.',
     '',
+    // A 2B writes `import NAME from` for a named export and then defends it; stating the rule is
+    // cheaper than a fix turn spent on TS2613.
+    'Import what a file exports as it exports it: `import { NAME } from "./file"` for `export const NAME`, and `import NAME from "./file"` only for `export default`.',
+    'Never edit a test or check file to make a failing check pass. Fix the code the request names.',
+    '',
     'Project rules:',
     rules.trim(),
   ].join('\n')

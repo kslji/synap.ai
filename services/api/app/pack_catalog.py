@@ -31,18 +31,44 @@ def signed_file_url(base: str, rel: str, ttl_s: int = 900) -> str:
     return f"{base.rstrip('/')}/v1/packs/download?path={rel}&exp={exp}&sig={sig}"
 
 
+def _relative_key(path: str) -> str:
+    """Reject absolute, parent-escaping, empty, or NUL paths; return the POSIX relative key."""
+    if not path or "\x00" in path or path.startswith("/") or Path(path).is_absolute():
+        raise ValueError("bad path")
+    parts = Path(path).parts
+    if not parts or ".." in parts:
+        raise ValueError("bad path")
+    return Path(path).as_posix()
+
+
+def _files_under(root: Path) -> dict[str, Path]:
+    """Every regular file under root, keyed by POSIX relative path.
+
+    The values come from the directory scan (and are re-confined with realpath),
+    so a download serves a Path the filesystem listed, never a Path built from the
+    request string. That keeps the request path out of the file sink for CodeQL and
+    for the next reader, while the HMAC above still gates access.
+    """
+    found: dict[str, Path] = {}
+    root_real = os.path.realpath(root)
+    if not os.path.isdir(root_real):
+        return found
+    for dirpath, _dirnames, filenames in os.walk(root_real):
+        for name in filenames:
+            real = os.path.realpath(os.path.join(dirpath, name))
+            if not real.startswith(root_real + os.sep) or not os.path.isfile(real):
+                continue
+            found[os.path.relpath(real, root_real).replace(os.sep, "/")] = Path(real)
+    return found
+
+
 def verify_download(path: str, exp: int, sig: str, now: int | None = None) -> Path:
     now = int(time.time()) if now is None else now
     if exp < now or not hmac.compare_digest(_sign(path, exp), sig):
         raise ValueError("bad signature")
-    rel = Path(path)
-    if rel.is_absolute() or ".." in rel.parts:
-        raise ValueError("bad path")
-    full = (pack_root() / rel).resolve()
-    root = pack_root().resolve()
-    if root not in full.parents and full != root:
-        raise ValueError("bad path")
-    if not full.is_file():
+    rel = _relative_key(path)
+    full = _files_under(pack_root()).get(rel)
+    if full is None:
         raise ValueError("missing")
     return full
 
@@ -76,13 +102,13 @@ def catalog(base_url: str, installed: str = "") -> dict:
             files = _bundle(folder, pack_dir.name, version, base_url, manifest)
             previous = have.get(pack_dir.name)
             changed = files
-            if previous and previous != version:
-                prev_dir = pack_dir / previous
-                prev_manifest_path = prev_dir / "manifest.json"
-                if prev_manifest_path.is_file():
-                    old_manifest = json.loads(prev_manifest_path.read_text())
-                    old = _hashes(prev_dir, old_manifest)
-                    changed = [row for row in files if old.get(row["name"]) != row["sha256"]]
+            # The installed version comes from the query string, so take its folder out of
+            # the listing above instead of joining the request value onto pack_dir.
+            older = dict(versions).get(previous or "")
+            if older is not None and previous != version:
+                old_manifest = json.loads((older / "manifest.json").read_text())
+                old = _hashes(older, old_manifest)
+                changed = [row for row in files if old.get(row["name"]) != row["sha256"]]
             delta = next((row for row in files if row["name"] == "delta.sqlite.enc"), None)
             packs.append({
                 "id": manifest.get("pack_id") or pack_dir.name,

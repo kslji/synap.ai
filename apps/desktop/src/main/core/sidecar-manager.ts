@@ -30,8 +30,10 @@ export interface LlamaServerOptions {
   binPath: string; //          resolveSidecar('llama-server') - see below
   modelPath: string;
   mmprojPath?: string; //      Qwen3.5 vision encoder; omit to save RAM when no image support is needed
-  embeddings?: boolean; //     true = embedding server (EmbeddingGemma 2, mean pooling), false = chat server
-  pooling?: 'cls' | 'mean' | 'last';
+  embeddings?: boolean; //     true = embedding server (Jina code embeddings, mean pooling), false = chat server
+  /** true = cross-encoder reranker (Jina turbo, rank pooling) serving /v1/rerank. */
+  reranking?: boolean;
+  pooling?: 'cls' | 'mean' | 'last' | 'rank';
   ctx?: number;
   threads?: number;
   gpuLayers?: number | 'auto';
@@ -70,15 +72,17 @@ export class LlamaServer extends EventEmitter {
       '-c', String(o.ctx ?? 8192), '-np', '1', '--no-webui'];  // -np 1: one slot = one user; -c ALWAYS set (default would be 262144)
     if (o.threads) a.push('-t', String(o.threads));
     if (o.gpuLayers !== undefined) a.push('-ngl', String(o.gpuLayers));
-    // EmbeddingGemma 2 attends bidirectionally: the whole input must fit in ONE micro-batch, so -ub = -b = -c.
-    if (o.embeddings) a.push('--embeddings', '--pooling', o.pooling ?? 'mean', '-ub', String(o.ctx ?? 2048), '-b', String(o.ctx ?? 2048));
+    // Jina code embeddings attends bidirectionally: the whole input must fit in ONE micro-batch, so -ub = -b = -c.
+    if (o.reranking) a.push('--reranking', '--pooling', o.pooling ?? 'rank', '-ub', String(o.ctx ?? 2048), '-b', String(o.ctx ?? 2048));
+    else if (o.embeddings) a.push('--embeddings', '--pooling', o.pooling ?? 'mean', '-ub', String(o.ctx ?? 2048), '-b', String(o.ctx ?? 2048));
     else a.push('--jinja'); // chat template from the GGUF + OpenAI-style tool calling
     if (o.mmprojPath) a.push('--mmproj', o.mmprojPath);
     // b11514: --no-repack skips the extra weight buffer; -cram 0 turns the prompt cache off.
     // Together they cut RAM to about the file size (Qwen3.5-2B Q6_K peaked near 1.74 GB).
     // A larger laptop can keep a small prompt cache so a stable prefix is reused.
     a.push('--no-repack', '-cram', String(o.cacheRamMiB ?? 0));
-    if (o.draftModelPath) a.push('-md', o.draftModelPath, '--draft-max', String(o.draftMax ?? 8));
+    // Draft length is --spec-draft-n-max: current builds reject the old --draft-max outright.
+    if (o.draftModelPath) a.push('-md', o.draftModelPath, '--spec-draft-n-max', String(o.draftMax ?? 8));
     return [...a, ...(o.extraArgs ?? [])];
   }
 

@@ -3,7 +3,7 @@ import { Cpu } from 'lucide-react'
 import { BlobMascot, ThemeSwitch, persistThemeChoice, readThemeChoice, type ThemeChoice } from '@surf/ui'
 import { product } from '@surf/shared'
 import { beginDownload, DownloadButtons } from './download-buttons'
-import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, newestPublishableRelease, offlineCatalogUrl, offlineSizeLabel, parseOfflinePackages, pickOfflinePackage, releaseAssets, SEARCH_MODEL_BYTES, SETUP_MODELS, smallInstallerHref, type OfflinePackage, type ReleaseListItem } from './site'
+import { allowSubmit, ALL_DOWNLOADS_URL, BUNDLED_ASSETS, contactEmail, detectClient, downloadHrefs, DRAFT, footerLinks, formKey, formRoles, formatSearchSize, newestPublishableRelease, offlineCatalogUrl, offlineSizeLabel, parseOfflinePackages, pickOfflinePackage, releaseAssets, SEARCH_MODEL_BYTES, SETUP_MODELS, smallInstallerHref, type OfflinePackage, type ReleaseListItem } from './site'
 
 export function useTheme(): [ThemeChoice, (next: ThemeChoice) => void] {
   const [theme, setTheme] = useState<ThemeChoice>(() => readThemeChoice())
@@ -316,7 +316,7 @@ export function DownloadCard() {
       </div>
       <div data-model-list="yes">
         <p className="text-sm font-semibold">Model</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">The model is the Qwen file plus a 309.9 MB search model. Download is the small installer, and the model downloads on first open. Offline installer is one zip that already includes both files.</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">The model is the Qwen file plus a {formatSearchSize(SEARCH_MODEL_BYTES)} search model. Download is the small installer, and the model downloads on first open. Offline installer is one zip that already includes both files.</p>
         <ul className="mt-3 flex flex-col gap-2">
           {SETUP_MODELS.map((model) => {
             const clientOs = os === 'windows' ? 'windows' : 'mac'

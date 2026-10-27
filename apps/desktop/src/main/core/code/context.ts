@@ -4,7 +4,7 @@
  */
 import { heuristicCounter, truncateToTokens, type TokenCounter } from '../token-budget.js'
 import type { CodeEmbedder } from './embed.js'
-import { searchCode, type CodeHit } from './search.js'
+import { searchCode, rerankHits, rerankWithModel, type CodeHit, type Reranker } from './search.js'
 import { definitions, relatedFiles, type CodeDb, type SymbolHit } from './store.js'
 
 export interface ContextSnippet {
@@ -30,6 +30,8 @@ export interface ContextOptions {
   embedder?: CodeEmbedder | null
   counter?: TokenCounter
   maxSnippets?: number
+  /** The `--reranking` sidecar. Absent = the RRF + boost order is already good enough. */
+  ranker?: Reranker | null
 }
 
 function fromHit(hit: CodeHit, reason: ContextSnippet['reason']): ContextSnippet {
@@ -68,6 +70,9 @@ export async function buildContext(db: CodeDb, task: string, options: ContextOpt
   const maxSnippets = options.maxSnippets ?? 8
   const qvec = options.embedder ? (await options.embedder.embedQueries([task]))[0] ?? null : null
   const hits = searchCode(db, task, qvec, 16)
+  const neighbours = hits[0] ? new Set(relatedFiles(db, hits[0].path).map((row) => row.path)) : new Set<string>()
+  const boosted = rerankHits(hits, task, neighbours)
+  const ranked = options.ranker ? (await rerankWithModel(boosted, task, options.ranker)).hits : boosted
   const ordered: ContextSnippet[] = []
   const seen = new Set<string>()
   const push = (snippet: ContextSnippet) => {
@@ -82,7 +87,7 @@ export async function buildContext(db: CodeDb, task: string, options: ContextOpt
     if (ident.length < 3) continue
     for (const symbol of definitions(db, ident).slice(0, 2)) push(fromSymbol(symbol, 'definition', 1))
   }
-  for (const hit of hits) push(fromHit(hit, 'search'))
+  for (const hit of ranked) push(fromHit(hit, 'search'))
   const top = ordered[0]
   if (top) {
     for (const related of relatedFiles(db, top.path).slice(0, 3)) {

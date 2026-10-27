@@ -9,10 +9,17 @@ export const IPC = {
   chatSend: 'chat:send',
   chatCancel: 'chat:cancel',
   chatEvent: 'chat:event',
+  chatConsentGet: 'chat:consent-get',
+  chatConsentSet: 'chat:consent-set',
+  chatOnlineModels: 'chat:online-models',
+  chatOnlineBalance: 'chat:online-balance',
+  chatSetOnlineModel: 'chat:set-online-model',
+  chatOpenTopUp: 'chat:open-topup',
   modelsStatus: 'models:status',
   modelsDownload: 'models:download',
   modelsCancel: 'models:cancel',
   modelsImportLocal: 'models:import-local',
+  modelsRemove: 'models:remove',
   modelsEvent: 'models:event',
   setupState: 'setup:state',
   setupStart: 'setup:start',
@@ -45,8 +52,6 @@ export const IPC = {
   conversationsList: 'conversations:list',
   conversationsOpen: 'conversations:open',
   conversationsDelete: 'conversations:delete',
-  webCacheStatus: 'web-cache:status',
-  webCacheClear: 'web-cache:clear',
   libraryAdd: 'library:add',
   libraryPick: 'library:pick',
   libraryList: 'library:list',
@@ -66,6 +71,7 @@ export const IPC = {
   codeStatus: 'code:status',
   codeStorage: 'code:storage',
   codeEvent: 'code:event',
+  codeIdeLaunch: 'code-ide:launch',
   codeAgentRoot: 'code-agent:root',
   codeAgentPick: 'code-agent:pick',
   codeAgentDecide: 'code-agent:decide',
@@ -79,7 +85,6 @@ export const IPC = {
   codeCompleteSave: 'code-complete:save',
   codeVisionCapture: 'code-vision:capture',
   codeVisionSave: 'code-vision:save',
-  devWebRun: 'dev-web:run',
   usageGet: 'usage:get',
   usageReset: 'usage:reset',
   usageCsv: 'usage:csv',
@@ -113,29 +118,31 @@ export interface ChatSendReq {
   text: string
   agentId?: string
   images?: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }[]
-  allowWeb?: boolean
   docScope?: DocScope
   /** When set, the new answer is another version of this assistant reply. No new user turn is stored. */
   replaceMessageId?: string
   /** When set, more text is appended to this assistant reply. No new user turn is stored. */
   continueMessageId?: string
+  /** Which model answers this turn. Defaults to offline (local sidecar). */
+  mode?: ChatMode
+  /** Earlier message IDs the user pinned as explicit context for this turn. */
+  contextMessageIds?: string[]
 }
 
 export type ThemeChoice = 'light' | 'dark'
 
 export interface SettingsPatch {
   offlineOnly?: boolean
-  webSearchAllowed?: boolean
   telemetryOptIn?: boolean
   chatModelId?: string
+  /** Online Cloud model picked in the chat picker. Empty means the best unlocked tier. */
+  onlineModelId?: string
   /** Code agent model. Empty means the smallest Code model. */
   codeModelId?: string
   onboardingComplete?: boolean
   theme?: ThemeChoice
-  /** Account, licence, and pack server. Production web search does not call this. */
+  /** Account, licence, and pack server. */
   apiBaseUrl?: string
-  /** Country or ISO code. Overrides the public-IP lookup when a VPN is in use. Empty uses IP, then worldwide. */
-  myRegion?: string
   /** Hours between signed-in pack checks. */
   packSyncHours?: number
   /** stable hides -beta tags. beta includes them. */
@@ -164,8 +171,8 @@ export interface SettingsPatch {
   density?: 'compact' | 'comfortable' | 'relaxed'
   /** SVG motion for the mascot. There is no audio. */
   animateMascot?: boolean
-  /** Offline blocks every network call. Online allows web and pack sync. Auto follows the connection. */
-  networkMode?: 'offline' | 'online' | 'auto'
+  /** Offline blocks every network call. Online allows the gateway and pack sync. */
+  networkMode?: 'offline' | 'online'
 }
 
 /** Shown before Auto mode is allowed to write or run commands. */
@@ -218,16 +225,6 @@ export interface CodeEditorText {
   text: string
 }
 
-export interface DevWebRunReq {
-  tool: 'web_search' | 'fetch_page'
-  query?: string
-  url?: string
-}
-
-export interface DevWebRunResult {
-  text: string
-}
-
 export interface UpdateOffer {
   kind: 'nsis' | 'manual'
   version: string
@@ -236,15 +233,31 @@ export interface UpdateOffer {
   steps: string[]
 }
 
-export type GateName = 'answer' | 'borderline' | 'insufficient' | 'web'
+export type GateName = 'answer' | 'borderline' | 'insufficient'
+
+/** Which model answered a turn: the local sidecar (offline) or the gateway (online). */
+export type ChatMode = 'online' | 'offline'
+
+/**
+ * Whether this chat has agreed to let an Online turn reuse its earlier Offline
+ * replies as context. Stored on the device, per chat, default false.
+ */
+export interface ChatConsentState {
+  conversationId: string
+  allowed: boolean
+  /** The line written into the thread when consent changed; '' on a plain read. */
+  note: string
+}
 
 export type ChatEvent =
-  | { type: 'token'; messageId: string; text: string }
+  | { type: 'token'; messageId: string; text: string; mode?: ChatMode }
   | { type: 'sources'; messageId: string; sources: Citation[] }
   | { type: 'tool'; messageId: string; name: string; input: string; output: string }
-  | { type: 'status'; messageId: string; phase: 'searching' | 'reading' | 'files' | 'keywords'; note?: string }
+  /** Qwen3.5 reasoning while a plan or a fix thinks: scratch text, never the answer, never stored. */
+  | { type: 'reasoning'; messageId: string; text: string }
+  | { type: 'status'; messageId: string; phase: 'searching' | 'files' | 'keywords'; note?: string }
   | { type: 'file-ask'; messageId: string; prompt: FilePermissionPrompt }
-  | { type: 'done'; messageId: string; gate: GateName; text?: string; canContinue?: boolean; budget?: {
+  | { type: 'done'; messageId: string; gate: GateName; mode?: ChatMode; text?: string; canContinue?: boolean; budget?: {
     counter: string
     total: number
     droppedChunks: number
@@ -257,67 +270,25 @@ export type ChatEvent =
   | { type: 'code-step'; messageId: string; step: CodeStepView }
   | { type: 'code-diff'; messageId: string; diff: CodeDiffView }
   | { type: 'code-plan'; messageId: string; plan: CodePlanView }
-  | { type: 'error'; messageId: string; message: string; smallerModelId?: string }
+  | { type: 'error'; messageId: string; message: string; smallerModelId?: string; modelLocked?: { modelId: string; requiredCredits: number; unlockUsd: number } }
 
-export type CodeStepStatus = 'running' | 'ok' | 'error' | 'waiting' | 'rejected' | 'applied'
+import type {
+  CodeDiffView,
+  CodePlanView,
+  CodeStepView,
+} from '@surf/agent-core'
 
-export interface CodeDiagnosticView {
-  file: string
-  line: number
-  column: number
-  message: string
-  rule: string
-  source: string
-}
-
-export interface CodeStepView {
-  id: string
-  index: number
-  tool: string
-  status: CodeStepStatus
-  title: string
-  detail: string
-  /** Live check log. The tail is kept so the row stays small. */
-  output?: string
-  diagnostics?: CodeDiagnosticView[]
-  /** 1-based attempt or candidate counter. */
-  attempt?: number
-  attempts?: number
-  /** Best-effort sandbox note. Present when a command actually ran. */
-  note?: string
-}
-
-export type CodeDiffStatus = 'pending' | 'applied' | 'rejected' | 'error'
-
-export interface CodeDiffView {
-  id: string
-  stepId: string
-  path: string
-  diff: string
-  status: CodeDiffStatus
-}
-
-export interface CodePlanStepView {
-  id: string
-  index: number
-  goal: string
-  files: string[]
-  symbols: string[]
-  dependsOn: string[]
-  check: string
-  create: boolean
-}
-
-export interface CodeUndoView {
-  stepId: string
-  title: string
-}
-
-export interface CodePlanView {
-  status: 'review' | 'running' | 'done'
-  steps: CodePlanStepView[]
-  undos?: CodeUndoView[]
-}
+// Code-agent view types are the shared @surf/agent-core contract, re-exported for main + renderer importers.
+export type {
+  CodeDiagnosticView,
+  CodeDiffStatus,
+  CodeDiffView,
+  CodePlanStepView,
+  CodePlanView,
+  CodeStepStatus,
+  CodeStepView,
+  CodeUndoView,
+} from '@surf/agent-core'
 
 export interface CodeAgentRoot {
   root: string | null
@@ -373,7 +344,7 @@ export interface CodeAgentSetModeResult {
 
 export interface CatalogModel {
   id: string
-  role: 'chat' | 'embedding' | 'asr' | 'vad'
+  role: 'chat' | 'embedding' | 'reranker' | 'asr' | 'vad'
   label: string
   family: string
   /** Picker size token, such as 2B or E2B. */
@@ -410,7 +381,7 @@ export interface ModelStatus {
   cpuModel: string
   cores: number
   chatModelId: string
-  /** First-run model from synap://setup, or the generic Qwen 4B model when no link arrived. */
+  /** First-run model from synap://setup, or the default Qwen 2B model when no link arrived. */
   setupModelId?: string
   /** Code agent selection. The smallest Code model when the user has not picked. */
   codeModelId: string
@@ -433,10 +404,6 @@ export interface ModelStatus {
   holdSetup?: boolean
   /** False when the search model is missing or its checksum does not match. */
   searchModelReady?: boolean
-  /** True only when NODE_ENV=development or SYNAP_DEV_WEB=1. Omitted tools stay off. */
-  devWeb?: boolean
-  /** Search origin while dev web is on. Omitted in production builds. */
-  devApiUrl?: string
   live?: {
     keepWarm: boolean
     warmModelId: string | null
@@ -461,8 +428,8 @@ export interface ModelStatus {
 export interface SyncChip {
   label: string
   state: 'uptodate' | 'syncing' | 'failed' | 'offline'
-  mode: 'offline' | 'online' | 'auto'
-  modeLabel: 'Offline' | 'Online' | 'Auto'
+  mode: 'offline' | 'online'
+  modeLabel: 'Offline' | 'Online'
   packVersion: string | null
   lastSyncAt: number | null
   tooltip: string
@@ -496,30 +463,20 @@ export interface Citation {
   url: string
   pack: string
   version?: string
-  kind?: 'document' | 'web'
+  kind?: 'document'
   domain?: string
   published?: string | null
   chunkId?: number
   fileName?: string
   locator?: string | null
   excerpt?: string
-  /** When this web passage was stored on this computer. */
-  savedAt?: number
-  /** Set when a fresh-sensitive question is using a passage older than 24 hours. */
-  staleNote?: string
   /** The passage was left out of the prompt because it contained instructions. */
   suspicious?: boolean
   /** Absolute path. Set for a file the user allowed the app to search. Clicking opens it in the OS. */
   filePath?: string
 }
 
-export interface WebCacheStatus {
-  bytes: number
-  count: number
-  capBytes: number
-}
-
-export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'web' | 'logs' | 'shots'
+export type StorageCategoryId = 'models' | 'packs' | 'indexes' | 'chats' | 'logs' | 'shots'
 
 export interface UsageModelRow {
   modelId: string
@@ -674,12 +631,17 @@ export interface DocumentEvent {
 
 export interface StoredMessage {
   id: string
-  role: 'user' | 'assistant'
+  /** 'note' rows are thread chrome (a consent was given or taken back), never model context. */
+  role: 'user' | 'assistant' | 'note'
   text: string
   sources: Citation[]
   gate?: GateName
   /** Every sibling text of this reply, including the current one. Empty on older rows. */
   versions?: string[]
+  /** Which model produced this turn. Absent on older rows (treated as offline). */
+  mode?: ChatMode
+  /** Earlier message IDs pinned as context when this reply was generated. */
+  contextRefs?: string[]
 }
 
 export interface ModelEvent {
@@ -743,7 +705,7 @@ export interface PackRow {
   /** Code pack: bytes of the signed files. Omitted for other packs. */
   sizeBytes?: number | null
   sources?: { title: string; version: string; licence: string; url: string }[]
-  /** 0 to 1 while EmbeddingGemma builds the local cache. */
+  /** 0 to 1 while Jina code embeddings builds the local cache. */
   indexProgress?: number | null
   indexState?: 'pending' | 'indexing' | 'ready' | 'off' | 'error' | 'blocked'
   updatedAt?: string | null
@@ -770,18 +732,53 @@ export interface CodeStorageUsage {
   projects: { id: string; root: string; bytes: number }[]
 }
 
+/** An online model row for the tier-aware picker (ADR 0008). Mirrors the gateway /models payload. */
+export interface OnlineModelRow {
+  id: string
+  label: string
+  provider: string
+  /** Purchase tier that unlocks this model: 0 trial, 5 daily, 25 frontier. */
+  minCredits: number
+  tierLabel: string
+  /** True when the signed-in account has not bought the tier. */
+  locked: boolean
+  /** USD cost of the top-up that unlocks it. */
+  unlockUsd: number
+}
+
+/** Wallet and purchase tier for the credit pill and the unlock CTA. */
+export interface OnlineBalance {
+  balance: number
+  credits: number
+  maxTopupCredits: number
+  billingLocked: boolean
+}
+
 /** What window.surf looks like in the renderer. */
 export interface SurfApi {
   chat: {
     send(req: ChatSendReq): Promise<{ conversationId: string; messageId: string }>
     cancel(messageId: string): Promise<void>
+    /** Read this chat's Online-context consent. Absent means never given. */
+    getConsent(conversationId: string): Promise<ChatConsentState>
+    /** Grant or revoke it. The thread gets a note either way. */
+    setConsent(req: { conversationId: string; allowed: boolean }): Promise<ChatConsentState>
+    /** The curated online models with this account's tier state, for the picker. */
+    onlineModels(): Promise<OnlineModelRow[]>
+    /** Wallet + purchase tier, or null when the gateway is unreachable/signed out. */
+    onlineBalance(): Promise<OnlineBalance | null>
+    /** Remember the picker's online model choice. Empty resets to the best unlocked tier. */
+    setOnlineModel(modelId: string): Promise<void>
+    /** Open the top-up page so a locked model routes to buying credits. */
+    openTopUp(): Promise<void>
     onEvent(cb: (e: ChatEvent) => void): () => void
   }
   models: {
     status(): Promise<ModelStatus>
     download(modelId: string): Promise<void>
     benchmark(modelId: string): Promise<BenchmarkResult>
-    download(modelId: string): Promise<void>
+    /** Deletes an installed chat model file (and its screenshot add-on) so the disk is free again. */
+    remove(modelId: string): Promise<{ id: string; freedBytes: number }>
     onEvent(cb: (e: ModelEvent) => void): () => void
   }
   setup: {
@@ -828,10 +825,6 @@ export interface SurfApi {
     list(): Promise<ConversationSummary[]>
     open(id: string): Promise<{ id: string; messages: StoredMessage[] }>
     remove(id: string): Promise<void>
-  }
-  webCache: {
-    status(): Promise<WebCacheStatus>
-    clear(): Promise<WebCacheStatus>
   }
   usage: {
     get(): Promise<UsageReport>
@@ -880,6 +873,9 @@ export interface SurfApi {
     storage(): Promise<CodeStorageUsage>
     onEvent(cb: (status: CodeProjectStatus) => void): () => void
   }
+  codeIde: {
+    launch(root: string): Promise<{ pid: number }>
+  }
   codeComplete: {
     suggest(req: CodeCompleteReq): Promise<CodeCompleteResult>
     files(): Promise<CodeEditorFile[]>
@@ -889,9 +885,6 @@ export interface SurfApi {
   codeVision: {
     capture(req: CodeVisionCaptureReq): Promise<CodeVisionCaptureResult>
     save(req: CodeVisionSaveReq): Promise<CodeVisionSaveResult>
-  }
-  devWeb: {
-    run(req: DevWebRunReq): Promise<DevWebRunResult>
   }
   files: {
     list(): Promise<FileFolderGrant[]>

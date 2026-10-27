@@ -1,0 +1,65 @@
+# loop-constraint-ladder
+{
+  "answer": "Nothing to change.",
+  "requests": [
+    {
+      "constraint": "native",
+      "grammarHasReadFile": false,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user"
+      ],
+      "reminderPresent": false,
+      "responseFormatType": null,
+      "stepKind": "triage",
+      "toolNames": [
+        "read_file",
+        "list_dir",
+        "search_project",
+        "propose_edit",
+        "run_command",
+        "finish"
+      ]
+    },
+    {
+      "constraint": "json_schema",
+      "grammarHasReadFile": false,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user",
+        "user"
+      ],
+      "reminderPresent": true,
+      "responseFormatType": "json_schema",
+      "stepKind": "triage",
+      "toolNames": []
+    },
+    {
+      "constraint": "gbnf",
+      "grammarHasReadFile": true,
+      "maxTokens": 200,
+      "messageRoles": [
+        "system",
+        "user",
+        "user"
+      ],
+      "reminderPresent": true,
+      "responseFormatType": null,
+      "stepKind": "triage",
+      "toolNames": []
+    }
+  ],
+  "steps": [
+    {
+      "detail": "Nothing to change.",
+      "id": "step-1",
+      "index": 1,
+      "status": "ok",
+      "title": "Finish",
+      "tool": "finish"
+    }
+  ],
+  "stopped": "finish"
+}

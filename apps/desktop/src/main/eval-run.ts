@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { cp, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { EMBEDDINGGEMMA2_256 } from './core/embedding.js'
+import { formatQuery, JINA_CODE_256 } from './core/embedding.js'
 import { IPC, type ChatEvent, type Citation } from './core/ipc-contract.js'
 import { commitInstall } from './core/pack-install.js'
 import { trustedPackKeys } from './core/pack-keys.js'
@@ -17,7 +17,7 @@ import { verifyPack } from './core/pack-verify.js'
 import { EVAL_SAMPLING, LlamaClient } from './core/llama-client.js'
 import { LlamaServer, resolveSidecar } from './core/sidecar-manager.js'
 import { surfEnv } from './core/surf-env.js'
-import { repoRoot, startSearchFixture } from './core/web-selftest.js'
+import { repoRoot } from './core/selftest-helpers.js'
 import { createServices } from './core/app-services.js'
 
 interface Expect {
@@ -40,7 +40,6 @@ interface Expect {
 interface Turn {
   question: string
   offlineOnly?: boolean
-  allowWeb?: boolean
   documents?: string[]
   expect?: Expect
 }
@@ -92,7 +91,7 @@ interface ModelMetric {
 }
 
 const CHAT_MODELS: { id: string; file: string; required: boolean }[] = [
-  { id: 'qwen3.5-4b', file: 'Qwen3.5-4B-Q4_K_M.gguf', required: true },
+  { id: 'qwen3.5-2b-q4_k_m', file: 'Qwen3.5-2B-Q4_K_M.gguf', required: true },
 ]
 
 function must(name: string): string {
@@ -150,7 +149,7 @@ async function probeModel(bin: string, modelPath: string, embeddings: boolean, l
       sampling: { ...EVAL_SAMPLING },
       chatTemplateKwargs: { enable_thinking: false },
     })
-    if (embeddings) await client.embed(['task: search result | query: harbor ferry'])
+    if (embeddings) await client.embed([formatQuery(JINA_CODE_256, 'harbor ferry')])
     else {
       await client.chat([
         { role: 'user', content: 'Reply with the single word surf.' },
@@ -190,11 +189,11 @@ async function probeModels(modelsDir: string, bin: string, logDir: string, full:
     const sample = await probeModel(bin, path, false, join(logDir, `${model.id}.log`))
     metrics.push({ id: model.id, file: model.file, present: true, ...sample, note: 'short greedy reply, context 2048' })
   }
-  const embFile = EMBEDDINGGEMMA2_256.gguf
+  const embFile = JINA_CODE_256.gguf
   const embPath = join(modelsDir, embFile)
   if (!existsSync(embPath)) throw new Error(`missing ${embPath}`)
   const emb = await probeModel(bin, embPath, true, join(logDir, 'embedding.log'))
-  metrics.push({ id: 'embeddinggemma-2', file: embFile, present: true, ...emb, note: 'one query embed, context 2048' })
+  metrics.push({ id: 'jina-embeddings-v2-base-code', file: embFile, present: true, ...emb, note: 'one query embed, context 2048' })
   return metrics
 }
 
@@ -293,7 +292,6 @@ export async function runEval(): Promise<void> {
   mkdirSync(logDir, { recursive: true })
   const results: CaseTranscript[] = []
   let models: ModelMetric[] = []
-  let fixture: { base: string; stop: () => Promise<void> } | null = null
 
   const write = (error?: string) => {
     writeFileSync(outPath, JSON.stringify({ ok: !error && results.every((row) => !row.error), error, models, cases: results }, null, 2))
@@ -301,22 +299,15 @@ export async function runEval(): Promise<void> {
 
   try {
     if (surfEnv('EVAL_SKIP_METRICS') !== '1') models = await probeModels(modelsDir, bin, logDir, full)
-    const needsWeb = cases.some((item) => item.turns.some((turn) => turn.allowWeb))
     const built = new Map<string, string>()
     for (const item of cases) {
       if (!item.pack) continue
-      built.set(item.id, await signPack(item.pack, bin, join(modelsDir, EMBEDDINGGEMMA2_256.gguf), logDir))
-    }
-    if (needsWeb) {
-      fixture = await startSearchFixture()
-      process.env.SURF_API_BASE = fixture.base
-      process.env.SURF_SEARCH_FIXTURE = '1'
+      built.set(item.id, await signPack(item.pack, bin, join(modelsDir, JINA_CODE_256.gguf), logDir))
     }
     writeFileSync(join(logDir, 'settings.json'), JSON.stringify({
       offlineOnly: true,
-      webSearchAllowed: true,
       telemetryOptIn: false,
-      chatModelId: surfEnv('EVAL_CHAT_MODEL') || 'qwen3.5-4b-q4_k_m',
+      chatModelId: surfEnv('EVAL_CHAT_MODEL') || 'qwen3.5-2b-q4_k_m',
       onboardingComplete: true,
       theme: 'light',
       apiBaseUrl: process.env.SURF_API_BASE || 'http://127.0.0.1:9',
@@ -343,21 +334,8 @@ export async function runEval(): Promise<void> {
       await rm(staging, { recursive: true, force: true })
       await mkdir(staging, { recursive: true })
       await cp(dir, staging, { recursive: true })
-      const manifest = await verifyPack(staging, { trustedKeys: trustedPackKeys(), expectedEmbedding: EMBEDDINGGEMMA2_256 })
+      const manifest = await verifyPack(staging, { trustedKeys: trustedPackKeys(), expectedEmbedding: JINA_CODE_256 })
       await commitInstall(staging, join(app.getPath('userData'), 'packs'), manifest, spec.title)
-    }
-
-    if (needsWeb && fixture) {
-      await services.settings.set({ offlineOnly: false, webSearchAllowed: true })
-      const email = 'eval-harness@example.com'
-      const start = await fetch(`${fixture.base}/v1/auth/otp/start`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
-      })
-      const started = await start.json() as { dev_code?: string; error?: { message?: string } }
-      if (!start.ok || !started.dev_code) throw new Error(started.error?.message || 'dev OTP missing')
-      await services.auth.verify(email, started.dev_code)
     }
 
     for (const item of cases) {
@@ -383,27 +361,13 @@ export async function runEval(): Promise<void> {
               await sleep(300)
             }
           }
-          await services.settings.set({
-            offlineOnly: turn.offlineOnly !== false,
-            webSearchAllowed: turn.allowWeb === true,
-          })
-          if (turn.allowWeb) {
-            const onlineDeadline = Date.now() + 15_000
-            let online = false
-            while (Date.now() < onlineDeadline) {
-              const now = await services.models.status()
-              if (now.online) { online = true; break }
-              await sleep(200)
-            }
-            if (!online) throw new Error(`search service stayed offline: ${(await services.models.status()).onlineReason}`)
-          }
+          await services.settings.set({ offlineOnly: turn.offlineOnly !== false })
           const started = Date.now()
           const sent = await services.chat.send({
             conversationId,
             text: turn.question,
             agentId: 'general',
             images: [],
-            allowWeb: turn.allowWeb === true,
             docScope: 'chat',
           }, win)
           conversationId = sent.conversationId
@@ -430,7 +394,6 @@ export async function runEval(): Promise<void> {
     write((error as Error).stack || (error as Error).message)
     throw error
   } finally {
-    if (fixture) await fixture.stop().catch(() => undefined)
     killLlama()
   }
 }

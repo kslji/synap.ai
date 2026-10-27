@@ -35,7 +35,9 @@ test('a sidecar that cannot be executed rejects without an uncaught exception', 
   process.on('uncaughtException', onUncaught)
   const server = new LlamaServer({ binPath: bin, modelPath: 'model.gguf', ctx: 128, startupTimeoutMs: 3_000 })
   try {
-    await assert.rejects(() => server.start(), /failed to start|exited during startup/)
+    // The spawn error differs by OS/Node: macOS reports `spawn ENOEXEC` (Node 22)
+    // or `spawn Unknown system error -8` (Node 20), rather than a wrapped message.
+    await assert.rejects(() => server.start(), /failed to start|exited during startup|spawn \S+|ENOEXEC/i)
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.equal(uncaught.length, 0)
   } finally {
@@ -43,6 +45,18 @@ test('a sidecar that cannot be executed rejects without an uncaught exception', 
     await server.stop().catch(() => undefined)
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('a reranker sidecar runs with rank pooling and its own micro-batch', () => {
+  const server = new LlamaServer({ binPath: 'llama-server', modelPath: 'rerank.gguf', reranking: true, ctx: 2048 })
+  const args = server.args()
+  assert.ok(args.includes('--reranking'))
+  assert.equal(args[args.indexOf('--pooling') + 1], 'rank')
+  assert.equal(args[args.indexOf('-ub') + 1], '2048')
+  assert.equal(args[args.indexOf('-b') + 1], '2048')
+  // A reranker must not claim the chat template: it never serves completions.
+  assert.equal(args.includes('--jinja'), false)
+  assert.equal(args.includes('--embeddings'), false)
 })
 
 test('llama-server starts with --no-repack and -cram 0', () => {
@@ -54,4 +68,21 @@ test('llama-server starts with --no-repack and -cram 0', () => {
   assert.equal(args[cram + 1], '0')
   assert.ok(args.includes('--jinja'))
   assert.equal(args.includes('--embeddings'), false)
+})
+
+test('a draft model is passed as --spec-draft-n-max; --draft-max was removed upstream', () => {
+  // build 11514 rejects --draft-max outright ("the argument has been removed"), which would
+  // stop the whole chat server from starting whenever speculative decoding is enabled.
+  const server = new LlamaServer({
+    binPath: 'llama-server',
+    modelPath: 'model.gguf',
+    ctx: 8192,
+    draftModelPath: '/models/draft.gguf',
+    draftMax: 6,
+  })
+  const args = server.args()
+  assert.deepEqual(args.slice(args.indexOf('-md'), args.indexOf('-md') + 2), ['-md', '/models/draft.gguf'])
+  assert.equal(args[args.indexOf('--spec-draft-n-max') + 1], '6')
+  assert.equal(args.includes('--draft-max'), false)
+  assert.equal(args.includes('--draft'), false)
 })

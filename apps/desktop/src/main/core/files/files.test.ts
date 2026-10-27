@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from '../native-test-support.js'
 import { fileURLToPath } from 'node:url'
 import * as XLSX from 'xlsx'
 import { makeDocx, makePdf, makePptx } from '../samples.js'
@@ -22,6 +22,18 @@ import { keepGranted, parseMdfind, parseWindowsSearch, searchFileNames, spotligh
 const grammarDir = join(dirname(fileURLToPath(import.meta.url)), '../../../../resources/tree-sitter')
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 
+// The file index excludes system folders, and macOS os.tmpdir() lives under /var
+// (realpathing to /private) — both excluded. Keep fixtures in a plain, non-hidden
+// folder inside the package, which is an allowed root.
+const TEST_TMP = join(dirname(fileURLToPath(import.meta.url)), '../../../../surf-test-tmp')
+mkdirSync(TEST_TMP, { recursive: true })
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
+
 test('a file outside a grant is not read', async () => {
   let calls = 0
   await assert.rejects(() => readGrantedFile('/tmp/secret.txt', {
@@ -33,7 +45,7 @@ test('a file outside a grant is not read', async () => {
 })
 
 test('the opened project root can be named as an allowed root', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-read-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-read-'))
   const file = join(dir, 'note.txt')
   writeFileSync(file, 'pier 4')
   const bytes = await readGrantedFile(file, { style: 'posix', roots: [dir] })
@@ -55,7 +67,7 @@ test('planning a question does not grant a folder', () => {
 })
 
 test('revoke deletes the index and leaves the file on disk', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-revoke-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-revoke-'))
   const home = dir
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
@@ -86,7 +98,7 @@ test('revoke deletes the index and leaves the file on disk', async () => {
 })
 
 test('an allow-once grant is dropped when the index opens again', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-once-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-once-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
   writeFileSync(join(docs, 'resume.txt'), 'Kabir Sharma resume')
@@ -188,7 +200,7 @@ test('Spotlight and Windows Search adapters are used, and the walker is the fall
   assert.equal(windows.engine, 'windows')
   assert.equal(windows.hits[0]?.name, 'gst-return.pdf')
   assert.equal(parseWindowsSearch('not json').length, 0)
-  const dir = mkdtempSync(join(tmpdir(), 'surf-walk-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-walk-'))
   mkdirSync(join(dir, 'node_modules'))
   writeFileSync(join(dir, 'node_modules', 'secret.txt'), 'hidden package')
   writeFileSync(join(dir, '.env'), 'SUPER_SECRET_TOKEN')
@@ -231,7 +243,7 @@ test('text, code, pdf, docx, pptx, xlsx, csv, and images extract', async () => {
 })
 
 test('answers cite the file path', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-cite-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-cite-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
   writeFileSync(join(docs, 'resume.txt'), 'Kabir Sharma resume. Marine engineer in Mumbai.')
@@ -262,7 +274,7 @@ test('answers cite the file path', async () => {
 })
 
 test('indexing pauses between batches and a watch refreshes one file', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-batch-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-batch-'))
   const folder = join(dir, 'Downloads')
   mkdirSync(folder)
   for (let i = 0; i < INDEX_BATCH + 1; i++) writeFileSync(join(folder, `note-${i}.txt`), `note number ${i} about ferries`)
@@ -304,7 +316,7 @@ test('indexing pauses between batches and a watch refreshes one file', async () 
 })
 
 test('file question eval over a fixture folder', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-eval-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-eval-'))
   const docs = join(dir, 'Documents')
   const downloads = join(dir, 'Downloads')
   mkdirSync(docs)
@@ -434,8 +446,8 @@ test('file answers lead with the passage and cite only markers that appear', () 
   assert.equal(named.citations.length, 1)
 })
 
-test('hash embedder is temporary until EmbeddingGemma is installed', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-embed-'))
+test('hash embedder is temporary until Jina code embeddings is installed', async () => {
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-embed-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
   writeFileSync(join(docs, 'resume.txt'), 'Kabir Sharma resume')
@@ -461,8 +473,8 @@ test('hash embedder is temporary until EmbeddingGemma is installed', async () =>
   }
 })
 
-test('EmbeddingGemma re-embeds a fallback folder and a failed pass leaves the old vectors', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-reembed-'))
+test('Jina code embeddings re-embeds a fallback folder and a failed pass leaves the old vectors', async () => {
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-reembed-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
   writeFileSync(join(docs, 'resume.txt'), 'Kabir Sharma resume. Marine engineer in Mumbai.')
@@ -641,7 +653,7 @@ test('a named folder is offered on its own and a file path becomes that folder',
 })
 
 test('indexing can pause and resume, and limits cap files and types', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-pause-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-pause-'))
   const folder = join(dir, 'Projects')
   mkdirSync(folder)
   writeFileSync(join(folder, 'a.txt'), 'alpha ferry note')
@@ -687,7 +699,7 @@ test('indexing can pause and resume, and limits cap files and types', async () =
 })
 
 test('a question that names an ungranted folder asks for that folder', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-named-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-named-'))
   const docs = join(dir, 'Documents')
   mkdirSync(docs)
   mkdirSync(join(dir, 'Projects'))
@@ -716,7 +728,7 @@ test('a question that names an ungranted folder asks for that folder', async () 
 })
 
 test('granting a home folder still skips Library and secrets', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'surf-home-'))
+  const dir = mkdtempSync(join(TEST_TMP, 'surf-home-'))
   const home = join(dir, 'Users', 'me')
   mkdirSync(join(home, 'Library', 'Keychains'), { recursive: true })
   mkdirSync(join(home, 'Projects'))

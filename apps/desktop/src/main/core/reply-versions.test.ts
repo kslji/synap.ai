@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { openUserDb } from './db.js'
 import { LIBRARY_MIGRATION } from './library-schema.js'
 import { nextReplyVersions, regenerateReply } from './reply-versions.js'
@@ -12,6 +13,12 @@ import { includeScreenshotCache, screenshotBelongsInCache } from './live/storage
 const KEY = 'ab'.repeat(32)
 const USER = '11111111-1111-4111-8111-111111111111'
 const ASST = '22222222-2222-4222-8222-222222222222'
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('sibling versions append and do not duplicate the latest text', () => {
   assert.deepEqual(nextReplyVersions([], '', 'One'), ['One'])

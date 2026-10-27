@@ -22,7 +22,6 @@ sys.path.insert(0, str(ROOT / "harness" / "evals"))
 from core.code_split import score_code_split  # noqa: E402
 from core.datasets import cases_for  # noqa: E402
 from core.documents import score_documents  # noqa: E402
-from core.no_fabrication import score_no_fabrication  # noqa: E402
 from core.step11 import score_step11  # noqa: E402
 from core.report import apply_thresholds, suite_rows, write_report  # noqa: E402
 from core.scorers import score_case  # noqa: E402
@@ -130,23 +129,6 @@ def run_code_split() -> list[dict]:
         raise SystemExit(f"code-split suite did not return JSON ({exc})\n{proc.stdout[-500:]}") from exc
 
 
-def run_no_fabrication() -> list[dict]:
-    proc = subprocess.run(
-        ["npx", "tsx", "src/main/core/search/no-fabrication-suite.ts"],
-        cwd=ROOT / "apps" / "desktop",
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise SystemExit((proc.stderr or proc.stdout)[-2000:])
-    try:
-        return score_no_fabrication(json.loads(proc.stdout))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"no-fabrication suite did not return JSON ({exc})\n{proc.stdout[-500:]}") from exc
-
-
 def run_step11() -> list[dict]:
     proc = subprocess.run(
         ["npx", "tsx", "src/main/core/step11-suite.ts"],
@@ -207,17 +189,15 @@ def main() -> int:
     phase1 = [case for case in cases if case.get("phase") != 2]
     phase2 = [case for case in cases if case.get("phase") == 2]
     thresholds = thresholds_for(args.mode)
-    print(f"eval {args.mode}: code-split suite, document suite, no-fabrication suite, step11 suite, then {len(phase1)} cases then {len(phase2)} pack cases", flush=True)
+    print(f"eval {args.mode}: code-split suite, document suite, step11 suite, then {len(phase1)} cases then {len(phase2)} pack cases", flush=True)
     code_scored = run_code_split()
     print(f"code-split {sum(1 for row in code_scored if row['ok'])}/{len(code_scored)}", flush=True)
     document_scored = run_documents()
     print(f"documents {sum(1 for row in document_scored if row['ok'])}/{len(document_scored)}", flush=True)
-    fabrication_scored = run_no_fabrication()
-    print(f"no-fabrication {sum(1 for row in fabrication_scored if row['ok'])}/{len(fabrication_scored)}", flush=True)
     step11_scored = run_step11()
     print(f"step11 {sum(1 for row in step11_scored if row['ok'])}/{len(step11_scored)}", flush=True)
     first = run_electron(phase1, work, "1", args.mode)
-    scored = code_scored + document_scored + fabrication_scored + step11_scored + score_transcripts(phase1, first)
+    scored = code_scored + document_scored + step11_scored + score_transcripts(phase1, first)
     suites = suite_rows(scored)
     apply_thresholds(suites, thresholds)
     reports = ROOT / "harness" / "reports"

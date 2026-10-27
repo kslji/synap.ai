@@ -21,7 +21,18 @@ export async function launch(env, settings = {}, extraArgs = []) {
     ...settings,
   }))
   const app = await electron.launch({
-    args: ['.', '--no-sandbox', '--disable-gpu', '--force-device-scale-factor=1', ...extraArgs],
+    // Keep text rasterisation the same on macOS and on the Linux runner: greyscale
+    // antialiasing with the font's own advances, so a snapshot taken on one machine
+    // is not rejected by the other over subpixel fringes or hinted stems.
+    args: [
+      '.',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--force-device-scale-factor=1',
+      '--disable-lcd-text',
+      '--font-render-hinting=none',
+      ...extraArgs,
+    ],
     cwd: desktop,
     env: {
       ...process.env,

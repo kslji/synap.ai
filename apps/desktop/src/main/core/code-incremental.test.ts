@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { fileURLToPath } from 'node:url'
 import { hashEmbedder } from './code/embed.js'
 import { CodeIndex, dbFileBytes } from './code/project.js'
@@ -10,6 +11,12 @@ import { watchProject } from './code/watch.js'
 
 const grammarDir = join(dirname(fileURLToPath(import.meta.url)), '../../../resources/tree-sitter')
 const key = 'ef'.repeat(32)
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
+}
 
 test('incremental update replaces symbols and a delete drops the file', async () => {
   const root = mkdtempSync(join(tmpdir(), 'surf-incr-'))
@@ -74,18 +81,25 @@ test('plaintext index works without an embedder', async () => {
 
 test('watcher reports a changed file once', async () => {
   const root = mkdtempSync(join(tmpdir(), 'surf-watch-'))
+  let watcher: { close(): void } | undefined
   try {
     const seen = await new Promise<string[]>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('watcher timed out')), 4000)
-      const watcher = watchProject(root, (rels) => {
-        clearTimeout(timer)
-        watcher.close()
-        resolve(rels)
+      watcher = watchProject(root, (rels) => {
+        // Ignore any spurious startup batch; wait for the write we actually made.
+        if (rels.some((rel) => rel.endsWith('new.py'))) {
+          clearTimeout(timer)
+          resolve(rels)
+        }
       }, 30)
       setTimeout(() => writeFileSync(join(root, 'new.py'), 'def fresh():\n    return 1\n'), 50)
     })
     assert.ok(seen.some((rel) => rel.endsWith('new.py')))
   } finally {
+    watcher?.close()
+    // Let any debounced watcher event settle while the folder still exists; otherwise
+    // Node 22 reports async activity (and an ENOENT for the deleted file) after the test.
+    await new Promise((resolve) => setTimeout(resolve, 80))
     rmSync(root, { recursive: true, force: true })
   }
 })

@@ -51,28 +51,38 @@ def apply_markup(raw_cost: Decimal, markup_multiplier: Decimal) -> Decimal:
     return raw_cost * markup_multiplier
 
 
+def _first_int(usage: dict[str, Any], keys: tuple[str, ...]) -> int:
+    """First present integer among the aliases, so a genuine 0 is kept (not skipped).
+    A missing key contributes nothing."""
+    for key in keys:
+        value = usage.get(key)
+        if value is not None:
+            return int(value)
+    return 0
+
+
 def extract_usage(response: dict[str, Any]) -> tuple[int, int]:
-    """Extract token usage from OpenRouter response.
-    
-    OpenRouter returns usage in the response:
-    {
-      "choices": [...],
-      "usage": {
-        "prompt_tokens": 100,
-        "completion_tokens": 50,
-        "total_tokens": 150
-      }
-    }
-    
+    """Extract token usage from a provider response, normalised across providers.
+
+    The gateway is OpenRouter today but will route direct calls to OpenAI, Anthropic
+    and Google later, and each spells the usage block differently:
+
+      - OpenRouter / OpenAI: prompt_tokens, completion_tokens
+      - Anthropic /messages: input_tokens, output_tokens
+      - Google generateContent: promptTokenCount, candidatesTokenCount
+
+    Canonical model ids are `{provider}/{model}` and pricing/billing key off them, so
+    only this extractor is provider-shaped; adding a direct route needs no schema change.
+
     Args:
-        response: OpenRouter API response
-        
+        response: provider API response
+
     Returns:
         (input_tokens, output_tokens)
     """
-    usage = response.get("usage", {})
-    input_tokens = int(usage.get("prompt_tokens", 0))
-    output_tokens = int(usage.get("completion_tokens", 0))
+    usage = response.get("usage", {}) or {}
+    input_tokens = _first_int(usage, ("prompt_tokens", "input_tokens", "promptTokenCount"))
+    output_tokens = _first_int(usage, ("completion_tokens", "output_tokens", "candidatesTokenCount"))
     return (input_tokens, output_tokens)
 
 
@@ -138,7 +148,6 @@ async def settle_billing(
             final_deduction=final_deduction,
             balance_before=balance_before,
             balance_after=new_balance,
-            response_text=response.get("choices", [{}])[0].get("message", {}).get("content"),
         )
         
         result = {

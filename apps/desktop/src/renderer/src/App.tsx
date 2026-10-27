@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { persistThemeChoice, BlobMascot, useMascotColorSetter, type ThemeChoice } from '@surf/ui'
-import { useMascotActivity } from './mascot-activity'
-import type { ChatEvent, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
-import { syncChip } from '../../main/core/network-mode'
+import { persistThemeChoice, type ThemeChoice } from '@surf/ui'
+import type { ChatEvent, ChatMode, ChunkPreview, CodeAgentModeState, CodeProjectStatus, ConversationSummary, DeviceInfo, ExportFormat, FillPlan, LibraryFile, LicenceDevice, LicenceStatus, ModelStatus, PackRow, SettingsPatch, StoredMessage, SyncChip, UpdateOffer } from '../../shared/ipc-contract'
+import { syncChip } from '../../shared/network-mode'
 import { applyEvent, type UiMsg, type View } from './types'
+import { agentCanChat } from '@surf/shared'
 import { agents } from '../../../../../packages/shared/src/agent-catalog'
-import { agentCanChat } from '../../../../../packages/shared/src/agents'
 import { switchAgentChat } from '../../shared/chat-title'
 import { Sidebar } from './screens/Sidebar'
 import { ChatScreen } from './screens/ChatScreen'
@@ -100,6 +99,9 @@ export default function App() {
   const [codeMode, setCodeMode] = useState<CodeAgentModeState | null>(null)
   const [tourStep, setTourStep] = useState<number | null>(null)
   const [messages, setMessages] = useState<UiMsg[]>([])
+  // Item 12: this chat's answer to "may Online read its Offline replies?".
+  // null = the chat has no stored thread yet, so the question does not apply.
+  const [onlineConsent, setOnlineConsent] = useState<boolean | null>(null)
   const [shots, setShots] = useState<CodeShot[]>([])
   const [streaming, setStreaming] = useState(false)
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer | null>(null)
@@ -107,6 +109,7 @@ export default function App() {
   const [setupPreview, setSetupPreview] = useState<SetupSnapshot | null>(null)
   const [setupKind, setSetupKind] = useState<'pick' | 'repair'>('pick')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [preview, setPreview] = useState<ChunkPreview | null>(null)
   const [account, setAccount] = useState<{ email: string; deviceId: string | null; plan?: string | null } | null>(null)
@@ -119,17 +122,6 @@ export default function App() {
   const [demoPacks, setDemoPacks] = useState<PackRow[] | null>(null)
   const [convertJob, setConvertJob] = useState<(ConvertPanelState & { path: string | null; attachmentId: string | null }) | null>(null)
   const [fillJob, setFillJob] = useState<(FillPanelState & { templatePath: string | null; templateAttachmentId: string | null; sourcePath: string | null }) | null>(null)
-  function webAllowed(): boolean {
-    return Boolean(settings?.webSearchAllowed && !settings.offlineOnly)
-  }
-  const setMascotColor = useMascotColorSetter()
-  const { setOffline } = useMascotActivity()
-  useEffect(() => {
-    if (settings?.mascotColor) setMascotColor(settings.mascotColor)
-  }, [settings?.mascotColor, setMascotColor])
-  useEffect(() => {
-    setOffline(Boolean(status && (status.offlineOnly || !status.online)))
-  }, [setOffline, status])
 
   const syncPreview = useRef<SyncChip | null>(null)
   const syncDemoTimer = useRef<number | null>(null)
@@ -156,6 +148,12 @@ export default function App() {
     else setLicenceDevices([])
     return st
   }, [api])
+
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   useEffect(() => {
     window.__surfNav = (next) => setView(next)
@@ -187,7 +185,7 @@ export default function App() {
       (events) => {
         setMessages((prev) => events.reduce(applyEvent, prev))
         for (const e of events) {
-          if (e.type === 'token' || e.type === 'tool' || e.type === 'sources' || e.type === 'status' || e.type === 'code-step' || e.type === 'code-diff') setStreaming(true)
+          if (e.type === 'token' || e.type === 'reasoning' || e.type === 'tool' || e.type === 'sources' || e.type === 'status' || e.type === 'code-step' || e.type === 'code-diff') setStreaming(true)
           if (e.type === 'done' || e.type === 'error') {
             setStreaming(false)
             void api.conversations.list().then(setConversations).catch(() => undefined)
@@ -210,7 +208,7 @@ export default function App() {
     })
     void api.library.list().then(setFiles).catch(() => undefined)
     const offModels = api.models.onEvent((e) => {
-      if (e.state === 'done') void refresh()
+      if (e.state === 'done' || e.state === 'removed') void refresh()
     })
     const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 8000)
     return () => { frames.cancel(); offChat(); offModels(); offLib(); offDocs(); offCode(); window.clearInterval(timer) }
@@ -231,8 +229,9 @@ export default function App() {
       setView('setup')
       return
     }
-    if (licence.state === 'dev') setView('chat')
-    else if (status.onboardingComplete) setView('home')
+    // Chat is the launch screen. Only move off the initial view, so a deep link or a
+    // user who already navigated is left alone.
+    if (licence.state === 'dev' || status.onboardingComplete) setView((current) => (current === 'onboarding' ? 'chat' : current))
   }, [status, licence])
 
   useEffect(() => {
@@ -282,6 +281,21 @@ export default function App() {
     const next = TOUR[tourStep]
     if (next) setView(next.view)
   }, [tourStep])
+
+  // Consent belongs to one chat, so opening a chat reads that chat's flag from the
+  // main process rather than keeping a copy in the renderer.
+  useEffect(() => {
+    if (!conversationId) {
+      setOnlineConsent(null)
+      return
+    }
+    let live = true
+    setOnlineConsent(null)
+    api.chat.getConsent(conversationId)
+      .then((state) => { if (live) setOnlineConsent(state.allowed) })
+      .catch(() => { if (live) setOnlineConsent(false) })
+    return () => { live = false }
+  }, [api, conversationId])
 
   function chooseTheme(theme: ThemeChoice) {
     persistThemeChoice(theme)
@@ -354,19 +368,21 @@ export default function App() {
     }
   }
 
-  async function send(text: string, images: { mime: CodeShot['mime']; base64: string }[] = []) {
+  async function send(text: string, images: { mime: CodeShot['mime']; base64: string }[] = [], opts?: { mode: ChatMode; contextMessageIds: string[] }) {
     const note = images.length ? `\n[${images.length} screenshot${images.length === 1 ? '' : 's'} kept on this computer]` : ''
     const body = `${text.trim() || (images.length ? 'Look at this screenshot.' : '')}${note}`.trim()
     if (!body) return
-    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [] }
+    const mode: ChatMode = opts?.mode ?? 'offline'
+    const contextMessageIds = opts?.contextMessageIds ?? []
+    const user: UiMsg = { id: `u-${Date.now()}`, role: 'user', text: body, sources: [], tools: [], mode, contextRefs: contextMessageIds.length ? contextMessageIds : undefined }
     const boundAgent = conversations.find((chat) => chat.id === conversationId)?.agentId ?? agentId
     const modelId = (boundAgent === 'code' ? status?.codeModelId : status?.chatModelId) || ''
-    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId }
+    const pending: UiMsg = { id: `p-${Date.now()}`, role: 'assistant', text: '', sources: [], tools: [], pending: true, startedAt: Date.now(), modelId, mode }
     setMessages((m) => [...m, user, pending])
     setStreaming(true)
     setView('chat')
     try {
-      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, allowWeb: webAllowed(), docScope: 'chat' })
+      const res = await api.chat.send({ conversationId, text: body, agentId: boundAgent, images, docScope: 'chat', mode, contextMessageIds })
       if (images.length) setShots([])
       setConversationId(res.conversationId)
       setMessages((m) => m.map((msg) => (msg.pending ? { ...msg, id: res.messageId } : msg)))
@@ -387,7 +403,6 @@ export default function App() {
         conversationId,
         text: 'Continue.',
         agentId: boundAgent,
-        allowWeb: webAllowed(),
         docScope: 'chat',
         continueMessageId: messageId,
       })
@@ -412,7 +427,7 @@ export default function App() {
     setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, text: '', sources: [], tools: [], pending: true, versions, startedAt: Date.now(), modelId, error: false } : msg)))
     setStreaming(true)
     try {
-      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, allowWeb: webAllowed(), docScope: 'chat', replaceMessageId: messageId })
+      const res = await api.chat.send({ conversationId, text: user.text, agentId: boundAgent, docScope: 'chat', replaceMessageId: messageId })
       setConversationId(res.conversationId)
       setMessages((list) => list.map((msg) => (msg.id === messageId ? { ...msg, id: res.messageId, versions } : msg)))
     } catch (e) {
@@ -431,9 +446,42 @@ export default function App() {
     setView('chat')
   }
 
+  /** Item 12: grant or take back this chat's Online context, and show the note. */
+  async function answerOnlineConsent(allowed: boolean) {
+    if (!conversationId) return
+    try {
+      const state = await api.chat.setConsent({ conversationId, allowed })
+      setOnlineConsent(state.allowed)
+      // The note is stored in the thread; mirror it here so the agreement is visible
+      // at once instead of waiting for the next reply to reload the chat.
+      if (state.note) {
+        setMessages((list) => [...list, { id: `n-${Date.now()}`, role: 'note', text: state.note, sources: [], tools: [] }])
+      }
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function launchCodeIde() {
+    try {
+      const root = codeProject?.root ?? (await api.code.pick())?.root ?? null
+      if (!root) {
+        setNotice('No folder selected — Surf IDE was not opened.')
+        return
+      }
+      await api.codeIde.launch(root)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
   function newChat(nextAgent = agentId) {
     const agent = agents.find((item) => item.id === nextAgent)
     if (!agent || !agentCanChat(agent)) return
+    if (nextAgent === 'code') {
+      void launchCodeIde()
+      return
+    }
     setAgentId(agent.id)
     setConversationId(null)
     setMessages([])
@@ -670,7 +718,7 @@ export default function App() {
         ])
         setMessages([
           { id: `u-${agentScene}`, role: 'user', text: 'Hello', sources: [], tools: [] },
-          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 4B' },
+          { id: `a-${agentScene}`, role: 'assistant', text: 'On this computer.', sources: [], tools: [], modelId: 'Qwen 2B' },
         ])
         return
       }
@@ -697,7 +745,7 @@ export default function App() {
             text: formatted ? FORMATTED_REPLY : CONTINUED_REPLY,
             sources: [],
             tools: [],
-            modelId: 'Qwen 4B',
+            modelId: 'Qwen 2B',
             canContinue: !formatted,
           },
         ])
@@ -767,19 +815,6 @@ export default function App() {
           { id: 'a-search', role: 'assistant', text: '', sources: [], tools: [], pending: true, phase: 'searching' },
         ])
       }
-      if (scene === 'web') {
-        setView('chat')
-        setPreview(null)
-        setFiles([])
-        setMessages([
-          { id: 'u-web', role: 'user', text: 'What is the Surf beacon code for pier 9 today?', sources: [], tools: [] },
-          {
-            id: 'a-web', role: 'assistant', tools: [],
-            text: 'The Surf beacon code for pier 9 today is SB-4417. [S1]',
-            sources: [{ kind: 'web', title: 'Pier 9 beacon', url: 'https://example.com/beacon', domain: 'example.com', published: '9 Oct 2026', pack: 'web', excerpt: 'Pier 9 beacon · example.com · 9 Oct 2026' }],
-          },
-        ])
-      }
       if (scene === 'versions') {
         setView('chat')
         setAgentId('general')
@@ -834,29 +869,6 @@ export default function App() {
           error: null,
         }])
         setView('packs')
-      }
-      if (scene === 'savedweb') {
-        setView('chat')
-        setPreview(null)
-        setFiles([])
-        setMessages([
-          { id: 'u-saved', role: 'user', text: 'What is the price of the pier 9 beacon today?', sources: [], tools: [] },
-          {
-            id: 'a-saved', role: 'assistant', tools: [],
-            text: 'The Surf beacon code for pier 9 is SB-4417. [S1]',
-            sources: [{
-              kind: 'web',
-              title: 'Pier 9 beacon',
-              url: 'https://example.com/beacon',
-              domain: 'example.com',
-              published: '8 Oct 2026',
-              pack: 'Web, saved 8 Oct 2026',
-              savedAt: Date.UTC(2026, 9, 8, 12, 0),
-              staleNote: 'Saved more than 24 hours ago. Prices and news may have changed.',
-              excerpt: 'The Surf beacon code for pier 9 today is SB-4417.',
-            }],
-          },
-        ])
       }
       if (scene === 'packcite') {
         setView('chat')
@@ -944,9 +956,12 @@ export default function App() {
 
   if (!status || !settings || !licence) {
     return (
-      <main className="flex h-full flex-col items-center justify-center gap-2" data-ready="no">
-        <BlobMascot state="searching" size={160} />
-        <p className="text-sm text-[var(--muted)]">{error ?? 'Starting Synap.surf'}</p>
+      <main className="flex h-full flex-col items-center justify-center gap-4 bg-[#F2F2F7]" data-ready="no">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#FB923C] to-[#F97316] text-2xl font-black text-white">S</div>
+        <div className="h-1 w-28 overflow-hidden rounded-full bg-[#E7E7F0]">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-[#F97316]" />
+        </div>
+        <p className="text-sm text-[#5B5B6B]">{error ?? 'Starting Synap.surf'}</p>
       </main>
     )
   }
@@ -961,7 +976,7 @@ export default function App() {
           status={licence}
           offlineOnly={settings.offlineOnly}
           renewal={licence.state === 'subscription_ended'}
-          onAllowNetwork={async () => { await patch({ networkMode: 'auto' }) }}
+          onAllowNetwork={async () => { await patch({ networkMode: 'online' }) }}
           onStart={(email) => api.auth.start(email)}
           onVerify={async (email, code) => {
             await api.auth.verify(email, code)
@@ -989,7 +1004,7 @@ export default function App() {
         <SignInScreen
           theme={settings.theme}
           onTheme={chooseTheme}
-          onClose={() => setView('chat')}
+          onClose={() => setView('home')}
           onStart={(email) => api.auth.start(email)}
           onVerify={async (email, code) => {
             await api.auth.verify(email, code)
@@ -1057,6 +1072,7 @@ export default function App() {
       )}
       {updateOffer && <UpdateBanner offer={updateOffer} onApply={() => { void api.updates.apply().catch((e: unknown) => setError((e as Error).message)) }} />}
       <div className="flex min-h-0 flex-1">
+      {screen !== 'home' && (
       <Sidebar
         view={screen}
         devMode={devMode}
@@ -1084,23 +1100,22 @@ export default function App() {
         onSync={() => { void syncFromChip() }}
         sync={status.sync}
       />
+      )}
       <div key={screen} className="view-pane flex min-h-0 min-w-0 flex-1">
       {screen === 'home' && (
         <HomeScreen
-          agents={agents}
-          conversations={conversations}
+          signedIn={Boolean(shownAccount)}
+          userName={shownAccount?.email}
+          theme={settings.theme}
           onStart={(id) => newChat(id)}
-          onOpen={(id) => { void openConversation(id) }}
-          onAsk={() => newChat('general')}
-          onDocument={() => { const id = agentId; newChat(id); void api.library.pick(null, true, id).then((res) => { if (res.conversationId) setConversationId(res.conversationId); return api.library.list() }).then(setFiles).catch((e: unknown) => setError((e as Error).message)) }}
-          onFill={() => { void openFill({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
-          onConvert={() => { void openConvert({ id: '', name: 'Choose a file', mime: '', sizeBytes: 0, addedAt: 0, conversationIds: [], status: 'done', stage: null, progress: 0, error: null, jobId: null, chunkCount: 0 }).catch((e: unknown) => setError((e as Error).message)) }}
-          onSearch={() => setView('library')}
+          onSignIn={() => setView('signin')}
+          onSignOut={() => void api.auth.signOut().then(() => setAccount(null)).catch(() => undefined)}
+          onTheme={chooseTheme}
         />
       )}
-      {screen === 'agents' && <AgentsScreen agents={agents} onStart={(id) => newChat(id)} />}
+      {screen === 'agents' && <AgentsScreen onStart={(id) => newChat(id)} />}
       {screen === 'chats' && (
-        <ChatsScreen agents={agents} conversations={conversations} agentId={agentId} onOpen={(id) => { void openConversation(id) }} onNew={() => newChat()} />
+        <ChatsScreen agentName={agents.find((agent) => agent.id === agentId)?.name} conversations={conversations} agentId={agentId} onOpen={(id) => { void openConversation(id) }} onNew={() => newChat()} />
       )}
       {screen === 'chat' && (
         <ChatScreen
@@ -1114,8 +1129,10 @@ export default function App() {
           botName={settings.mascotName || 'Surf'}
           onBotName={(mascotName) => { void patch({ mascotName }) }}
           modelLabel={(agentId === 'code' ? activeCodeModel(status) : activeChatModel(status))?.label ?? 'Qwen'}
+          onlineConsent={onlineConsent}
+          onOnlineConsent={(allowed) => { void answerOnlineConsent(allowed) }}
           tourAttach={tourStep != null && TOUR[tourStep]?.id === 'attach'}
-          onSend={(t, images) => { void send(t, images) }}
+          onSend={(t, images, opts) => { void send(t, images, opts) }}
           shots={agentId === 'code' ? shots : []}
           onAddShots={agentId === 'code' ? (files) => { void addShots(files) } : undefined}
           onRemoveShot={agentId === 'code' ? (id) => setShots((current) => current.filter((shot) => shot.id !== id)) : undefined}
@@ -1128,6 +1145,7 @@ export default function App() {
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
+          onOpenIde={() => { void launchCodeIde() }}
           onCodeDecide={(messageId, id, allow, remember, all) => { void api.codeAgent.decide({ messageId, id, allow, remember, all }).catch((e: unknown) => setError((e as Error).message)) }}
           onCodeRevise={(messageId, order, edits) => { void api.codeAgent.revise({ messageId, order, edits }).catch((e: unknown) => setError((e as Error).message)) }}
           onCodeUndo={(messageId, stepId) => { void api.codeAgent.undo({ messageId, stepId }).catch((e: unknown) => setError((e as Error).message)) }}
@@ -1142,7 +1160,7 @@ export default function App() {
           }}
           tabSuggestions={settings.tabSuggestions}
           tabSuggestionsOff={settings.tabSuggestionsOff}
-          animateMascot={settings.animateMascot !== false}
+          onBackToAgents={() => setView('home')}
           onRegenerate={(id) => { void regenerate(id) }}
           onContinue={(id) => { void continueReply(id) }}
           onStop={agentId === 'code' ? () => {
@@ -1186,7 +1204,7 @@ export default function App() {
         />
       )}
       {screen === 'models' && (
-        <ModelsScreen status={status} />
+        <ModelsScreen status={status} onRefresh={() => { void refresh() }} />
       )}
       {screen === 'usage' && (
         <UsagePanel machine={{ cpuModel: status.cpuModel, ramGb: status.ramGb }} />
@@ -1227,6 +1245,7 @@ export default function App() {
             void api.licence.deactivate().then(() => refresh()).catch((e: unknown) => setError((e as Error).message))
           }}
           onPatch={(p) => { void patch(p) }}
+          onRefresh={() => { void refresh() }}
           onBack={() => setView('chat')}
           onSave={() => { void patch({}) }}
           onRestore={() => {
@@ -1237,8 +1256,7 @@ export default function App() {
               mascotName: 'Surf',
               mascotColor: '#f2740f',
               animateMascot: true,
-              networkMode: 'auto',
-              webSearchAllowed: false,
+              networkMode: 'online',
               telemetryOptIn: false,
             })
           }}
@@ -1265,7 +1283,7 @@ export default function App() {
       {tourStep != null && TOUR[tourStep] && (
         <div className="tour-shade" role="dialog" aria-label="Guided tour">
           <div className="tour-card card px-5 py-5">
-            <BlobMascot state="guiding" size={72} />
+            <div className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl bg-gradient-to-br from-[#FB923C] to-[#F97316] text-2xl font-black text-white">S</div>
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Step {tourStep + 1} of {TOUR.length}</p>
             <h2 className="mt-1 text-lg font-semibold">{TOUR[tourStep].title}</h2>
             <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{TOUR[tourStep].body}</p>
@@ -1278,10 +1296,19 @@ export default function App() {
           </div>
         </div>
       )}
+      {notice && !error && (
+        <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center px-4">
+          <div className="card pointer-events-auto flex items-center gap-3 px-4 py-3 text-sm">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FEF3C7] text-lg font-bold text-[#92400E]">i</span>
+            <span>{notice}</span>
+            <button className="btn btn-ghost" type="button" onClick={() => setNotice(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="pointer-events-none absolute left-0 right-0 top-3 z-20 flex justify-center px-4">
           <div className="card pointer-events-auto flex items-center gap-3 px-4 py-3 text-sm" role="alert">
-            <BlobMascot state="error" size={40} />
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FEE2E2] text-lg font-bold text-[#B91C1C]">!</span>
             <span>{error}</span>
             <button className="btn btn-ghost" type="button" onClick={() => setError(null)}>Dismiss</button>
           </div>

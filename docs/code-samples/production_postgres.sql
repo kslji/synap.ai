@@ -2,6 +2,10 @@
 -- Production Postgres (16/17) + pgvector — Harbor backend & pipeline
 -- Managed by Alembic migrations in services/api. Times are timestamptz (UTC).
 -- =====================================================================
+-- Superseded: web search was removed in Phase 0. The SearXNG proxy, /v1/search and
+-- /v1/fetch, trafilatura page cleaning, search_requests, search_quota_daily and
+-- source_suggestions are deleted; services/api alembic 0006/0008 drop them from a live
+-- database. This file is the pre-Phase-0 sample and is kept as a record.
 CREATE EXTENSION IF NOT EXISTS vector;     -- pgvector
 CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive email/domain
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()

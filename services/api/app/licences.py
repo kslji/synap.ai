@@ -20,6 +20,13 @@ from datetime import datetime, timedelta, timezone
 from nacl.exceptions import BadSignatureError
 from nacl.signing import SigningKey, VerifyKey
 
+
+def _prod() -> bool:
+    # Local import keeps licences.py decoupled; startup_guard only reads os.environ.
+    from .startup_guard import is_production
+
+    return is_production()
+
 ENV = os.environ
 KEY_RE = re.compile(r"[A-Z2-9]{16}")
 OS_NAMES = {"macos", "windows", "linux"}
@@ -529,7 +536,7 @@ async def apply_webhook(store, auth, provider: str, event: dict, now: datetime |
         "term_months": term,
         "subscription_ends_at": iso(ends),
         "key_hint": licence["key_hint"],
-        "dev_key": raw if ENV.get("MAIL_MODE", "console") != "smtp" else None,
+        "dev_key": None if _prod() or ENV.get("MAIL_MODE", "console") == "smtp" else raw,
         "email": email,
         "raw_key": raw,
     }

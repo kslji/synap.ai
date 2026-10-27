@@ -367,9 +367,12 @@ test('a regression is rolled back and the next patch sees the restored file', as
   const outputs: string[] = []
   let rolledBack = false
   try {
-    const result = await runSplitTask('Fix the type error in src/add.ts', {
+    const result = await runSplitTask('Fix the type error in src/add.ts, and leave src/legacy.ts and package.json alone', {
       ...host(root, facts(['src/add.ts', 'src/legacy.ts']), async (req) => {
         const user = userText(req)
+        if (user.includes('Kind: plan')) {
+          return { content: JSON.stringify({ steps: [{ id: 's1', goal: 'repair add', files: ['src/add.ts'], symbols: [], depends_on: [], check: { kind: 'typecheck', command: '' }, create: false }] }) }
+        }
         prompts.push(user)
         if (user.includes('rolled back')) rolledBack = readFileSync(add, 'utf8').includes('extra') && !readFileSync(add, 'utf8').includes('worse')
         if (user.includes('TS2304') || user.includes('rolled back')) {
@@ -416,12 +419,16 @@ test('ask mode does not run a check until it is approved, and auto runs an allow
   const root = tempDir()
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"', typecheck: 'tsc --noEmit' } }))
   const ran: string[] = []
+  const plan = (check: { kind: 'test' | 'typecheck'; command: string }) => ({ content: JSON.stringify({ steps: [{ id: 's1', goal: 'bump n', files: ['src/a.ts'], symbols: [], depends_on: [], check, create: false }] }) })
   try {
-    const denied = await runSplitTask('Fix the typo in src/a.ts', host(root, facts(['src/a.ts']), async () => ({
-      content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }),
-    }), async (command) => {
+    const denied = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', host(root, facts(['src/a.ts', 'src/b.ts']), async (req) => {
+      const user = userText(req)
+      if (user.includes('Kind: plan')) return plan({ kind: 'typecheck', command: '' })
+      return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
+    }, async (command) => {
       ran.push(command)
       return { ok: true, output: 'ok' }
     }, async () => ({ allow: false })))
@@ -430,10 +437,12 @@ test('ask mode does not run a check until it is approved, and auto runs an allow
     assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const n = 1\n')
 
     const asked: string[] = []
-    const auto = await runSplitTask('Fix the typo in src/a.ts and keep the test', {
-      ...host(root, facts(['src/a.ts']), async () => ({
-        content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }),
-      }), async (command) => {
+    const auto = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', {
+      ...host(root, facts(['src/a.ts', 'src/b.ts']), async (req) => {
+        const user = userText(req)
+        if (user.includes('Kind: plan')) return plan({ kind: 'test', command: '' })
+        return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
+      }, async (command) => {
         ran.push(command)
         return { ok: true, output: 'ok' }
       }, async (request) => {

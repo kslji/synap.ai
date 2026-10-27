@@ -41,14 +41,15 @@ export function offeredOnLaptop(minRamGb: number, totalRamGb: number): boolean {
 }
 
 /**
- * Qwen3.5 2B is Recommended on every laptop. Other rows for this RAM class are Fits.
- * A higher tier is Too big and is left off the list. Gemma E2B starts at 8 GB.
+ * The default Qwen3.5 model is Recommended on every laptop. Optional rows for this RAM class
+ * are Fits (`default_for: ["*"]` = default for every agent). A higher tier is Too big.
  */
 export function codeFitMark(
   model: { family: string; minRamGb: number; defaultFor?: readonly string[] },
   totalRamGb: number,
 ): CodeFit {
-  if (model.family === 'qwen3.5' && model.defaultFor?.includes('code')) return 'recommended'
+  const marked = model.defaultFor ?? []
+  if (model.family === 'qwen3.5' && (marked.includes('*') || marked.includes('code'))) return 'recommended'
   if (offeredOnLaptop(model.minRamGb, totalRamGb)) return 'fits'
   return 'too-big'
 }

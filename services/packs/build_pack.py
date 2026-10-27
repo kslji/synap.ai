@@ -1,6 +1,6 @@
 """Build and sign a knowledge pack from a folder of text files.
 
-Embeddings come from llama-server running the same EmbeddingGemma 2 GGUF the
+Embeddings come from llama-server running the same Jina code embeddings GGUF the
 desktop uses. The signing seed is PACK_SIGNING_KEY_HEX or --key-hex. Never
 commit that seed.
 
@@ -15,30 +15,26 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-API_ROOT = Path(__file__).resolve().parents[1] / "api"
-HARNESS_ROOT = Path(__file__).resolve().parents[2] / "harness"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+API_ROOT = REPO_ROOT / "services" / "api"
+HARNESS_ROOT = REPO_ROOT / "harness"
+# The desktop scorer owns the authoritative pattern set; the server no longer
+# sanitizes pages (web search removed), so pack building reads that one copy
+# instead of keeping a second one that could drift from it.
+INJECTION_RULES_PATH = REPO_ROOT / "apps" / "desktop" / "src" / "main" / "core" / "injection-rules.json"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 if str(HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(HARNESS_ROOT))
 from core.pack_gate import assert_can_sign  # noqa: E402
-
-SPEC = {
-    "id": "embeddinggemma-2-text@256",
-    "model": "google/embeddinggemma-2",
-    "file": "embeddinggemma-2-Q8_0.gguf",
-    "native_dim": 768,
-    "dim": 256,
-    "pooling": "mean",
-    "normalize": True,
-    "query_prefix": "task: search result | query: ",
-    "doc_template": "title: {title} | text: {text}",
-}
+from pack_spec import SPEC, format_doc  # noqa: E402
 
 SCHEMA = """
 CREATE TABLE pack_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -54,6 +50,77 @@ CREATE VIRTUAL TABLE chunk_vec USING vec0(chunk_id INTEGER PRIMARY KEY, embeddin
 """
 
 
+def _rule_flags(text: str) -> int:
+    value = 0
+    if "i" in text:
+        value |= re.IGNORECASE
+    if "m" in text:
+        value |= re.MULTILINE
+    return value
+
+
+if not INJECTION_RULES_PATH.exists():
+    raise SystemExit(f"injection rules missing at {INJECTION_RULES_PATH}")
+_INJECTION_RULES = json.loads(INJECTION_RULES_PATH.read_text(encoding="utf-8"))
+_INJECTION_HIGH = int(_INJECTION_RULES["high"])
+_INJECTION_MEDIUM = int(_INJECTION_RULES["medium"])
+_INJECTION_PATTERNS = [
+    (item["id"], int(item["weight"]), re.compile(item["re"], _rule_flags(item.get("flags", ""))))
+    for item in _INJECTION_RULES["patterns"]
+]
+
+# Zero-width, bidi overrides, and Unicode tag characters (U+E0000 block).
+_CONTROLS = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\U000e0000-\U000e007f]")
+_TEMPLATE = re.compile(r"<\|[^|>\n]{1,48}\|>")
+
+
+def normalize_text(text: str) -> tuple[str, int]:
+    folded = unicodedata.normalize("NFKC", text or "")
+    removed = len(_CONTROLS.findall(folded))
+    cleaned = _CONTROLS.sub("", folded)
+    cleaned = _TEMPLATE.sub("", cleaned)
+    return cleaned, removed
+
+
+def score_text(text: str) -> dict:
+    """Return score, pattern ids, and keep / downrank / drop. Does not store the text."""
+    folded, _removed = normalize_text(text)
+    score = 0
+    flags: list[str] = []
+    for name, weight, pattern in _INJECTION_PATTERNS:
+        if pattern.search(folded):
+            score += weight
+            flags.append(name)
+    action = "drop" if score >= _INJECTION_HIGH else "downrank" if score >= _INJECTION_MEDIUM else "keep"
+    return {"score": score, "flags": flags, "action": action}
+
+
+def filter_paragraphs(text: str) -> tuple[str, dict, list[dict]]:
+    """Drop high-scoring paragraphs. Medium ones stay and downrank the chunk.
+
+    Ignored entries are scores and flags only.
+    """
+    cleaned, _removed = normalize_text(text)
+    paragraphs = [part.strip() for part in re.split(r"\n+", cleaned) if part.strip()]
+    kept: list[str] = []
+    ignored: list[dict] = []
+    worst = "keep"
+    flags: list[str] = []
+    score = 0
+    rank = {"keep": 0, "downrank": 1, "drop": 2}
+    for paragraph in paragraphs:
+        judged = score_text(paragraph)
+        if judged["action"] == "drop":
+            ignored.append({"score": judged["score"], "flags": judged["flags"]})
+            continue
+        kept.append(paragraph)
+        flags.extend(flag for flag in judged["flags"] if flag not in flags)
+        score = max(score, judged["score"])
+        if rank[judged["action"]] > rank[worst]:
+            worst = judged["action"]
+    return "\n\n".join(kept), {"score": score, "flags": flags, "action": worst if kept else "drop"}, ignored
+
+
 def truncate_normalize(values: list[float], dim: int) -> list[float]:
     head = values[:dim]
     norm = sum(item * item for item in head) ** 0.5
@@ -65,7 +132,7 @@ def truncate_normalize(values: list[float], dim: int) -> list[float]:
 def embed_doc(title: str, text: str, url: str, api_key: str) -> list[float]:
     import httpx
 
-    body = SPEC["doc_template"].replace("{title}", title).replace("{text}", text.strip())
+    body = format_doc(title, text)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     response = httpx.post(url, json={"input": [body], "encoding_format": "float"}, headers=headers, timeout=120)
     response.raise_for_status()
@@ -83,7 +150,6 @@ def sha256_file(path: Path) -> str:
 
 def build(src: Path, out: Path, pack_id: str, title: str, niche: str, version: str, embed_url: str, api_key: str, key_hex: str, key_id: str) -> None:
     import sqlite_vec
-    from app.injection import filter_paragraphs
     from nacl.signing import SigningKey
 
     out.mkdir(parents=True, exist_ok=True)

@@ -166,6 +166,85 @@ export function mentionedPaths(task: string, knownFiles: readonly string[]): str
   return found
 }
 
+/** Words that turn a named file into a file to leave alone. */
+const LEAVE_ALONE = /\b(?:leave|don'?t|do not|never|without|except|aside)\b/
+
+/**
+ * Paths the task asks to change: `mentionedPaths` minus any path a clause rules out
+ * ("leave src/legacy.ts alone", "do not touch src/b.ts"). A finish is refused when one of these was
+ * skipped, so a mention that is not a target has to be dropped here.
+ */
+export function requestedPaths(task: string, knownFiles: readonly string[]): string[] {
+  const clauses = task.split(/[.;!?]\s*/).map((clause) => clause.toLowerCase())
+  return mentionedPaths(task, knownFiles).filter((path) => {
+    const needle = path.toLowerCase()
+    const clause = clauses.find((item) => item.includes(needle))
+    if (!clause) return true
+    return !LEAVE_ALONE.test(clause.slice(0, clause.indexOf(needle)))
+  })
+}
+
+/** Indexed symbols the task names, deduplicated by name. Short names are ignored as noise. */
+export function mentionedSymbols(task: string, symbols: readonly PlanSymbol[]): string[] {
+  const idents = new Set(task.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
+  const found: string[] = []
+  for (const symbol of symbols) {
+    if (symbol.name.length < 3 || found.includes(symbol.name)) continue
+    if (idents.has(symbol.name) || idents.has(symbol.qualified)) found.push(symbol.name)
+  }
+  return found
+}
+
+/** Which executor runs a task: the tool loop, or the checklist with a check after every step. */
+export type TaskRoute = 'loop' | 'split'
+
+const CREATE_FILE = /\b(?:new file|create (?:a )?(?:new )?file|add (?:a )?file|new module|create (?:a )?module)\b/i
+
+/**
+ * A named change to one or two files is cheaper and surer in the loop: one edit and one finish, and a
+ * finish that is refused when a file the request named was never touched. A new file, three or more
+ * files, or a task with no named file and more than two symbols keep the checklist, because ordering
+ * and the third file are what a 2B gets wrong. Measured on the 20-task eval: routing two-file tasks
+ * to the loop moved the shipped score from 10 of 20 in 1284 s to 12 of 20 in 909 s, and the only
+ * task that still needs the checklist is one that creates a file.
+ */
+export function routeTask(task: string, facts: PlanFacts): TaskRoute {
+  const text = task.trim()
+  if (CREATE_FILE.test(text)) return 'split'
+  const files = mentionedPaths(text, facts.files)
+  if (files.length >= 3) return 'split'
+  if (files.length) return 'loop'
+  const symbols = mentionedSymbols(text, facts.symbols)
+  if (symbols.length > 2) return 'split'
+  if (!symbols.length) return 'split'
+  return 'loop'
+}
+
+/**
+ * Files the checklist asked for that no applied patch touched, plus new files the task named that
+ * nobody created, in the order they were named. A skipped second file is the failure a small model
+ * makes most often, so it is checked before a run is called finished. A file the task only mentions
+ * ("leave src/legacy.ts alone") is not a target unless a step claims it.
+ */
+export function missingTargets(
+  steps: readonly PlanStep[],
+  written: readonly { path: string; status: string }[],
+  facts: PlanFacts,
+  fresh: readonly string[] = [],
+): string[] {
+  const expected: string[] = []
+  const push = (path: string) => {
+    const norm = normPath(path)
+    if (norm && !expected.includes(norm)) expected.push(norm)
+  }
+  for (const step of steps) {
+    for (const path of targetFiles(step, facts)) push(path)
+  }
+  for (const path of fresh) push(path)
+  const applied = new Set(written.filter((diff) => diff.status === 'applied').map((diff) => normPath(diff.path)))
+  return expected.filter((path) => !applied.has(path))
+}
+
 export function parsePlan(raw: unknown): PlanOk | PlanIssue {
   const normalized = normalizePlan(raw)
   const parsed = PlanSchema.safeParse(normalized)

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+import { sqliteSkipReason } from './native-test-support.js'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { fileURLToPath } from 'node:url'
@@ -22,7 +23,9 @@ import { heuristicCounter } from './token-budget.js'
 const grammarDir = join(dirname(fileURLToPath(import.meta.url)), '../../../resources/tree-sitter')
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'surf-split-'))
+  // realpath: on macOS tmpdir() is /var/folders/... (a symlink to /private/var/...), and a patch
+  // resolved against the link lands outside the project. Production roots are already real.
+  return realpathSync(mkdtempSync(join(tmpdir(), 'surf-split-')))
 }
 
 function step(partial: Partial<PlanStep> & Pick<PlanStep, 'id' | 'files'>): PlanStep {
@@ -43,6 +46,12 @@ function facts(partial: Partial<PlanFacts> = {}): PlanFacts {
     symbols: partial.symbols ?? [],
     edges: partial.edges ?? [],
   }
+}
+
+// Skip the whole suite when the native SQLite addon does not match this Node.
+const nativeSkip = sqliteSkipReason()
+const test = (name: string, fn: () => unknown): void => {
+  nodeTest(name, { skip: nativeSkip }, fn as unknown as () => void)
 }
 
 test('plan schema accepts a checklist and rejects a broken one', () => {
@@ -291,26 +300,28 @@ test('retries feed the exact check output back and then keep the patch that pass
   const root = tempDir()
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
     const seen: string[] = []
     const thinking: boolean[] = []
     let edits = 0
     try {
-      const result = await runSplitTask('Fix the typo in src/a.ts', base(root, facts({ files: ['src/a.ts'] }), async (req) => {
+      const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', base(root, facts({ files: ['src/a.ts', 'src/b.ts'] }), async (req) => {
         const user = userText(req)
+        if (user.includes('Kind: plan')) return { content: JSON.stringify({ steps: [planStep('s1', 'bump n', 'src/a.ts')] }) }
         seen.push(user)
         thinking.push(req.thinking === true)
-        assert.equal(user.includes('Kind: plan'), false)
         edits += 1
         return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 2' }] }) }
       }, async () => {
         if (edits < 3) return { ok: false, output: 'BOOM line 3' }
         return { ok: true, output: 'ok' }
       }))
-    assert.equal(result.kind, 'edit')
+    assert.equal(result.kind, 'plan')
     assert.equal(result.stopped, 'finish')
     assert.equal(result.attempts[0]?.tries, 3)
     assert.equal(result.attempts[0]?.candidates, 0)
+    assert.equal(seen.some((item) => item.includes('Kind: plan')), false)
     assert.equal(thinking[0], false)
     assert.equal(thinking[1], true)
     assert.ok(seen[2]?.includes('BOOM line 3'))
@@ -325,11 +336,13 @@ test('best-of-N keeps the candidate that passes after the retries miss', async (
   const root = tempDir()
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }))
   let checks = 0
   try {
-    const result = await runSplitTask('Fix the typo in src/a.ts', base(root, facts({ files: ['src/a.ts'] }), async (req) => {
+    const result = await runSplitTask('Fix the typo in src/a.ts and src/b.ts, and leave package.json alone', base(root, facts({ files: ['src/a.ts', 'src/b.ts'] }), async (req) => {
       const user = userText(req)
+      if (user.includes('Kind: plan')) return { content: JSON.stringify({ steps: [planStep('s1', 'bump n', 'src/a.ts')] }) }
       const good = user.includes('Candidate: 2')
       const text = good ? 'export const n = 2' : 'export const n = 9'
       return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: text }] }) }
@@ -352,6 +365,7 @@ test('a failed step is replanned with its dependents, and a dead end names a lar
   const root = tempDir()
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const m = 1\n')
   writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }))
   const index = facts({
     files: ['src/a.ts', 'src/b.ts'],
@@ -362,17 +376,21 @@ test('a failed step is replanned with its dependents, and a dead end names a lar
     { id: 'qwen3.5-4b-q6_k', family: 'qwen3.5', paramsB: 4, sizeBytes: 3_525_956_768, minRamGb: 16, agents: ['code'], sizeName: '4B' },
   ]
   try {
-    const repaired = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts', {
+    const repaired = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts, and leave package.json alone', {
       ...base(root, index, async (req) => {
         const user = userText(req)
         if (user.includes('Kind: replan')) {
-          return { content: JSON.stringify({ steps: [planStep('fix2', 'apply the fix', 'src/a.ts')] }) }
+          // The replan replaces the failed step and the dependent it was carrying.
+          return { content: JSON.stringify({ steps: [planStep('fix2', 'apply the fix', 'src/a.ts'), planStep('fix3', 'also update the caller', 'src/b.ts')] }) }
         }
         if (user.includes('Kind: plan')) {
           return { content: JSON.stringify({ steps: [planStep('s1', 'change the constant', 'src/a.ts'), planStep('s2', 'update the caller', 'src/b.ts', ['s1'])] }) }
         }
         if (user.includes('apply the fix')) {
           return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'export const n = 1', new: 'export const n = 4' }] }) }
+        }
+        if (user.includes('also update the caller')) {
+          return { content: JSON.stringify({ edits: [{ path: 'src/b.ts', old: 'export const m = 1', new: 'export const m = 4' }] }) }
         }
         return { content: JSON.stringify({ edits: [{ path: 'src/a.ts', old: 'missing', new: 'nope' }] }) }
       }, async () => {
@@ -387,10 +405,11 @@ test('a failed step is replanned with its dependents, and a dead end names a lar
     assert.equal(repaired.stopped, 'finish')
     assert.equal(repaired.attempts.some((item) => item.replanned), true)
     assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const n = 4\n')
+    assert.equal(readFileSync(join(root, 'src/b.ts'), 'utf8'), 'export const m = 4\n')
     assert.equal(repaired.suggestion, null)
 
     writeFileSync(join(root, 'src/a.ts'), 'export const n = 1\n')
-    const stuck = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts', {
+    const stuck = await runSplitTask('Refactor the constant in src/a.ts and src/b.ts, and leave package.json alone', {
       ...base(root, index, async (req) => {
         const user = userText(req)
         if (user.includes('Kind: replan')) return { content: 'not json' }
@@ -441,6 +460,41 @@ test('the checklist renders before the run and undo is offered after', () => {
   })
   assert.equal(withPlan[0]?.plan?.status, 'done')
   assert.equal(withPlan[0]?.plan?.undos?.[0]?.stepId, 'def')
+})
+
+test('a rejected checklist costs one plan request and the loop still makes the change', async () => {
+  const root = tempDir()
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src/a.ts'), 'export const a = 1\n')
+  writeFileSync(join(root, 'src/b.ts'), 'export const b = 1\n')
+  let plans = 0
+  let turns = 0
+  try {
+    const result = await runSplitTask('Define LIMIT once in a new file src/limits.ts and import it in src/a.ts and src/b.ts', base(
+      root,
+      facts({ indexed: false, files: ['src/a.ts', 'src/b.ts'] }),
+      async (req) => {
+        // A plan attempt is a whole thinking pass on the 2B (measured at 40-51 s each), so one is
+        // the budget: a rejected checklist goes to the loop instead of being asked three times.
+        if (req.stepKind === 'plan') {
+          plans += 1
+          return { content: '{"steps":[]}' }
+        }
+        turns += 1
+        if (turns === 1) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/a.ts', old: 'a = 1', new: 'a = 2' } }) }
+        if (turns === 2) return { content: JSON.stringify({ tool: 'propose_edit', arguments: { path: 'src/b.ts', old: 'b = 1', new: 'b = 2' } }) }
+        return { content: '{"tool":"finish","arguments":{"summary":"Bumped both."}}' }
+      },
+      async () => ({ ok: true, output: '' }),
+    ))
+    assert.equal(plans, 1)
+    assert.equal(result.stopped, 'finish')
+    assert.match(result.answer, /one pass/)
+    assert.equal(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'export const a = 2\n')
+    assert.equal(readFileSync(join(root, 'src/b.ts'), 'utf8'), 'export const b = 2\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 function planStep(id: string, goal: string, file: string, depends: string[] = []) {

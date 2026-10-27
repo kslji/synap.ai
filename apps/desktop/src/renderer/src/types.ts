@@ -1,4 +1,4 @@
-import type { ChatEvent, CodeDiffView, CodePlanView, CodeStepView, FilePermissionPrompt, GateName, StoredMessage } from '../../shared/ipc-contract'
+import type { ChatEvent, ChatMode, CodeDiffView, CodePlanView, CodeStepView, FilePermissionPrompt, GateName, StoredMessage } from '../../shared/ipc-contract'
 
 function copyPlan(plan: CodePlanView): CodePlanView {
   const steps = plan.steps.map((step) => ({
@@ -19,14 +19,15 @@ export type View = 'onboarding' | 'setup' | 'home' | 'agents' | 'chats' | 'chat'
 
 export interface UiMsg {
   id: string
-  role: 'user' | 'assistant'
+  /** 'note' rows are thread chrome (a consent was given or taken back), never model context. */
+  role: 'user' | 'assistant' | 'note'
   text: string
   sources: StoredMessage['sources']
   pending?: boolean
   error?: boolean
   smallerModelId?: string
   gate?: GateName
-  phase?: 'searching' | 'reading' | 'files' | 'keywords'
+  phase?: 'searching' | 'files' | 'keywords'
   /** Shown while the search model is downloading or the computer is offline. */
   keywordNote?: string
   fileAsk?: FilePermissionPrompt | null
@@ -39,10 +40,16 @@ export interface UiMsg {
   modelId?: string
   /** Earlier sibling answers for this reply. The latest text is `text`. */
   versions?: string[]
+  /** Qwen3.5 reasoning streamed before the answer. Shown, never stored. */
+  thinking?: string
   /** A token event arrived, so the reply was streamed. */
   streamed?: boolean
   /** The reply stopped on the length limit and can be continued. */
   canContinue?: boolean
+  /** Which model answered this turn: local sidecar (offline) or gateway (online). */
+  mode?: ChatMode
+  /** Earlier message IDs pinned as explicit context when this reply was made. */
+  contextRefs?: string[]
 }
 
 export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
@@ -69,7 +76,9 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.text += e.text
     m.streamed = true
     m.canContinue = false
+    if (e.mode) m.mode = e.mode
   }
+  if (e.type === 'reasoning') m.thinking = (m.thinking ?? '') + e.text
   if (e.type === 'status') {
     if (e.phase === 'keywords') m.keywordNote = e.note || m.keywordNote
     else m.phase = e.phase
@@ -102,6 +111,7 @@ export function applyEvent(prev: UiMsg[], e: ChatEvent): UiMsg[] {
     m.pending = false
     m.fileAsk = null
     m.gate = e.gate
+    if (e.mode) m.mode = e.mode
     if (typeof e.text === 'string') m.text = e.text
     m.canContinue = e.canContinue === true
     if (m.startedAt) m.elapsedMs = Date.now() - m.startedAt

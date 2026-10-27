@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Check, Copy, MoreHorizontal, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
-import { BlobMascot, blobStateFor, Markdown } from '@surf/ui'
+import { ArrowLeft, ArrowUp, Check, ChevronRight, Cloud, Copy, Cpu, MoreHorizontal, Pin, Plus, RefreshCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
+import { Markdown } from '@surf/ui'
 import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
-import type { ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import type { ChatMode, ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatus, OnlineBalance, OnlineModelRow } from '../../../shared/ipc-contract'
 import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
 import { messagePlaceholder } from '../../../shared/chat-title'
 import { friendlyNameFromId } from '../../../shared/model-label'
-import { quoteChipLabel } from '../../../shared/quote'
 import { MODEL_MISSING_COPY, modelSiteUrl } from '../model-site'
 import { formatIndexBytes } from '../format'
 import type { UiMsg } from '../types'
@@ -17,6 +16,7 @@ import { CodeEditor } from './CodeEditor'
 import { CodeShots, type CodeShot } from './CodeShots'
 import { MicButton } from './MicButton'
 import { placeTranscript, speechProgressLabel } from '../../../main/core/dictation'
+import { thinkingView } from '../../../shared/thinking-block'
 import { Preview } from './LibraryScreen'
 import { FOLDER_PROMPT } from '../../../main/core/chat-route'
 
@@ -25,10 +25,15 @@ function folderName(root: string): string {
   return parts[parts.length - 1] ?? root
 }
 
+/** Human name for the monotonic purchase tier, so the credit pill reads the user's plan. */
+function tierLabelFor(maxTopupCredits: number): string {
+  return maxTopupCredits >= 25 ? 'Frontier' : maxTopupCredits >= 5 ? 'Daily' : 'Trial'
+}
+
 const PROMPTS = [
-  'What is 14 knots in km/h?',
-  'How do you keep chats on this computer?',
+  'Summarize the documents in my library',
   'What can you do while offline?',
+  'Help me draft a professional reply',
 ]
 
 export function ChatScreen({
@@ -42,6 +47,8 @@ export function ChatScreen({
   botName = 'Surf',
   onBotName,
   modelLabel,
+  onlineConsent,
+  onOnlineConsent,
   tourAttach,
   onSend,
   shots = [],
@@ -56,6 +63,7 @@ export function ChatScreen({
   onSwitchSmaller,
   project,
   onOpenProject,
+  onOpenIde,
   onCodeDecide,
   onCodeRevise,
   onCodeUndo,
@@ -68,7 +76,7 @@ export function ChatScreen({
   tabSuggestionsOff = [],
   onRegenerate,
   onContinue,
-  animateMascot = true,
+  onBackToAgents,
 }: {
   messages: UiMsg[]
   streaming: boolean
@@ -80,8 +88,11 @@ export function ChatScreen({
   botName?: string
   onBotName?: (name: string) => void
   modelLabel: string
+  /** Item 12: has this chat agreed to let Online reuse its Offline replies? null = the chat is not saved yet, so there is nothing to agree to. */
+  onlineConsent: boolean | null
+  onOnlineConsent: (allowed: boolean) => void
   tourAttach: boolean
-  onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[]) => void
+  onSend: (text: string, images?: { mime: CodeShot['mime']; base64: string }[], opts?: { mode: ChatMode; contextMessageIds: string[] }) => void
   shots?: CodeShot[]
   onAddShots?: (files: File[]) => void
   onRemoveShot?: (id: string) => void
@@ -95,6 +106,8 @@ export function ChatScreen({
   /** Set for the Code agent. Null means no folder has been opened yet. */
   project?: CodeProjectStatus | null
   onOpenProject?: () => void
+  /** Opens the folder in Surf IDE, which is where code is actually written. */
+  onOpenIde?: () => void
   onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void
   onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void
   onCodeUndo?: (messageId: string, stepId: string) => void
@@ -107,9 +120,12 @@ export function ChatScreen({
   tabSuggestionsOff?: string[]
   onRegenerate?: (messageId: string) => void
   onContinue?: (messageId: string) => void
-  animateMascot?: boolean
+  onBackToAgents?: () => void
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
+  // The in-chat editor is a scratch pad for a one-line fix; real work happens in
+  // Surf IDE, so the editor stays folded away until it is asked for.
+  const [quickEdit, setQuickEdit] = useState(false)
   const [text, setText] = useState('')
   const [listening, setListening] = useState(false)
   const [micNoteText, setMicNoteText] = useState('')
@@ -119,6 +135,44 @@ export function ChatScreen({
   textRef.current = text
   const [over, setOver] = useState(false)
   const [burst, setBurst] = useState<string | null>(null)
+  // Which model answers the next turn. Defaults to the local sidecar (offline).
+  const [mode, setMode] = useState<ChatMode>('offline')
+  // Earlier message IDs the user pinned as explicit context for the next turn.
+  const [contextIds, setContextIds] = useState<string[]>([])
+  // The consent question is asked in a dialog, never silently on a click.
+  const [askConsent, setAskConsent] = useState(false)
+  const onlineAvailable = !status.offlineOnly
+  // Tier-aware Online Cloud picker (ADR 0008). The list, the wallet, and the choice
+  // are fetched only while Online is active; Offline never touches the gateway.
+  const [onlineModels, setOnlineModels] = useState<OnlineModelRow[]>([])
+  const [onlineBalance, setOnlineBalance] = useState<OnlineBalance | null>(null)
+  const [onlineChosen, setOnlineChosen] = useState('')
+  useEffect(() => {
+    if (mode !== 'online') return
+    let alive = true
+    const load = async (): Promise<void> => {
+      const [models, balance] = await Promise.all([
+        window.surf.chat.onlineModels().catch(() => [] as OnlineModelRow[]),
+        window.surf.chat.onlineBalance().catch(() => null),
+      ])
+      if (!alive) return
+      setOnlineModels(models)
+      setOnlineBalance(balance)
+      const firstUnlocked = models.find((m) => !m.locked)
+      setOnlineChosen((current) => (models.some((m) => m.id === current && !m.locked) ? current : firstUnlocked?.id ?? ''))
+    }
+    void load()
+    return () => { alive = false }
+  }, [mode])
+  const pickOnlineModel = (id: string): void => {
+    const row = onlineModels.find((m) => m.id === id)
+    if (!row) return
+    // A locked model routes to the top-up flow rather than being selected and failing
+    // mid-chat; an unlocked one is remembered for the next turn.
+    if (row.locked) { void window.surf.chat.openTopUp(); return }
+    setOnlineChosen(id)
+    void window.surf.chat.setOnlineModel(id)
+  }
   const scroller = useRef<HTMLDivElement>(null)
   const wasStreaming = useRef(false)
   const messagesRef = useRef(messages)
@@ -127,13 +181,12 @@ export function ChatScreen({
   const chatReady = status.models.some((m) => m.role === 'chat' && m.installed)
   const pending = messages.find((m) => m.pending && m.role === 'assistant')
   const reading = files.some((file) => file.status === 'queued' || file.status === 'running')
-  const webSearch = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'files'))
-  const webRead = messages.some((m) => m.pending && m.phase === 'reading')
+  const retrieving = messages.some((m) => m.pending && (m.phase === 'searching' || m.phase === 'files'))
   const writing = Boolean(streaming && pending?.text)
   const toolRun = Boolean(pending && (pending.tools.length > 0 || (pending.steps?.length ?? 0) > 0) && !pending.text)
-  const live = webSearch
+  const live = retrieving
     ? 'searching'
-    : reading || webRead
+    : reading
       ? 'reading'
       : writing
         ? 'writing'
@@ -143,7 +196,6 @@ export function ChatScreen({
             ? 'thinking'
             : 'idle'
   const waiting = messages.some((m) => (m.steps ?? []).some((step) => step.status === 'waiting') || (m.diffs ?? []).some((diff) => diff.status === 'pending') || m.plan?.status === 'review')
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
   useEffect(() => {
     if (streaming) { wasStreaming.current = true; return }
     if (!wasStreaming.current) return
@@ -180,19 +232,33 @@ export function ChatScreen({
     const images = shots.map((shot) => ({ mime: shot.mime, base64: shot.base64 }))
     if (streaming || (!t && images.length === 0)) return
     setText('')
-    onSend(t, images)
+    onSend(t, images, { mode, contextMessageIds: contextIds })
+    setContextIds([])
+  }
+
+  function addContext(id: string) {
+    setContextIds((list) => (list.includes(id) ? list : [...list, id]))
   }
 
   const bot = cleanMascotName(botName)
   return (
     <section className="flex min-w-0 flex-1" data-listening={listening ? 'yes' : 'no'}>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-center px-6 py-4">
+        <header className="flex items-center justify-between px-6 py-4">
+          <button
+            type="button"
+            onClick={onBackToAgents}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--card)] transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Back to Agents
+          </button>
           <div className="shell-title" data-chat-header="yes" data-chat-agent={agentName} title={status.onlineReason} data-online-reason={status.onlineReason}>
-            <BlobMascot variant="avatar" state={listening ? 'listening' : 'idle'} size={28} animate={animateMascot} label={bot} />
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#F97316] text-xs font-bold text-white" data-chat-avatar="yes">S</div>
             <BotNameField name={bot} onSave={(next) => onBotName?.(next)} />
             <span className="agent-tag" data-agent-pill="yes">{agentName}</span>
           </div>
+          <div className="w-32"></div>
         </header>
         {project && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-6 py-2" data-code-project="yes">
@@ -229,13 +295,26 @@ export function ChatScreen({
             </div>
           </div>
         )}
-        {project && <CodeEditor enabled={tabSuggestions} languagesOff={tabSuggestionsOff} />}
+        {project && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-6 py-2" data-ide-bar="yes">
+            <span className="text-xs text-[var(--muted)]">{folderName(project.root)} is open in this chat</span>
+            {onOpenIde && (
+              <button type="button" className="btn btn-primary ml-auto" data-open-ide="yes" onClick={onOpenIde}>
+                Open Surf IDE
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost" data-quick-edit="yes" onClick={() => setQuickEdit((open) => !open)}>
+              {quickEdit ? 'Hide quick editor' : 'Quick edit'}
+            </button>
+          </div>
+        )}
+        {project && quickEdit && <CodeEditor enabled={tabSuggestions} languagesOff={tabSuggestionsOff} />}
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-6">
           {messages.length === 0 ? (
             <div className="empty-chat">
               {!chatReady ? (
                 <>
-                  <BlobMascot state={activity.state} size={120} animate={animateMascot} />
+                  <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-[#FFEDD5] text-[#C2410C]" data-empty-avatar="yes"><span className="text-3xl font-bold">S</span></div>
                   <h1 className="empty-title" data-empty-agent="yes">{agentName}</h1>
                   <p className="empty-lead" data-model-missing="yes">{MODEL_MISSING_COPY}</p>
                   <button className="btn btn-primary mt-4" type="button" data-open-site="yes" onClick={() => { void window.surf.links.open(modelSiteUrl()) }}>
@@ -244,7 +323,7 @@ export function ChatScreen({
                 </>
               ) : (
                 <>
-                  <BlobMascot state={activity.state} size={148} animate={animateMascot} />
+                  <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-3xl bg-[#FFEDD5] text-[#C2410C]" data-empty-avatar="yes"><span className="text-4xl font-bold">S</span></div>
                   <h1 className="empty-title" data-empty-agent="yes">{agentName}</h1>
                   <p className="empty-lead">
                     {agentNote || `Ask ${agentName} anything. Your files stay here.`}
@@ -259,7 +338,7 @@ export function ChatScreen({
             </div>
           ) : (
             <div className="mx-auto flex max-w-2xl flex-col gap-5">
-              {messages.map((m) => <Bubble key={m.id} msg={m} botName={bot} live={live} burst={burst} latestId={lastAssistant?.id ?? ''} caret={activity.caret} modelLabel={modelLabel} animateMascot={animateMascot} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onContinue={onContinue} onOpenFolder={onOpenProject} />)}
+              {messages.map((m) => <Bubble key={m.id} msg={m} botName={bot} modelLabel={modelLabel} onOpenCitation={onOpenCitation} onSwitchSmaller={onSwitchSmaller} onCodeDecide={onCodeDecide} onCodeRevise={onCodeRevise} onCodeUndo={onCodeUndo} onCodeUndoAll={onCodeUndoAll} onRegenerate={onRegenerate} onContinue={onContinue} onOpenFolder={onOpenProject} onAddContext={addContext} />)}
             </div>
           )}
         </div>
@@ -283,10 +362,116 @@ export function ChatScreen({
             className={`shell-compose mx-auto max-w-2xl px-3 py-3 ${over ? 'is-over' : ''}`}
             data-upload={over ? 'yes' : 'no'}
           >
+            <div className="mb-2 flex flex-col items-center gap-2" data-chat-mode="yes">
+              <div className="inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--card)] p-0.5 text-sm">
+                <button
+                  type="button"
+                  data-mode="offline"
+                  aria-pressed={mode === 'offline'}
+                  onClick={() => setMode('offline')}
+                  className={`rounded-full px-4 py-1 font-medium transition-colors ${mode === 'offline' ? 'bg-[#F97316] text-white' : 'text-[var(--muted)] hover:text-[var(--ink)]'}`}
+                >
+                  Offline
+                </button>
+                <button
+                  type="button"
+                  data-mode="online"
+                  aria-pressed={mode === 'online'}
+                  disabled={!onlineAvailable}
+                  title={onlineAvailable ? 'Answer with the Surf cloud gateway' : status.onlineReason}
+                  onClick={() => { if (onlineAvailable) setMode('online') }}
+                  className={`rounded-full px-4 py-1 font-medium transition-colors disabled:opacity-40 ${mode === 'online' ? 'bg-[#F97316] text-white' : 'text-[var(--muted)] hover:text-[var(--ink)]'}`}
+                >
+                  Online
+                </button>
+              </div>
+              {mode === 'online' && onlineModels.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-1.5" data-online-picker="yes">
+                  {onlineModels.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => pickOnlineModel(m.id)}
+                      aria-pressed={m.id === onlineChosen}
+                      title={m.locked ? `Unlock with $${m.unlockUsd} top-up (${m.minCredits} credits)` : `${m.provider} · ${m.tierLabel}`}
+                      className={`pill inline-flex items-center gap-1 text-xs ${m.locked ? 'opacity-70' : m.id === onlineChosen ? 'bg-[#F97316] text-white' : ''}`}
+                    >
+                      {m.locked ? '🔒 ' : ''}{m.label}{m.locked ? ` — unlock $${m.unlockUsd}` : ''}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    data-credits-pill="yes"
+                    onClick={() => { void window.surf.chat.openTopUp() }}
+                    title="Surf credits — click to top up"
+                    className="pill inline-flex items-center gap-1 text-xs"
+                  >
+                    ◍ {onlineBalance ? `${onlineBalance.credits} cr · ${tierLabelFor(onlineBalance.maxTopupCredits)}` : 'Credits'}
+                  </button>
+                </div>
+              )}
+              {mode === 'online' && onlineConsent !== null && (
+                <>
+                  <button
+                    type="button"
+                    data-online-consent={onlineConsent ? 'on' : 'off'}
+                    aria-pressed={onlineConsent}
+                    title={onlineConsent
+                      ? 'Stop Online from using this chat’s Offline replies'
+                      : 'Let Online use this chat’s Offline replies as context'}
+                    onClick={() => { if (onlineConsent) onOnlineConsent(false); else setAskConsent(true) }}
+                    className="pill inline-flex items-center gap-1.5 text-xs"
+                  >
+                    <Cloud size={13} />
+                    {onlineConsent ? 'Reading this chat’s Offline replies' : 'Let Online read this chat’s Offline replies'}
+                  </button>
+                  {askConsent && (
+                    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-6" role="dialog" aria-modal="true" aria-label="Let Online read this chat’s Offline replies">
+                      <div className="card w-full max-w-md px-5 py-5">
+                        <h2 className="text-base font-semibold">Let Online read this chat’s Offline replies?</h2>
+                        <p className="mb-4 mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                          Today an Online turn sees only what you type in that turn and any message you
+                          pin by hand. If you agree, the earlier Offline questions and answers in
+                          <strong className="font-medium text-[var(--ink)]"> this chat only</strong> are sent
+                          to the cloud model as context, so it can answer follow-ups. Other chats are not
+                          affected, every message keeps its Online or Offline label, and the same chip
+                          takes the agreement back.
+                        </p>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" data-consent-cancel className="btn btn-ghost" onClick={() => setAskConsent(false)}>Not now</button>
+                          <button
+                            type="button"
+                            data-consent-accept
+                            className="btn btn-primary"
+                            onClick={() => { setAskConsent(false); onOnlineConsent(true) }}
+                          >
+                            Allow for this chat
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              {contextIds.length > 0 && (
+                <div className="flex flex-wrap justify-center gap-2" data-context-chips="yes">
+                  {contextIds.map((id) => {
+                    const src = messages.find((m) => m.id === id)
+                    return (
+                      <span key={id} className="pill inline-flex items-center gap-1" data-context-chip="yes">
+                        <span className="font-mono text-xs">#{id.slice(0, 8)}</span>
+                        {src ? <span className="max-w-[16rem] truncate">{clipWords(src.text, 12)}</span> : null}
+                        <button type="button" aria-label="Remove context" className="text-[var(--muted)] hover:text-[var(--ink)]" onClick={() => setContextIds((list) => list.filter((x) => x !== id))}>×</button>
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
             {reading && (
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-2 text-xs text-[var(--muted)]" data-processing="yes">
-                  <BlobMascot state="reading" size={36} variant="avatar" animate={animateMascot} />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#F97316]" data-processing-dot="yes" />
                   Reading files
                 </span>
               </div>
@@ -504,30 +689,74 @@ function BotNameField({ name, onSave }: { name: string; onSave: (name: string) =
   )
 }
 
-function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animateMascot, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder }: { msg: UiMsg; botName: string; live: string; burst: string | null; latestId: string; caret: number | null; modelLabel: string; animateMascot: boolean; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void }) {
+function ThinkingBlock({ thinking, pending, answered }: { thinking?: string; pending: boolean; answered: boolean }) {
+  const [choice, setChoice] = useState<boolean | null>(null)
+  const view = thinkingView(thinking, pending, answered, choice)
+  if (!view) return null
+  return (
+    <div className="mb-2" data-thinking="yes" data-thinking-live={view.live ? 'yes' : 'no'}>
+      <button
+        type="button"
+        className="icon-quiet inline-flex items-center gap-1 text-xs font-medium text-[var(--muted)] hover:text-[var(--ink)]"
+        aria-expanded={view.expanded}
+        data-thinking-toggle="yes"
+        onClick={() => setChoice(!view.expanded)}
+      >
+        <ChevronRight size={13} className={view.expanded ? 'rotate-90 transition-transform' : 'transition-transform'} />
+        {view.label}
+      </button>
+      {view.expanded && (
+        <div className="mt-1 whitespace-pre-wrap border-l-2 border-[var(--line)] pl-3 text-sm leading-relaxed text-[var(--muted)]" data-thinking-text="yes">
+          {view.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Bubble({ msg, botName, modelLabel, onOpenCitation, onSwitchSmaller, onCodeDecide, onCodeRevise, onCodeUndo, onCodeUndoAll, onRegenerate, onContinue, onOpenFolder, onAddContext }: { msg: UiMsg; botName: string; modelLabel: string; onOpenCitation: (chunkId: number) => void; onSwitchSmaller: (id: string) => void; onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void; onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void; onCodeUndo?: (messageId: string, stepId: string) => void; onCodeUndoAll?: (messageId: string) => void; onRegenerate?: (messageId: string) => void; onContinue?: (messageId: string) => void; onOpenFolder?: () => void; onAddContext?: (id: string) => void }) {
   const [versionAt, setVersionAt] = useState<number | null>(null)
-  const [wink, setWink] = useState(false)
   const history = msg.versions ?? []
   const showingOld = versionAt != null && versionAt < history.length
   const shown = showingOld ? history[versionAt] ?? msg.text : msg.text
-  if (msg.role === 'user') {
+  if (msg.role === 'note') {
     return (
-      <div className="msg-in flex justify-end" data-user-message="yes">
-        <div className="user-bubble max-w-[80%] px-4 py-3 text-[15px] leading-relaxed">{msg.text}</div>
+      <div className="msg-in flex justify-center" data-consent-note="yes">
+        <p className="max-w-md rounded-full border border-[var(--line)] bg-[var(--card)] px-3 py-1 text-center text-xs leading-relaxed text-[var(--muted)]">{msg.text}</p>
       </div>
     )
   }
-  const waitingHere = (msg.steps ?? []).some((step) => step.status === 'waiting') || (msg.diffs ?? []).some((diff) => diff.status === 'pending') || msg.plan?.status === 'review'
-  const creature = waitingHere ? 'permission' : msg.pending ? live : msg.error ? 'oops' : burst && msg.id === latestId ? burst : 'idle'
+  if (msg.role === 'user') {
+    return (
+      <div className="msg-in flex flex-col items-end gap-1" data-user-message="yes">
+        <div className="user-bubble max-w-[80%] px-4 py-3 text-[15px] leading-relaxed">{msg.text}</div>
+        <span className="inline-flex items-center gap-1 text-[11px] text-[var(--muted)]" data-mode-badge={msg.mode ?? 'offline'} title={msg.mode === 'online' ? 'Sent to the Surf cloud gateway' : 'Sent to the local model on this device'}>
+          {msg.mode === 'online' ? <Cloud size={11} /> : <Cpu size={11} />}
+          {msg.mode === 'online' ? 'Online' : 'Offline'}
+        </span>
+        {onAddContext && !msg.pending && (
+          <button type="button" className="icon-quiet inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]" data-add-context="yes" aria-label="Add to context" title="Pin this message as context for the next reply" onClick={() => onAddContext(msg.id)}>
+            <Pin size={13} /> Add to context
+          </button>
+        )}
+      </div>
+    )
+  }
   return (
     <div className="msg-in flex gap-3" data-assistant-message="yes" data-streamed={msg.streamed ? 'yes' : 'no'}>
-      <div className="pt-1"><BlobMascot variant="avatar" state={blobStateFor(creature)} size={44} animate={animateMascot} wink={wink} caret={msg.pending ? caret : null} /></div>
+      <div className="pt-1"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F97316] text-sm font-bold text-white" data-assistant-avatar="yes">S</div></div>
       <div className="min-w-0 flex-1">
-      <div className="assistant-name" data-assistant-name="yes">{botName}</div>
+      <div className="assistant-name flex items-center gap-2" data-assistant-name="yes">
+        {botName}
+        {/* Item 12: every reply says which model answered it. No mode means the local model. */}
+        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--card)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted)]" data-mode-badge={msg.mode ?? 'offline'} title={(msg.mode ?? 'offline') === 'online' ? 'Answered by the Surf cloud gateway' : 'Answered locally on this device'}>
+          {msg.mode === 'online' ? <Cloud size={12} /> : <Cpu size={12} />}
+          {msg.mode === 'online' ? 'Online' : 'Offline'}
+        </span>
+      </div>
       <div className="assistant-card">
-        {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching the web…</div>}
+        {msg.pending && msg.phase === 'searching' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Searching your packs…</div>}
         {msg.pending && msg.phase === 'files' && !msg.fileAsk && <div className="mb-1 text-sm text-[var(--muted)]" data-file-searching="yes">Searching your files…</div>}
-        {msg.pending && msg.phase === 'reading' && <div className="mb-1 text-sm text-[var(--muted)]" data-searching="yes">Reading the page…</div>}
         {msg.fileAsk && (
           <FilePermissionCard
             prompt={msg.fileAsk}
@@ -538,6 +767,8 @@ function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animat
           />
         )}
         {msg.keywordNote && <div className="mb-1 text-sm text-[var(--muted)]" data-keyword-search="yes">{msg.keywordNote}</div>}
+        {/* Reasoning streams here so a reply that is still thinking never looks empty. */}
+        <ThinkingBlock thinking={msg.thinking} pending={msg.pending === true} answered={shown.trim().length > 0} />
         {msg.sources.some((source) => source.filePath) && shown ? (
           <div className={msg.pending ? 'stream-caret' : ''} data-model-error={msg.error ? 'yes' : 'no'}>
             <FileAnswerBody text={shown} sources={msg.sources} onOpen={(path) => { void window.surf.files.open(path) }} />
@@ -552,7 +783,7 @@ function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animat
           </div>
         ) : (
           <div className={`text-[15px] leading-relaxed ${msg.pending ? 'stream-caret' : ''}`} data-model-error={msg.error ? 'yes' : 'no'}>
-            {msg.pending && !msg.phase ? 'Thinking' : ''}
+            {msg.pending && !msg.phase && !msg.thinking ? 'Thinking' : ''}
           </div>
         )}
         {msg.canContinue && !msg.pending && onContinue && (
@@ -574,9 +805,9 @@ function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animat
             ))}
           </div>
         )}
-        {msg.sources.some((s) => s.kind !== 'web' && !s.filePath) && (
+        {msg.sources.some((s) => !s.filePath) && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {msg.sources.map((s, i) => s.kind === 'web' || s.filePath ? null : (
+            {msg.sources.map((s, i) => s.filePath ? null : (
               <button
                 key={i}
                 type="button"
@@ -595,45 +826,6 @@ function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animat
             ))}
           </div>
         )}
-        {msg.sources.some((s) => s.pack === 'quote' && s.url) && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {msg.sources.map((s, i) => s.pack === 'quote' && s.url ? (
-              <button
-                key={i}
-                type="button"
-                className="pill"
-                data-quote-chip="yes"
-                title={s.excerpt || s.title}
-                onClick={() => { void window.surf.links.open(s.url) }}
-              >
-                {quoteChipLabel(s.title || 'Source', i + 1)}
-              </button>
-            ) : null)}
-          </div>
-        )}
-        {msg.sources.some((s) => s.kind === 'web' && s.pack !== 'quote') && (
-          <div className="mt-3 flex flex-col gap-2">
-            {msg.sources.map((s, i) => s.kind === 'web' && s.pack !== 'quote' ? (
-              <button
-                key={i}
-                type="button"
-                className="card px-3 py-2 text-left"
-                data-web-source="yes"
-                data-saved-web={s.savedAt ? 'yes' : 'no'}
-                onClick={() => { void window.surf.links.open(s.url) }}
-              >
-                <div className="text-sm font-semibold">[S{i + 1}] {s.title}</div>
-                <div className="text-xs text-[var(--muted)]">
-                  {s.savedAt ? s.pack : (s.domain || s.url)}
-                  {s.savedAt && s.domain ? ` · ${s.domain}` : ''}
-                  {!s.savedAt && s.published ? ` · ${s.published}` : ''}
-                </div>
-                {s.staleNote && <div className="mt-1 text-xs text-[var(--muted)]" data-stale-note="yes">{s.staleNote}</div>}
-                {s.suspicious && <div className="mt-1 text-xs text-[var(--muted)]" data-suspicious="yes">This source contained suspicious instructions and was ignored.</div>}
-              </button>
-            ) : null)}
-          </div>
-        )}
       </div>
         {!msg.pending && msg.text && (
           <ReplyBar
@@ -644,9 +836,14 @@ function Bubble({ msg, botName, live, burst, latestId, caret, modelLabel, animat
             versionCount={history.length + 1}
             versionAt={showingOld ? versionAt! : history.length}
             onVersion={(index) => setVersionAt(index >= history.length ? null : index)}
-            onCopied={() => { setWink(true); window.setTimeout(() => setWink(false), 420) }}
+            onCopied={() => undefined}
             onRegenerate={onRegenerate ? () => onRegenerate(msg.id) : undefined}
           />
+        )}
+        {!msg.pending && msg.text && onAddContext && (
+          <button type="button" className="icon-quiet mt-1 inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]" data-add-context="yes" aria-label="Add to context" title="Pin this reply as context for the next message" onClick={() => onAddContext(msg.id)}>
+            <Pin size={13} /> Add to context
+          </button>
         )}
       </div>
     </div>
@@ -786,13 +983,6 @@ function CitedText({ text, sources, onOpen }: { text: string; sources: UiMsg['so
         const mark = /^\[S(\d+)\]$/.exec(part)
         if (!mark) return <span key={i}>{part}</span>
         const source = sources[Number(mark[1]) - 1]
-        if (source?.kind === 'web' && source.url) {
-          return (
-            <button key={i} type="button" className="font-semibold text-[var(--accent-text)] underline" data-web-source="yes" onClick={() => { void window.surf.links.open(source.url) }}>
-              {part}
-            </button>
-          )
-        }
         if (source?.filePath) {
           const path = source.filePath
           return (

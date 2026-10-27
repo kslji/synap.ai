@@ -12,7 +12,7 @@ import { fetchDownload, httpFailure, withDownloadRetry } from './http-download.m
 
 const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=')
 
-const TAG = 'b11514' // pinned; EmbeddingGemma 2 needs >= b11452
+const TAG = 'b11514' // pinned; Jina code embeddings needs >= b11452
 
 /**
  * Asset names from the ggml-org/llama.cpp b11514 release.

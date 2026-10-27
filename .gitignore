@@ -16,9 +16,8 @@ data/
 jwt.secret
 mail-outbox.jsonl
 local-ai/
-apps/host/.venv
+services/api/.venv
 harness/traces/*.json
-harness/evals/last-report.json
 harness/.cache/
 harness/reports/
 !.gitkeep
@@ -33,8 +32,30 @@ apps/desktop/resources/whisper
 apps/desktop/resources/tessdata/*.traineddata
 apps/desktop/resources/geo/*.cidr
 packages/*/dist
+*.tsbuildinfo
 *.gguf
 *.part
 .surf-models/
 scripts/code-pack-src/.cache/
 scripts/code-pack-src/.dev-seed
+apps/desktop/.golden-tmp/
+.pytest_cache/
+._*
+
+# Surf IDE: the VS Code fork checkout is upstream material; only our extension is ours.
+/surf-ide/code-oss/*
+!/surf-ide/code-oss/extensions/
+/surf-ide/code-oss/extensions/*
+!/surf-ide/code-oss/extensions/surf-ai/
+/surf-ide/code-oss/extensions/surf-ai/node_modules/
+/surf-ide/code-oss/extensions/surf-ai/out-test/
+
+# Parked, not deleted: the orchestrator stays out of commits until it's picked back up.
+services/ai-orchestrator/
+
+# Build output of the @surf/ui package (tsc emits next to the source).
+packages/ui/src/mascot.d.ts
+packages/ui/src/mascot.js
+
+# Scratch fixtures for the file-index tests (must be a non-hidden, non-/var path).
+apps/desktop/surf-test-tmp/

@@ -17,7 +17,7 @@ import { CODE_LIMITS } from './limits.js'
 import { detectLanguageServers, lspReferences, referencesWithFallback, serverForLanguage } from './lsp.js'
 import { parseSource } from './parse.js'
 import { classifyFile, scanProject, type ScannedFile } from './scan.js'
-import { searchCode, type CodeHit } from './search.js'
+import { searchCode, type CodeHit, type Reranker } from './search.js'
 import {
   counts, definitions, deletePath, impactOf, importedDefinitions, linkEdges, listFiles, markEmbedded, nearbyDefinitions, openCodeDb, readPlanFacts,
   pendingChunks, referencesTo, relatedFiles, writeFileIndex,
@@ -62,6 +62,7 @@ export class CodeIndex {
   private planned = 0
   private error: string | null = null
   private embedder: CodeEmbedder | null
+  private ranker: Reranker | null
   private closed = false
   private bg!: BackgroundIndex
   readonly id: string
@@ -75,12 +76,15 @@ export class CodeIndex {
     keyHex: string | null
     grammarDir: string
     embedder?: CodeEmbedder | null
+    /** `--reranking` sidecar; null keeps the boost-only reranker. */
+    ranker?: Reranker | null
     onProgress?: (status: CodeProjectStatus) => void
   }) {
     this.root = realpathSync(resolve(opts.root))
     this.dbPath = opts.dbPath
     this.encrypted = Boolean(opts.keyHex)
     this.embedder = opts.embedder ?? null
+    this.ranker = opts.ranker ?? null
     this.grammarDir = opts.grammarDir
     this.onProgress = opts.onProgress
     this.id = projectIdFor(this.root)
@@ -100,6 +104,10 @@ export class CodeIndex {
 
   setEmbedder(embedder: CodeEmbedder | null): void {
     this.embedder = embedder
+  }
+
+  setRanker(ranker: Reranker | null): void {
+    this.ranker = ranker
   }
 
   status(): CodeProjectStatus {
@@ -199,7 +207,7 @@ export class CodeIndex {
   }
 
   context(task: string, options: ContextOptions): Promise<ContextPack> {
-    return this.read(async () => buildContext(this.db, task, { ...options, embedder: options.embedder ?? this.embedder }))
+    return this.read(async () => buildContext(this.db, task, { ...options, embedder: options.embedder ?? this.embedder, ranker: options.ranker ?? this.ranker }))
   }
 
   /** Imported symbols and definitions above a cursor line, for inline completion. */

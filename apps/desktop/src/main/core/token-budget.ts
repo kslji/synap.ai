@@ -64,13 +64,23 @@ export interface BudgetProfile {
   total: number; systemAndTools: number; retrieved: number; history: number; question: number; answerMin: number;
   maxChunks: number; keepTurns: number; serverCtx: number;
 }
-export const BUDGETS: Record<'tier0' | 'tier1' | 'tier2', BudgetProfile> = {
-  // tier 0 (<8 GB, Qwen3.5-2B) and tier 1 (8 GB, Qwen3.5-4B): 4K per request, server -c 8192
+export const BUDGETS: Record<'tier0' | 'tier1' | 'tier2' | 'tier3', BudgetProfile> = {
+  // tier 0 (<8 GB) and tier 1 (8 GB): Qwen3.5-2B, 4K per request, server -c 8192
   tier0: { total: 4096, systemAndTools: 400, retrieved: 1500, history: 1000, question: 300, answerMin: 800, maxChunks: 4, keepTurns: 3, serverCtx: 8192 },
   tier1: { total: 4096, systemAndTools: 400, retrieved: 1500, history: 1000, question: 300, answerMin: 800, maxChunks: 4, keepTurns: 3, serverCtx: 8192 },
-  // tier 2+ (16 GB+, Qwen3.5-9B): 8K per request, server -c 16384
+  // tier 2+ (16 GB+): 8K per request, server -c 16384
   tier2: { total: 8192, systemAndTools: 700, retrieved: 3000, history: 2200, question: 800, answerMin: 1500, maxChunks: 5, keepTurns: 4, serverCtx: 16384 },
+  // tier 3 (32 GB+): 16K per request, server -c 32768, so the window is still only half used.
+  tier3: { total: 16384, systemAndTools: 900, retrieved: 6000, history: 4400, question: 1000, answerMin: 3000, maxChunks: 6, keepTurns: 5, serverCtx: 32768 },
 };
+
+/** The profile for a hardware tier. 3 is the largest, so anything above it clamps. */
+export function budgetForTier(tier: number): BudgetProfile {
+  if (tier >= 3) return BUDGETS.tier3;
+  if (tier === 2) return BUDGETS.tier2;
+  if (tier === 1) return BUDGETS.tier1;
+  return BUDGETS.tier0;
+}
 
 export interface Chunk { id: string; text: string; title: string; score: number }
 export interface Turn { user: string; assistant: string }

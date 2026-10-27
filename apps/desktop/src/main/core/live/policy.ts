@@ -155,7 +155,8 @@ export function speculativeDecision(input: {
 /** llama-server flags. Empty unless the decision is on and a draft file path is known. */
 export function speculativeServerArgs(enabled: boolean, draftPath: string, draftMax = 8): string[] {
   if (!enabled || !draftPath) return []
-  return ['-md', draftPath, '--draft-max', String(draftMax)]
+  // --draft-max was removed upstream (build 11514 errors on it); the current name is --spec-draft-n-max.
+  return ['-md', draftPath, '--spec-draft-n-max', String(draftMax)]
 }
 
 export function runtimeSupportsSpeculative(helpText: string): boolean {

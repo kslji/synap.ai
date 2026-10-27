@@ -1,8 +1,9 @@
 /**
- * First open: one generic Qwen model (Qwen3.5 4B, needs 8 GB RAM) downloads with
- * EmbeddingGemma. There is no size picker. RAM below the minimum only shows a warning.
+ * First open: the default Qwen model (Qwen3.5 2B, needs 8 GB RAM) downloads with
+ * Jina code embeddings and the Jina cross-encoder reranker. There is no size picker.
+ * RAM below the minimum only shows a warning.
  */
-import { FIRST_RUN_CHAT_MODEL_IDS } from './starter-model'
+import { FIRST_RUN_CHAT_MODEL_IDS, STARTER_CHAT_MODEL_ID } from './starter-model'
 
 export interface SetupModel {
   id: string
@@ -68,11 +69,34 @@ export function setupEmbedding(models: readonly {
   size_bytes: number
   sha256: string
 }[]): SetupEmbed | null {
-  const row = models.find((model) => model.role === 'embedding' && model.size_bytes > 0 && /^[a-f0-9]{64}$/.test(model.sha256))
+  return setupRole(models, 'embedding', 'Search model')
+}
+
+/** The cross-encoder that reranks code search. Missing = RRF + symbol boosts still work. */
+export function setupReranker(models: readonly {
+  id: string
+  role?: string
+  file: string
+  url: string
+  size_bytes: number
+  sha256: string
+}[]): SetupEmbed | null {
+  return setupRole(models, 'reranker', 'Rerank model')
+}
+
+function setupRole(models: readonly {
+  id: string
+  role?: string
+  file: string
+  url: string
+  size_bytes: number
+  sha256: string
+}[], role: 'embedding' | 'reranker', name: string): SetupEmbed | null {
+  const row = models.find((model) => model.role === role && model.size_bytes > 0 && /^[a-f0-9]{64}$/.test(model.sha256))
   if (!row) return null
   return {
     id: row.id,
-    name: 'Search model',
+    name,
     file: row.file,
     sizeBytes: row.size_bytes,
     sha256: row.sha256,
@@ -96,16 +120,16 @@ export interface SetupChoiceView {
   id: string
   name: string
   sizeBytes: number
-  /** Qwen file plus the search model. This is the download the person waits for. */
+  /** Qwen file plus the search and rerank models. This is the download the person waits for. */
   withSearchBytes: number
   minRamGb: number
   warning: string | null
   inDownloads: boolean
 }
 
-export function setupChoices(catalog: readonly SetupModel[], ramGb: number | null, downloadsIds: readonly string[], embedBytes = 0): SetupChoiceView[] {
+export function setupChoices(catalog: readonly SetupModel[], ramGb: number | null, downloadsIds: readonly string[], embedBytes = 0, rerankBytes = 0): SetupChoiceView[] {
   const known = ramGb != null && Number.isFinite(ramGb) && ramGb > 0
-  const extra = Number.isFinite(embedBytes) && embedBytes > 0 ? embedBytes : 0
+  const extra = (Number.isFinite(embedBytes) && embedBytes > 0 ? embedBytes : 0) + (Number.isFinite(rerankBytes) && rerankBytes > 0 ? rerankBytes : 0)
   return catalog.map((model) => {
     const tight = known && !ramFits(model.minRamGb, ramGb)
     return {
@@ -123,22 +147,34 @@ export function setupChoices(catalog: readonly SetupModel[], ramGb: number | nul
 /** GitHub Releases rejects one asset at 2 GiB. The check is strict. */
 export const GITHUB_ASSET_LIMIT_BYTES = 2_147_483_648
 
-/** Qwen file plus the search model. The installer itself is extra. */
-export function bundledModelBytes(chatBytes: number, embedBytes: number): number {
-  return chatBytes + embedBytes
+/** Qwen file plus the bundled search files. The installer itself is extra. */
+export function bundledModelBytes(chatBytes: number, embedBytes = 0, rerankBytes = 0): number {
+  return chatBytes + embedBytes + rerankBytes
 }
 
 export function fitsGitHubAsset(bytes: number): boolean {
   return Number.isFinite(bytes) && bytes > 0 && bytes < GITHUB_ASSET_LIMIT_BYTES
 }
 
+/** Downloads need room beyond the bytes themselves: partial files, unzip, and the old copy. */
 export function requiredFreeBytes(sizeBytes: number): number {
-  return Math.ceil(sizeBytes * 1.05)
+  return Math.ceil(sizeBytes * 1.1)
+}
+
+/** Roles whose file ships with every offline chat model. */
+export function sharedSearchRole(role: string): boolean {
+  return role === 'embedding' || role === 'reranker'
+}
+
+/** Null when the model can be deleted. The bundled search files stay while a chat model is installed. */
+export function deleteBlockedReason(role: string, offlineChatInstalled: boolean): string | null {
+  if (!sharedSearchRole(role)) return null
+  return offlineChatInstalled ? 'The search files stay while an offline model is installed.' : null
 }
 
 export interface SetupStep {
   id: string
-  role: 'chat' | 'embedding'
+  role: 'chat' | 'embedding' | 'reranker'
   name: string
   file: string
   url: string
@@ -155,6 +191,19 @@ export interface FirstRunPlan {
   freeBytes?: number
 }
 
+function stepOf(model: SetupEmbed, role: 'embedding' | 'reranker', installed: boolean, inDownloads: boolean): SetupStep {
+  return {
+    id: model.id,
+    role,
+    name: model.name,
+    file: model.file,
+    url: model.url,
+    sha256: model.sha256,
+    sizeBytes: model.sizeBytes,
+    action: installed ? 'ready' : inDownloads ? 'copy' : 'download',
+  }
+}
+
 export function planFirstRun(input: {
   chosenId: string
   useDownloads: boolean
@@ -165,17 +214,16 @@ export function planFirstRun(input: {
   embedInDownloads: boolean
   catalog: readonly SetupModel[]
   embedding: SetupEmbed
+  /** Omitted when the registry has no reranker: search still runs on the boosts. */
+  reranker?: SetupEmbed | null
+  rerankInstalled?: boolean
+  rerankInDownloads?: boolean
 }): FirstRunPlan {
   const chosen = input.catalog.find((model) => model.id === input.chosenId) ?? input.catalog[0]
   if (!chosen) throw new Error('no setup model')
   const chatAction: SetupStep['action'] = input.chatInstalled
     ? 'ready'
     : input.useDownloads && input.chatInDownloads
-      ? 'copy'
-      : 'download'
-  const embedAction: SetupStep['action'] = input.embedInstalled
-    ? 'ready'
-    : input.embedInDownloads
       ? 'copy'
       : 'download'
   const steps: SetupStep[] = [
@@ -189,17 +237,9 @@ export function planFirstRun(input: {
       sizeBytes: chosen.sizeBytes,
       action: chatAction,
     },
-    {
-      id: input.embedding.id,
-      role: 'embedding',
-      name: input.embedding.name,
-      file: input.embedding.file,
-      url: input.embedding.url,
-      sha256: input.embedding.sha256,
-      sizeBytes: input.embedding.sizeBytes,
-      action: embedAction,
-    },
+    stepOf(input.embedding, 'embedding', input.embedInstalled, input.embedInDownloads),
   ]
+  if (input.reranker) steps.push(stepOf(input.reranker, 'reranker', Boolean(input.rerankInstalled), Boolean(input.rerankInDownloads)))
   if (steps.every((step) => step.action === 'ready')) return { action: 'done', modelId: chosen.id, steps }
   const pending = steps.filter((step) => step.action !== 'ready').reduce((sum, step) => sum + step.sizeBytes, 0)
   const requiredBytes = requiredFreeBytes(pending)
@@ -209,26 +249,21 @@ export function planFirstRun(input: {
   return { action: 'run', modelId: chosen.id, steps }
 }
 
-/** Later launch: the chat model is already verified. Only the search model is fetched. */
+/** Later launch: the chat model is already verified. Only the bundled search files are fetched. */
 export function planEmbeddingRepair(input: {
   embedding: SetupEmbed
   embedInstalled: boolean
   embedInDownloads: boolean
   freeBytes: number | null
+  reranker?: SetupEmbed | null
+  rerankInstalled?: boolean
+  rerankInDownloads?: boolean
 }): FirstRunPlan {
-  const action: SetupStep['action'] = input.embedInstalled ? 'ready' : input.embedInDownloads ? 'copy' : 'download'
-  const steps: SetupStep[] = [{
-    id: input.embedding.id,
-    role: 'embedding',
-    name: input.embedding.name,
-    file: input.embedding.file,
-    url: input.embedding.url,
-    sha256: input.embedding.sha256,
-    sizeBytes: input.embedding.sizeBytes,
-    action,
-  }]
-  if (action === 'ready') return { action: 'done', modelId: input.embedding.id, steps }
-  const requiredBytes = requiredFreeBytes(input.embedding.sizeBytes)
+  const steps: SetupStep[] = [stepOf(input.embedding, 'embedding', input.embedInstalled, input.embedInDownloads)]
+  if (input.reranker) steps.push(stepOf(input.reranker, 'reranker', Boolean(input.rerankInstalled), Boolean(input.rerankInDownloads)))
+  if (steps.every((step) => step.action === 'ready')) return { action: 'done', modelId: input.embedding.id, steps }
+  const pending = steps.filter((step) => step.action !== 'ready').reduce((sum, step) => sum + step.sizeBytes, 0)
+  const requiredBytes = requiredFreeBytes(pending)
   if (input.freeBytes != null && Number.isFinite(input.freeBytes) && input.freeBytes < requiredBytes) {
     return { action: 'disk', modelId: input.embedding.id, steps, requiredBytes, freeBytes: input.freeBytes }
   }
@@ -312,7 +347,7 @@ export const SETUP_TOKENS = TOKENS
 export interface SetupFileView {
   id: string
   name: string
-  role: 'chat' | 'embedding'
+  role: 'chat' | 'embedding' | 'reranker'
   done: number
   total: number
   state: 'waiting' | 'active' | 'done'
@@ -340,26 +375,28 @@ export interface SetupSnapshot {
   localCopy?: boolean
 }
 
-const EMBED_BYTES = 309_855_520
+const EMBED_BYTES = 121_395_616
+const RERANK_BYTES = 37_323_936
 
 /** Screenshot harness only. Counts are the registry sizes, passed through the same formatters. */
 export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'disk' | 'checksum'): SetupSnapshot {
-  const chatTotal = 2_740_937_888
+  const chatTotal = 1_280_835_840
   const done = 412_000_000
   const rate = byteRate([{ at: 0, bytes: 0 }, { at: 2000, bytes: 16_400_000 }])
   const files: SetupFileView[] = [
-    { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', role: 'chat', done, total: chatTotal, state: 'active' },
-    { id: 'embeddinggemma-2-text-q8_0', name: 'Search model', role: 'embedding', done: 0, total: EMBED_BYTES, state: 'waiting' },
+    { id: STARTER_CHAT_MODEL_ID, name: 'Qwen 2B', role: 'chat', done, total: chatTotal, state: 'active' },
+    { id: 'jina-embeddings-v2-base-code-q5_k_m', name: 'Search model', role: 'embedding', done: 0, total: EMBED_BYTES, state: 'waiting' },
+    { id: 'jina-reranker-v1-turbo-en-q5_k_m', name: 'Rerank model', role: 'reranker', done: 0, total: RERANK_BYTES, state: 'waiting' },
   ]
   const base: SetupSnapshot = {
     phase: 'downloading',
-    modelId: 'qwen3.5-4b-q4_k_m',
-    modelName: 'Qwen 4B',
+    modelId: STARTER_CHAT_MODEL_ID,
+    modelName: 'Qwen 2B',
     ramGb: 8,
     choices: [],
     files,
     done,
-    total: chatTotal + EMBED_BYTES,
+    total: chatTotal + EMBED_BYTES + RERANK_BYTES,
     bytesPerSecond: rate,
     error: null,
   }
@@ -374,7 +411,7 @@ export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'di
       total: 0,
       bytesPerSecond: null,
       choices: [
-        { id: 'qwen3.5-4b-q4_k_m', name: 'Qwen 4B', sizeBytes: chatTotal, withSearchBytes: chatTotal + EMBED_BYTES, minRamGb: 8, warning: null, inDownloads: true },
+        { id: STARTER_CHAT_MODEL_ID, name: 'Qwen 2B', sizeBytes: chatTotal, withSearchBytes: chatTotal + EMBED_BYTES + RERANK_BYTES, minRamGb: 8, warning: null, inDownloads: true },
       ],
     }
   }
@@ -382,7 +419,7 @@ export function setupShot(kind: 'pick' | 'progress' | 'paused' | 'offline' | 'di
   if (kind === 'paused') return { ...base, phase: 'paused', bytesPerSecond: null }
   if (kind === 'offline') return { ...base, phase: 'error', bytesPerSecond: null, error: { code: 'offline' } }
   if (kind === 'disk') {
-    const required = requiredFreeBytes(chatTotal + EMBED_BYTES)
+    const required = requiredFreeBytes(chatTotal + EMBED_BYTES + RERANK_BYTES)
     return {
       ...base,
       phase: 'error',

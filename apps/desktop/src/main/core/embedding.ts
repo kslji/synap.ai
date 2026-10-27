@@ -1,16 +1,20 @@
 /**
- * Embedding spec + client for EmbeddingGemma 2 (text-only, 270M backbone) served by llama-server.
+ * Embedding spec + client for Jina embeddings v2 base code (code-aware, 768-d) served by
+ * llama-server. It replaces the text-only search model: 121 MB instead of 295 MB, and its
+ * training set is code, so a symbol name and a doc comment land closer together than they
+ * did on a text model.
  *
- * The SAME spec is used by the server pipeline (code-samples/embedding_spec.py) and the desktop.
- * A pack built with a different spec is refused (pack-verify.ts), because vectors from different
- * models / dimensions / prefixes are not comparable. Changing the spec = re-index everything.
+ * The SAME spec is used by the server pipeline (docs/code-samples/embedding_spec.py) and the
+ * desktop. A pack built with a different spec is refused (pack-verify.ts), because vectors from
+ * different models / dimensions / prefixes are not comparable. Changing the spec = re-index
+ * everything.
  *
- * Rules from the model card (google/embeddinggemma-2):
- *  - queries:   "task: search result | query: {query}"
- *  - documents: "title: {title} | text: {content}"   (title: none when there is no title)
- *  - Matryoshka: keep the first 256 of 768 dims, then RE-NORMALISE (L2) - slicing breaks unit length.
- *  - bfloat16 / float32 only; float16 gives NaN or silently degraded vectors -> we reject NaN here.
+ * Rules from the model card (jinaai/jina-embeddings-v2-base-code):
+ *  - no task prefixes: a query and a document are embedded as they are
+ *  - documents: "{title}\n{text}", and a document with no title is just its text
+ *  - Matryoshka: keep the first 256 of 768 dims, then RE-NORMALISE (L2) - slicing breaks unit length
  *  - mean pooling (llama-server --pooling mean). Bidirectional attention: -ub must be >= longest input.
+ *  - a NaN/zero vector means the weights or the build are wrong, so it is rejected here
  */
 import type { LlamaClient } from './llama-client.js';
 
@@ -18,7 +22,7 @@ export interface EmbeddingSpec {
   /** Compatibility key stored in pack manifests and user.db. */
   id: string;
   model: string;          // HF repo of the original weights
-  gguf: string;           // file the desktop runs (Q8_0); pipeline must use the same file or the same weights
+  gguf: string;           // file the desktop runs (Q5_K_M); pipeline must use the same file or the same weights
   nativeDim: number;
   dim: number;            // stored dimension (Matryoshka truncation)
   pooling: 'mean';
@@ -28,16 +32,16 @@ export interface EmbeddingSpec {
   maxTokens: number;      // longest input we send (chunks are far shorter)
 }
 
-export const EMBEDDINGGEMMA2_256: EmbeddingSpec = {
-  id: 'embeddinggemma-2-text@256',
-  model: 'google/embeddinggemma-2',
-  gguf: 'embeddinggemma-2-Q8_0.gguf',
+export const JINA_CODE_256: EmbeddingSpec = {
+  id: 'jina-embeddings-v2-base-code@256',
+  model: 'jinaai/jina-embeddings-v2-base-code',
+  gguf: 'jina-embeddings-v2-base-code-Q5_K_M.gguf',
   nativeDim: 768,
   dim: 256,
   pooling: 'mean',
   normalize: true,
-  queryPrefix: 'task: search result | query: ',
-  docTemplate: 'title: {title} | text: {text}',
+  queryPrefix: '',
+  docTemplate: '{title}\n{text}',
   maxTokens: 2048,
 };
 
@@ -47,8 +51,13 @@ export function specKey(s: Pick<EmbeddingSpec, 'id' | 'dim' | 'pooling' | 'query
 }
 
 export const formatQuery = (s: EmbeddingSpec, q: string) => s.queryPrefix + q.trim();
-export const formatDoc = (s: EmbeddingSpec, title: string | null | undefined, text: string) =>
-  s.docTemplate.replace('{title}', title?.trim() ? title.trim().replace(/\s+/g, ' ') : 'none').replace('{text}', text.trim());
+
+/** "{title}\n{text}", with the title line dropped entirely when there is no title. */
+export const formatDoc = (s: EmbeddingSpec, title: string | null | undefined, text: string): string => {
+  const head = title?.trim() ? title.trim().replace(/\s+/g, ' ') : '';
+  const doc = s.docTemplate.replace('{title}', head).replace('{text}', text.trim());
+  return head ? doc : doc.replace(/^\n+/, '');
+};
 
 /** Matryoshka truncation + L2 re-normalisation. Throws on NaN/zero vectors (float16 symptom). */
 export function truncateNormalize(v: ArrayLike<number>, dim: number): Float32Array {
@@ -64,7 +73,7 @@ export function truncateNormalize(v: ArrayLike<number>, dim: number): Float32Arr
 
 /** Thin wrapper that always applies prefixes, truncation and normalisation the same way. */
 export class Embedder {
-  constructor(private readonly client: LlamaClient, readonly spec: EmbeddingSpec = EMBEDDINGGEMMA2_256, private readonly batch = 32) {}
+  constructor(private readonly client: LlamaClient, readonly spec: EmbeddingSpec = JINA_CODE_256, private readonly batch = 32) {}
 
   private async run(inputs: string[]): Promise<Float32Array[]> {
     const out: Float32Array[] = [];

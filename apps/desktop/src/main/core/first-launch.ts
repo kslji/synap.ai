@@ -1,7 +1,7 @@
 /**
  * Which chat and embedding files a tier would use.
  * This only names the files. Every tier uses the same chat file (Qwen3.5 4B Q4_K_M)
- * and the same EmbeddingGemma 2 file.
+ * and the same Jina code embeddings file.
  */
 import { pick, type ModelEntry, type ModelRegistry } from './model-registry.js'
 

@@ -7,14 +7,14 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openPackDb } from './db.js'
-import { EMBEDDINGGEMMA2_256, Embedder } from './embedding.js'
+import { JINA_CODE_256, Embedder } from './embedding.js'
 import { LlamaClient } from './llama-client.js'
 import { LlamaServer } from './sidecar-manager.js'
 import { commitInstall } from './pack-install.js'
 import { downloadFile, fetchCatalog } from './pack-sync.js'
 import { verifyPack } from './pack-verify.js'
 import { hybridSearch } from './retrieval.js'
-import { loginDev, repoRoot } from './web-selftest.js'
+import { loginDev, repoRoot } from './selftest-helpers.js'
 
 export const LANTERN_QUESTION = 'What is the harbor lantern code?'
 export const LANTERN_CODE = 'GL-2201'
@@ -91,7 +91,7 @@ export async function provePack(opts: {
     }
     const manifest = await verifyPack(staging, {
       trustedKeys: { 'k-selftest': pub },
-      expectedEmbedding: EMBEDDINGGEMMA2_256,
+      expectedEmbedding: JINA_CODE_256,
     })
     const installedRoot = join(work, 'installed')
     const finalDir = await commitInstall(staging, installedRoot, manifest, pack.title)
@@ -155,17 +155,6 @@ async function ask(chat: LlamaServer, text: string, pack: string, title: string)
 
 async function startPackApi(packRoot: string): Promise<{ base: string; stop: () => Promise<void> }> {
   const { createServer } = await import('node:http')
-  const health = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/plain' })
-    res.end('ok')
-  })
-  const healthPort = await new Promise<number>((resolve, reject) => {
-    health.listen(0, '127.0.0.1', () => {
-      const addr = health.address()
-      if (addr && typeof addr === 'object') resolve(addr.port)
-      else reject(new Error('health port missing'))
-    })
-  })
   const apiPort = await new Promise<number>((resolve, reject) => {
     const probe = createServer()
     probe.listen(0, '127.0.0.1', () => {
@@ -181,8 +170,6 @@ async function startPackApi(packRoot: string): Promise<{ base: string; stop: () 
     env: {
       ...process.env,
       SURF_API_LITE: '1',
-      SEARXNG_URL: `http://127.0.0.1:${healthPort}/search`,
-      FETCH_ALLOW_HOSTS: '',
       JWT_SECRET: 'selftest-secret-selftest-secret-selftest',
       JWT_AUDIENCE: 'authenticated',
       MAIL_MODE: 'console',
@@ -201,7 +188,6 @@ async function startPackApi(packRoot: string): Promise<{ base: string; stop: () 
       if (child.exitCode !== null) resolve()
       else child.once('exit', () => resolve())
     })
-    await new Promise<void>((resolve) => health.close(() => resolve()))
   }
   try {
     for (let i = 0; i < 50; i++) {

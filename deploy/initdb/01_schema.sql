@@ -12,13 +12,13 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE TABLE plans (
   code            text PRIMARY KEY,                    -- 'free', 'pro', 'fleet'
   name            text NOT NULL,
-  features        jsonb NOT NULL DEFAULT '{}',          -- {"web_search_per_day":100,"packs":["general-core"],"max_devices":2}
+  features        jsonb NOT NULL DEFAULT '{}',          -- {"packs":["general-core"],"max_devices":2}
   offline_grace_days int NOT NULL DEFAULT 30,
   is_active       boolean NOT NULL DEFAULT true,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO plans(code, name, features) VALUES
-  ('free', 'Free', '{"web_search_per_day":100,"max_devices":3,"packs":["general-core"]}');
+  ('free', 'Free', '{"max_devices":3,"packs":["general-core"]}');
 
 CREATE TABLE subscriptions (                           -- placeholder for Stripe/Razorpay later
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -173,20 +173,6 @@ CREATE TABLE sources (
   notes           text,
   created_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (niche_id, domain, source_type)
-);
-
-CREATE TABLE source_suggestions (                      -- domains seen in live web answers (opt-in, domain only)
-  id              bigserial PRIMARY KEY,
-  domain          citext NOT NULL,
-  niche_hint      text REFERENCES niches(id),
-  times_seen      int NOT NULL DEFAULT 1,
-  distinct_devices int NOT NULL DEFAULT 1,
-  first_seen_at   timestamptz NOT NULL DEFAULT now(),
-  last_seen_at    timestamptz NOT NULL DEFAULT now(),
-  status          text NOT NULL DEFAULT 'new' CHECK (status IN ('new','accepted','rejected','duplicate')),
-  reviewed_by     uuid REFERENCES users(id),
-  reviewer_notes  text,
-  UNIQUE (domain, niche_hint)
 );
 
 -- ---------------------------------------------------------------------
@@ -360,32 +346,6 @@ CREATE TABLE device_pack_installs (
   source          text NOT NULL CHECK (source IN ('download','usb')),
   reported_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (device_id, pack_version_id)
-);
-
--- ---------------------------------------------------------------------
--- Web search proxy: rate limiting & audit (privacy-preserving)
--- ---------------------------------------------------------------------
-CREATE TABLE search_requests (
-  id              bigserial PRIMARY KEY,
-  device_id       uuid REFERENCES devices(id) ON DELETE SET NULL,
-  user_id         uuid REFERENCES users(id) ON DELETE SET NULL,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  privacy_mode    boolean NOT NULL DEFAULT true,
-  query_text      text,                                 -- ALWAYS NULL when privacy_mode (the default)
-  query_hmac      bytea,                                -- NULL in privacy mode; else HMAC(daily salt, query) for abuse detection
-  agent_id        text,
-  result_count    smallint,
-  latency_ms      int,
-  status          text NOT NULL CHECK (status IN ('ok','rate_limited','upstream_error','blocked')),
-  CHECK (NOT privacy_mode OR query_text IS NULL)
-);
-CREATE INDEX idx_search_device_time ON search_requests(device_id, created_at DESC);
-
-CREATE TABLE search_quota_daily (                      -- fast counter for rate limiting (or keep it in Valkey)
-  device_id       uuid NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  day             date NOT NULL,
-  count           int NOT NULL DEFAULT 0,
-  PRIMARY KEY (device_id, day)
 );
 
 -- ---------------------------------------------------------------------

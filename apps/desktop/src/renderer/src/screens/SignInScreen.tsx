@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BlobMascot, ThemeSwitch, type ThemeChoice } from '@surf/ui'
+import { Moon, Sun } from 'lucide-react'
 
 export function SignInScreen({
   theme,
@@ -8,8 +8,8 @@ export function SignInScreen({
   onVerify,
   onClose,
 }: {
-  theme: ThemeChoice
-  onTheme: (theme: ThemeChoice) => void
+  theme: 'dark' | 'light'
+  onTheme: (theme: 'dark' | 'light') => void
   onStart: (email: string) => Promise<void>
   onVerify: (email: string, code: string) => Promise<void>
   onClose: () => void
@@ -46,15 +46,18 @@ export function SignInScreen({
   }
 
   return (
-    <main className="flex h-full flex-col items-center justify-center px-6" data-screen="signin">
+    <main className="flex h-full flex-col items-center justify-center bg-[#F2F2F7] px-6 text-[#17171C]" data-screen="signin">
       <div className="flex w-full max-w-md flex-col items-center">
-        <BlobMascot state={step === 'code' ? 'searching' : 'guiding'} size={200} />
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="mt-2 text-center text-sm leading-relaxed text-[var(--muted)]">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#F97316] text-lg font-bold text-white">S</div>
+          <span className="text-xl font-bold tracking-tight">Surf<span className="text-[#F97316]">.</span></span>
+        </div>
+        <h1 className="mt-6 text-2xl font-bold tracking-tight">Sign in</h1>
+        <p className="mt-2 text-center text-sm leading-relaxed text-[#5B5B6B]">
           Chat and your documents stay on this computer without an account. Sign in to search the web and sync knowledge packs.
         </p>
         <form
-          className="card mt-5 flex w-full flex-col gap-3 px-4 py-4"
+          className="mt-5 flex w-full flex-col gap-3 rounded-2xl bg-white px-5 py-5 shadow-[0_1px_6px_rgba(23,23,28,0.06)]"
           onSubmit={(e) => {
             e.preventDefault()
             if (step === 'email') void sendCode()
@@ -65,7 +68,7 @@ export function SignInScreen({
             <label className="text-sm">
               <span className="font-semibold">Email</span>
               <input
-                className="field mt-2"
+                className="mt-2 w-full rounded-xl border border-[#E4E4EE] bg-[#FAFAFC] px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[#F97316] focus:bg-white"
                 type="email"
                 autoComplete="email"
                 required
@@ -79,7 +82,7 @@ export function SignInScreen({
             <label className="text-sm">
               <span className="font-semibold">Code for {email}</span>
               <input
-                className="field mt-2 tracking-[0.3em]"
+                className="mt-2 w-full rounded-xl border border-[#E4E4EE] bg-[#FAFAFC] px-3.5 py-2.5 text-sm tracking-[0.3em] outline-none transition-colors focus:border-[#F97316] focus:bg-white"
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 pattern="\d{6}"
@@ -92,20 +95,52 @@ export function SignInScreen({
               />
             </label>
           )}
-          {error && <p className="text-sm text-[var(--muted)]">{error}</p>}
-          <button className="btn btn-primary" type="submit" disabled={busy} data-signin="submit">
+          {error && <p className="text-sm text-[#B91C1C]">{error}</p>}
+          <button
+            className="mt-1 w-full rounded-xl bg-[#F97316] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#EA580C] disabled:opacity-60"
+            type="submit"
+            disabled={busy}
+            data-signin="submit"
+          >
             {busy ? 'Please wait' : step === 'email' ? 'Send code' : 'Continue'}
           </button>
           {step === 'code' && (
-            <button className="btn btn-ghost" type="button" onClick={() => { setStep('email'); setCode(''); setError(null) }}>
+            <button
+              className="text-sm font-medium text-[#5B5B6B] hover:text-[#17171C]"
+              type="button"
+              onClick={() => { setStep('email'); setCode(''); setError(null) }}
+            >
               Use a different email
             </button>
           )}
         </form>
-        <div className="mt-4">
-          <ThemeSwitch value={theme} onChange={onTheme} />
+        <div className="mt-5 flex items-center gap-1 rounded-full bg-white p-1 shadow-[0_1px_4px_rgba(23,23,28,0.06)]">
+          <button
+            type="button"
+            onClick={() => onTheme('light')}
+            className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              theme === 'light' ? 'bg-[#F97316] text-white' : 'text-[#5B5B6B] hover:bg-[#F1F1F6]'
+            }`}
+          >
+            <Sun size={14} /> Light
+          </button>
+          <button
+            type="button"
+            onClick={() => onTheme('dark')}
+            className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              theme === 'dark' ? 'bg-[#F97316] text-white' : 'text-[#5B5B6B] hover:bg-[#F1F1F6]'
+            }`}
+          >
+            <Moon size={14} /> Dark
+          </button>
         </div>
-        <button className="btn btn-ghost mt-3" type="button" onClick={onClose}>Continue without an account</button>
+        <button
+          className="mt-4 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold shadow-[0_1px_4px_rgba(23,23,28,0.06)] transition-colors hover:bg-[#FAFAFC]"
+          type="button"
+          onClick={onClose}
+        >
+          Continue without an account
+        </button>
       </div>
     </main>
   )

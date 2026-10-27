@@ -1,5 +1,5 @@
 /**
- * Local index for granted folders. Keyword (FTS5) plus EmbeddingGemma-sized vectors.
+ * Local index for granted folders. Keyword (FTS5) plus Jina-sized vectors.
  * Revoke deletes rows in this file only. User files are never removed.
  */
 import { mkdirSync } from 'node:fs'

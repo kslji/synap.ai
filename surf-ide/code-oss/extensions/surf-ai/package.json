@@ -1,0 +1,125 @@
+{
+  "name": "surf-ai",
+  "displayName": "Surf AI",
+  "description": "AI-powered coding assistant integrated into Surf IDE",
+  "version": "0.1.0",
+  "publisher": "surf-ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kslji/synap.ai.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "surf-ai",
+          "title": "Surf AI",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "surf-ai": [
+        {
+          "type": "webview",
+          "id": "surf-ai.chat",
+          "name": "Surf AI Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "surf-ai.openChat",
+        "title": "Surf AI: Open Chat"
+      },
+      {
+        "command": "surf-ai.askQuestion",
+        "title": "Surf AI: Ask Question"
+      },
+      {
+        "command": "surf-ai.explainSelection",
+        "title": "Surf AI: Explain Selection"
+      },
+      {
+        "command": "surf-ai.fixErrors",
+        "title": "Surf AI: Fix Errors"
+      },
+      {
+        "command": "surf-ai.backToLobby",
+        "title": "Surf AI: Back to Lobby"
+      },
+      {
+        "command": "surf-ai.acceptProposal",
+        "title": "Surf AI: Accept Proposal",
+        "icon": "$(check)"
+      },
+      {
+        "command": "surf-ai.rejectProposal",
+        "title": "Surf AI: Reject Proposal",
+        "icon": "$(close)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "surf-ai.acceptProposal",
+          "when": "isInDiffEditor && surf.reviewingProposal",
+          "group": "navigation@1"
+        },
+        {
+          "command": "surf-ai.rejectProposal",
+          "when": "isInDiffEditor && surf.reviewingProposal",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Surf AI",
+      "properties": {
+        "surf.gatewayBaseUrl": {
+          "type": "string",
+          "default": "https://api.synap.surf",
+          "description": "Base URL of the Surf gateway (OpenRouter proxy with per-user billing)."
+        },
+        "surf.localBridgeFile": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the JSON descriptor the Surf desktop writes for the local (offline) model bridge. Normally injected via SURF_LOCAL_BRIDGE_FILE at launch."
+        },
+        "surf.topUpUrl": {
+          "type": "string",
+          "default": "https://synap.surf/account",
+          "description": "Where a locked model or an empty wallet sends the user to buy Surf credits (1 credit = $0.40 of workload). Overridable per deployment via SURF_TOPUP_URL."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "compile:test": "tsc -p tsconfig.test.json",
+    "test": "npm run compile:test && node --test out-test/*.test.js",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "eslint": "^8.50.0"
+  },
+  "dependencies": {}
+}

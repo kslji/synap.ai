@@ -1,31 +1,30 @@
-/** Offline, Online, or Auto. Auto follows the operating system. Offline blocks every network call. */
+/** Offline or Online. Offline blocks every network call. The old Auto mode (follow the connection) was removed. */
 
-export type NetworkMode = 'offline' | 'online' | 'auto'
+export type NetworkMode = 'offline' | 'online'
 
 export const REFRESH_WARN_MS = 7 * 24 * 60 * 60 * 1000
 
 export const LOCAL_ONLY_NOTE =
   'This answer uses only sources on this computer. The network is off, so this reply did not search the web or refresh packs.'
 
-/** An explicit mode wins. A settings file from before this choice maps offlineOnly true to Offline, and everything else to Auto. */
+/** An explicit mode wins. A settings file from before this choice (including the removed Auto value) maps offlineOnly true to Offline, and everything else to Online. */
 export function cleanNetworkMode(raw: unknown, legacyOfflineOnly?: boolean): NetworkMode {
-  if (raw === 'offline' || raw === 'online' || raw === 'auto') return raw
+  if (raw === 'offline' || raw === 'online') return raw
   if (legacyOfflineOnly === true) return 'offline'
-  return 'auto'
+  return 'online'
 }
 
 export function resolveNetworkMode(current: NetworkMode, patch: { networkMode?: NetworkMode; offlineOnly?: boolean }): NetworkMode {
-  if (patch.networkMode === 'offline' || patch.networkMode === 'online' || patch.networkMode === 'auto') return patch.networkMode
+  if (patch.networkMode === 'offline' || patch.networkMode === 'online') return patch.networkMode
   if (patch.offlineOnly === true) return 'offline'
-  if (patch.offlineOnly === false && current === 'offline') return 'auto'
+  if (patch.offlineOnly === false && current === 'offline') return 'online'
   return current
 }
 
-/** Offline always blocks. Online allows attempts. Auto blocks only while the operating system is offline. */
+/** Offline always blocks and makes zero network calls. Online allows attempts regardless of connection detection. */
 export function blocksNetwork(mode: NetworkMode, osOnline: boolean): boolean {
-  if (mode === 'offline') return true
-  if (mode === 'online') return false
-  return osOnline === false
+  void osOnline
+  return mode === 'offline'
 }
 
 /** The refusal template already says the answer is from this computer. Leave that sentence unchanged. */
@@ -41,8 +40,8 @@ export function licenceRefreshWarning(input: { mode: NetworkMode; refreshBy: str
   if (input.mode !== 'offline' || !input.refreshBy) return null
   const at = Date.parse(input.refreshBy)
   if (!Number.isFinite(at)) return null
-  if (input.now > at) return 'This licence needs an online refresh. The refresh date has passed. Switch to Online or Auto in Settings when you can.'
-  if (at - input.now <= REFRESH_WARN_MS) return 'This licence needs an online refresh soon. Switch to Online or Auto in Settings before the refresh date.'
+  if (input.now > at) return 'This licence needs an online refresh. The refresh date has passed. Switch to Online in Settings when you can.'
+  if (at - input.now <= REFRESH_WARN_MS) return 'This licence needs an online refresh soon. Switch to Online in Settings before the refresh date.'
   return null
 }
 
@@ -64,7 +63,7 @@ export interface SyncChipView {
   label: string
   state: 'uptodate' | 'syncing' | 'failed' | 'offline'
   mode: NetworkMode
-  modeLabel: 'Offline' | 'Online' | 'Auto'
+  modeLabel: 'Offline' | 'Online'
   packVersion: string | null
   lastSyncAt: number | null
   tooltip: string
@@ -75,8 +74,8 @@ export interface SyncChipView {
 }
 
 export function syncChip(input: SyncChipInput): SyncChipView {
-  const modeLabel = input.mode === 'offline' ? 'Offline' : input.mode === 'online' ? 'Online' : 'Auto'
-  const blocked = input.mode === 'offline' || (input.mode === 'auto' && input.osOnline === false)
+  const modeLabel = input.mode === 'offline' ? 'Offline' : 'Online'
+  const blocked = input.mode === 'offline'
   const version = input.syncing && input.syncingVersion ? input.syncingVersion : input.packVersion
   let label = 'Up to date'
   let state: SyncChipView['state'] = 'uptodate'

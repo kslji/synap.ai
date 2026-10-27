@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..tokens import read_bearer
 from ..rate_limit import CHAT_IP_RATE_PER_MINUTE, CHAT_RATE_PER_MINUTE, client_ip
+from .credits import credits_to_usd, usd_to_credits
 from .model_allowlist import ALLOWED_MODELS
 from .service import GatewayService
 
@@ -189,18 +190,25 @@ async def list_models(
     user_id: str = Depends(get_user_id),
     gateway: GatewayService = Depends(get_gateway_service),
 ) -> dict[str, Any]:
-    """List the curated models available in Surf IDE, with live synced pricing.
+    """List the curated models with live pricing *and* this account's tier status.
 
-    Only allowlisted models that have pricing synced from OpenRouter are
-    returned, so the picker never offers a model we cannot bill for.
+    Only allowlisted models that have pricing synced are returned, so the picker never
+    offers a model we cannot bill for. Each row carries `min_credits`, `locked` and
+    `unlock_usd` so a picker can show a locked higher-tier model with an "Unlock with
+    $N top-up" affordance rather than failing a locked call mid-chat (ADR 0008).
     """
     ids = [m.model_id for m in ALLOWED_MODELS]
     pricing = await gateway.store.list_model_pricing(ids)
+    tiers = await gateway.store.list_model_tiers(ids)
+    current = await gateway.store.get_max_topup_credits(user_id)
     models: list[dict[str, Any]] = []
     for m in ALLOWED_MODELS:
         p = pricing.get(m.model_id)
         if not p:
             continue
+        tier = tiers.get(m.model_id)
+        required = int(tier["min_credits"]) if tier else m.min_credits
+        tier_label = tier["tier_label"] if tier else m.tier_label
         models.append({
             "id": m.model_id,
             "label": m.label,
@@ -208,8 +216,12 @@ async def list_models(
             "context_window": p["context_window"],
             "input_price_per_million": float(p["input_price_per_million"]),
             "output_price_per_million": float(p["output_price_per_million"]),
+            "min_credits": required,
+            "tier_label": tier_label,
+            "locked": current < required,
+            "unlock_usd": float(credits_to_usd(required)),
         })
-    return {"models": models}
+    return {"models": models, "max_topup_credits": current}
 
 
 @router.get("/balance")
@@ -217,7 +229,7 @@ async def get_balance(
     user_id: str = Depends(get_user_id),
     gateway: GatewayService = Depends(get_gateway_service),
 ) -> dict[str, Any]:
-    """Get user's current balance and account status."""
+    """Get user's balance in USD and whole credits, purchase tier, and lock status."""
     balance_info = await gateway.store.get_user_balance(user_id)
     if not balance_info:
         # Create account if it doesn't exist
@@ -225,12 +237,15 @@ async def get_balance(
         balance_info = await gateway.store.get_user_balance(user_id)
         if not balance_info:
             raise HTTPException(status_code=500, detail="Failed to create gateway account")
-    
+
     balance, billing_locked = balance_info
-    
+    max_topup = await gateway.store.get_max_topup_credits(user_id)
+
     return {
         "user_id": user_id,
         "balance": float(balance),
+        "credits": usd_to_credits(balance),
+        "max_topup_credits": max_topup,
         "billing_locked": billing_locked,
         "currency": "USD",
     }

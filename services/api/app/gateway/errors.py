@@ -12,12 +12,37 @@ and the SSE ``{"error": {"code", "message"}}`` event shape.
 from __future__ import annotations
 
 import logging
-from typing import NoReturn
+from decimal import Decimal
+from typing import Any, NoReturn
 
 import httpx
 from fastapi import HTTPException
 
 log = logging.getLogger("surf.gateway.errors")
+
+
+class ModelLockedError(Exception):
+    """Raised by the tier gate when the account's purchase tier is below the model's
+    ``min_credits`` (ADR 0008). This is an *access* denial (403), distinct from the
+    affordability denial (402 ``INSUFFICIENT_CREDITS``): the user may be rich in
+    balance yet still not have bought the tier. The ``app`` handler serialises
+    :meth:`payload` as the response body so the pickers can render an unlock CTA."""
+
+    def __init__(self, model_id: str, required_credits: int, current_max_topup_credits: int, unlock_usd: Decimal) -> None:
+        self.model_id = model_id
+        self.required_credits = required_credits
+        self.current_max_topup_credits = current_max_topup_credits
+        self.unlock_usd = unlock_usd
+        super().__init__(f"model {model_id} requires {required_credits} credits")
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "error": "model_locked",
+            "model_id": self.model_id,
+            "required_credits": self.required_credits,
+            "current_max_topup_credits": self.current_max_topup_credits,
+            "unlock_usd": float(self.unlock_usd),
+        }
 
 GATEWAY_UNAVAILABLE = "The cloud model is unavailable right now. Please try again in a moment."
 RATE_LIMITED = "The cloud model is busy. Please try again in a moment."

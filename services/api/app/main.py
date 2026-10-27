@@ -40,6 +40,7 @@ from .tokens import issue_access_token, read_bearer
 from .version import app_version
 from .gateway.store import MemoryGatewayStore, PostgresGatewayStore
 from .gateway.service import GatewayService
+from .gateway.errors import ModelLockedError
 from .gateway.router import router as gateway_router
 
 log = logging.getLogger("surf.api")
@@ -127,6 +128,14 @@ class Problem(Exception):
 async def problem_handler(_: Request, problem: Problem):
     headers = {"Retry-After": str(problem.retry_after)} if problem.retry_after else None
     return JSONResponse({"error": {"code": problem.code, "message": problem.detail}}, status_code=problem.status, headers=headers)
+
+
+@app.exception_handler(ModelLockedError)
+async def model_locked_handler(_: Request, exc: ModelLockedError):
+    # Purchase-tier access denial (ADR 0008), distinct from the 402 affordability denial.
+    # Structured top-level JSON so the IDE/desktop pickers render an "Unlock with $N
+    # top-up" CTA instead of a generic failure mid-chat.
+    return JSONResponse(exc.payload(), status_code=403)
 
 
 async def current_user(authorization: str = Header(default="")) -> dict:

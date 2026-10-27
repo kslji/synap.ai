@@ -57,6 +57,10 @@ async def _funded_store(pricing: bool = True) -> tuple[MemoryGatewayStore, str]:
     store = MemoryGatewayStore()
     user_id = str(uuid.uuid4())
     await store.ensure_gateway_account(user_id, Decimal("2.00"))
+    # This suite pins agent-endpoint mechanics (forwarding, streaming, guards), not
+    # tiers. MODEL is Tier 1, so the account has to hold a matching purchase tier or
+    # the ADR-0008 access gate answers before the request under test ever starts.
+    store.gateway_accounts[user_id]["max_topup_credits"] = 25
     if pricing:
         await store.upsert_model_pricing(MODEL, Decimal("1.00"), Decimal("2.00"), 4096)
     return store, user_id

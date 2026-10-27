@@ -112,6 +112,9 @@ class TestContextIsolation:
         users = [str(uuid.uuid4()) for _ in range(4)]
         for u in users:
             await store.ensure_gateway_account(u, Decimal("10.0"))
+            # gpt-4.1 is Tier 1; isolation is what is under test, so every user
+            # starts past the ADR-0008 access gate.
+            store.gateway_accounts[u]["max_topup_credits"] = 25
 
         def make_service():
             mock_client = AsyncMock()
@@ -429,6 +432,7 @@ class TestIntegration:
         
         # Setup
         await store.ensure_gateway_account(user_id, Decimal("2.00"))
+        store.gateway_accounts[user_id]["max_topup_credits"] = 25
         await store.upsert_model_pricing(
             model_id="openai/gpt-4.1",
             input_price_per_million=Decimal("1.00"),

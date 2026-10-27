@@ -14,8 +14,9 @@ import httpx
 from fastapi import HTTPException
 
 from .billing import settle_billing
-from .errors import INSUFFICIENT_CREDITS, NOT_CONFIGURED, raise_mapped, user_facing_message
-from .model_allowlist import is_allowed
+from .credits import credits_to_usd
+from .errors import INSUFFICIENT_CREDITS, NOT_CONFIGURED, ModelLockedError, raise_mapped, user_facing_message
+from .model_allowlist import ALLOWED_MODELS, is_allowed, min_credits as _tier_min_credits
 from .preflight import InsufficientBalanceError, preflight_check
 from .pricing import pricing_sync_loop
 from .store import MemoryGatewayStore, PostgresGatewayStore
@@ -138,7 +139,14 @@ class GatewayService:
         self.rate_limiter = GlobalRateLimiter(rate_limit_config)
 
     async def start(self) -> None:
-        """Start background tasks (pricing sync, concurrency manager, rate limiter)."""
+        """Start background tasks (tier seed, pricing sync, concurrency manager, rate limiter)."""
+        # Seed credit tiers from the allowlist before any request reads them. Done
+        # independently of the OpenRouter key so a Lite / gateway-less boot still has
+        # tier rows; the tier gate falls back to the allowlist constant if absent.
+        await self.store.seed_model_tiers(
+            [(m.model_id, m.min_credits, m.tier_label) for m in ALLOWED_MODELS]
+        )
+
         if not self.openrouter_api_key:
             log.warning("OPENROUTER_API_KEY not set; gateway will not work")
             return
@@ -202,16 +210,20 @@ class GatewayService:
         """
         return hmac.new(self.user_hash_key, user_id.encode(), hashlib.sha256).hexdigest()
 
-    def model_fallbacks(self, model: str) -> list[str]:
+    def model_fallbacks(self, model: str, max_topup_credits: int = 0) -> list[str]:
         """The ordered `models` list: the chosen model, a same-provider fallback, the default.
 
-        Duplicates and the primary are removed from the tail; a fallback is only kept if
-        it is on the allowlist, so a request can never be routed to a blocked model.
+        Duplicates and the primary are removed from the tail; a fallback is only kept if it is
+        on the allowlist *and* the account already bought its tier. Without the tier check
+        OpenRouter could fail a Tier 0 turn over to a model the user never unlocked - which
+        slips past the access gate and bills them for an unlock they have not bought.
         """
         same_provider = PROVIDER_FALLBACK.get(model.split("/", 1)[0])
         out = [model]
         for candidate in (same_provider, OPENROUTER_DEFAULT_FALLBACK):
-            if candidate and candidate != model and candidate not in out and is_allowed(candidate):
+            if not candidate or candidate == model or candidate in out:
+                continue
+            if is_allowed(candidate) and _tier_min_credits(candidate) <= max_topup_credits:
                 out.append(candidate)
         return out
 
@@ -236,6 +248,7 @@ class GatewayService:
         max_tokens: int,
         stream: bool = False,
         extra_payload: dict[str, Any] | None = None,
+        max_topup_credits: int = 0,
     ) -> dict[str, Any]:
         """Call OpenRouter API (non-streaming) with rate limiting.
         
@@ -248,6 +261,7 @@ class GatewayService:
             stream: Whether to stream response (not used here)
             extra_payload: Optional provider fields forwarded verbatim
                 (tools / response_format / grammar) for the agent endpoint
+            max_topup_credits: The account's purchase tier, used to build `models`
             
         Returns:
             Response dict
@@ -261,7 +275,7 @@ class GatewayService:
             "max_tokens": max_tokens,
             "stream": False,
             "user": self.openrouter_user(user_id),
-            "models": self.model_fallbacks(model),
+            "models": self.model_fallbacks(model, max_topup_credits),
             **(extra_payload or {}),
         }
         
@@ -302,6 +316,7 @@ class GatewayService:
         messages: list[dict[str, str]],
         max_tokens: int,
         extra_payload: dict[str, Any] | None = None,
+        max_topup_credits: int = 0,
     ) -> AsyncIterator[str]:
         """Stream SSE response from OpenRouter with rate limiting.
         
@@ -313,6 +328,7 @@ class GatewayService:
             max_tokens: Maximum output tokens
             extra_payload: Optional provider fields forwarded verbatim
                 (tools / response_format / grammar) for the agent endpoint
+            max_topup_credits: The account's purchase tier, used to build `models`
             
         Yields:
             SSE data chunks
@@ -326,7 +342,7 @@ class GatewayService:
             "max_tokens": max_tokens,
             "stream": True,
             "user": self.openrouter_user(user_id),
-            "models": self.model_fallbacks(model),
+            "models": self.model_fallbacks(model, max_topup_credits),
             **(extra_payload or {}),
         }
         
@@ -492,6 +508,19 @@ class GatewayService:
         if not is_allowed(model):
             raise HTTPException(status_code=400, detail=f"Model not permitted: {model}")
 
+        # 4b. Purchase-tier access gate (ADR 0008). This asks *may* the account use the
+        # model; preflight below asks *can* it pay for this turn. They are independent:
+        # a rich balance does not buy a tier, and a held tier does not guarantee money.
+        # Falls back to the allowlist constant if the tier row was never seeded, so an
+        # unseeded model can only ever be *more* locked, never silently free.
+        required = _tier_min_credits(model)
+        tier = await self.store.get_model_tier(model)
+        if tier:
+            required = int(tier["min_credits"])
+        purchased = await self.store.get_max_topup_credits(user_id)
+        if required > purchased:
+            raise ModelLockedError(model, required, purchased, credits_to_usd(required))
+
         # 5. Get model pricing
         pricing = await self.store.get_model_pricing(model)
         if not pricing:
@@ -544,6 +573,7 @@ class GatewayService:
                 max_tokens=max_tokens,
                 balance_before=balance,
                 extra_payload=extra_payload,
+                max_topup_credits=purchased,
             )
         else:
             response = await self.call_openrouter(
@@ -554,6 +584,7 @@ class GatewayService:
                 max_tokens=max_tokens,
                 stream=False,
                 extra_payload=extra_payload,
+                max_topup_credits=purchased,
             )
             # Success already recorded in call_openrouter
             
@@ -583,6 +614,7 @@ class GatewayService:
         max_tokens: int,
         balance_before: Decimal,
         extra_payload: dict[str, Any] | None = None,
+        max_topup_credits: int = 0,
     ) -> AsyncIterator[str]:
         """Handle streaming response with billing. Messages are not stored.
 
@@ -596,7 +628,9 @@ class GatewayService:
         usage_info = {"prompt_tokens": 0, "completion_tokens": 0}
         
         try:
-            stream = self.stream_openrouter(user_id, request_id, model, messages, max_tokens, extra_payload)
+            stream = self.stream_openrouter(
+                user_id, request_id, model, messages, max_tokens, extra_payload, max_topup_credits
+            )
             completion_count = 0
             
             async for chunk_data in stream:

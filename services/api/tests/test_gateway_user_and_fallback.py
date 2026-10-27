@@ -86,6 +86,10 @@ def _stream_client(lines: list[str]) -> tuple[Any, dict[str, Any]]:
 
 async def _funded(store: MemoryGatewayStore, user_id: str, priced: list[str]) -> None:
     await store.ensure_gateway_account(user_id, Decimal("5.00"))
+    # The fixtures below mix Tier 0/1/2 slugs because they pin the `user` hash, the
+    # `models` list and billing - not access control. Holding the top tier keeps the
+    # ADR-0008 gate out of the way so each case tests exactly one thing.
+    store.gateway_accounts[user_id]["max_topup_credits"] = 25
     for mid in priced:
         await store.upsert_model_pricing(mid, Decimal("1.00"), Decimal("2.00"), 4096)
 
@@ -163,11 +167,11 @@ def _expected_fallbacks(model: str, same_provider: str | None, default: str) -> 
 @pytest.mark.parametrize(
     "model, same_provider",
     [
-        ("anthropic/claude-opus-4.1", "anthropic/claude-sonnet-4.5"),
+        ("anthropic/claude-opus-4.5", "anthropic/claude-sonnet-4.5"),
         ("openai/gpt-4.1", "openai/gpt-5-mini"),
         ("openai/gpt-5-mini", None),  # its own provider slot is itself -> skipped
         ("google/gemini-2.5-pro", "google/gemini-2.5-flash"),
-        ("x-ai/grok-4", None),  # single-model provider -> only the default
+        ("x-ai/grok-4.5", None),  # single-model provider -> only the default
     ],
 )
 async def test_models_field_leads_with_primary_then_fallbacks(model: str, same_provider: str | None):
@@ -214,7 +218,7 @@ async def test_streaming_requests_carry_user_and_models():
 
 @pytest.mark.asyncio
 async def test_billing_settles_on_the_returned_fallback_model():
-    requested, returned = "anthropic/claude-opus-4.1", "anthropic/claude-sonnet-4.5"
+    requested, returned = "anthropic/claude-opus-4.5", "anthropic/claude-sonnet-4.5"
     store = MemoryGatewayStore()
     user_id = str(uuid.uuid4())
     await _funded(store, user_id, [requested, returned])

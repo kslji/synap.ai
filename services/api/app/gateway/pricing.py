@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from .model_allowlist import allowed_ids
+
 log = logging.getLogger("surf.gateway.pricing")
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -89,6 +91,21 @@ def parse_model_pricing(model_data: dict[str, Any]) -> tuple[str, Decimal, Decim
         return None
 
 
+async def unpriced_allowlist_models(store: Any) -> list[str]:
+    """Allowlisted models with no pricing row - i.e. ids upstream no longer serves.
+
+    The allowlist is code and the price list is upstream data, so the two drift: when a
+    slug is retired or renamed, it stays on the allowlist until someone picks it and
+    gets an opaque provider error (``x-ai/grok-4`` did exactly that). Checking after
+    every sync turns that into a warning the moment the gap opens.
+    """
+    missing: list[str] = []
+    for model_id in allowed_ids():
+        if not await store.get_model_pricing(model_id):
+            missing.append(model_id)
+    return missing
+
+
 async def sync_pricing(
     store: Any,
     http_client: httpx.AsyncClient,
@@ -125,6 +142,14 @@ async def sync_pricing(
         synced += 1
     
     log.info("synced pricing for %d models from OpenRouter", synced)
+    # Only reached on a successful fetch: an empty/failed list must not look like the
+    # whole allowlist went unpriced.
+    gaps = await unpriced_allowlist_models(store)
+    if gaps:
+        log.warning(
+            "allowlisted models with no upstream pricing (retired or renamed id?): %s",
+            ", ".join(gaps),
+        )
     return synced
 
 

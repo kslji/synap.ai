@@ -111,6 +111,9 @@ def _allowlisted_service(store, client, api_key):
 async def test_missing_master_key_is_a_clean_503():
     store, user_id, _ = _service_with_key()
     await store.ensure_gateway_account(user_id, Decimal("2.00"))
+    # gpt-4.1 is Tier 1; these cases exercise the upstream error mapping, so the
+    # account just needs the tier that lets the request reach the provider call.
+    store.gateway_accounts[user_id]["max_topup_credits"] = 25
     await store.upsert_model_pricing("openai/gpt-4.1", Decimal("1.00"), Decimal("2.00"), 4096)
     service = _allowlisted_service(store, _fail_client(401), api_key="")
     with pytest.raises(HTTPException) as exc_info:
@@ -123,6 +126,9 @@ async def test_missing_master_key_is_a_clean_503():
 async def test_bad_provider_key_surfaces_clean_error_not_500():
     store, user_id, _ = _service_with_key()
     await store.ensure_gateway_account(user_id, Decimal("2.00"))
+    # gpt-4.1 is Tier 1; these cases exercise the upstream error mapping, so the
+    # account just needs the tier that lets the request reach the provider call.
+    store.gateway_accounts[user_id]["max_topup_credits"] = 25
     await store.upsert_model_pricing("openai/gpt-4.1", Decimal("1.00"), Decimal("2.00"), 4096)
     service = _allowlisted_service(store, _fail_client(401), api_key="test-key")
     with pytest.raises(HTTPException) as exc_info:
@@ -136,6 +142,9 @@ async def test_bad_provider_key_surfaces_clean_error_not_500():
 async def test_streaming_error_event_is_clean():
     store, user_id, _ = _service_with_key()
     await store.ensure_gateway_account(user_id, Decimal("2.00"))
+    # gpt-4.1 is Tier 1; these cases exercise the upstream error mapping, so the
+    # account just needs the tier that lets the request reach the provider call.
+    store.gateway_accounts[user_id]["max_topup_credits"] = 25
     await store.upsert_model_pricing("openai/gpt-4.1", Decimal("1.00"), Decimal("2.00"), 4096)
     service = _allowlisted_service(store, _fail_client(401), api_key="test-key")
     gen = cast(AsyncIterator[str], await service.handle_chat_request(user_id=user_id, model="openai/gpt-4.1", prompt="Hello", stream=True))

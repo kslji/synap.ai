@@ -1145,6 +1145,7 @@ export default function App() {
           onSwitchSmaller={(id) => { void chooseChatModel(id).catch((e: unknown) => setError((e as Error).message)) }}
           project={agentId === 'code' ? codeProject : undefined}
           onOpenProject={() => { void api.code.pick().then(setCodeProject).catch((e: unknown) => setError((e as Error).message)) }}
+          onOpenIde={() => { void launchCodeIde() }}
           onCodeDecide={(messageId, id, allow, remember, all) => { void api.codeAgent.decide({ messageId, id, allow, remember, all }).catch((e: unknown) => setError((e as Error).message)) }}
           onCodeRevise={(messageId, order, edits) => { void api.codeAgent.revise({ messageId, order, edits }).catch((e: unknown) => setError((e as Error).message)) }}
           onCodeUndo={(messageId, stepId) => { void api.codeAgent.undo({ messageId, stepId }).catch((e: unknown) => setError((e as Error).message)) }}

@@ -11,6 +11,10 @@ export const IPC = {
   chatEvent: 'chat:event',
   chatConsentGet: 'chat:consent-get',
   chatConsentSet: 'chat:consent-set',
+  chatOnlineModels: 'chat:online-models',
+  chatOnlineBalance: 'chat:online-balance',
+  chatSetOnlineModel: 'chat:set-online-model',
+  chatOpenTopUp: 'chat:open-topup',
   modelsStatus: 'models:status',
   modelsDownload: 'models:download',
   modelsCancel: 'models:cancel',
@@ -131,6 +135,8 @@ export interface SettingsPatch {
   offlineOnly?: boolean
   telemetryOptIn?: boolean
   chatModelId?: string
+  /** Online Cloud model picked in the chat picker. Empty means the best unlocked tier. */
+  onlineModelId?: string
   /** Code agent model. Empty means the smallest Code model. */
   codeModelId?: string
   onboardingComplete?: boolean
@@ -264,7 +270,7 @@ export type ChatEvent =
   | { type: 'code-step'; messageId: string; step: CodeStepView }
   | { type: 'code-diff'; messageId: string; diff: CodeDiffView }
   | { type: 'code-plan'; messageId: string; plan: CodePlanView }
-  | { type: 'error'; messageId: string; message: string; smallerModelId?: string }
+  | { type: 'error'; messageId: string; message: string; smallerModelId?: string; modelLocked?: { modelId: string; requiredCredits: number; unlockUsd: number } }
 
 import type {
   CodeDiffView,
@@ -726,6 +732,28 @@ export interface CodeStorageUsage {
   projects: { id: string; root: string; bytes: number }[]
 }
 
+/** An online model row for the tier-aware picker (ADR 0008). Mirrors the gateway /models payload. */
+export interface OnlineModelRow {
+  id: string
+  label: string
+  provider: string
+  /** Purchase tier that unlocks this model: 0 trial, 5 daily, 25 frontier. */
+  minCredits: number
+  tierLabel: string
+  /** True when the signed-in account has not bought the tier. */
+  locked: boolean
+  /** USD cost of the top-up that unlocks it. */
+  unlockUsd: number
+}
+
+/** Wallet and purchase tier for the credit pill and the unlock CTA. */
+export interface OnlineBalance {
+  balance: number
+  credits: number
+  maxTopupCredits: number
+  billingLocked: boolean
+}
+
 /** What window.surf looks like in the renderer. */
 export interface SurfApi {
   chat: {
@@ -735,6 +763,14 @@ export interface SurfApi {
     getConsent(conversationId: string): Promise<ChatConsentState>
     /** Grant or revoke it. The thread gets a note either way. */
     setConsent(req: { conversationId: string; allowed: boolean }): Promise<ChatConsentState>
+    /** The curated online models with this account's tier state, for the picker. */
+    onlineModels(): Promise<OnlineModelRow[]>
+    /** Wallet + purchase tier, or null when the gateway is unreachable/signed out. */
+    onlineBalance(): Promise<OnlineBalance | null>
+    /** Remember the picker's online model choice. Empty resets to the best unlocked tier. */
+    setOnlineModel(modelId: string): Promise<void>
+    /** Open the top-up page so a locked model routes to buying credits. */
+    openTopUp(): Promise<void>
     onEvent(cb: (e: ChatEvent) => void): () => void
   }
   models: {

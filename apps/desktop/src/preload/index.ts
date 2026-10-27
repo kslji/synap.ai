@@ -16,6 +16,10 @@ const api: SurfApi = {
     cancel: (id) => ipcRenderer.invoke(IPC.chatCancel, id),
     getConsent: (conversationId) => ipcRenderer.invoke(IPC.chatConsentGet, { conversationId }),
     setConsent: (req) => ipcRenderer.invoke(IPC.chatConsentSet, req),
+    onlineModels: () => ipcRenderer.invoke(IPC.chatOnlineModels),
+    onlineBalance: () => ipcRenderer.invoke(IPC.chatOnlineBalance),
+    setOnlineModel: (modelId) => ipcRenderer.invoke(IPC.chatSetOnlineModel, modelId),
+    openTopUp: () => ipcRenderer.invoke(IPC.chatOpenTopUp),
     onEvent: (cb) => subscribe<ChatEvent>(IPC.chatEvent, cb),
   },
   models: {

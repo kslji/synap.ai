@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowUp, Check, ChevronRight, Cloud, Copy, Cpu, MoreHorizont
 import { Markdown } from '@surf/ui'
 import { balanceMarkdown, clipWords, SPEAK_LIMIT, streamingMarkdown } from '../../../shared/reply-text'
 import { useMascotActivity } from '../mascot-activity'
-import type { ChatMode, ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatus } from '../../../shared/ipc-contract'
+import type { ChatMode, ChunkPreview, CodeProjectStatus, LibraryFile, ModelStatus, OnlineBalance, OnlineModelRow } from '../../../shared/ipc-contract'
 import { BOT_NAME_LIMIT, cleanMascotName } from '../../../main/core/appearance'
 import { messagePlaceholder } from '../../../shared/chat-title'
 import { friendlyNameFromId } from '../../../shared/model-label'
@@ -23,6 +23,11 @@ import { FOLDER_PROMPT } from '../../../main/core/chat-route'
 function folderName(root: string): string {
   const parts = root.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? root
+}
+
+/** Human name for the monotonic purchase tier, so the credit pill reads the user's plan. */
+function tierLabelFor(maxTopupCredits: number): string {
+  return maxTopupCredits >= 25 ? 'Frontier' : maxTopupCredits >= 5 ? 'Daily' : 'Trial'
 }
 
 const PROMPTS = [
@@ -58,6 +63,7 @@ export function ChatScreen({
   onSwitchSmaller,
   project,
   onOpenProject,
+  onOpenIde,
   onCodeDecide,
   onCodeRevise,
   onCodeUndo,
@@ -100,6 +106,8 @@ export function ChatScreen({
   /** Set for the Code agent. Null means no folder has been opened yet. */
   project?: CodeProjectStatus | null
   onOpenProject?: () => void
+  /** Opens the folder in Surf IDE, which is where code is actually written. */
+  onOpenIde?: () => void
   onCodeDecide?: (messageId: string, id: string, allow: boolean, remember?: boolean, all?: boolean) => void
   onCodeRevise?: (messageId: string, order: string[], edits?: { id: string; goal: string }[]) => void
   onCodeUndo?: (messageId: string, stepId: string) => void
@@ -115,6 +123,9 @@ export function ChatScreen({
   onBackToAgents?: () => void
 }) {
   const [confirmingAuto, setConfirmingAuto] = useState(false)
+  // The in-chat editor is a scratch pad for a one-line fix; real work happens in
+  // Surf IDE, so the editor stays folded away until it is asked for.
+  const [quickEdit, setQuickEdit] = useState(false)
   const [text, setText] = useState('')
   const [listening, setListening] = useState(false)
   const [micNoteText, setMicNoteText] = useState('')
@@ -131,6 +142,37 @@ export function ChatScreen({
   // The consent question is asked in a dialog, never silently on a click.
   const [askConsent, setAskConsent] = useState(false)
   const onlineAvailable = !status.offlineOnly
+  // Tier-aware Online Cloud picker (ADR 0008). The list, the wallet, and the choice
+  // are fetched only while Online is active; Offline never touches the gateway.
+  const [onlineModels, setOnlineModels] = useState<OnlineModelRow[]>([])
+  const [onlineBalance, setOnlineBalance] = useState<OnlineBalance | null>(null)
+  const [onlineChosen, setOnlineChosen] = useState('')
+  useEffect(() => {
+    if (mode !== 'online') return
+    let alive = true
+    const load = async (): Promise<void> => {
+      const [models, balance] = await Promise.all([
+        window.surf.chat.onlineModels().catch(() => [] as OnlineModelRow[]),
+        window.surf.chat.onlineBalance().catch(() => null),
+      ])
+      if (!alive) return
+      setOnlineModels(models)
+      setOnlineBalance(balance)
+      const firstUnlocked = models.find((m) => !m.locked)
+      setOnlineChosen((current) => (models.some((m) => m.id === current && !m.locked) ? current : firstUnlocked?.id ?? ''))
+    }
+    void load()
+    return () => { alive = false }
+  }, [mode])
+  const pickOnlineModel = (id: string): void => {
+    const row = onlineModels.find((m) => m.id === id)
+    if (!row) return
+    // A locked model routes to the top-up flow rather than being selected and failing
+    // mid-chat; an unlocked one is remembered for the next turn.
+    if (row.locked) { void window.surf.chat.openTopUp(); return }
+    setOnlineChosen(id)
+    void window.surf.chat.setOnlineModel(id)
+  }
   const scroller = useRef<HTMLDivElement>(null)
   const wasStreaming = useRef(false)
   const messagesRef = useRef(messages)
@@ -253,7 +295,20 @@ export function ChatScreen({
             </div>
           </div>
         )}
-        {project && <CodeEditor enabled={tabSuggestions} languagesOff={tabSuggestionsOff} />}
+        {project && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-6 py-2" data-ide-bar="yes">
+            <span className="text-xs text-[var(--muted)]">{folderName(project.root)} is open in this chat</span>
+            {onOpenIde && (
+              <button type="button" className="btn btn-primary ml-auto" data-open-ide="yes" onClick={onOpenIde}>
+                Open Surf IDE
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost" data-quick-edit="yes" onClick={() => setQuickEdit((open) => !open)}>
+              {quickEdit ? 'Hide quick editor' : 'Quick edit'}
+            </button>
+          </div>
+        )}
+        {project && quickEdit && <CodeEditor enabled={tabSuggestions} languagesOff={tabSuggestionsOff} />}
         <div ref={scroller} className="flex-1 overflow-auto px-6 py-6">
           {messages.length === 0 ? (
             <div className="empty-chat">
@@ -330,6 +385,31 @@ export function ChatScreen({
                   Online
                 </button>
               </div>
+              {mode === 'online' && onlineModels.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-1.5" data-online-picker="yes">
+                  {onlineModels.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => pickOnlineModel(m.id)}
+                      aria-pressed={m.id === onlineChosen}
+                      title={m.locked ? `Unlock with $${m.unlockUsd} top-up (${m.minCredits} credits)` : `${m.provider} · ${m.tierLabel}`}
+                      className={`pill inline-flex items-center gap-1 text-xs ${m.locked ? 'opacity-70' : m.id === onlineChosen ? 'bg-[#F97316] text-white' : ''}`}
+                    >
+                      {m.locked ? '🔒 ' : ''}{m.label}{m.locked ? ` — unlock $${m.unlockUsd}` : ''}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    data-credits-pill="yes"
+                    onClick={() => { void window.surf.chat.openTopUp() }}
+                    title="Surf credits — click to top up"
+                    className="pill inline-flex items-center gap-1 text-xs"
+                  >
+                    ◍ {onlineBalance ? `${onlineBalance.credits} cr · ${tierLabelFor(onlineBalance.maxTopupCredits)}` : 'Credits'}
+                  </button>
+                </div>
+              )}
               {mode === 'online' && onlineConsent !== null && (
                 <>
                   <button

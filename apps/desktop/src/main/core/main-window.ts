@@ -5,7 +5,7 @@
 import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { IPC, type AuthStatus, type BenchmarkResult, type ChatConsentState, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeCompleteReq, type CodeCompleteResult, type CodeEditorFile, type CodeEditorText, type CodeProjectStatus, type CodeStorageUsage, type CodeVisionCaptureResult, type CodeVisionSaveResult, type ConversationSummary, type DeviceInfo, type DocumentResult, type FileDecideReq, type FileFolderGrant, type FileGrantReq, type FileIndexLimits, type FileIndexLimitsReq, type FileOsDenialKind, type FileSuggestFolder, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage, type UpdateOffer, type UsageReport } from './ipc-contract.js'
+import { IPC, type AuthStatus, type BenchmarkResult, type ChatConsentState, type ChunkPreview, type CodeAgentDecideReq as CodeAgentDecide, type CodeAgentModeState, type CodeAgentReviseReq as CodeAgentRevise, type CodeAgentRoot, type CodeAgentSetModeReq as CodeAgentSetMode, type CodeAgentSetModeResult, type CodeAgentUndoReq as CodeAgentUndo, type CodeCompleteReq, type CodeCompleteResult, type CodeEditorFile, type CodeEditorText, type CodeProjectStatus, type CodeStorageUsage, type CodeVisionCaptureResult, type CodeVisionSaveResult, type ConversationSummary, type DeviceInfo, type DocumentResult, type FileDecideReq, type FileFolderGrant, type FileGrantReq, type FileIndexLimits, type FileIndexLimitsReq, type FileOsDenialKind, type FileSuggestFolder, type FillPlan, type FillRow, type LibraryFile, type LicenceDevice, type LicenceStatus, type ModelStatus, type OnlineBalance, type OnlineModelRow, type PackRow, type SettingsPatch, type StorageCategoryId, type StorageReport, type StoredMessage, type UpdateOffer, type UsageReport } from './ipc-contract.js'
 import type { ExportFormat } from './ipc-contract.js'
 import { AttachmentId, ChatConsentGet, ChatConsentSet, ChatSendReq, CodeAgentDecideReq, CodeAgentReviseReq, CodeAgentSetModeReq, CodeAgentUndoReq, CodeCompleteReq as CodeCompleteBody, CodeFilePath, CodeFileSave, CodeVisionCapture, CodeVisionSave, ConversationId, DeviceId, DocumentConvert, DocumentExport, DocumentPlan, EmailBody, FileDecideReq as FileDecideBody, FileGrantReq as FileGrantBody, FileLimitsReq, FileOsKind, HttpLink, JobId, LibraryAdd, LibraryPick, LibraryPreview, LicenceActivateBody, LicenceActivationId, ModelId, OtpVerifyBody, PackId, SettingsPatch as SettingsPatchSchema, SpeechWav, StorageCategoryId as StorageCategorySchema, StorageClearReq, type ParsedChat } from './ipc-schemas.js'
 import { surfEnv } from './surf-env.js'
@@ -83,6 +83,14 @@ export interface Services {
     /** Item 12: this chat's Online-context consent, and the change of it. */
     consent(conversationId: string): ChatConsentState
     setConsent(req: { conversationId: string; allowed: boolean }): ChatConsentState
+    /** Tier-aware online model list for the chat picker (ADR 0008). */
+    onlineModels(): Promise<OnlineModelRow[]>
+    /** Wallet + purchase tier, or null when the gateway is unreachable/signed out. */
+    onlineBalance(): Promise<OnlineBalance | null>
+    /** Remember the picked online model. */
+    setOnlineModel(modelId: string): Promise<void>
+    /** Open the top-up page for a locked model / empty wallet. */
+    openTopUp(): Promise<void>
   }
   models: {
     status(): Promise<ModelStatus>
@@ -233,6 +241,10 @@ export function registerIpc(win: BrowserWindow, s: Services): void {
   handle(IPC.chatCancel, (e, id) => { assertTrusted(e); if (typeof id === 'string') s.chat.cancel(id) })
   handle(IPC.chatConsentGet, (e, raw) => { assertTrusted(e); return s.chat.consent(ChatConsentGet.parse(raw).conversationId) })
   handle(IPC.chatConsentSet, (e, raw) => { assertTrusted(e); return s.chat.setConsent(ChatConsentSet.parse(raw)) })
+  handle(IPC.chatOnlineModels, (e) => { assertTrusted(e); return s.chat.onlineModels() })
+  handle(IPC.chatOnlineBalance, (e) => { assertTrusted(e); return s.chat.onlineBalance() })
+  handle(IPC.chatSetOnlineModel, (e, raw) => { assertTrusted(e); return s.chat.setOnlineModel(z.string().max(120).parse(raw)) })
+  handle(IPC.chatOpenTopUp, (e) => { assertTrusted(e); return s.chat.openTopUp() })
   handle(IPC.settingsGet, (e) => { assertTrusted(e); return s.settings.get() })
   handle(IPC.settingsSet, (e, raw) => { assertTrusted(e); return s.settings.set(SettingsPatchSchema.parse(raw)) })
   handle(IPC.modelsStatus, (e) => { assertTrusted(e); return s.models.status() })

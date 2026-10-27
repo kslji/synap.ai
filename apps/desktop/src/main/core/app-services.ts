@@ -106,8 +106,8 @@ import { cleanAccent, cleanAnimate, cleanDensity, cleanMascotColor, cleanMascotN
 import { blocksNetwork, cleanNetworkMode, resolveNetworkMode, syncChip, withLocalOnlyNote, type NetworkMode } from './network-mode.js'
 import { nextReplyVersions } from './reply-versions.js'
 import { benchmarkFor, readBenchmarkFile, tokensPerSec, upsertBenchmark, writeBenchmarkFile, type BenchmarkRow } from './benchmark-store.js'
-import type { BenchmarkResult } from './ipc-contract.js'
-import { gatewayListModels } from './gateway-chat.js'
+import type { BenchmarkResult, OnlineBalance, OnlineModelRow } from './ipc-contract.js'
+import { gatewayListModels, gatewayGetBalance, ModelLockedError, type GatewayModel } from './gateway-chat.js'
 import { claimTopic, recordsFromContext, verifyGroundedAnswer } from './verify-answer.js'
 import { contentKeysForDelta, decryptDelta, openSealedContentKey, searchDelta } from './pack-delta.js'
 import { loadPackContentKey, storePackContentKey } from './pack-content-cache.js'
@@ -190,6 +190,7 @@ const DEFAULT_SETTINGS: Settings = {
   offlineOnly: false,
   telemetryOptIn: false,
   chatModelId: '',
+  onlineModelId: '',
   codeModelId: '',
   onboardingComplete: false,
   theme: 'light',
@@ -1285,15 +1286,54 @@ export async function createServices(): Promise<Services> {
     finish(conversationId, messageId, '', win, merged, existing.sources, existing.gate ?? 'answer', true, lengthLimited)
   }
 
-  /** Cached first allowlisted online model so each online turn does not refetch. */
-  let onlineModelCache: { id: string; at: number } | null = null
-  async function onlineModelId(base: string, token: string, signal: AbortSignal): Promise<string> {
+  /**
+   * Cached online model list, so the turn path does not refetch on every message.
+   * `at` is the last successful fetch; a null id means the account cannot reach any
+   * unlocked model right now.
+   */
+  let onlineModelsCache: { models: GatewayModel[]; at: number } | null = null
+  async function loadOnlineModels(base: string, token: string, signal: AbortSignal): Promise<GatewayModel[]> {
     const now = Date.now()
-    if (onlineModelCache && now - onlineModelCache.at < 300_000) return onlineModelCache.id
+    if (onlineModelsCache && now - onlineModelsCache.at < 300_000) return onlineModelsCache.models
     const models = await gatewayListModels(base, token, signal).catch(() => [])
-    const id = models[0]?.id ?? ''
-    if (id) onlineModelCache = { id, at: now }
-    return id
+    if (models.length) onlineModelsCache = { models, at: now }
+    return models
+  }
+
+  /**
+   * The model an online turn uses. Honours the account's picked model when it is
+   * still unlocked, otherwise falls to the first unlocked tier so a trial user never
+   * auto-lands on a model the gateway would 403 mid-chat (ADR 0008).
+   */
+  async function onlineModelId(base: string, token: string, signal: AbortSignal): Promise<string> {
+    const models = await loadOnlineModels(base, token, signal)
+    const picked = readSettings().onlineModelId
+    const chosen = models.find((m) => m.id === picked && !m.locked) ?? models.find((m) => !m.locked)
+    return chosen?.id ?? ''
+  }
+
+  /** Where a top-up is bought. Surf's checkout opens on the account page. */
+  function topUpUrl(): string {
+    return process.env.SURF_TOPUP_URL?.trim() || 'https://synap.surf/account'
+  }
+
+  /**
+   * One error event from a thrown turn. A tier lock carries the unlock payload so the
+   * chat can offer the top-up instead of a dead-end message; a small-model hint is kept
+   * for the offline load path.
+   */
+  function sendChatError(win: BrowserWindow, messageId: string, e: unknown): void {
+    const smallerModelId = e instanceof ModelLoadError ? e.smallerModelId ?? undefined : undefined
+    const locked = e instanceof ModelLockedError
+      ? { modelLocked: { modelId: e.modelId, requiredCredits: e.requiredCredits, unlockUsd: e.unlockUsd } }
+      : undefined
+    sendEvent(win, {
+      type: 'error',
+      messageId,
+      message: (e as Error).message,
+      ...(smallerModelId ? { smallerModelId } : {}),
+      ...(locked ? locked : {}),
+    })
   }
 
   /**
@@ -1942,7 +1982,7 @@ export async function createServices(): Promise<Services> {
     launch: async (root: string): Promise<{ pid: number }> => {
       if (!isAbsolute(root)) throw new Error('Project path must be absolute')
       const forkRoot = resolveSurfIdeForkRoot()
-      if (!forkRoot) throw new Error('Surf IDE (VSCode fork) is not installed. Build it with surf-ide/code-oss/setup.sh first.')
+      if (!forkRoot) throw new Error('Surf IDE (VSCode fork) is not installed. Set it up with surf-ide/setup.sh first.')
       // Prefer the production bundle (fast, few files) when it has been built;
       // otherwise fall back to the dev `code.sh` path against the compiled `out/`.
       const binary = resolveSurfIdeBinary(forkRoot)
@@ -2278,7 +2318,7 @@ export async function createServices(): Promise<Services> {
           void reply(bound, conversationId, messageId, '', win, ac.signal)
             .catch((e: unknown) => {
               if (ac.signal.aborted) return
-              sendEvent(win, { type: 'error', messageId, message: (e as Error).message })
+              sendChatError(win, messageId, e)
             })
             .finally(() => inflight.delete(messageId))
           return { conversationId, messageId }
@@ -2302,8 +2342,7 @@ export async function createServices(): Promise<Services> {
           void reply(bound, conversationId, messageId, userMessageId, win, ac.signal)
             .catch((e: unknown) => {
               if (ac.signal.aborted) return
-              const smallerModelId = e instanceof ModelLoadError ? e.smallerModelId ?? undefined : undefined
-              sendEvent(win, { type: 'error', messageId, message: (e as Error).message, ...(smallerModelId ? { smallerModelId } : {}) })
+              sendChatError(win, messageId, e)
             })
             .finally(() => inflight.delete(messageId))
           return { conversationId, messageId }
@@ -2319,8 +2358,7 @@ export async function createServices(): Promise<Services> {
         void reply({ ...req, agentId }, conversationId, messageId, userMessageId, win, ac.signal)
           .catch((e: unknown) => {
             if (ac.signal.aborted) return
-            const smallerModelId = e instanceof ModelLoadError ? e.smallerModelId ?? undefined : undefined
-            sendEvent(win, { type: 'error', messageId, message: (e as Error).message, ...(smallerModelId ? { smallerModelId } : {}) })
+            sendChatError(win, messageId, e)
           })
           .finally(() => inflight.delete(messageId))
         return { conversationId, messageId }
@@ -2348,6 +2386,44 @@ export async function createServices(): Promise<Services> {
           })
         }
         return { conversationId: req.conversationId, allowed: req.allowed, note }
+      },
+      /** The tier-aware online model list for the picker. Empty when signed out or offline-only. */
+      async onlineModels(): Promise<OnlineModelRow[]> {
+        const settings = readSettings()
+        if (settings.offlineOnly) return []
+        const base = apiBase(settings)
+        const token = await freshAccess({ base, offlineOnly: false }).catch(() => null)
+        if (!token) return []
+        const models = await loadOnlineModels(base, token, new AbortController().signal)
+        return models.map((m) => ({
+          id: m.id,
+          label: m.label,
+          provider: m.provider,
+          minCredits: Number(m.min_credits) || 0,
+          tierLabel: m.tier_label || '',
+          locked: m.locked === true,
+          unlockUsd: Number(m.unlock_usd) || 0,
+        }))
+      },
+      /** Wallet + purchase tier, or null when the gateway is unreachable/signed out. */
+      async onlineBalance(): Promise<OnlineBalance | null> {
+        const settings = readSettings()
+        if (settings.offlineOnly) return null
+        const base = apiBase(settings)
+        const token = await freshAccess({ base, offlineOnly: false }).catch(() => null)
+        if (!token) return null
+        const info = await gatewayGetBalance(base, token)
+        if (!info) return null
+        return { balance: info.balance, credits: info.credits, maxTopupCredits: info.max_topup_credits, billingLocked: info.billing_locked }
+      },
+      /** Remember the picker's online model choice; the turn path respects it if still unlocked. */
+      async setOnlineModel(modelId: string): Promise<void> {
+        const id = typeof modelId === 'string' ? modelId.slice(0, 120) : ''
+        writeSettings({ ...readSettings(), onlineModelId: id })
+      },
+      /** Open the top-up page so a locked model routes to buying credits, not a dead end. */
+      async openTopUp(): Promise<void> {
+        await shell.openExternal(topUpUrl())
       },
     },
     models: { status, download, cancel: cancelDownload, benchmark, importLocal, remove },

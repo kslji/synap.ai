@@ -18,6 +18,7 @@ export const SettingsPatch = z.object({
   offlineOnly: z.boolean().optional(),
   telemetryOptIn: z.boolean().optional(),
   chatModelId: z.string().max(80).optional(),
+  onlineModelId: z.string().max(120).optional(),
   codeModelId: z.string().max(80).optional(),
   onboardingComplete: z.boolean().optional(),
   theme: z.union([z.enum(['light', 'dark']), z.literal('system').transform(() => 'light' as const)]).optional(),

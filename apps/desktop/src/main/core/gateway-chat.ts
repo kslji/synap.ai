@@ -12,6 +12,38 @@ export interface GatewayModel {
   id: string
   label: string
   provider: string
+  /** Purchase tier that unlocks this model (ADR 0008): 0 trial, 5 daily, 25 frontier. */
+  min_credits?: number
+  tier_label?: string
+  /** True when the signed-in account has not bought `min_credits`. */
+  locked?: boolean
+  /** USD cost of the top-up that unlocks it, so the badge can state the price. */
+  unlock_usd?: number
+}
+
+export interface GatewayBalance {
+  balance: number
+  /** Whole credits left in the wallet (balance / $0.40, floored). */
+  credits: number
+  /** The monotonic purchase tier, which decides which models are selectable. */
+  max_topup_credits: number
+  billing_locked: boolean
+}
+
+/**
+ * The gateway's 403: the model is allowed and affordable, but the account has not
+ * bought the tier. Carried as a type so the chat offers the unlock rather than a
+ * generic failure, and so the picker never treats a locked model as a dead one.
+ */
+export class ModelLockedError extends Error {
+  constructor(
+    readonly modelId: string,
+    readonly requiredCredits: number,
+    readonly unlockUsd: number
+  ) {
+    super(`That model needs a $${unlockUsd.toFixed(0)} top-up (${requiredCredits} credits).`)
+    this.name = 'ModelLockedError'
+  }
 }
 
 export interface GatewayChatOpts {
@@ -36,6 +68,30 @@ export async function gatewayListModels(baseUrl: string, token: string, signal?:
 }
 
 /**
+ * Wallet in USD and whole credits plus the purchase tier. Returns null when the
+ * gateway is unreachable or signs out, so the pill reads as "unknown" and never
+ * tells a paying user they are empty on a network blip.
+ */
+export async function gatewayGetBalance(baseUrl: string, token: string, signal?: AbortSignal): Promise<GatewayBalance | null> {
+  try {
+    const res = await fetch(`${trim(baseUrl)}/api/v1/balance`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as GatewayBalance
+    return {
+      balance: Number(data.balance) || 0,
+      credits: Number(data.credits) || 0,
+      max_topup_credits: Number(data.max_topup_credits) || 0,
+      billing_locked: data.billing_locked === true,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Stream one online completion. Resolves with the full assistant text.
  * Throws a user-facing Error for the gateway's 402 (balance) and 400 (bad model)
  * so reply() can surface the same copy the extension does.
@@ -51,6 +107,14 @@ export async function gatewayChat(opts: GatewayChatOpts): Promise<string> {
     signal: opts.signal,
   })
 
+  if (res.status === 403) {
+    // The tier gate, not a debt lock: surface what unlocks it and for how much.
+    const body = (await res.json().catch(() => ({}))) as { error?: string; model_id?: string; required_credits?: number; unlock_usd?: number }
+    if (body.error === 'model_locked') {
+      throw new ModelLockedError(body.model_id || opts.model, Number(body.required_credits) || 0, Number(body.unlock_usd) || 0)
+    }
+    throw new Error((await detailOf(res)) || 'That model is not available to this account.')
+  }
   if (res.status === 402) throw new Error((await detailOf(res)) || 'Insufficient Surf balance. Top up to keep using cloud models.')
   if (res.status === 401) throw new Error('Please sign in again to use cloud models.')
   if (res.status === 429) throw new Error('The cloud model is busy. Please try again in a moment.')

@@ -10,6 +10,7 @@
  * The 401 / 402 / 429 user-facing copies from gatewayChat are preserved.
  */
 import type { ChatMessage, GenerateOptions, ModelProvider, ModelTurn } from '@surf/agent-core'
+import { ModelLockedError } from './gateway-chat.js'
 
 export interface GatewayProviderOpts {
   baseUrl: string
@@ -45,6 +46,14 @@ export class GatewayProvider implements ModelProvider {
       signal: options.signal,
     })
 
+    if (res.status === 403) {
+      // The agent endpoint shares the tier gate; a locked model is an unlock, not a dead end.
+      const body = (await res.json().catch(() => ({}))) as { error?: string; model_id?: string; required_credits?: number; unlock_usd?: number }
+      if (body.error === 'model_locked') {
+        throw new ModelLockedError(body.model_id || this.opts.model, Number(body.required_credits) || 0, Number(body.unlock_usd) || 0)
+      }
+      throw new Error((await detailOf(res)) || 'That model is not available to this account.')
+    }
     if (res.status === 402) throw new Error((await detailOf(res)) || 'Insufficient Surf balance. Top up to keep using cloud models.')
     if (res.status === 401) throw new Error('Please sign in again to use cloud models.')
     if (res.status === 429) throw new Error('The cloud model is busy. Please try again in a moment.')

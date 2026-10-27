@@ -1,474 +1,301 @@
-# Surf IDE - VSCode Fork Setup Guide
+# Surf IDE — Setup Guide
+
+This is the manual walkthrough behind `./setup.sh`. Run the script unless you are
+debugging a step or working on a platform where it does not fit; the script and
+this guide describe the *same* five steps, so they stay in sync.
+
+- Overview ................................ step 0
+- Prerequisites ......................... step 0
+- Step 1 — the VS Code checkout ........... pinned commit, non-destructive merge
+- Step 2 — dependencies ................. fork + Surf AI extension
+- Step 3 — the Surf fork changes ........... `fork-setup.mjs`, explained key by key
+- Step 4 — build and test the extension ... the real built-in, not a scaffold
+- Step 5 — compile the workbench .......... `compile-client`, why not `compile`
+- Launch ................................ dev launch + desktop handoff
+- Native addons (macOS / arm64) ......... the `bindings file` fix
+- Production installers ................ gulp targets
+- Troubleshooting
+- What this guide deliberately does **not** cover
 
 ## Overview
 
-This guide walks you through setting up Surf IDE, a VSCode fork with integrated AI capabilities.
+Surf IDE is a VS Code fork with the Surf assistant shipped as a **built-in
+extension**. The fork itself (`surf-ide/code-oss/`) is upstream material that this
+repository **git-ignores**; the only tracked part inside it is
+`code-oss/extensions/surf-ai/`. That split is the whole reason this setup exists:
+every change Surf needs in `product.json` and the workbench sources is unversioned,
+so it must be re-applied on a fresh checkout. `fork-setup.mjs` is the single source
+of truth for those changes.
+
+There are **two chat modes and no automatic routing**: **Offline Mode (Air-Gapped)**
+(local model over the on-device bridge) and **Online Cloud** (the OpenRouter gateway).
+The old `auto` / "Smart routing" mode described in earlier drafts does not exist and
+must not be reintroduced — the internal `SurfMode 'auto'` is retained in the model
+router only as a fallback sentinel, never as a selectable UI mode.
 
 ## Prerequisites
 
-- **macOS 12+** or **Windows 10/11**
-- **Node.js 22+** (verified: `node --version`)
-- **Python 3.12+** (verified: `python3 --version`)
-- **Git** (verified: `git --version`)
-- **Xcode Command Line Tools** (macOS): `xcode-select --install`
-- **Visual Studio Build Tools** (Windows): Download from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+- **macOS 12+**, **Windows 10/11**, or a recent **Linux**.
+- **Node.js 22+** (`node --version`) — the fork's own `.nvmrc` may pin higher.
+- **Python 3.12+** (`python3 --version`).
+- **Git** and **rsync** — `rsync` is how upstream is merged into a checkout that
+  already holds the tracked extension folder.
+- **Xcode Command Line Tools** (macOS): `xcode-select --install`.
+- **Visual Studio Build Tools** (Windows): the C++ workload.
 
-## Step 1: Fork VSCode Repository
+## Step 1 — the VS Code checkout
 
-### Option A: Create Your Own Fork (Recommended)
-
-1. Go to https://github.com/microsoft/vscode
-2. Click "Fork" button (top-right)
-3. Select your GitHub account
-4. Clone your fork:
+Surf is verified against one specific upstream commit. `fork-setup.mjs` patches
+workbench sources **by exact text**, so a floating `main` would break a fresh
+setup on an unrelated upstream day. The pin lives in `setup.sh`:
 
 ```bash
-cd /Users/arjunsingh/Desktop/surf.ai/surf-ide
-git clone https://github.com/YOUR_GITHUB_USERNAME/vscode.git code-oss
+SURF_VSCODE_COMMIT=22440e0276be6fa9554868660a41dff33785d5e6
+```
+
+`code-oss/` exists the moment the repository is cloned, because
+`extensions/surf-ai/` is tracked inside it — so a script that tests for the
+*directory* would always skip the clone. The checkout is detected by testing for
+the workbench source instead:
+
+```bash
+test -f code-oss/src/vs/workbench/workbench.common.main.ts
+```
+
+If it is missing, the exact commit is fetched shallowly into a temp dir and merged
+over the top of our folder, leaving the tracked extension untouched:
+
+```bash
+STAGE=$(mktemp -d)
+git init -q "$STAGE/vscode"
+git -C "$STAGE/vscode" remote add origin https://github.com/microsoft/vscode.git
+git -C "$STAGE/vscode" fetch --depth 1 origin "$SURF_VSCODE_COMMIT"
+git -C "$STAGE/vscode" checkout -q FETCH_HEAD
+rsync -a --exclude='/extensions/surf-ai/' "$STAGE/vscode/" code-oss/
+```
+
+The `--exclude` is what makes this non-destructive: upstream never overwrites
+`extensions/surf-ai/`. If you already have a checkout at another commit, the
+script does **not** reset it (that would discard local work) — it warns, and
+`fork-setup.mjs` will fail loudly if a patch no longer applies, at which point you
+re-derive that one fragment for your commit.
+
+## Step 2 — dependencies
+
+```bash
 cd code-oss
-git remote add upstream https://github.com/microsoft/vscode.git
+npm install                              # the fork
+npm --prefix extensions/surf-ai install  # the Surf AI extension
 ```
 
-### Option B: Direct Clone (Quick Start)
+## Step 3 — the Surf fork changes
+
+Everything here is done by one idempotent script. Re-run it any time; it reports
+"already applied" when there is nothing to change:
 
 ```bash
-cd /Users/arjunsingh/Desktop/surf.ai/surf-ide
-git clone https://github.com/microsoft/vscode.git code-oss
+node surf-ide/fork-setup.mjs
+```
+
+It writes four files. What each change is, and *why* it is needed:
+
+### 3.1 `product.json` — branding + gallery
+
+Surf identity (`nameShort`/`nameLong` `Surf IDE`, `applicationName` `surf-ide`,
+`dataFolderName` `.surf-ide`, `darwinBundleIdentifier` `ai.surf.ide`, the
+`win32*`/`linux*` variants, `urlProtocol`, `sharedDataFolderName`) and the
+**Open VSX** gallery (not the Microsoft marketplace, which a fork may not use):
+
+```
+extensionsGallery.serviceUrl = https://open-vsx.org/vscode/gallery
+```
+
+### 3.2 `product.json` — the Surf `defaultChatAgent`
+
+`product.defaultChatAgent` is dereferenced at **module scope** by the chat and
+onboarding contributions. If the key is absent, those imports throw during
+startup and the Electron window — created with `show:false` — is never shown. The
+script replaces the key outright rather than merging over it: upstream's copy
+points at the Copilot extensions and carries Copilot command ids whose callers use
+`?? fallback`, so an inherited value would beat the fallback. The replacement
+describes Surf's own assistant (`extensionId: 'surf-ai.surf-ai'`, the Surf provider
+and `synap.surf` URLs).
+
+### 3.3 `product.json` — Copilot / Microsoft strip-out
+
+So that no shipped path points at a Microsoft or GitHub endpoint from a product
+that advertises no egress. `trustedExtensionAuthAccess` → `{}`,
+`builtInExtensionsEnabledWithAutoUpdates` → `[]`, `reportIssueUrl` → `""`, and
+`voiceWsUrl` (a Microsoft realtime voice endpoint) is removed. Legal
+license/notice URLs are left untouched.
+
+### 3.4 Workbench source guards
+
+Two files get small, principled guards, all keyed off the same fact — Surf ships
+one built-in extension that is *both* the completions and the chat extension:
+
+- `extensionEnablementService.ts` — upstream's "extension unification" retires the
+  completions extension and disables the chat extension on profiles that haven't
+  finished chat setup (`EnablementState = DisabledByUnification`). Both rules key
+  off `defaultChatAgent`. Because Surf's single extension fills both roles,
+  unguarded it would disable Surf's own built-in. The guards no-op unification when
+  the completions and chat ids are the same.
+- `chatSetupContributions.ts` + `chat.shared.contribution.ts` — `chat.disableAIFeatures`
+  is defaulted to **on**, so VS Code's own Chat view never appears beside Surf AI in
+  the right bar. The two `chatSetupContributions.ts` guards keep that default from
+  being stomped: the setup listener won't write it back off unless the user set it
+  explicitly, and the AI-features toggle won't enable/disable the built-in it now
+  points at (Surf's own assistant). The default is registered rather than written at
+  runtime because flipping `chat.disableAIFeatures` mid-session makes the workbench
+  re-register its views and takes the Surf AI view with it.
+
+### 3.5 Built-in Git and GitHub are untouched
+
+The source-control stack — `vscode.git`, `vscode.github` and
+`vscode.github-authentication` — ships in the fork's `extensions/` folder and is
+compiled by `npm run compile-client` like every other core built-in. Nothing in
+`setup.sh` or `fork-setup.mjs` disables or excludes it:
+
+- `fork-setup.mjs` clears `trustedExtensionAuthAccess` and
+  `builtInExtensionsEnabledWithAutoUpdates`, but upstream populated those keys only
+  for `GitHub.copilot-chat`. Emptying them revokes Copilot's silent GitHub sign-in
+  delegation and stops the auto-update list reinstalling retired extensions; it does
+  not remove the `vscode.*` built-ins, which provide and consume auth through their
+  own mechanism.
+- The only extension the launch command disables is the external
+  `GitHub.copilot-chat` marketplace id, not `vscode.github`.
+
+So `git` blame/diff, the built-in GitHub PR provider, and GitHub sign-in keep
+working in a Surf IDE window.
+
+## Step 4 — build and test the extension
+
+This builds the **real** Surf AI extension. It is a genuine VS Code built-in, not a
+scaffold you create — the files already live in the repo:
+
+```
+extensions/surf-ai/src/
+├── extension.ts            # activation, view registration, default settings
+├── chat-sidebar.ts         # the right-docked webview (Offline / Online Cloud)
+├── model-router.ts         # resolves mode + model; 'auto' is an internal sentinel only
+├── gateway-client.ts       # Online Cloud: OpenRouter-backed gateway
+├── local-model-client.ts   # Offline: the on-device model bridge
+├── context-extractor.ts    # editor/workspace context for a turn
+├── edit-core.ts / .test.ts # edit parsing + application logic
+├── edit-proposal.ts        # proposal lifecycle
+└── diff-review.ts          # side-by-side vscode.diff before/after review
+```
+
+```bash
+npm --prefix extensions/surf-ai run compile
+npm --prefix extensions/surf-ai test
+```
+
+The extension reads two settings — `surf.gatewayBaseUrl` and `surf.localBridgeFile`
+— and contributes the commands `surf-ai.openChat`, `askQuestion`,
+`explainSelection`, `fixErrors`, `backToLobby`, `acceptProposal`, `rejectProposal`,
+plus the `surf-ai.chat` webview. Authentication is **launch-time token injection**
+(`SURF_GATEWAY_TOKEN`), not a login form in the panel.
+
+## Step 5 — compile the workbench
+
+```bash
 cd code-oss
+npm run compile-client
 ```
 
-## Step 2: Install Dependencies
+`compile-client` only. The fork's full `compile` script also builds
+`extensions/copilot`, which Surf does not ship — Surf AI replaces it. For iteration
+after a source edit, `npm run transpile-client` (~10 s) is enough.
 
-### macOS
+## Launch
 
 ```bash
-# Install build dependencies
-brew install python pkg-config pixman pango cairo
-
-# Install Node dependencies
-npm install
+cd code-oss
+VSCODE_SKIP_PRELAUNCH=1 ./scripts/code.sh /path/to/project \
+  --disable-extension=GitHub.copilot-chat \
+  --skip-welcome --skip-release-notes --disable-workspace-trust
 ```
 
-### Windows
+- `VSCODE_SKIP_PRELAUNCH=1` skips the pre-launch compile step for the dev path.
+- `--disable-extension=GitHub.copilot-chat` targets the id the Copilot container in
+  the fork actually declares.
+- `--disable-workspace-trust` prevents the extension host stalling on a large folder.
 
-```powershell
-# Install Node dependencies
-npm install
+The normal path is the **desktop app's Code surface**: it spawns `code.sh` with the
+same arguments and injects `SURF_GATEWAY_BASE_URL` / `SURF_GATEWAY_TOKEN` (and
+`SURF_LOCAL_BRIDGE_FILE` for Offline).
 
-# Install Python dependencies
-npm install --global windows-build-tools
-```
+## Native addons (macOS / arm64)
 
-## Step 3: Apply Surf Branding
-
-### 3.1 Update product.json
-
-Create `product.json` in the VSCode root:
+`npm ci` does not build the fork's native modules on this machine: `.npmrc` pins
+`build_from_source=true` and the default make generator emits
+`-mmacosx-version-min=10.7`, too old for `@vscode/policy-watcher`'s `std::variant`.
+Startup then dies with `Could not locate the bindings file`. Rebuild the addons
+against Electron with a modern target:
 
 ```bash
-cd /Users/arjunsingh/Desktop/surf.ai/surf-ide/code-oss
-cp product.json product.json.backup
+cd code-oss
+nvm use                      # honour .nvmrc
+NG=node_modules/node-gyp/bin/node-gyp.js   # or the npm-bundled node-gyp
+export MACOSX_DEPLOYMENT_TARGET=11.0
+export CXXFLAGS="-mmacosx-version-min=11.0 -std=c++20"
+export CFLAGS="-mmacosx-version-min=11.0"
+for m in policy-watcher spdlog native-watchdog fs-copyfile deviceid sqlite3; do
+  (cd node_modules/@vscode/$m && node "$NG" rebuild \
+    --runtime=electron --target="$(node -p "require('./package.json').devDependencies.electron.replace(/^\^/,'')")" \
+    --arch=arm64 --dist-url=https://electronjs.org/headers --build-from-source)
+done
+(cd node_modules/native-keymap && node "$NG" rebuild \
+  --runtime=electron --target="$(node -p "require('./package.json').devDependencies.electron.replace(/^\^/,'')")" \
+  --arch=arm64 --dist-url=https://electronjs.org/headers --build-from-source)
 ```
 
-Edit `product.json` and update these fields:
+Always launch through `./scripts/code.sh` — it exports `VSCODE_DEV=1`, which enables
+the dev CSS import-map loader. Running the Electron binary directly makes every
+`*.css` import fail and the workbench never loads.
 
-```json
-{
-  "nameShort": "Surf IDE",
-  "nameLong": "Surf IDE - AI-Powered Development Environment",
-  "applicationName": "surf-ide",
-  "dataFolderName": ".surf-ide",
-  "win32AppId": "{E3F7C2A1-8B4D-4F3E-9C5A-2D6B8F1E3A7C}",
-  "win32DirName": "Surf IDE",
-  "win32NameVersion": "Surf IDE",
-  "darwinBundleIdentifier": "ai.surf.ide",
-  "reportIssueUrl": "https://github.com/kslji/surf.ai/issues",
-  "urlProtocol": "surf-ide",
-  "webEndpointUrl": "https://vscode.dev",
-  "extensionsGallery": {
-    "serviceUrl": "https://marketplace.visualstudio.com/_apis/public/gallery",
-    "itemUrl": "https://marketplace.visualstudio.com/items"
-  }
-}
-```
-
-### 3.2 Add Surf Logo
-
-Download or create a Surf logo:
-- `resources/darwin/code.icns` (macOS)
-- `resources/win32/code.ico` (Windows)
-- `resources/linux/code.png` (Linux)
-
-For now, you can use placeholder icons or generate them with AI tools.
-
-### 3.3 Update Package.json
+## Production installers
 
 ```bash
-# Update package name
-npm pkg set name="surf-ide"
-npm pkg set productName="Surf IDE"
+cd code-oss
+npm run gulp vscode-darwin-arm64   # macOS Apple Silicon
+npm run gulp vscode-darwin-x64     # macOS Intel
+npm run gulp vscode-win32-x64      # Windows
 ```
 
-## Step 4: Build VSCode
-
-### Development Build
-
-```bash
-# Compile
-npm run watch
-
-# In another terminal, run Electron
-./scripts/code.sh  # macOS/Linux
-.\scripts\code.bat  # Windows
-```
-
-### Production Build
-
-```bash
-# macOS
-npm run gulp vscode-darwin-arm64  # Apple Silicon
-npm run gulp vscode-darwin-x64    # Intel
-
-# Windows
-npm run gulp vscode-win32-x64
-```
-
-The built app will be in:
-- macOS: `VSCode-darwin-arm64/` or `VSCode-darwin-x64/`
-- Windows: `VSCode-win32-x64/`
-
-## Step 5: Create Surf AI Extension
-
-### 5.1 Extension Scaffold
-
-```bash
-cd /Users/arjunsingh/Desktop/surf.ai/surf-ide/code-oss
-mkdir -p extensions/surf-ai
-cd extensions/surf-ai
-npm init -y
-```
-
-### 5.2 Extension Structure
-
-Create the following files:
-
-```
-extensions/surf-ai/
-├── package.json
-├── tsconfig.json
-├── src/
-│   ├── extension.ts          # Main entry point
-│   ├── chat-sidebar.ts       # Chat UI
-│   ├── offline-mode.ts       # llama.cpp integration
-│   ├── online-mode.ts        # OpenRouter API
-│   ├── router.ts             # Smart routing
-│   ├── inline-completions.ts # Code completions
-│   └── billing.ts            # Usage tracking
-└── media/
-    └── icon.png
-```
-
-### 5.3 package.json
-
-```json
-{
-  "name": "surf-ai",
-  "displayName": "Surf AI",
-  "description": "AI-powered coding assistant with offline + online modes",
-  "version": "0.1.0",
-  "publisher": "surf-ai",
-  "engines": {
-    "vscode": "^1.85.0"
-  },
-  "categories": ["AI", "Machine Learning", "Chat"],
-  "activationEvents": ["onStartupFinished"],
-  "main": "./out/extension.js",
-  "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "surf-ai",
-          "title": "Surf AI",
-          "icon": "media/icon.png"
-        }
-      ]
-    },
-    "views": {
-      "surf-ai": [
-        {
-          "type": "webview",
-          "id": "surf-ai.chat",
-          "name": "Chat"
-        }
-      ]
-    },
-    "commands": [
-      {
-        "command": "surf-ai.openChat",
-        "title": "Surf AI: Open Chat"
-      },
-      {
-        "command": "surf-ai.toggleMode",
-        "title": "Surf AI: Toggle Offline/Online Mode"
-      }
-    ],
-    "configuration": {
-      "title": "Surf AI",
-      "properties": {
-        "surf-ai.mode": {
-          "type": "string",
-          "default": "auto",
-          "enum": ["auto", "offline", "online"],
-          "description": "AI mode: auto (smart routing), offline (local), online (cloud)"
-        },
-        "surf-ai.apiBaseUrl": {
-          "type": "string",
-          "default": "http://localhost:8000",
-          "description": "Surf API base URL"
-        },
-        "surf-ai.localModelPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to local Qwen model (GGUF format)"
-        }
-      }
-    }
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.85.0",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.3.0"
-  },
-  "dependencies": {
-    "axios": "^1.6.0"
-  }
-}
-```
-
-### 5.4 tsconfig.json
-
-```json
-{
-  "compilerOptions": {
-    "module": "commonjs",
-    "target": "ES2022",
-    "outDir": "out",
-    "lib": ["ES2022"],
-    "sourceMap": true,
-    "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true
-  },
-  "exclude": ["node_modules", ".vscode-test"]
-}
-```
-
-### 5.5 extension.ts (Basic Scaffold)
-
-```typescript
-import * as vscode from 'vscode';
-
-export function activate(context: vscode.ExtensionContext) {
-  console.log('Surf AI extension activated');
-
-  // Register chat sidebar
-  const provider = new ChatViewProvider(context.extensionUri);
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('surf-ai.chat', provider)
-  );
-
-  // Register commands
-  context.subscriptions.push(
-    vscode.commands.registerCommand('surf-ai.openChat', () => {
-      vscode.commands.executeCommand('workbench.view.extension.surf-ai');
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('surf-ai.toggleMode', async () => {
-      const config = vscode.workspace.getConfiguration('surf-ai');
-      const currentMode = config.get<string>('mode');
-      const newMode = currentMode === 'offline' ? 'online' : 'offline';
-      await config.update('mode', newMode, vscode.ConfigurationTarget.Global);
-      vscode.window.showInformationMessage(`Surf AI: Switched to ${newMode} mode`);
-    })
-  );
-}
-
-export function deactivate() {
-  console.log('Surf AI extension deactivated');
-}
-
-class ChatViewProvider implements vscode.WebviewViewProvider {
-  constructor(private readonly extensionUri: vscode.Uri) {}
-
-  resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
-    token: vscode.CancellationToken
-  ) {
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [this.extensionUri]
-    };
-
-    webviewView.webview.html = this.getHtmlForWebview();
-  }
-
-  private getHtmlForWebview() {
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: var(--vscode-font-family); padding: 10px; }
-          .chat-container { display: flex; flex-direction: column; height: 100vh; }
-          .messages { flex: 1; overflow-y: auto; margin-bottom: 10px; }
-          .input-area { display: flex; gap: 5px; }
-          input { flex: 1; padding: 8px; }
-          button { padding: 8px 16px; }
-        </style>
-      </head>
-      <body>
-        <div class="chat-container">
-          <div class="messages" id="messages">
-            <p>Welcome to Surf AI! Ask me anything about your code.</p>
-          </div>
-          <div class="input-area">
-            <input type="text" id="input" placeholder="Ask a question..." />
-            <button onclick="sendMessage()">Send</button>
-          </div>
-        </div>
-        <script>
-          const vscode = acquireVsCodeApi();
-          function sendMessage() {
-            const input = document.getElementById('input');
-            const messages = document.getElementById('messages');
-            const text = input.value;
-            if (text.trim()) {
-              messages.innerHTML += '<p><strong>You:</strong> ' + text + '</p>';
-              vscode.postMessage({ type: 'message', text: text });
-              input.value = '';
-            }
-          }
-          window.addEventListener('message', event => {
-            const messages = document.getElementById('messages');
-            messages.innerHTML += '<p><strong>Surf AI:</strong> ' + event.data.text + '</p>';
-          });
-        </script>
-      </body>
-      </html>
-    `;
-  }
-}
-```
-
-## Step 6: Connect to Backend
-
-### 6.1 Update API Base URL
-
-The extension should connect to your existing Surf API:
-
-```typescript
-// In online-mode.ts
-const API_BASE_URL = vscode.workspace.getConfiguration('surf-ai').get<string>('apiBaseUrl') || 'http://localhost:8000';
-
-async function sendToOpenRouter(prompt: string, context: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${await getAuthToken()}`
-    },
-    body: JSON.stringify({ prompt, context })
-  });
-  const data = await response.json();
-  return data.response;
-}
-```
-
-### 6.2 Authentication
-
-Connect to your MySQL auth backend:
-
-```typescript
-async function getAuthToken(): Promise<string> {
-  // Get token from VSCode secret storage
-  const token = await context.secrets.get('surf-ai.authToken');
-  if (!token) {
-    // Prompt user to login
-    const email = await vscode.window.showInputBox({ prompt: 'Enter your email' });
-    const password = await vscode.window.showInputBox({ prompt: 'Enter your password', password: true });
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    const data = await response.json();
-    await context.secrets.store('surf-ai.authToken', data.access_token);
-    return data.access_token;
-  }
-  return token;
-}
-```
-
-## Step 7: Build & Test
-
-### 7.1 Compile Extension
-
-```bash
-cd extensions/surf-ai
-npm install
-npm run compile
-```
-
-### 7.2 Test in Development
-
-```bash
-# From VSCode root
-./scripts/code.sh  # macOS
-```
-
-The extension should load automatically. Open the Surf AI sidebar and test the chat.
-
-## Next Steps
-
-After completing this setup:
-
-1. ✅ Implement offline mode (llama.cpp integration)
-2. ✅ Implement smart routing (cache → cloud → local)
-3. ✅ Add inline code completions
-4. ✅ Build installers (DMG/EXE)
-5. ✅ Test with existing backend
+Output lands in `VSCode-darwin-arm64/`, `VSCode-darwin-x64/`, `VSCode-win32-x64/`
+as upstream names them; branding comes from the `product.json` written in Step 3.
 
 ## Troubleshooting
 
-### Build Errors
+**`fork-setup.mjs` says a fragment no longer applies.** Upstream moved off the
+pinned commit. Re-derive that one edit against your checkout — the script fails
+loudly on purpose rather than half-patching.
 
-- **Node version mismatch**: Ensure Node 22+ (`nvm use 22`)
-- **Python not found**: Install Python 3.12+ and ensure it's in PATH
-- **Missing dependencies**: Run `npm install` again
+**The Surf AI panel is missing, or VS Code's own "Chat" tab shows up beside it.**
+`chat.disableAIFeatures` is the mechanism that hides the native Chat view. Confirm
+the guard edits landed (`node fork-setup.mjs` prints the changed files) and that you
+re-transpiled after editing the sources.
 
-### Extension Not Loading
+**Surf AI never activates.** Check the folder is trusted (`--disable-workspace-trust`
+for dev), and look in the window's `views.log` / `exthost.log` under the profile's
+`logs/` dir — `ExtensionService#_doActivateExtension surf-ai.surf-ai` should appear
+as a genuine built-in on `onStartupFinished`.
 
-- Check VSCode Developer Tools (Help > Toggle Developer Tools)
-- Verify `package.json` has correct `engines.vscode` version
-- Ensure extension is in `extensions/` directory
+**`Could not locate the bindings file` on startup.** Native addons weren't built —
+see [Native addons](#native-addons-macos--arm64).
 
-### Backend Connection Issues
+**A model call fails with `Unknown model` / `model_locked`.** That's the gateway,
+not the fork: the model is off the allowlist, or your credit tier doesn't unlock it.
+See [ADR 0008](../docs/adr/0008-credit-tiers-and-unlocks.md) and the
+[gateway README](../services/api/app/gateway/README.md).
 
-- Verify API is running: `curl http://localhost:8000/api/v1/health`
-- Check CORS settings in `services/api/app/main.py`
-- Verify auth token is valid
+## What this guide deliberately does **not** cover
 
-## Resources
-
-- [VSCode Extension API](https://code.visualstudio.com/api)
-- [VSCode Fork Guide](https://github.com/microsoft/vscode/wiki/Forking)
-- [Surf API Documentation](../services/api/README.md)
+No manual `product.json` editing (Step 3 automates it), no hand-written extension
+scaffold (the extension is real and tracked), and no in-panel email/password login
+(auth is launch-time token injection). Any older text describing a "Create Surf AI
+extension scaffold" step, an `auto`/`Smart routing` mode, `router.ts`, a Microsoft
+marketplace gallery, or a MySQL auth form in the panel is **superseded** by this
+guide.

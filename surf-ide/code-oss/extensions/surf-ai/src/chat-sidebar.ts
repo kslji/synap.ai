@@ -11,9 +11,10 @@
 
 import * as vscode from 'vscode';
 import { extractContext, buildPromptWithContext } from './context-extractor';
-import { GatewayClient, type GatewayModel } from './gateway-client';
+import { GatewayClient, ModelLockedError, type GatewayBalance, type GatewayModel } from './gateway-client';
 import { LocalModelClient, type LocalModel } from './local-model-client';
 import { parseEdits, applyEdit, editDiff, type ProposedEdit } from './edit-proposal';
+import { DiffReview } from './diff-review';
 import { MODE_STATE_KEY, resolveRoute, onlineReachable, invalidateReachability, type SurfMode } from './model-router';
 
 // Teaches the model to emit reviewable, line-level edits instead of whole-file prose.
@@ -43,12 +44,15 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
   private readonly _local: LocalModelClient;
   private _models: GatewayModel[] = [];
   private _selectedModel: string | null = null;
+  private _balance: GatewayBalance | null = null;
   private _localModels: LocalModel[] = [];
   private _selectedLocal: string | null = null;
   private _mode: SurfMode = 'offline';
   private _pendingEdits = new Map<string, ProposedEdit>();
   private _statusTimer: NodeJS.Timeout | undefined;
   private _egress = 0;
+  /** Side-by-side review of the pending proposals, owned here so the tabs and the cards agree. */
+  public readonly review: DiffReview;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -56,6 +60,13 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
   ) {
     this._client = new GatewayClient(_context);
     this._local = new LocalModelClient();
+    this.review = new DiffReview((id, accepted) => {
+      if (accepted) {
+        void this._applyEdits([id]);
+      } else {
+        this._rejectEdits([id]);
+      }
+    });
     const saved = _context.workspaceState.get<SurfMode>(MODE_STATE_KEY);
     if (saved === 'online' || saved === 'offline') {
       this._mode = saved;
@@ -94,7 +105,9 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
           this._clearChat();
           break;
         case 'closePanel':
-          await vscode.commands.executeCommand('workbench.action.closeSidebar');
+          // The chat is docked in the secondary side bar, which is the right-hand
+          // panel; closing the primary sidebar would leave the chat where it is.
+          await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
           break;
         case 'copyMessage':
           vscode.env.clipboard.writeText(data.value);
@@ -131,6 +144,12 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
         case 'rejectEdits':
           this._rejectEdits(data.ids);
           break;
+        case 'openDiff':
+          await this._openDiff(data.value);
+          break;
+        case 'openTopUp':
+          await this._openTopUp(data.modelId);
+          break;
       }
     });
 
@@ -142,6 +161,9 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     }
     void this._loadLocalModels();
     void this._pushNetStatus();
+    if (this._mode === 'online') {
+      void this._loadBalance();
+    }
     this._startStatusTimer();
   }
 
@@ -174,12 +196,41 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
   private async _loadModels() {
     try {
       this._models = await this._client.listModels();
-      if (this._models.length > 0 && !this._selectedModel) {
-        this._selectedModel = this._models[0].id;
+      // Default to the best model the account has actually bought. A trial lands on
+      // the Tier 0 economy model rather than a locked one it cannot call.
+      if (!this._selectedModel || !this._models.some((m) => m.id === this._selectedModel && !m.locked)) {
+        this._selectedModel = (this._models.find((m) => !m.locked) ?? this._models[0])?.id ?? null;
       }
       this._postMessage({ type: 'models', models: this._models, selected: this._selectedModel });
+      void this._loadBalance();
     } catch (error) {
       this._postMessage({ type: 'models', models: [], selected: null, error: (error as Error).message });
+    }
+  }
+
+  /** Refresh the credit/tier pill. Null reads as "unknown", never as zero. */
+  private async _loadBalance() {
+    this._balance = await this._client.balance();
+    this._postMessage({ type: 'balance', balance: this._balance });
+  }
+
+  /**
+   * The unlock path. A locked model and an empty wallet both lead here, so buying
+   * credits is one click from wherever the user hit the limit. Surf's checkout is not
+   * open yet, so the account page states what a top-up costs rather than pretending
+   * to take payment - the IDE's job is to get the user to the right place with the
+   * right number in hand.
+   */
+  private async _openTopUp(modelId?: string): Promise<void> {
+    const locked = modelId ? this._models.find((m) => m.id === modelId) : undefined;
+    const owned = this._balance ? ` You have ${this._balance.credits} credit(s) left.` : '';
+    const detail = locked
+      ? `${locked.label} needs a ${locked.min_credits}-credit tier ($${locked.unlock_usd}).${owned}`
+      : `Online Cloud models need credits.${owned}`;
+    const target = vscode.Uri.parse(this._client.topUpUrl());
+    const chosen = await vscode.window.showInformationMessage(`Surf: ${detail}`, 'Open the Surf account page');
+    if (chosen) {
+      await vscode.env.openExternal(target);
     }
   }
 
@@ -253,6 +304,16 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
         this._postMessage({ type: 'proposeEdits', edits: payload });
       }
     } catch (error) {
+      if (error instanceof ModelLockedError) {
+        // The tier gate answered mid-turn (the picker normally prevents it). Say what
+        // unlocks it and put the unlock one click away, instead of a bare ❌ Error.
+        this._postMessage({
+          type: 'modelLocked',
+          content: `${error.modelId} is a ${error.requiredCredits}-credit model. A $${error.unlockUsd} top-up unlocks it.`,
+          modelId: error.modelId
+        });
+        return;
+      }
       this._postMessage({
         type: 'addMessage',
         role: 'assistant',
@@ -261,6 +322,10 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     } finally {
       this._isProcessing = false;
       this._postMessage({ type: 'hideTyping' });
+      // A settled turn changed the wallet, so the credit pill is never a turn stale.
+      if (!offline) {
+        void this._loadBalance();
+      }
     }
   }
 
@@ -275,6 +340,7 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
         await applyEdit(edit);
         this._pendingEdits.delete(id);
         this._postMessage({ type: 'editResolved', id, applied: true });
+        await this.review.close(id);
       } catch (error) {
         vscode.window.showErrorMessage(`Surf: ${(error as Error).message}`);
       }
@@ -286,7 +352,23 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     for (const id of list) {
       if (this._pendingEdits.delete(id)) {
         this._postMessage({ type: 'editResolved', id, applied: false });
+        void this.review.close(id);
       }
+    }
+  }
+
+  /** Show the proposal as a real before/after diff beside the editor. */
+  private async _openDiff(id: string): Promise<void> {
+    const edit = this._pendingEdits.get(id);
+    if (!edit) {
+      return;
+    }
+    if (!(await this.review.open(id, edit))) {
+      this._postMessage({
+        type: 'addMessage',
+        role: 'assistant',
+        content: `\u26a0\ufe0f ${edit.relPath} changed since this proposal was written, so there is nothing safe to diff. Ask again and I will re-read the file.`
+      });
     }
   }
 
@@ -465,6 +547,32 @@ Ask me anything about your code!`;
       background: var(--vscode-editor-inactiveSelectionBackground);
     }
 
+    /* A user turn is a bubble on the right, the way every chat the user already has
+       behaves; an assistant turn stays flat, because a box around a long answer
+       only crowds the prose. */
+    .message.user {
+      align-items: flex-end;
+    }
+
+    .message.user .message-header {
+      display: none;
+    }
+
+    .message.user .message-content {
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-panel-border);
+      border-left: 1px solid var(--vscode-panel-border);
+      border-radius: 14px 14px 4px 14px;
+      max-width: 88%;
+      padding: 8px 12px;
+    }
+
+    .message.assistant .message-content {
+      background: transparent;
+      border: none;
+      padding: 0;
+    }
+
     .message-content p {
       margin-bottom: 8px;
     }
@@ -638,8 +746,9 @@ Ask me anything about your code!`;
     .chat-header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      padding: 8px 10px;
       border-bottom: 1px solid var(--vscode-panel-border);
     }
 
@@ -653,6 +762,7 @@ Ask me anything about your code!`;
       display: inline-flex;
       align-items: center;
       gap: 2px;
+      min-width: 0;
       padding: 2px;
       border: 1px solid var(--vscode-input-border);
       border-radius: 999px;
@@ -666,10 +776,18 @@ Ask me anything about your code!`;
       border: none;
       background: transparent;
       color: var(--vscode-foreground);
-      font-size: 12px;
-      padding: 4px 10px;
+      font-size: 11px;
+      padding: 3px 8px;
       border-radius: 999px;
       cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* The panel is docked at whatever width the user dragged it to, so the
+       badge and the decorative buttons give way instead of clipping. */
+    @media (max-width: 480px) {
+      .sub-badge { display: none; }
+      .icon-btn.decorative { display: none; }
     }
 
     .seg-btn[data-mode="offline"].active {
@@ -731,8 +849,9 @@ Ask me anything about your code!`;
     .crumb {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      padding: 6px 10px;
       font-size: 12px;
       color: var(--vscode-descriptionForeground);
       border-bottom: 1px solid var(--vscode-panel-border);
@@ -813,7 +932,41 @@ Ask me anything about your code!`;
       opacity: 0.8;
     }
 
-    .auto-balance { font-size: 11px; color: var(--vscode-descriptionForeground); }
+    /* Live credit/tier pill, read from the gateway wallet. There is no "Auto" to
+       display here: Offline Mode and Online Cloud are the only two routes. Clicking
+       it is the top-up entry point. */
+    .credit-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 999px;
+      background: var(--vscode-sideBar-background);
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      padding: 3px 9px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .credit-pill:hover { color: var(--vscode-foreground); border-color: var(--vscode-focusBorder); }
+    .credit-pill.ok { color: #3b82f6; border-color: rgba(59, 130, 246, 0.45); }
+    .credit-pill.low { color: #f59e0b; border-color: rgba(245, 158, 11, 0.45); }
+
+    /* A locked higher-tier model stays visible in the picker with its price, so the
+       upgrade path is legible instead of the model quietly missing. */
+    .model-pill option[disabled] { opacity: 0.55; }
+
+    .unlock-btn {
+      border: 1px solid rgba(59, 130, 246, 0.6);
+      background: rgba(59, 130, 246, 0.12);
+      color: #3b82f6;
+      border-radius: 6px;
+      font-size: 11px;
+      padding: 3px 9px;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+    .unlock-btn:hover { background: rgba(59, 130, 246, 0.22); }
 
     .send-circle {
       margin-left: auto;
@@ -946,10 +1099,22 @@ Ask me anything about your code!`;
 
     .edit-actions {
       display: flex;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 8px;
       padding: 8px 10px;
       border-top: 1px solid var(--vscode-panel-border);
     }
+
+    .edit-count {
+      margin-right: auto;
+      font-size: 11px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    .edit-count .plus { color: var(--vscode-charts-green); }
+    .edit-count .minus { color: var(--vscode-errorForeground); }
 
     .edit-btn {
       padding: 4px 12px;
@@ -972,6 +1137,16 @@ Ask me anything about your code!`;
       color: var(--vscode-foreground);
       border: 1px solid var(--vscode-panel-border);
     }
+
+    /* Opening the diff is the primary review action, so it reads as a link rather
+       than competing with Accept for the user's attention. */
+    .edit-btn.review {
+      background: transparent;
+      color: var(--vscode-textLink-foreground);
+      border: 1px solid var(--vscode-panel-border);
+    }
+
+    .edit-btn.review:hover { background: var(--vscode-toolbar-hoverBackground); }
 
     .edit-status {
       font-size: 12px;
@@ -1009,9 +1184,9 @@ Ask me anything about your code!`;
       </div>
       <div class="toolbar">
         <button class="icon-btn" onclick="clearChat()" title="New chat">＋</button>
-        <button class="icon-btn" aria-disabled="true" title="History">⌄</button>
-        <button class="icon-btn" id="pauseBtn" aria-disabled="true" title="Pause">⏸</button>
-        <button class="icon-btn" aria-disabled="true" title="Fullscreen">⛶</button>
+        <button class="icon-btn decorative" aria-disabled="true" title="History">⌄</button>
+        <button class="icon-btn decorative" id="pauseBtn" aria-disabled="true" title="Pause">⏸</button>
+        <button class="icon-btn decorative" aria-disabled="true" title="Fullscreen">⛶</button>
         <button class="icon-btn" onclick="closePanel()" title="Close">✕</button>
       </div>
     </div>
@@ -1053,7 +1228,7 @@ Ask me anything about your code!`;
         <select id="localSelect" class="model-pill offline" onchange="selectLocalModel()" title="Offline model"></select>
         <select id="modelSelect" class="model-pill online" onchange="selectModel()" title="Online model"></select>
         <button class="chip-btn" aria-disabled="true" title="Agent mode">◎ Agent</button>
-        <span class="auto-balance" title="Auto Balance">• Auto Balance</span>
+        <button class="credit-pill" id="creditPill" onclick="openTopUp()" title="Surf credits">Credits</button>
         <button class="icon-btn" aria-disabled="true" title="Dictate">🎙</button>
         <button class="send-circle" id="sendButton" onclick="sendMessage()" title="Send">↑</button>
       </div>
@@ -1098,6 +1273,12 @@ Ask me anything about your code!`;
           break;
         case 'models':
           populateModels(message.models, message.selected, message.error);
+          break;
+        case 'balance':
+          renderBalance(message.balance);
+          break;
+        case 'modelLocked':
+          renderLocked(message.content, message.modelId);
           break;
         case 'localModels':
           populateLocalModels(message.models, message.selected);
@@ -1204,9 +1385,17 @@ Ask me anything about your code!`;
       }
     }
 
+    // The online picker is tier-aware (ADR 0008): an unlocked model is selectable, a
+    // locked one is shown with its price and routes to the top-up flow instead of
+    // being picked and failing mid-chat.
+    let onlineModels = [];
+    let selectedOnline = null;
+
     function populateModels(models, selected, error) {
+      onlineModels = models || [];
+      selectedOnline = selected;
       modelSelect.innerHTML = '';
-      if (!models || models.length === 0) {
+      if (onlineModels.length === 0) {
         const opt = document.createElement('option');
         opt.textContent = error ? 'No models' : 'Loading...';
         modelSelect.appendChild(opt);
@@ -1214,10 +1403,16 @@ Ask me anything about your code!`;
         return;
       }
       modelSelect.disabled = false;
-      for (const m of models) {
+      for (const m of onlineModels) {
         const opt = document.createElement('option');
         opt.value = m.id;
-        opt.textContent = m.label || m.id;
+        opt.disabled = Boolean(m.locked);
+        opt.textContent = m.locked
+          ? '🔒 ' + (m.label || m.id) + ' - unlock with $' + m.unlock_usd + ' top-up'
+          : (m.label || m.id);
+        opt.title = m.locked
+          ? 'Needs ' + m.min_credits + ' credits bought ($' + m.unlock_usd + ')'
+          : (m.tier_label ? m.tier_label + ' - ' : '') + m.provider + ' - $' + m.input_price_per_million + '/M in';
         if (m.id === selected) { opt.selected = true; }
         modelSelect.appendChild(opt);
       }
@@ -1225,7 +1420,52 @@ Ask me anything about your code!`;
     }
 
     function selectModel() {
+      const chosen = onlineModels.find((m) => m.id === modelSelect.value);
+      if (chosen && chosen.locked) {
+        // Put the picker back where it was and open the top-up flow. Silently
+        // selecting a locked model would only produce a 403 on the next turn.
+        modelSelect.value = selectedOnline || '';
+        openTopUp(chosen.id);
+        return;
+      }
+      if (chosen) { selectedOnline = chosen.id; }
       vscode.postMessage({ type: 'selectModel', value: modelSelect.value });
+    }
+
+    /** Wallet in credits plus the purchase tier, straight from the gateway. */
+    function renderBalance(info) {
+      const pill = document.getElementById('creditPill');
+      if (!pill) { return; }
+      if (!info) {
+        // Unknown, not zero: a failed read must not accuse a paying user of being out.
+        pill.textContent = 'Credits';
+        pill.title = 'Could not read your Surf credits. Click to open the top-up page.';
+        pill.classList.remove('ok', 'low');
+        return;
+      }
+      const tierLabel = info.max_topup_credits >= 25 ? 'Frontier'
+        : info.max_topup_credits >= 5 ? 'Daily' : 'Trial';
+      pill.textContent = '◍ ' + info.credits + ' cr - ' + tierLabel;
+      pill.title = info.credits + ' credit(s) left ($' + Number(info.balance).toFixed(2)
+        + ') - bought tier: ' + tierLabel + ' (' + info.max_topup_credits + ' credits) - click to top up';
+      pill.classList.toggle('low', info.billing_locked || info.credits <= 1);
+      pill.classList.toggle('ok', !info.billing_locked && info.credits > 1);
+    }
+
+    function openTopUp(modelId) {
+      vscode.postMessage({ type: 'openTopUp', modelId: modelId || null });
+    }
+
+    function renderLocked(content, modelId) {
+      addMessage('assistant', content);
+      const last = messagesContainer.lastElementChild;
+      const body = last ? last.querySelector('.message-content') : null;
+      if (!body) { return; }
+      const btn = document.createElement('button');
+      btn.className = 'unlock-btn';
+      btn.textContent = 'Top up to unlock';
+      btn.onclick = () => openTopUp(modelId);
+      body.appendChild(btn);
     }
 
     function selectLocalModel() {
@@ -1316,14 +1556,23 @@ Ask me anything about your code!`;
       for (const l of (edit.added || [])) { lines.push('<div class="edit-line add">+ ' + escapeHtml(l) + '</div>'); }
 
       const tag = edit.isNewFile ? '<span class="edit-tag">new file</span>' : '';
+      const removed = (edit.removed || []).length;
+      const added = (edit.added || []).length;
+      const count = '<span class="edit-count"><span class="plus">+' + added + '</span> <span class="minus">-' + removed + '</span></span>';
       card.innerHTML =
         '<div class="edit-head"><span class="edit-file">' + escapeHtml(edit.file) + '</span>' + tag + '</div>' +
         '<div class="edit-diff">' + (lines.join('') || '<div class="edit-status">No line changes.</div>') + '</div>' +
         '<div class="edit-actions">' +
-          '<button class="edit-btn apply" onclick="applyEdit(\'' + edit.id + '\')">Apply</button>' +
+          count +
+          '<button class="edit-btn review" onclick="openDiff(\'' + edit.id + '\')" title="Open this change as a side-by-side diff">Review diff</button>' +
+          '<button class="edit-btn apply" onclick="applyEdit(\'' + edit.id + '\')">Accept</button>' +
           '<button class="edit-btn reject" onclick="rejectEdit(\'' + edit.id + '\')">Reject</button>' +
         '</div>';
       messagesContainer.appendChild(card);
+    }
+
+    function openDiff(id) {
+      vscode.postMessage({ type: 'openDiff', value: id });
     }
 
     function applyEdit(id) {

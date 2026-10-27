@@ -16,6 +16,7 @@ import {
   resolveEditPath,
   diffLines,
   applySearchReplace,
+  proposedText,
 } from './edit-core';
 
 const primitives = {
@@ -103,6 +104,17 @@ test('diffLines reports removed and added lines for the review UI', () => {
   // A new file has no removed lines.
   const newFile = { search: '', replace: 'x\ny', isNewFile: true };
   assert.deepEqual(diffLines(newFile), { removed: [], added: ['x', 'y'] });
+});
+
+test('proposedText is the right-hand side of the review diff', () => {
+  const file = 'a\nb\nc\n';
+  assert.equal(proposedText(file, { search: 'b', replace: 'B', isNewFile: false }), 'a\nB\nc\n');
+
+  // A new file has nothing to anchor on: the proposal is the whole file.
+  assert.equal(proposedText('', { search: '', replace: 'x\ny', isNewFile: true }), 'x\ny');
+
+  // A stale anchor must not produce a diff that differs from what Apply would do.
+  assert.equal(proposedText(file, { search: 'gone', replace: 'B', isNewFile: false }), null);
 });
 
 test('apply writes the exact change to a temp file; reject leaves it untouched', () => {

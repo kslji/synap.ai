@@ -122,3 +122,15 @@ export function applySearchReplace(content: string, search: string, replace: str
   }
   return content.slice(0, idx) + replace + content.slice(idx + search.length);
 }
+
+/**
+ * The file as it will read once the edit is applied, or null when the anchor
+ * text is gone. This is the right-hand side of the review diff, so it has to
+ * agree with what `applySearchReplace` would do at accept time.
+ */
+export function proposedText(content: string, edit: { search: string; replace: string; isNewFile: boolean }): string | null {
+  if (edit.isNewFile) {
+    return edit.replace;
+  }
+  return applySearchReplace(content, edit.search, edit.replace);
+}

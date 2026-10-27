@@ -21,7 +21,7 @@
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "surf-ai",
           "title": "Surf AI",
@@ -58,8 +58,32 @@
       {
         "command": "surf-ai.backToLobby",
         "title": "Surf AI: Back to Lobby"
+      },
+      {
+        "command": "surf-ai.acceptProposal",
+        "title": "Surf AI: Accept Proposal",
+        "icon": "$(check)"
+      },
+      {
+        "command": "surf-ai.rejectProposal",
+        "title": "Surf AI: Reject Proposal",
+        "icon": "$(close)"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "surf-ai.acceptProposal",
+          "when": "isInDiffEditor && surf.reviewingProposal",
+          "group": "navigation@1"
+        },
+        {
+          "command": "surf-ai.rejectProposal",
+          "when": "isInDiffEditor && surf.reviewingProposal",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "configuration": {
       "title": "Surf AI",
       "properties": {
@@ -72,6 +96,11 @@
           "type": "string",
           "default": "",
           "description": "Path to the JSON descriptor the Surf desktop writes for the local (offline) model bridge. Normally injected via SURF_LOCAL_BRIDGE_FILE at launch."
+        },
+        "surf.topUpUrl": {
+          "type": "string",
+          "default": "https://synap.surf/account",
+          "description": "Where a locked model or an empty wallet sends the user to buy Surf credits (1 credit = $0.40 of workload). Overridable per deployment via SURF_TOPUP_URL."
         }
       }
     }
@@ -82,7 +111,7 @@
     "watch": "tsc -watch -p ./",
     "compile:test": "tsc -p tsconfig.test.json",
     "test": "npm run compile:test && node --test out-test/*.test.js",
-    "lint": "eslint src --ext ts"
+    "lint": "eslint src"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",

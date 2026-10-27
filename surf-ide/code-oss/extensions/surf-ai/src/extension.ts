@@ -33,15 +33,47 @@ export async function activate(context: vscode.ExtensionContext) {
   // Register chat sidebar with new Qoder-like UI
   const chatProvider = new ChatSidebarProvider(context.extensionUri, context);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('surf-ai.chat', chatProvider)
+    vscode.window.registerWebviewViewProvider('surf-ai.chat', chatProvider),
+    chatProvider.review
   );
 
   // Register commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('surf-ai.openChat', () => {
-      vscode.commands.executeCommand('workbench.view.extension.surf-ai');
+    vscode.commands.registerCommand('surf-ai.openChat', async () => {
+      // The chat lives in the secondary side bar, so revealing the view also
+      // un-hides that bar when the user has closed it.
+      await vscode.commands.executeCommand('workbench.view.extension.surf-ai');
+      await vscode.commands.executeCommand('workbench.action.focusAuxiliaryBar');
     })
   );
+
+  // Accept/Reject in the diff title bar act on the proposal behind the tab the
+  // user is reading. Whether they are shown at all follows the active tab, so a
+  // git diff never grows Surf buttons that would do nothing.
+  const syncReviewState = () => {
+    void vscode.commands.executeCommand(
+      'setContext',
+      'surf.reviewingProposal',
+      chatProvider.review.activeReviewId() !== null
+    );
+  };
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs(syncReviewState),
+    vscode.window.tabGroups.onDidChangeTabGroups(syncReviewState),
+    vscode.commands.registerCommand('surf-ai.acceptProposal', () => {
+      if (!chatProvider.review.resolveActive(true)) {
+        void vscode.window.showInformationMessage('Surf: open a Surf proposal diff first.');
+      }
+    }),
+    vscode.commands.registerCommand('surf-ai.rejectProposal', () => {
+      chatProvider.review.resolveActive(false);
+    })
+  );
+  syncReviewState();
+
+  // Open the chat beside the editor on the first launch only, the way Cursor and
+  // Qoder start; after that the layout belongs to the user.
+  void revealChatOnce(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('surf-ai.askQuestion', async () => {
@@ -140,8 +172,35 @@ async function applySurfDefaults(): Promise<void> {
     }
   };
   await setIfUnset('workbench', 'startupEditor', 'none');
+  // The chat panel is docked on the right; a workspace should show it without the
+  // user having to find it first, which is what this default already means.
+  await setIfUnset('workbench', 'secondarySideBar.defaultVisibility', 'visibleInWorkspace');
   await setIfUnset('chat', 'commandCenter.enabled', false);
   await setIfUnset('chat', 'detectParticipant.enabled', false);
+  // Hiding VS Code's own Chat view is deliberately NOT done here: `chat.disableAIFeatures`
+  // is registered as a default in the fork (surf-ide/fork-setup.mjs) instead, because
+  // flipping it mid-session makes the workbench re-register its views and takes the
+  // Surf AI view with them.
+}
+
+/**
+ * Show the Surf chat the first time a folder is opened in this install. Each
+ * later window keeps whatever layout the user left behind, so a deliberate
+ * close is not undone on the next launch.
+ */
+async function revealChatOnce(context: vscode.ExtensionContext): Promise<void> {
+  if (!vscode.workspace.workspaceFolders?.length) {
+    return;
+  }
+  if (context.globalState.get<boolean>('surf-ai.chatRevealed')) {
+    return;
+  }
+  await context.globalState.update('surf-ai.chatRevealed', true);
+  try {
+    await vscode.commands.executeCommand('workbench.view.extension.surf-ai');
+  } catch {
+    // A disposed window during startup is not worth surfacing.
+  }
 }
 
 /**
@@ -222,14 +281,16 @@ class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvide
     });
   }
 
-  /** First allowlisted gateway model, cached. Null when none are available. */
+  /** The first model this account has unlocked, cached. Null when none are available. */
   private async pickOnlineModel(): Promise<string | null> {
     if (this.onlineModel) {
       return this.onlineModel;
     }
     try {
       const models = await this.gateway.listModels();
-      this.onlineModel = models[0]?.id ?? null;
+      // Ghost text fires constantly, so it must never pick a model the tier gate will
+      // 403 on: the first unlocked one, not simply the first one (ADR 0008).
+      this.onlineModel = (models.find((m) => !m.locked) ?? models[0])?.id ?? null;
     } catch {
       this.onlineModel = null;
     }

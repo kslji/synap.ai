@@ -1,6 +1,6 @@
 /**
  * Verify a downloaded knowledge pack BEFORE opening it (main process).
- * Format (written by code-samples/build_pack.py):
+ * Format (written by services/packs/build_pack.py, whose spec comes from pack_spec.py):
  *   manifest.json  - exact bytes are signed; lists files with size + sha256
  *   manifest.sig   - 64-byte raw Ed25519 signature over manifest.json
  * Uses Node's built-in crypto (Ed25519 is supported natively; no extra dependency).
@@ -86,9 +86,16 @@ export async function verifyPack(dir: string, opts: VerifyOptions): Promise<Pack
   // 2) schema + policy checks
   const m = PackManifest.parse(JSON.parse(body.toString('utf8')));
   const e = m.embedding, want = opts.expectedEmbedding;
-  const got = specKey({ id: e.id, dim: e.dim, pooling: e.pooling as 'mean', queryPrefix: e.query_prefix, docTemplate: e.doc_template });
-  if (got !== specKey(want)) {
-    throw new Error(`pack embedding spec ${e.id}/${e.dim}d does not match app ${want.id}/${want.dim}d - re-index or update the app`);
+  const got = { id: e.id, dim: e.dim, pooling: e.pooling as 'mean', queryPrefix: e.query_prefix, docTemplate: e.doc_template };
+  if (specKey(got) !== specKey(want)) {
+    // The key only says "no". Name the fields that disagree, because id and dim are
+    // usually the two that still match - printing just those made the old message read
+    // as "X does not match X", which looks like a bug in the check rather than a bad pack.
+    const field = { id: 'id', dim: 'dim', pooling: 'pooling', queryPrefix: 'query_prefix', docTemplate: 'doc_template' } as const;
+    const diffs = (Object.keys(field) as (keyof typeof field)[])
+      .filter((k) => got[k] !== want[k])
+      .map((k) => `${field[k]}: pack ${JSON.stringify(got[k])} != app ${JSON.stringify(want[k])}`);
+    throw new Error(`pack embedding spec ${e.id}/${e.dim}d does not match app ${want.id}/${want.dim}d (${diffs.join('; ')}) - re-index or update the app`);
   }
   if (opts.installedVersion && compareVersions(m.version, opts.installedVersion) <= 0) {
     throw new Error(`pack ${m.version} is not newer than installed ${opts.installedVersion}`);

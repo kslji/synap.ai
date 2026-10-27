@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { cp, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { JINA_CODE_256 } from './core/embedding.js'
+import { formatQuery, JINA_CODE_256 } from './core/embedding.js'
 import { IPC, type ChatEvent, type Citation } from './core/ipc-contract.js'
 import { commitInstall } from './core/pack-install.js'
 import { trustedPackKeys } from './core/pack-keys.js'
@@ -149,7 +149,7 @@ async function probeModel(bin: string, modelPath: string, embeddings: boolean, l
       sampling: { ...EVAL_SAMPLING },
       chatTemplateKwargs: { enable_thinking: false },
     })
-    if (embeddings) await client.embed(['task: search result | query: harbor ferry'])
+    if (embeddings) await client.embed([formatQuery(JINA_CODE_256, 'harbor ferry')])
     else {
       await client.chat([
         { role: 'user', content: 'Reply with the single word surf.' },

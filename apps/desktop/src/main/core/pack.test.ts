@@ -94,6 +94,38 @@ test('a signed pack verifies, and tamper or the wrong key is rejected', async ()
   }
 })
 
+test('a pack built on the retired prefixes is refused, naming the fields', async () => {
+  // id and dim still agree here, which is exactly the drift a reader cannot spot from an
+  // "X does not match X" message: the builders carried query_prefix / doc_template literals
+  // the app moved off, and every pack they signed failed verification at install time.
+  const root = mkdtempSync(join(tmpdir(), 'surf-spec-'))
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const dir = join(root, 'stale-spec')
+  try {
+    const { keys } = signedPack(dir, Buffer.from('pack-bytes'), privateKey)
+    const raw = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as { embedding: Record<string, unknown> }
+    raw.embedding.query_prefix = 'task: search result | query: '
+    raw.embedding.doc_template = 'title: {title} | text: {text}'
+    const body = Buffer.from(JSON.stringify(raw))
+    writeFileSync(join(dir, 'manifest.json'), body)
+    writeFileSync(join(dir, 'manifest.sig'), sign(null, body, privateKey))
+    await assert.rejects(
+      () => verifyPack(dir, { trustedKeys: keys, expectedEmbedding: JINA_CODE_256 }),
+      (e: unknown) => {
+        const message = (e as Error).message
+        assert.match(message, /does not match app/)
+        assert.match(message, /query_prefix: pack /)
+        assert.match(message, /doc_template: pack /)
+        assert.doesNotMatch(message, /\bid: pack /) // fields that agree are not listed as the problem
+        assert.doesNotMatch(message, /\bdim: pack /)
+        return true
+      },
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a failed install restores the previous version', async () => {
   const root = mkdtempSync(join(tmpdir(), 'surf-install-'))
   const manifest = {

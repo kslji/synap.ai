@@ -1,7 +1,7 @@
 """Build a signed, encrypted knowledge-pack delta.
 
 Run by us, not by the desktop user. Embeddings are 256-d. The real path calls
-llama-server (Jina code embeddings, same template as build_pack.py). Tests pass
+llama-server (Jina code embeddings, on the spec in pack_spec.py). Tests pass
 --fixture-embed, which is a deterministic hash vector and is not Jina code embeddings.
 
 Keys come from the environment or flags. Nothing in this file is a real key.
@@ -36,18 +36,7 @@ if str(API_ROOT) not in sys.path:
 if str(HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(HARNESS_ROOT))
 from core.pack_gate import assert_can_sign  # noqa: E402
-
-SPEC = {
-    "id": "jina-embeddings-v2-base-code@256",
-    "model": "jinaai/jina-embeddings-v2-base-code",
-    "file": "jina-embeddings-v2-base-code-Q5_K_M.gguf",
-    "native_dim": 768,
-    "dim": 256,
-    "pooling": "mean",
-    "normalize": True,
-    "query_prefix": "task: search result | query: ",
-    "doc_template": "title: {title} | text: {text}",
-}
+from pack_spec import SPEC, format_doc  # noqa: E402
 
 SCHEMA = """
 CREATE TABLE delta_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -84,7 +73,7 @@ def fixture_embed(title: str, text: str) -> list[float]:
 def embed_remote(title: str, text: str, url: str, api_key: str) -> list[float]:
     import httpx
 
-    body = SPEC["doc_template"].replace("{title}", title).replace("{text}", text.strip())
+    body = format_doc(title, text)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     response = httpx.post(url, json={"input": [body], "encoding_format": "float"}, headers=headers, timeout=120)
     response.raise_for_status()

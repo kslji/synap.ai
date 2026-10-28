@@ -8,6 +8,9 @@
  */
 
 import * as vscode from 'vscode';
+import { streamDeltas } from './sse';
+import { TurnCancelledError } from './local-model-client';
+import type { ChatOptions, ChatTurn, StreamSinks } from './chat-types';
 
 export interface GatewayModel {
   id: string;
@@ -160,17 +163,110 @@ export class GatewayClient {
       || 'https://synap.surf/account';
   }
 
-  /** Send a single constructed prompt and return the assistant text. */
-  async chat(model: string, prompt: string): Promise<string> {
-    const res = await fetch(`${this.baseUrl()}/api/v1/chat`, {
+  /**
+   * Stream a conversation turn from the gateway, calling the sinks as tokens
+   * arrive. A single-turn exchange uses `/api/v1/chat` (the stateless prompt
+   * endpoint); once the sidebar has history, the turn is forwarded to
+   * `/api/v1/agent/completions`, which is built for device-side message arrays
+   * and streams the raw provider result back. Aborting the signal kills the
+   * stream and throws `TurnCancelledError`.
+   */
+  async chatStream(
+    model: string,
+    turns: ChatTurn[],
+    sinks: StreamSinks = {},
+    options: ChatOptions = {}
+  ): Promise<string> {
+    const system = turns.filter((t) => t.role === 'system').map((t) => t.content).join('\n\n');
+    const lastUser = [...turns].reverse().find((t) => t.role === 'user');
+    const multiTurn = turns.filter((t) => t.role !== 'system').length > 1;
+    const body = multiTurn
+      ? {
+        model,
+        messages: turns,
+        stream: true,
+        thinking: options.enableThinking === true,
+        response_format: { type: 'text' }
+      }
+      : {
+        model,
+        prompt: (system ? `${system}\n\n` : '') + (lastUser?.content ?? ''),
+        stream: true
+      };
+    const url = multiTurn ? `${this.baseUrl()}/api/v1/agent/completions` : `${this.baseUrl()}/api/v1/chat`;
+    return this.streamStep(url, body, model, sinks, options);
+  }
+
+  /**
+   * One raw step of the device-side agent loop against the online model: the
+   * loop owns the history and the tools, the gateway forwards and streams the
+   * result back — including any native tool-call deltas, which the loop parses
+   * from the assembled text exactly as it does offline.
+   */
+  async agentStream(
+    model: string,
+    turns: ChatTurn[],
+    sinks: StreamSinks = {},
+    options: ChatOptions = {}
+  ): Promise<string> {
+    const body = {
+      model,
+      messages: turns,
+      stream: true,
+      thinking: options.enableThinking === true
+    };
+    return this.streamStep(`${this.baseUrl()}/api/v1/agent/completions`, body, model, sinks, options, false);
+  }
+
+  /** POST one streaming body and fold the SSE deltas into sinks + text. */
+  private async streamStep(
+    url: string,
+    body: Record<string, unknown>,
+    model: string,
+    sinks: StreamSinks,
+    options: ChatOptions,
+    requireText = true
+  ): Promise<string> {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${await this.token()}`
       },
-      body: JSON.stringify({ model, prompt, stream: false })
+      body: JSON.stringify(body),
+      signal: options.signal
     });
+    await this.throwForResponse(res, model);
+    if (!res.body) {
+      throw new Error('The gateway returned no stream.');
+    }
+    const decoder = new TextDecoder();
+    let text = '';
+    try {
+      for await (const delta of streamDeltas(res.body as never, (bytes, final) => decoder.decode(bytes, { stream: !final }))) {
+        if (options.signal?.aborted) { throw new TurnCancelledError(); }
+        if (delta.error) { throw new Error(delta.error); }
+        if (delta.reasoning) { sinks.onReasoning?.(delta.reasoning); }
+        if (delta.content) {
+          text += delta.content;
+          sinks.onContent?.(delta.content);
+        }
+      }
+    } catch (error) {
+      if (options.signal?.aborted || (error as Error)?.name === 'AbortError') {
+        throw new TurnCancelledError();
+      }
+      throw error;
+    }
+    if (requireText && !text) {
+      throw new Error('The model returned an empty response.');
+    }
+    return text;
+  }
 
+  /** Map gateway error codes onto the errors the chat knows how to render. */
+  private async throwForResponse(res: Response, model: string): Promise<void> {
+    if (res.ok) { return; }
     if (res.status === 402) {
       throw new Error('Insufficient Surf balance. Top up to keep using cloud models.');
     }
@@ -186,15 +282,6 @@ export class GatewayClient {
       const body = await res.json().catch(() => ({})) as { detail?: string };
       throw new Error(body.detail || 'The Surf gateway rejected the request.');
     }
-    if (!res.ok) {
-      throw new Error(`Gateway error (${res.status}).`);
-    }
-
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error('The model returned an empty response.');
-    }
-    return content;
+    throw new Error(`Gateway error (${res.status}).`);
   }
 }

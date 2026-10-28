@@ -70,9 +70,10 @@ export class DiffReview implements vscode.Disposable {
 
   /**
    * Open the before/after pair for `id` and return false when the anchor text
-   * the proposal searches for is no longer in the file.
+   * the proposal searches for is no longer in the file. `preserveFocus` keeps
+   * the reader in the chat while an agent works; a manual Review diff steals it.
    */
-  public async open(id: string, edit: Reviewable): Promise<boolean> {
+  public async open(id: string, edit: Reviewable, opts: { preserveFocus?: boolean } = {}): Promise<boolean> {
     const before = await this.readCurrent(edit);
     const after = proposedText(before, edit);
     if (after === null) {
@@ -89,7 +90,7 @@ export class DiffReview implements vscode.Disposable {
       left,
       right,
       `${edit.relPath} (Surf AI proposal)`,
-      { preview: true, preserveFocus: false }
+      { preview: true, preserveFocus: opts.preserveFocus === true }
     );
     return true;
   }

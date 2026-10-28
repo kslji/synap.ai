@@ -139,6 +139,42 @@ npm run compile-client
 echo -e "${GREEN}✅ Workbench compiled${NC}"
 
 echo ""
+echo "🧩 Step 6: Compile the built-in extensions"
+echo "==================================="
+
+# Git, GitHub sign-in/push/PRs and the language features live in the fork's
+# built-in extensions. Without them the IDE opens but `git status` in the
+# sidebar, GitHub authentication, and IntelliSense are dead. They compile via
+# gulp, not `compile-client`, and npm postinstall already fetched their deps.
+# Copilot is deliberately excluded: Surf AI replaces it.
+BUILT_IN_REQUIRED=(git git-base github github-authentication typescript-language-features configuration-editing merge-conflict)
+MISSING=0
+for ext in "${BUILT_IN_REQUIRED[@]}"; do
+    if [ ! -f "extensions/$ext/package.json" ] || [ ! -d "extensions/$ext/out" ]; then
+        MISSING=1
+        break
+    fi
+done
+if [ "$MISSING" -eq 1 ]; then
+    echo "Compiling built-in extensions (this takes a few minutes)..."
+    # compile-extensions builds every extension that postinstall installed; if
+    # its deps are missing too, re-run postinstall for the extensions tree.
+    if [ ! -d "extensions/git/node_modules" ] && [ -f "extensions/git/package.json" ]; then
+        echo "Installing extension dependencies..."
+        pushd extensions > /dev/null && npm install --no-audit --no-fund > /dev/null && popd > /dev/null
+    fi
+    npm run gulp compile-extensions
+    for ext in "${BUILT_IN_REQUIRED[@]}"; do
+        if [ ! -d "extensions/$ext/out" ]; then
+            echo -e "${YELLOW}⚠️  extensions/$ext did not compile; Git/GitHub/language features may be unavailable.${NC}"
+        fi
+    done
+    echo -e "${GREEN}✅ Built-in extensions compiled${NC}"
+else
+    echo -e "${GREEN}✅ Built-in extensions already compiled${NC}"
+fi
+
+echo ""
 echo "🎉 Setup Complete!"
 echo "=================="
 echo ""

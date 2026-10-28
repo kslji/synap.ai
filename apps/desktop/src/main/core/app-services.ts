@@ -46,6 +46,7 @@ import { isGgufName, parseLocalPointer, planLocalGguf, type LocalGgufPointer } f
 import { FIRST_RUN_CHAT_MODEL_IDS, LOCAL_CHAT_MODEL_ID } from '../../shared/starter-model.js'
 import { keywordSearchNote, deleteBlockedReason, formatByteCount as formatBytes, setupCatalog, setupEmbedding, setupReranker, sharedSearchRole } from '../../shared/setup-choice.js'
 import { bundling, legacySearchFiles, missingBundleFiles } from './model-bundle.js'
+import { resolveSurfIdeBinary, surfIdeAppName } from './surf-ide-binary.js'
 import { parseSetupLink, resolveSetupModel } from '../../shared/setup-link.js'
 import { llamaCompleter } from './code-agent/llama.js'
 import { GatewayProvider } from './gateway-provider.js'
@@ -1946,19 +1947,25 @@ export async function createServices(): Promise<Services> {
     return null
   }
 
-  // Path to the production `Surf IDE.app` binary that `gulp vscode-darwin-arm64`
-  // emits under `.build/darwin/`. Null when it has not been built, so the caller
-  // falls back to the dev `code.sh` path. The app/executable name comes from
-  // product.json (nameLong), matching what the build produces.
-  function resolveSurfIdeBinary(forkRoot: string): string | null {
-    if (process.platform !== 'darwin') return null
+  // Path to a packaged Surf IDE binary (macOS and Windows), preferring the
+  // freshest bundle that exists: the packaged resources, the fork's `.build`,
+  // then the system install. Null when nothing is built, so the caller falls
+  // back to the dev `code.sh` / `code.bat` path. Layout comes from
+  // surf-ide-binary.ts, which is unit-tested for both platforms.
+  function surfIdeBinary(forkRoot: string): string | null {
     let appName = 'Surf IDE'
     try {
       const product = JSON.parse(readFileSync(join(forkRoot, 'product.json'), 'utf8')) as { nameLong?: unknown }
-      if (typeof product.nameLong === 'string' && product.nameLong.trim()) appName = product.nameLong.trim()
+      appName = surfIdeAppName(product.nameLong)
     } catch { /* keep the default name */ }
-    const binary = join(forkRoot, '.build', 'darwin', `${appName}.app`, 'Contents', 'MacOS', appName)
-    return existsSync(binary) ? binary : null
+    return resolveSurfIdeBinary({
+      forkRoot,
+      platform: process.platform,
+      env: process.env,
+      resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+      exists: existsSync,
+      appName,
+    })
   }
 
   // Publish the current local (offline) model endpoint so a Surf IDE launched
@@ -1978,6 +1985,22 @@ export async function createServices(): Promise<Services> {
     } catch { /* best effort; the offline dropdown simply shows nothing */ }
   }
 
+  /**
+   * Start the chat sidecar on IDE launch when an offline model is installed on
+   * disk. Best effort: a machine that cannot load the model simply publishes an
+   * empty bridge and the IDE falls back to Online, exactly as before.
+   */
+  async function warmLocalBridge(): Promise<void> {
+    if (active && active.role === 'chat' && (active.server.state === 'ready' || active.server.state === 'starting')) return
+    try {
+      const settings = readSettings()
+      const model = await chooseChat(withLocal(registry()), settings.codeModelId || settings.chatModelId, 'general')
+      if (!model) return
+      if (!(await installed(model.file, model.size_bytes))) return
+      await ensure('chat', model, 8192, '', 'general')
+    } catch { /* the bridge publishes empty; the chat dropdown reports it */ }
+  }
+
   const codeIde = {
     launch: async (root: string): Promise<{ pid: number }> => {
       if (!isAbsolute(root)) throw new Error('Project path must be absolute')
@@ -1985,7 +2008,7 @@ export async function createServices(): Promise<Services> {
       if (!forkRoot) throw new Error('Surf IDE (VSCode fork) is not installed. Set it up with surf-ide/setup.sh first.')
       // Prefer the production bundle (fast, few files) when it has been built;
       // otherwise fall back to the dev `code.sh` path against the compiled `out/`.
-      const binary = resolveSurfIdeBinary(forkRoot)
+      const binary = surfIdeBinary(forkRoot)
       const production = binary !== null
       if (!production) {
         const mainJs = join(forkRoot, 'out', 'vs', 'code', 'electron-main', 'main.js')
@@ -2001,6 +2024,11 @@ export async function createServices(): Promise<Services> {
       } catch {
         gatewayToken = null
       }
+      // Warm the local model bridge before opening the IDE: if an offline chat
+      // model is installed and the sidecar is not running yet, start it now so
+      // the descriptor carries a live baseUrl from the first moment, instead of
+      // an empty one whenever the user clicks Open Surf IDE before chatting.
+      await warmLocalBridge()
       // Snapshot the current local model endpoint for the offline dropdown.
       publishLocalBridge()
       const env: NodeJS.ProcessEnv = {

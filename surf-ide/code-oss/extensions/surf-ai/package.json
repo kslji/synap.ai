@@ -56,6 +56,10 @@
         "title": "Surf AI: Fix Errors"
       },
       {
+        "command": "surf-ai.inlineEdit",
+        "title": "Surf AI: Inline Edit (Cmd+K)"
+      },
+      {
         "command": "surf-ai.backToLobby",
         "title": "Surf AI: Back to Lobby"
       },
@@ -68,6 +72,19 @@
         "command": "surf-ai.rejectProposal",
         "title": "Surf AI: Reject Proposal",
         "icon": "$(close)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "surf-ai.inlineEdit",
+        "key": "cmd+k",
+        "mac": "cmd+k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "surf-ai.inlineEdit",
+        "key": "ctrl+k",
+        "when": "editorTextFocus && !isMac"
       }
     ],
     "menus": {

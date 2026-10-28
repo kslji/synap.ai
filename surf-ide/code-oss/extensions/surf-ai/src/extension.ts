@@ -5,14 +5,21 @@
  */
 
 import * as vscode from 'vscode';
-import { extractContext, buildPromptWithContext } from './context-extractor';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { ChatSidebarProvider } from './chat-sidebar';
 import { GatewayClient } from './gateway-client';
 import { LocalModelClient } from './local-model-client';
 import { MODE_STATE_KEY, resolveRoute, type SurfMode } from './model-router';
+import { buildFimPrompt, sanitizeFimCompletion, fimCacheKey, LruCache, FIM_STOP_TOKENS, FIM_MAX_TOKENS } from './fim';
+import { fileChip, selectionChip, gitChip, problemsChip, type ContextChip, type ProblemItem, type SelectionInfo } from './context-chips';
+import type { ProposedEdit } from './edit-proposal';
+
+const execFileAsync = promisify(execFile);
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Surf AI extension activated');
+  activeContext = context;
 
   // The Surf desktop app launches this fork with a short-lived gateway JWT in
   // SURF_GATEWAY_TOKEN. Persist it into extension secrets so the gateway client
@@ -75,47 +82,141 @@ export async function activate(context: vscode.ExtensionContext) {
   // Qoder start; after that the layout belongs to the user.
   void revealChatOnce(context);
 
+  // The editor commands focus the chat and start the turn immediately, attaching
+  // the selection and/or diagnostics as context chips — no more toast stubs.
   context.subscriptions.push(
     vscode.commands.registerCommand('surf-ai.askQuestion', async () => {
       const question = await vscode.window.showInputBox({
         prompt: 'Ask Surf AI a question',
         placeHolder: 'How do I fix this error?'
       });
-      
-      if (question) {
-        // Focus the chat sidebar
-        vscode.commands.executeCommand('workbench.view.extension.surf-ai');
-        // Note: Direct message passing would require additional implementation
-        vscode.window.showInformationMessage('Please use the chat sidebar to ask questions');
+      if (!question) {
+        return;
       }
+      const chips = await chipsForActiveFile();
+      await chatProvider.submitTurn(question, { chips, agent: false });
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('surf-ai.explainSelection', async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage('No active editor');
-        return;
-      }
-
-      const selection = editor.document.getText(editor.selection);
-      if (!selection) {
+      const sel = await activeSelectionInfo();
+      if (!sel) {
         vscode.window.showErrorMessage('No text selected');
         return;
       }
-
-      // Focus the chat sidebar
-      vscode.commands.executeCommand('workbench.view.extension.surf-ai');
-      vscode.window.showInformationMessage('Selection copied. Paste it in the chat sidebar.');
+      await chatProvider.submitTurn('Explain this selection: what it does, why it is written this way, and what to watch out for.', {
+        chips: [selectionChip(sel)],
+        agent: false
+      });
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('surf-ai.fixErrors', async () => {
-      // Focus the chat sidebar
-      vscode.commands.executeCommand('workbench.view.extension.surf-ai');
-      vscode.window.showInformationMessage('Please type your question in the chat sidebar');
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage('No active editor');
+        return;
+      }
+      const uri = editor.document.uri;
+      const rel = relPath(uri);
+      const problems = vscode.languages.getDiagnostics(uri);
+      const chips: ContextChip[] = [];
+      const selection = await activeSelectionInfo();
+      if (selection) {
+        chips.push(selectionChip(selection));
+      } else {
+        const contents = editor.document.getText();
+        chips.push(fileChip(rel, contents.length > 24_000 ? contents.slice(0, 24_000) + '\n…truncated…' : contents));
+      }
+      if (problems.length) {
+        chips.push(problemsChip(problems.map((d) => ({
+          path: rel,
+          line: d.range.start.line + 1,
+          message: d.message,
+          severity: d.severity === vscode.DiagnosticSeverity.Error ? 'error' as const : 'warning' as const
+        }))));
+      }
+      await chatProvider.submitTurn('Fix the errors in this code. Propose reviewable edits, then check diagnostics again.', {
+        chips,
+        agent: true
+      });
+    })
+  );
+
+  // Cmd+K (Ctrl+K elsewhere): Cursor-style inline edit. The instruction is
+  // asked up front, the replacement is streamed against the active backend,
+  // and the result lands in DiffReview for one-click Accept/Reject.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('surf-ai.inlineEdit', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage('Surf: open a file and place the cursor on the code to edit.');
+        return;
+      }
+      // No selection: take the current line, expanded to the enclosing
+      // bracket-balanced block when the line ends in `{`.
+      const range = editor.selection.isEmpty
+        ? expandEditScope(editor.document, editor.selection.active)
+        : editor.selection;
+      const selectedText = editor.document.getText(range);
+      if (!selectedText.trim()) {
+        vscode.window.showErrorMessage('Surf: nothing meaningful to edit at the cursor.');
+        return;
+      }
+      const instruction = await vscode.window.showInputBox({
+        prompt: 'Describe the edit (Cmd+K)',
+        placeHolder: 'e.g. make this async, add error handling, rename to snake_case'
+      });
+      if (!instruction) {
+        return;
+      }
+      const file = editor.document.uri.fsPath;
+      const rel = relPath(editor.document.uri);
+      const system = 'You are Surf, an inline code editor. Reply with ONLY the replacement for the given code — no explanations, no markdown fences. Keep the original indentation and style.';
+      const user = `File: ${rel} (lines ${range.start.line + 1}-${range.end.line + 1})\nInstruction: ${instruction}\n\nCode to replace:\n${selectedText}`;
+      const progress = vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Surf is editing ${rel}…` },
+        async (_step, token) => {
+          const controller = new AbortController();
+          const cancel = token.onCancellationRequested(() => controller.abort());
+          try {
+            const reply = await streamFromActiveModel(
+              [{ role: 'system', content: system }, { role: 'user', content: user }],
+              controller.signal
+            );
+            const replacement = unwrapFence(reply);
+            if (!replacement.trim()) {
+              void vscode.window.showWarningMessage('Surf: the model returned no replacement.');
+              return;
+            }
+            const edit: ProposedEdit = {
+              file,
+              relPath: rel,
+              search: selectedText,
+              replace: replacement,
+              isNewFile: false,
+            };
+            await chatProvider.offerInlineProposal(edit);
+          } catch (error) {
+            if ((error as Error)?.name !== 'AbortError') {
+              void vscode.window.showErrorMessage(`Surf inline edit: ${(error as Error).message}`);
+            }
+          } finally {
+            cancel.dispose();
+          }
+        }
+      );
+      void progress;
+    })
+  );
+
+  // The sidebar's + picker asks which kind of context to attach, then calls
+  // here to build the actual chip from live editor/workspace state.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('surf-ai.contextPickerBuild', async (kind: unknown): Promise<ContextChip | null> => {
+      return buildContextChip(String(kind));
     })
   );
 
@@ -149,6 +250,175 @@ export async function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   console.log('Surf AI extension deactivated');
+}
+
+/** The workspace-relative path used on every chip and edit label. */
+function relPath(uri: vscode.Uri): string {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (root && uri.fsPath.startsWith(root)) {
+    return uri.fsPath.slice(root.length).replace(/^[\\/]+/, '');
+  }
+  return uri.fsPath;
+}
+
+async function activeSelectionInfo(): Promise<SelectionInfo | null> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.selection.isEmpty) {
+    return null;
+  }
+  return {
+    relPath: relPath(editor.document.uri),
+    startLine: editor.selection.start.line + 1,
+    endLine: editor.selection.end.line + 1,
+    text: editor.document.getText(editor.selection),
+  };
+}
+
+/** The active file's contents plus its diagnostics, as chips for a turn. */
+async function chipsForActiveFile(): Promise<ContextChip[]> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return [];
+  }
+  const chips: ContextChip[] = [];
+  const rel = relPath(editor.document.uri);
+  const contents = editor.document.getText();
+  chips.push(fileChip(rel, contents.length > 24_000 ? contents.slice(0, 24_000) + '\n…truncated…' : contents));
+  const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+  if (diagnostics.length) {
+    chips.push(problemsChip(diagnostics.map((d) => ({
+      path: rel,
+      line: d.range.start.line + 1,
+      message: d.message,
+      severity: d.severity === vscode.DiagnosticSeverity.Error ? 'error' as const : 'warning' as const
+    }))));
+  }
+  return chips;
+}
+
+/**
+ * Expand the cursor's line into the enclosing block when the line opens a
+ * brace (Cursor takes the whole function); otherwise the single line.
+ */
+function expandEditScope(doc: vscode.TextDocument, position: vscode.Position): vscode.Range {
+  const line = doc.lineAt(position.line);
+  if (!line.text.trimEnd().endsWith('{')) {
+    return new vscode.Range(position.line, 0, position.line, line.text.length);
+  }
+  let depth = 0;
+  let end = position.line;
+  for (let i = position.line; i < doc.lineCount; i++) {
+    const text = doc.lineAt(i).text;
+    for (const ch of text) {
+      if (ch === '{') { depth++; }
+      if (ch === '}') { depth--; }
+    }
+    end = i;
+    if (depth <= 0) { break; }
+  }
+  const indent = /^[ \t]*/.exec(line.text)?.[0] ?? '';
+  let start = position.line;
+  for (let i = position.line - 1; i >= 0; i--) {
+    const prev = doc.lineAt(i);
+    if (prev.text.trim() === '') { continue; }
+    if (prev.text.startsWith(indent) && /^[^\s]/.test(prev.text) && !prev.text.trimEnd().endsWith('{') && !prev.text.trimEnd().endsWith('(') && !prev.text.trimEnd().endsWith(',')) {
+      start = i;
+      continue;
+    }
+    break;
+  }
+  return new vscode.Range(start, 0, end, doc.lineAt(end).text.length);
+}
+
+/** Strip a single surrounding code fence if the model added one anyway. */
+function unwrapFence(text: string): string {
+  const m = /^```[^\n]*\n([\s\S]*?)\n?```\s*$/.exec(text.trim());
+  return (m ? m[1] : text).replace(/\s+$/, '') + (text.endsWith('\n') ? '\n' : '');
+}
+
+/** Route by the stored mode (the same contract model-router gives chat). */
+async function streamFromActiveModel(turns: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, signal: AbortSignal): Promise<string> {
+  const context = activeContext;
+  if (!context) {
+    throw new Error('Surf AI is not initialised.');
+  }
+  const gateway = new GatewayClient(context);
+  const local = new LocalModelClient();
+  const mode: SurfMode = context.workspaceState.get<SurfMode>(MODE_STATE_KEY) === 'online' ? 'online' : 'offline';
+  const route = await resolveRoute(mode, gateway, local);
+  if (route === 'online') {
+    const models = await gateway.listModels();
+    const model = models.find((m) => !m.locked)?.id;
+    if (!model) {
+      throw new Error('No unlocked cloud model is available.');
+    }
+    return gateway.chatStream(model, turns, {}, { signal, enableThinking: false });
+  }
+  const bridge = await local.listModels();
+  const model = bridge[0]?.id;
+  if (!model) {
+    throw new Error('No local model is running. Load one in Surf.');
+  }
+  return local.chatStream(model, turns, {}, { signal, enableThinking: false });
+}
+
+/** Keep the ExtensionContext reachable from the command handlers above. */
+let activeContext: vscode.ExtensionContext | undefined;
+
+async function buildContextChip(kind: string): Promise<ContextChip | null> {
+  const root = vscode.workspace.workspaceFolders?.[0];
+  switch (kind) {
+    case 'file': {
+      if (!root) { return null; }
+      const files = await vscode.workspace.findFiles('**/*', '**/{node_modules,.git,.build,out,dist}/**', 500);
+      const picked = await vscode.window.showQuickPick(
+        files.map((f) => ({ label: relPath(f), description: f.fsPath === vscode.window.activeTextEditor?.document.uri.fsPath ? 'active' : '', uri: f })),
+        { placeHolder: 'Attach a workspace file' }
+      );
+      if (!picked) { return null; }
+      try {
+        const doc = await vscode.workspace.openTextDocument(picked.uri);
+        return fileChip(picked.label, doc.getText());
+      } catch {
+        return null;
+      }
+    }
+    case 'selection': {
+      const sel = await activeSelectionInfo();
+      return sel ? selectionChip(sel) : null;
+    }
+    case 'git': {
+      if (!root) { return null; }
+      const cwd = root.uri.fsPath;
+      let status = '';
+      let diff = '';
+      try {
+        status = (await execFileAsync('git', ['status', '--short'], { cwd })).stdout;
+        diff = (await execFileAsync('git', ['diff', 'HEAD'], { cwd, maxBuffer: 4 * 1024 * 1024 })).stdout;
+      } catch (error) {
+        void vscode.window.showWarningMessage(`Surf: git is unavailable here (${(error as Error).message}).`);
+        return null;
+      }
+      return gitChip(status, diff);
+    }
+    case 'problems': {
+      const items: ProblemItem[] = [];
+      for (const [uri, diags] of vscode.languages.getDiagnostics()) {
+        if (uri.scheme !== 'file') { continue; }
+        for (const d of diags) {
+          items.push({
+            path: relPath(uri),
+            line: d.range.start.line + 1,
+            message: d.message,
+            severity: d.severity === vscode.DiagnosticSeverity.Error ? 'error' : 'warning'
+          });
+        }
+      }
+      return problemsChip(items);
+    }
+    default:
+      return null;
+  }
 }
 
 /**
@@ -206,18 +476,20 @@ async function revealChatOnce(context: vscode.ExtensionContext): Promise<void> {
 /**
  * Inline completion provider (ghost text).
  *
- * Routes by the same explicit choice the chat sidebar stores (Offline or
- * Online); with no choice yet, the sidebar's default Offline wins and nothing
- * leaves the device. The old hardcoded `localhost:8080` never matched the
- * desktop's random-port bridge, so offline completions did not actually work;
- * the bridge descriptor does.
+ * Fast FIM against the local completion endpoint: ChatML prefix/middle/suffix
+ * prompt, `enable_thinking: false`, 96-token headroom, the FIM stop tokens, a
+ * 150ms debounce, CancellationToken plumbed to the fetch, and a small LRU so a
+ * repeated context renders without a model call. Online mode sends the same FIM
+ * prompt through the gateway's single-turn chat.
  */
 class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
-  private debounceTimer: NodeJS.Timeout | undefined;
   private readonly gateway: GatewayClient;
   private readonly local: LocalModelClient;
   private readonly context: vscode.ExtensionContext;
   private onlineModel: string | null = null;
+  private debounce: ReturnType<typeof setTimeout> | undefined;
+  private pending: Promise<vscode.InlineCompletionItem[]> | null = null;
+  private readonly cache = new LruCache<string, string>(64);
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -225,60 +497,72 @@ class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvide
     this.local = new LocalModelClient();
   }
 
-  async provideInlineCompletionItems(
+  provideInlineCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
     _context: vscode.InlineCompletionContext,
-    _token: vscode.CancellationToken
+    token: vscode.CancellationToken
   ): Promise<vscode.InlineCompletionItem[]> {
-    // Debounce: wait 500ms after typing stops
-    return new Promise((resolve) => {
-      if (this.debounceTimer) {
-        clearTimeout(this.debounceTimer);
-      }
-
-      this.debounceTimer = setTimeout(async () => {
-        try {
-          const prefix = document.getText(new vscode.Range(
-            new vscode.Position(Math.max(0, position.line - 10), 0),
-            position
-          ));
-
-          const suffix = document.getText(new vscode.Range(
-            position,
-            new vscode.Position(Math.min(document.lineCount, position.line + 5), 0)
-          ));
-
-          const prompt = `Complete this code naturally:\n\n${prefix}\n// Continue from here:\n${suffix}\n`;
-
-          const mode: SurfMode = this.context.workspaceState.get<SurfMode>(MODE_STATE_KEY) === 'online' ? 'online' : 'offline';
-          const route = await resolveRoute(mode, this.gateway, this.local);
-          let completion = '';
-          if (route === 'offline') {
-            completion = await this.local.complete(prompt);
-          } else {
-            const model = await this.pickOnlineModel();
-            if (!model) {
+    if (this.debounce) {
+      clearTimeout(this.debounce);
+    }
+    this.pending = new Promise<vscode.InlineCompletionItem[]>((resolve) => {
+      const settle = () => resolve([]);
+      token.onCancellationRequested(settle);
+      this.debounce = setTimeout(() => {
+        void (async () => {
+          if (token.isCancellationRequested) {
+            resolve([]);
+            return;
+          }
+          try {
+            const prefix = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
+            const suffix = document.getText(new vscode.Range(position, new vscode.Position(document.lineCount, 0)));
+            const req = { prefix, suffix };
+            const key = fimCacheKey(document.uri.toString(), position.line, position.character, req);
+            const hit = this.cache.get(key);
+            if (hit !== undefined) {
+              resolve(hit ? [{ insertText: hit, range: new vscode.Range(position, position) }] : []);
+              return;
+            }
+            const prompt = buildFimPrompt(req);
+            const mode: SurfMode = this.context.workspaceState.get<SurfMode>(MODE_STATE_KEY) === 'online' ? 'online' : 'offline';
+            const route = await resolveRoute(mode, this.gateway, this.local);
+            let completion = '';
+            if (route === 'offline') {
+              completion = await this.local.complete(prompt, {
+                signal: abrsFrom(token),
+                stop: FIM_STOP_TOKENS,
+                maxTokens: FIM_MAX_TOKENS,
+                enableThinking: false,
+              });
+            } else {
+              const model = await this.pickOnlineModel();
+              if (!model) {
+                resolve([]);
+                return;
+              }
+              completion = await this.gateway.chatStream(
+                model,
+                [{ role: 'user', content: prompt }],
+                {},
+                { signal: abrsFrom(token), enableThinking: false }
+              );
+            }
+            const cleaned = sanitizeFimCompletion(completion);
+            this.cache.set(key, cleaned);
+            if (token.isCancellationRequested) {
               resolve([]);
               return;
             }
-            completion = await this.gateway.chat(model, prompt);
-          }
-
-          completion = (completion || '').trim();
-          if (completion) {
-            resolve([{
-              insertText: completion,
-              range: new vscode.Range(position, position)
-            }]);
-          } else {
+            resolve(cleaned ? [{ insertText: cleaned, range: new vscode.Range(position, position) }] : []);
+          } catch {
             resolve([]);
           }
-        } catch (error) {
-          resolve([]);
-        }
-      }, 500);
+        })();
+      }, 150);
     });
+    return this.pending;
   }
 
   /** The first model this account has unlocked, cached. Null when none are available. */
@@ -296,4 +580,15 @@ class SurfInlineCompletionProvider implements vscode.InlineCompletionItemProvide
     }
     return this.onlineModel;
   }
+}
+
+/** Bridge a vscode CancellationToken onto the AbortSignal fetch() expects. */
+function abrsFrom(token: vscode.CancellationToken): AbortSignal {
+  const controller = new AbortController();
+  if (token.isCancellationRequested) {
+    controller.abort();
+  } else {
+    token.onCancellationRequested(() => controller.abort());
+  }
+  return controller.signal;
 }

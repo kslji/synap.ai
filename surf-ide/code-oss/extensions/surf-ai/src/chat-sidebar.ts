@@ -7,15 +7,23 @@
  * - Supports markdown rendering
  * - Code block highlighting
  * - Context indicators
+ * - Live SSE token streaming with a collapsible Thinking… block
+ * - Multi-step ◎ Agent mode with workspace tools, step pills and DiffReview
+ * - Stop/Cancel on the active stream or agent loop via AbortController
+ * - Removable @ context chips (@file/@selection/@git/@problems)
  */
 
 import * as vscode from 'vscode';
 import { extractContext, buildPromptWithContext } from './context-extractor';
 import { GatewayClient, ModelLockedError, type GatewayBalance, type GatewayModel } from './gateway-client';
-import { LocalModelClient, type LocalModel } from './local-model-client';
+import { LocalModelClient, TurnCancelledError, type LocalModel } from './local-model-client';
 import { parseEdits, applyEdit, editDiff, type ProposedEdit } from './edit-proposal';
 import { DiffReview } from './diff-review';
 import { MODE_STATE_KEY, resolveRoute, onlineReachable, invalidateReachability, type SurfMode } from './model-router';
+import { runAgentLoop, type AgentLoopEvents } from './agent-loop';
+import { buildWorkspaceTools } from './agent-tools';
+import { buildPromptWithChips, wantsContextPicker, type ContextChip } from './context-chips';
+import type { ChatTurn } from './chat-types';
 
 // Teaches the model to emit reviewable, line-level edits instead of whole-file prose.
 const EDIT_INSTRUCTIONS = `
@@ -36,6 +44,13 @@ Rules:
 - You may emit several SURF_EDIT blocks. Keep all other text as a short explanation.
 - If no change is needed, do not emit any SURF_EDIT block.`;
 
+/** Delta batches are folded into the webview at ~12 FPS; faster renders cost
+ * frames without being readable. */
+const DELTA_FLUSH_MS = 80;
+
+/** How much multi-turn history travels with a request. Long chats stay cheap. */
+const HISTORY_TURNS = 12;
+
 export class ChatSidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _messageHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
@@ -51,6 +66,19 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
   private _pendingEdits = new Map<string, ProposedEdit>();
   private _statusTimer: NodeJS.Timeout | undefined;
   private _egress = 0;
+  /** The active stream or agent loop; the header Stop button aborts it. */
+  private _abort?: AbortController;
+  /** ◎ Agent toggle in the composer; on runs the multi-step tool loop. */
+  private _agentMode = false;
+  /** Context chips sitting in the composer, attached to the next turn. */
+  private _chips: ContextChip[] = [];
+  /**
+   * Offline privacy boundary: Offline turns never travel to the Online gateway
+   * until the user explicitly consents for this chat. Re-checked whenever a new
+   * Offline turn exists that the consent did not cover.
+   */
+  private _offlineTurns = 0;
+  private _egressConsented = false;
   /** Side-by-side review of the pending proposals, owned here so the tabs and the cards agree. */
   public readonly review: DiffReview;
 
@@ -101,6 +129,35 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
         case 'sendMessage':
           await this._handleUserMessage(data.value);
           break;
+        case 'stopGeneration':
+          this._abort?.abort();
+          break;
+        case 'toggleAgent':
+          this._agentMode = Boolean(data.value);
+          break;
+        case 'removeChip':
+          this._chips = this._chips.filter((c) => c.id !== data.id);
+          break;
+        case 'attachContext': {
+          const chip = await this._contextPicker();
+          if (chip) {
+            this._chips = [...this._chips, chip];
+            this._postMessage({ type: 'chips', chips: this._chips });
+          }
+          break;
+        }
+        case 'inputAtToken': {
+          // Typing a bare `@` opens the same picker as the + button. It never
+          // strips the character; the user can keep typing after choosing.
+          if (wantsContextPicker(String(data.textBefore ?? ''))) {
+            const chip = await this._contextPicker();
+            if (chip) {
+              this._chips = [...this._chips, chip];
+              this._postMessage({ type: 'chips', chips: this._chips });
+            }
+          }
+          break;
+        }
         case 'clearChat':
           this._clearChat();
           break;
@@ -156,6 +213,7 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     // Send welcome message
     this._sendWelcomeMessage();
     this._postMessage({ type: 'mode', mode: this._mode });
+    this._postMessage({ type: 'agentState', value: this._agentMode });
     if (this._mode === 'online') {
       void this._loadModels();
     }
@@ -242,10 +300,79 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     this._postMessage({ type: 'localModels', models: this._localModels, selected: this._selectedLocal });
   }
 
-  private async _handleUserMessage(message: string) {
+  /**
+   * Programmatic entry used by the editor commands (ask/explain/fix/Cmd+K):
+   * focuses the chat, then runs the turn through the same pipeline the composer
+   * uses, with any pre-built context chips attached.
+   */
+  public async submitTurn(
+    text: string,
+    opts: { chips?: ContextChip[]; agent?: boolean } = {}
+  ): Promise<void> {
+    if (!this._view) {
+      await vscode.commands.executeCommand('workbench.view.extension.surf-ai');
+    }
+    if (!this._view) {
+      // The webview never resolved (window closing during activation); fall
+      // back to quick input so the command still has an effect.
+      const answer = await vscode.window.showInputBox({ prompt: text.slice(0, 200) });
+      if (answer !== undefined) {
+        return;
+      }
+      return;
+    }
+    if (opts.chips?.length) {
+      this._chips = [...this._chips, ...opts.chips];
+      this._postMessage({ type: 'chips', chips: this._chips });
+    }
+    if (opts.agent !== undefined) {
+      this._agentMode = opts.agent;
+      this._postMessage({ type: 'agentState', value: this._agentMode });
+    }
+    await this._handleUserMessage(text);
+  }
+
+  /** Replace the composer's pending chips (used by the + picker pipeline). */
+  public setChips(chips: ContextChip[]): void {
+    this._chips = chips;
+    this._postMessage({ type: 'chips', chips: this._chips });
+  }
+
+  public getChips(): ContextChip[] {
+    return [...this._chips];
+  }
+
+  /**
+   * Register a proposal produced outside the chat (Cmd+K inline edit): the same
+   * card + side-by-side diff pipeline, opened without stealing focus from the
+   * editor so the user accepts or rejects from the diff title bar.
+   */
+  public async offerInlineProposal(edit: ProposedEdit): Promise<void> {
+    const id = this._newId();
+    this._pendingEdits.set(id, edit);
+    const { removed, added } = editDiff(edit);
+    this._postMessage({
+      type: 'proposeEdits',
+      edits: [{ id, file: edit.relPath, isNewFile: edit.isNewFile, removed, added }]
+    });
+    await this.review.open(id, edit, { preserveFocus: true });
+  }
+
+  private async _handleUserMessage(input: string | { text: string; chips?: ContextChip[] }) {
     if (this._isProcessing) {
       return;
     }
+    const message = typeof input === 'string' ? input : input.text;
+    const chips = (typeof input === 'string' ? undefined : input.chips) ?? this._chips;
+    this._chips = [];
+    this._postMessage({ type: 'chips', chips: [] });
+
+    // The privacy gate runs before the mode is even consulted: an Offline
+    // discussion is never carried online without an explicit per-chat yes.
+    if (!(await this._consentGate())) {
+      return;
+    }
+
     const route = await resolveRoute(this._mode, this._client, this._local);
     const offline = route === 'offline';
     if (offline) {
@@ -275,38 +402,33 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     this._isProcessing = true;
+    this._abort = new AbortController();
     this._messageHistory.push({ role: 'user', content: message });
-    this._postMessage({ type: 'addMessage', role: 'user', content: message });
+    if (offline) {
+      this._offlineTurns += 1;
+    }
+    this._postMessage({ type: 'addMessage', role: 'user', content: message, chips: chips.map((c) => c.label) });
     this._postMessage({ type: 'showTyping' });
+    if (!offline) {
+      this._egress += 1;
+      void this._pushNetStatus();
+    }
+
+    const streamId = this._newId();
+    this._postMessage({ type: 'streamOpen', id: streamId });
 
     try {
-      const context = await extractContext();
-      const prompt = buildPromptWithContext(message, context) + EDIT_INSTRUCTIONS;
-      if (!offline) {
-        this._egress += 1;
-        void this._pushNetStatus();
-      }
-      const response = offline
-        ? await this._local.chat(this._selectedLocal as string, prompt)
-        : await this._client.chat(this._selectedModel as string, prompt);
-      const { prose, edits } = parseEdits(response);
-
-      this._messageHistory.push({ role: 'assistant', content: prose || response });
-      this._postMessage({ type: 'addMessage', role: 'assistant', content: prose || 'Done.' });
-
-      if (edits.length > 0) {
-        const payload = edits.map((edit) => {
-          const id = this._newId();
-          this._pendingEdits.set(id, edit);
-          const { removed, added } = editDiff(edit);
-          return { id, file: edit.relPath, isNewFile: edit.isNewFile, removed, added };
-        });
-        this._postMessage({ type: 'proposeEdits', edits: payload });
+      const withChips = buildPromptWithChips(message, chips);
+      if (this._agentMode) {
+        await this._runAgentTurn(withChips, streamId, offline);
+      } else {
+        await this._runPlainTurn(withChips, streamId, offline);
       }
     } catch (error) {
       if (error instanceof ModelLockedError) {
         // The tier gate answered mid-turn (the picker normally prevents it). Say what
         // unlocks it and put the unlock one click away, instead of a bare ❌ Error.
+        this._postMessage({ type: 'streamEnd', id: streamId });
         this._postMessage({
           type: 'modelLocked',
           content: `${error.modelId} is a ${error.requiredCredits}-credit model. A $${error.unlockUsd} top-up unlocks it.`,
@@ -314,19 +436,224 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
         });
         return;
       }
-      this._postMessage({
-        type: 'addMessage',
-        role: 'assistant',
-        content: `❌ Error: ${(error as Error).message}`
-      });
+      this._postMessage({ type: 'streamEnd', id: streamId });
+      if (error instanceof TurnCancelledError) {
+        this._postMessage({ type: 'addMessage', role: 'assistant', content: '⏹ Stopped.' });
+      } else {
+        this._postMessage({
+          type: 'addMessage',
+          role: 'assistant',
+          content: `❌ Error: ${(error as Error).message}`
+        });
+      }
     } finally {
       this._isProcessing = false;
+      this._abort = undefined;
       this._postMessage({ type: 'hideTyping' });
       // A settled turn changed the wallet, so the credit pill is never a turn stale.
       if (!offline) {
         void this._loadBalance();
       }
     }
+  }
+
+  /**
+   * The ordinary (non-agent) turn: multi-turn history goes to the active
+   * backend, tokens stream into the open bubble, thinking renders in the
+   * disclosure, and SURF_EDIT blocks become DiffReview proposals.
+   */
+  private async _runPlainTurn(message: string, streamId: string, offline: boolean): Promise<void> {
+    const context = await extractContext();
+    const systemPrompt = buildPromptWithContext('', context) + EDIT_INSTRUCTIONS;
+    const turns = this._buildTurns(systemPrompt, message);
+    const sinks = this._streamSinks(streamId);
+    const raw = offline
+      ? await this._local.chatStream(this._selectedLocal as string, turns, sinks, {
+        signal: this._abort?.signal,
+        enableThinking: false
+      })
+      : await this._client.chatStream(this._selectedModel as string, turns, sinks, {
+        signal: this._abort?.signal,
+        enableThinking: false
+      });
+    this._postMessage({ type: 'streamEnd', id: streamId });
+    const { prose, edits } = parseEdits(raw);
+    this._messageHistory.push({ role: 'assistant', content: prose || raw });
+    await this._publishEdits(edits, false);
+  }
+
+  /**
+   * The ◎ Agent turn: a multi-step loop (up to 10 steps) over the workspace
+   * tools, streamed live with step pills. Edits register with DiffReview from
+   * inside the loop; after the answer, any SURF_EDIT blocks the model still
+   * emitted are parsed as a fallback so nothing is lost.
+   */
+  private async _runAgentTurn(task: string, streamId: string, offline: boolean): Promise<void> {
+    const tools = buildWorkspaceTools({
+      propose: async (edit) => {
+        await this._publishEdits([edit], true);
+      },
+      approve: async (command) => {
+        const choice = await vscode.window.showWarningMessage(
+          `Surf AI wants to run: ${command}`,
+          { modal: true },
+          'Run it'
+        );
+        return choice === 'Run it';
+      }
+    });
+    const runTurn = async (turns: ChatTurn[], sinks: Parameters<LocalModelClient['chatStream']>[2]): Promise<string> => {
+      if (offline) {
+        return this._local.chatStream(this._selectedLocal as string, turns, sinks, {
+          signal: this._abort?.signal,
+          enableThinking: false
+        });
+      }
+      return this._client.agentStream(this._selectedModel as string, turns, sinks, {
+        signal: this._abort?.signal,
+        enableThinking: false
+      });
+    };
+    const events: AgentLoopEvents = {
+      onStep: (label) => this._postMessage({ type: 'step', id: streamId, label }),
+      onDelta: (text) => this._postMessage({ type: 'streamDelta', id: streamId, kind: 'content', text }),
+      onReasoning: (text) => this._postMessage({ type: 'streamDelta', id: streamId, kind: 'thinking', text })
+    };
+    const result = await runAgentLoop(
+      task,
+      tools,
+      runTurn,
+      events,
+      { signal: this._abort?.signal, enableThinking: false }
+    );
+    this._postMessage({ type: 'streamEnd', id: streamId });
+    if (result.cancelled) {
+      this._postMessage({ type: 'addMessage', role: 'assistant', content: '⏹ Stopped.' });
+      return;
+    }
+    const { prose, edits } = parseEdits(result.answer);
+    const display = prose || result.answer || 'Done.';
+    this._messageHistory.push({ role: 'assistant', content: display });
+    if (!edits.length && result.answer) {
+      // The loop already applied proposals through its tools; a model that
+      // ignored the protocol and wrote SURF_EDIT blocks still gets parsed.
+      const fallback = parseEdits(result.answer);
+      if (fallback.edits.length) {
+        await this._publishEdits(fallback.edits, false);
+      }
+    }
+    if (!result.answer && !edits.length) {
+      this._postMessage({ type: 'addMessage', role: 'assistant', content: 'The agent finished with no changes.' });
+    }
+  }
+
+  /** Register edits with DiffReview, render their chat cards, open the diff. */
+  private async _publishEdits(edits: ProposedEdit[], autoOpenDiff: boolean): Promise<void> {
+    if (!edits.length) {
+      return;
+    }
+    const payload = edits.map((edit) => {
+      const id = this._newId();
+      this._pendingEdits.set(id, edit);
+      const { removed, added } = editDiff(edit);
+      return { id, file: edit.relPath, isNewFile: edit.isNewFile, removed, added };
+    });
+    this._postMessage({ type: 'proposeEdits', edits: payload });
+    if (autoOpenDiff) {
+      // Focus stays in the chat; the user reads the card, opens the diff from it.
+      const first = edits[0];
+      const firstId = payload[0].id;
+      if (first) {
+        await this.review.open(firstId, first, { preserveFocus: true });
+      }
+    }
+  }
+
+  /** Multi-turn history, oldest dropped, with the current user message last. */
+  private _buildTurns(systemPrompt: string, message: string): ChatTurn[] {
+    const history = this._messageHistory.slice(-HISTORY_TURNS);
+    return [
+      { role: 'system', content: systemPrompt },
+      ...history,
+      { role: 'user', content: message }
+    ];
+  }
+
+  /** Content/reasoning sinks that batch deltas to the webview at ~12 FPS. */
+  private _streamSinks(streamId: string) {
+    let pendingContent = '';
+    let pendingThinking = '';
+    let timer: NodeJS.Timeout | undefined;
+    const flush = () => {
+      timer = undefined;
+      if (pendingContent) {
+        this._postMessage({ type: 'streamDelta', id: streamId, kind: 'content', text: pendingContent });
+        pendingContent = '';
+      }
+      if (pendingThinking) {
+        this._postMessage({ type: 'streamDelta', id: streamId, kind: 'thinking', text: pendingThinking });
+        pendingThinking = '';
+      }
+    };
+    const schedule = () => {
+      if (!timer) {
+        timer = setTimeout(flush, DELTA_FLUSH_MS);
+      }
+    };
+    return {
+      onContent: (text: string) => {
+        pendingContent += text;
+        schedule();
+      },
+      onReasoning: (text: string) => {
+        pendingThinking += text;
+        schedule();
+      }
+    };
+  }
+
+  /**
+   * True when an Online turn may proceed. Offline turns only ever travel with
+   * explicit per-chat consent; declining cancels the turn rather than silently
+   * leaking the discussion.
+   */
+  private async _consentGate(): Promise<boolean> {
+    if (this._mode !== 'online' || this._offlineTurns === 0 || this._egressConsented) {
+      return true;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      'This chat started Offline Mode. Sending it Online Cloud shares the conversation with the gateway. Allow for this chat?',
+      { modal: true },
+      'Allow once'
+    );
+    if (choice === 'Allow once') {
+      this._egressConsented = true;
+      return true;
+    }
+    this._postMessage({
+      type: 'addMessage',
+      role: 'assistant',
+      content: '🔒 Offline privacy kept the chat on this device. Switch to Offline Mode, or allow sharing to continue online.'
+    });
+    return false;
+  }
+
+  /** The `+` button and bare `@`: one quick pick over the four context kinds. */
+  private async _contextPicker(): Promise<ContextChip | null> {
+    const picked = await vscode.window.showQuickPick(
+      [
+        { label: '@file', description: 'Attach a workspace file', id: 'file' },
+        { label: '@selection', description: 'Attach the current editor selection', id: 'selection' },
+        { label: '@git', description: 'Attach git status + uncommitted diff', id: 'git' },
+        { label: '@problems', description: 'Attach workspace diagnostics', id: 'problems' }
+      ],
+      { placeHolder: 'Attach context to this chat' }
+    );
+    if (!picked) {
+      return null;
+    }
+    const built = await vscode.commands.executeCommand<ContextChip | null>('surf-ai.contextPickerBuild', picked.id);
+    return built ?? null;
   }
 
   private async _applyEdits(ids: string | string[]) {
@@ -400,7 +727,11 @@ Ask me anything about your code!`;
 
   private _clearChat() {
     this._messageHistory = [];
+    this._chips = [];
+    this._offlineTurns = 0;
+    this._egressConsented = false;
     this._postMessage({ type: 'clearChat' });
+    this._postMessage({ type: 'chips', chips: [] });
     this._sendWelcomeMessage();
   }
 
@@ -1148,6 +1479,116 @@ Ask me anything about your code!`;
 
     .edit-btn.review:hover { background: var(--vscode-toolbar-hoverBackground); }
 
+    /* Live streaming turn: thinking disclosure, step pills, chips row */
+    .stream-thinking {
+      margin: 4px 0 8px;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 8px;
+      background: var(--vscode-editor-inactiveSelectionBackground);
+      overflow: hidden;
+    }
+
+    .stream-thinking summary {
+      cursor: pointer;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stream-thinking summary::before { content: '▸'; }
+    .stream-thinking[open] summary::before { content: '▾'; }
+
+    .stream-thinking-body {
+      padding: 6px 10px 8px;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      white-space: pre-wrap;
+      max-height: 160px;
+      overflow-y: auto;
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+
+    .steps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+
+    .step-pill {
+      font-size: 10.5px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--vscode-input-border);
+      background: var(--vscode-sideBar-background);
+      color: var(--vscode-descriptionForeground);
+      white-space: nowrap;
+    }
+
+    .step-pill.done {
+      border-color: rgba(34, 197, 94, 0.45);
+      color: #22c55e;
+    }
+
+    .chips-row {
+      display: none;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+
+    .chips-row.active { display: flex; }
+
+    .ctx-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(59, 130, 246, 0.5);
+      background: rgba(59, 130, 246, 0.1);
+      color: #3b82f6;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ctx-chip .chip-x {
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      padding: 0 2px;
+      font-size: 11px;
+      opacity: 0.8;
+    }
+
+    .ctx-chip .chip-x:hover { opacity: 1; }
+
+    .chip-btn.active {
+      border-color: rgba(59, 130, 246, 0.6);
+      color: #3b82f6;
+      opacity: 1;
+      cursor: pointer;
+    }
+
+    .user-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+
+    .user-chips .ctx-chip { cursor: default; }
+
     .edit-status {
       font-size: 12px;
       padding: 8px 10px;
@@ -1185,7 +1626,7 @@ Ask me anything about your code!`;
       <div class="toolbar">
         <button class="icon-btn" onclick="clearChat()" title="New chat">＋</button>
         <button class="icon-btn decorative" aria-disabled="true" title="History">⌄</button>
-        <button class="icon-btn decorative" id="pauseBtn" aria-disabled="true" title="Pause">⏸</button>
+        <button class="icon-btn" id="pauseBtn" title="Stop the current turn">⏸</button>
         <button class="icon-btn decorative" aria-disabled="true" title="Fullscreen">⛶</button>
         <button class="icon-btn" onclick="closePanel()" title="Close">✕</button>
       </div>
@@ -1223,11 +1664,12 @@ Ask me anything about your code!`;
         placeholder="Describe what to build or code refactor..."
         onkeydown="handleKeyDown(event)"
       ></textarea>
+      <div class="chips-row" id="chipsRow"></div>
       <div class="composer-row">
-        <button class="icon-btn" aria-disabled="true" title="Attach">＋</button>
+        <button class="icon-btn" onclick="attachContext()" title="Attach context (@file, @selection, @git, @problems)">＋</button>
         <select id="localSelect" class="model-pill offline" onchange="selectLocalModel()" title="Offline model"></select>
         <select id="modelSelect" class="model-pill online" onchange="selectModel()" title="Online model"></select>
-        <button class="chip-btn" aria-disabled="true" title="Agent mode">◎ Agent</button>
+        <button class="chip-btn" id="agentToggle" onclick="toggleAgent()" title="Run the multi-step coding agent (tools: files, search, edits, commands)">◎ Agent</button>
         <button class="credit-pill" id="creditPill" onclick="openTopUp()" title="Surf credits">Credits</button>
         <button class="icon-btn" aria-disabled="true" title="Dictate">🎙</button>
         <button class="send-circle" id="sendButton" onclick="sendMessage()" title="Send">↑</button>
@@ -1256,7 +1698,25 @@ Ask me anything about your code!`;
       
       switch (message.type) {
         case 'addMessage':
-          addMessage(message.role, message.content);
+          addMessage(message.role, message.content, message.chips);
+          break;
+        case 'streamOpen':
+          openStream(message.id);
+          break;
+        case 'streamDelta':
+          appendDelta(message.id, message.kind, message.text);
+          break;
+        case 'streamEnd':
+          endStream(message.id);
+          break;
+        case 'step':
+          addStep(message.id, message.label);
+          break;
+        case 'chips':
+          renderChips(message.chips);
+          break;
+        case 'agentState':
+          renderAgent(message.value);
           break;
         case 'showTyping':
           typingIndicator.classList.add('active');
@@ -1300,7 +1760,7 @@ Ask me anything about your code!`;
       }
     });
 
-    function addMessage(role, content) {
+    function addMessage(role, content, chips) {
       const messageDiv = document.createElement('div');
       messageDiv.className = \`message \${role}\`;
       
@@ -1309,6 +1769,9 @@ Ask me anything about your code!`;
       
       // Simple markdown rendering
       const renderedContent = renderMarkdown(content);
+      const chipRow = (chips && chips.length)
+        ? '<div class="user-chips">' + chips.map((c) => '<span class="ctx-chip">' + escapeHtml(c) + '</span>').join('') + '</div>'
+        : '';
       
       messageDiv.innerHTML = \`
         <div class="message-header">
@@ -1318,6 +1781,7 @@ Ask me anything about your code!`;
         <div class="message-content">
           \${renderedContent}
         </div>
+        \${chipRow}
       \`;
       
       messagesContainer.appendChild(messageDiv);
@@ -1502,9 +1966,154 @@ Ask me anything about your code!`;
 
     function setPause(working) {
       const btn = document.getElementById('pauseBtn');
-      if (btn) { btn.setAttribute('aria-disabled', working ? 'false' : 'true'); }
+      if (btn) {
+        btn.setAttribute('aria-disabled', working ? 'false' : 'true');
+        btn.textContent = working ? '■' : '⏸';
+        btn.title = working ? 'Stop the current turn' : 'Pause';
+      }
       const status = document.getElementById('footStatus');
       if (status) { status.textContent = working ? '● Working' : '● Ready'; status.style.color = working ? '#3b82f6' : '#22c55e'; }
+    }
+
+    // Stop is live only while a turn runs; clicking it aborts the stream or the
+    // agent loop extension-side (AbortController), never just the rendering.
+    document.getElementById('pauseBtn').addEventListener('click', () => {
+      if (document.getElementById('pauseBtn').getAttribute('aria-disabled') !== 'true') {
+        vscode.postMessage({ type: 'stopGeneration' });
+      }
+    });
+
+    function toggleAgent() {
+      const btn = document.getElementById('agentToggle');
+      const next = !btn.classList.contains('active');
+      renderAgent(next);
+      vscode.postMessage({ type: 'toggleAgent', value: next });
+    }
+
+    function renderAgent(on) {
+      const btn = document.getElementById('agentToggle');
+      if (!btn) { return; }
+      btn.classList.toggle('active', Boolean(on));
+      btn.title = on
+        ? 'Agent mode: the assistant plans steps and uses workspace tools (click to turn off)'
+        : 'Agent mode is off: one streamed answer per turn (click to turn on)';
+    }
+
+    function attachContext() {
+      vscode.postMessage({ type: 'attachContext' });
+    }
+
+    function renderChips(chips) {
+      const row = document.getElementById('chipsRow');
+      if (!row) { return; }
+      row.innerHTML = '';
+      row.classList.toggle('active', (chips || []).length > 0);
+      for (const c of chips || []) {
+        const chip = document.createElement('span');
+        chip.className = 'ctx-chip';
+        chip.title = 'Attached to your next message';
+        const label = document.createElement('span');
+        label.textContent = c.label;
+        const x = document.createElement('button');
+        x.className = 'chip-x';
+        x.textContent = '✕';
+        x.title = 'Remove';
+        x.onclick = () => vscode.postMessage({ type: 'removeChip', id: c.id });
+        chip.appendChild(label);
+        chip.appendChild(x);
+        row.appendChild(chip);
+      }
+    }
+
+    // --- Live streaming turns -------------------------------------------
+    const streams = new Map();
+
+    function openStream(id) {
+      hideTypingForStream();
+      const div = document.createElement('div');
+      div.className = 'message assistant';
+      div.innerHTML =
+        '<div class="message-header"><div class="message-avatar"></div><span>Surf AI</span></div>'
+        + '<div class="steps" hidden></div>'
+        + '<details class="stream-thinking" hidden><summary>Thinking…</summary><div class="stream-thinking-body"></div></details>'
+        + '<div class="message-content"></div>';
+      messagesContainer.appendChild(div);
+      const details = div.querySelector('.stream-thinking');
+      details.addEventListener('toggle', (e) => {
+        e.stopPropagation();
+        const s = streams.get(id);
+        if (s) { s.thinkingOpen = details.open; }
+        details.querySelector('summary').textContent = details.open ? 'Thinking (click to collapse)' : 'Thinking…';
+      });
+      streams.set(id, {
+        div,
+        raw: '',
+        thinking: '',
+        thinkingOpen: false,
+        renderTimer: null,
+        contentEl: div.querySelector('.message-content'),
+        stepsEl: div.querySelector('.steps'),
+        thinkingEl: details,
+        thinkingBody: div.querySelector('.stream-thinking-body')
+      });
+      scrollBottom();
+    }
+
+    function appendDelta(id, kind, text) {
+      const s = streams.get(id);
+      if (!s || !text) { return; }
+      if (kind === 'thinking') {
+        s.thinking += text;
+        s.thinkingEl.hidden = false;
+        s.thinkingBody.textContent = s.thinking;
+        scrollBottom();
+        return;
+      }
+      s.raw += text;
+      if (!s.renderTimer) {
+        s.renderTimer = setTimeout(() => {
+          s.renderTimer = null;
+          s.contentEl.innerHTML = renderMarkdown(s.raw);
+          scrollBottom();
+        }, 80);
+      }
+    }
+
+    function addStep(id, label) {
+      const s = streams.get(id);
+      if (!s) { return; }
+      const last = s.stepsEl.lastElementChild;
+      if (last) { last.classList.add('done'); }
+      s.stepsEl.hidden = false;
+      const pill = document.createElement('span');
+      pill.className = 'step-pill';
+      pill.textContent = label;
+      s.stepsEl.appendChild(pill);
+      scrollBottom();
+    }
+
+    function endStream(id) {
+      const s = streams.get(id);
+      if (!s) { return; }
+      if (s.renderTimer) { clearTimeout(s.renderTimer); }
+      s.contentEl.innerHTML = renderMarkdown(s.raw || 'Done.');
+      const last = s.stepsEl.lastElementChild;
+      if (last) { last.classList.add('done'); }
+      if (s.thinkingEl.open) {
+        // Auto-collapsed once the answer landed; the user can reopen it.
+        s.thinkingEl.open = false;
+        s.thinkingEl.querySelector('summary').textContent = 'Thinking…';
+      }
+      streams.delete(id);
+      scrollBottom();
+    }
+
+    function hideTypingForStream() {
+      typingIndicator.classList.remove('active');
+    }
+
+    function scrollBottom() {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
     function closePanel() {
@@ -1601,6 +2210,11 @@ Ask me anything about your code!`;
     inputField.addEventListener('input', function() {
       this.style.height = 'auto';
       this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+      // A bare '@' opens the context picker, once per @ token.
+      const before = this.value.slice(0, this.selectionStart);
+      if (/(^|\s)@$/.test(before)) {
+        vscode.postMessage({ type: 'inputAtToken', textBefore: before });
+      }
     });
 
     // Focus input on load

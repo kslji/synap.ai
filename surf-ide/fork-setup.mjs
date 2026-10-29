@@ -203,6 +203,28 @@ for (const key of KEYS_TO_DROP) {
 	}
 }
 
+// GitHub sign-in is OFF by default: a Surf build advertises no Microsoft/GitHub
+// egress, so the Copilot auth trust above is cleared and the account UI stays dark.
+// To turn the in-IDE GitHub account on, opt in at build time with:
+//   SURF_ENABLE_GITHUB_AUTH=1
+//   GITHUB_AUTH_CLIENT_ID / GITHUB_AUTH_CLIENT_SECRET   (your GitHub OAuth App,
+//                                                        callback https://vscode-auth.github.com/callback)
+// The built-in vscode.github / vscode.github-authentication extensions are already
+// compiled by setup.sh; these are the two product.json switches they read. Push and
+// Create-PR work with no OAuth App at all — they use the repo's own git credentials.
+if (process.env.SURF_ENABLE_GITHUB_AUTH === '1') {
+	const gh = { cdnUri: 'https://vscode-auth.github.com' };
+	if (JSON.stringify(product.githubAuthentication) !== JSON.stringify(gh)) {
+		product.githubAuthentication = gh;
+		changes.push('product.json: githubAuthentication');
+	}
+	const trust = { github: ['vscode.github', 'vscode.github-authentication'] };
+	if (JSON.stringify(product.trustedExtensionAuthAccess) !== JSON.stringify(trust)) {
+		product.trustedExtensionAuthAccess = trust;
+		changes.push('product.json: trustedExtensionAuthAccess (github)');
+	}
+}
+
 if (changes.length) {
 	writeFileSync(productPath, JSON.stringify(product, null, '\t') + '\n');
 }

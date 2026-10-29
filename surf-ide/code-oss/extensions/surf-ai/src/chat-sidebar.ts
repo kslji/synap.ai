@@ -23,6 +23,7 @@ import { MODE_STATE_KEY, resolveRoute, onlineReachable, invalidateReachability, 
 import { runAgentLoop, type AgentLoopEvents } from './agent-loop';
 import { buildWorkspaceTools } from './agent-tools';
 import { buildPromptWithChips, wantsContextPicker, type ContextChip } from './context-chips';
+import { surfSetEngine, surfSetBusy, surfReportRate, tokensPerSec } from './surf-status';
 import type { ChatTurn } from './chat-types';
 
 // Teaches the model to emit reviewable, line-level edits instead of whole-file prose.
@@ -79,6 +80,9 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
    */
   private _offlineTurns = 0;
   private _egressConsented = false;
+  /** Turn timing for the status-bar throughput read: start clock and content size. */
+  private _turnStartMs = 0;
+  private _turnChars = 0;
   /** Side-by-side review of the pending proposals, owned here so the tabs and the cards agree. */
   public readonly review: DiffReview;
 
@@ -96,7 +100,7 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
       }
     });
     const saved = _context.workspaceState.get<SurfMode>(MODE_STATE_KEY);
-    if (saved === 'online' || saved === 'offline') {
+    if (saved === 'online' || saved === 'offline' || saved === 'auto') {
       this._mode = saved;
     }
   }
@@ -177,17 +181,22 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
           this._selectedLocal = data.value;
           break;
         case 'setMode':
-          if (data.value === 'online' || data.value === 'offline') {
+          if (data.value === 'online' || data.value === 'offline' || data.value === 'auto') {
             this._mode = data.value;
             void this._context.workspaceState.update(MODE_STATE_KEY, this._mode);
             invalidateReachability(this._client);
-            if (this._mode === 'online') {
-              void this._loadModels();
-              this._startStatusTimer();
-            } else {
+            if (this._mode === 'offline') {
               // Offline: no gateway model list, no background ping, no probes.
               void this._loadLocalModels();
               this._stopStatusTimer();
+            } else {
+              // Online and Auto both need the cloud list; Auto also keeps the
+              // local list loaded so it can route routine work on-device.
+              void this._loadModels();
+              if (this._mode === 'auto') {
+                void this._loadLocalModels();
+              }
+              this._startStatusTimer();
             }
             void this._pushNetStatus();
           }
@@ -214,20 +223,20 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     this._sendWelcomeMessage();
     this._postMessage({ type: 'mode', mode: this._mode });
     this._postMessage({ type: 'agentState', value: this._agentMode });
-    if (this._mode === 'online') {
+    if (this._mode === 'online' || this._mode === 'auto') {
       void this._loadModels();
     }
     void this._loadLocalModels();
     void this._pushNetStatus();
-    if (this._mode === 'online') {
+    if (this._mode === 'online' || this._mode === 'auto') {
       void this._loadBalance();
     }
     this._startStatusTimer();
   }
 
-  /** The 8s status ping runs only while Online is active; Offline makes zero network requests. */
+  /** The 8s status ping runs only while the cloud is in play (Online or Auto); Offline makes zero requests. */
   private _startStatusTimer() {
-    if (this._statusTimer || this._mode !== 'online') {
+    if (this._statusTimer || (this._mode !== 'online' && this._mode !== 'auto')) {
       return;
     }
     this._statusTimer = setInterval(() => { void this._pushNetStatus(); }, 8000);
@@ -373,7 +382,14 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const route = await resolveRoute(this._mode, this._client, this._local);
+    // Auto decides per turn, so make sure the local set is known before routing.
+    if (this._mode === 'auto' && !this._selectedLocal) {
+      await this._loadLocalModels();
+    }
+    const route = await resolveRoute(this._mode, this._client, this._local, {
+      task: message,
+      hasLocalModel: Boolean(this._selectedLocal)
+    });
     const offline = route === 'offline';
     if (offline) {
       if (!this._selectedLocal) {
@@ -415,6 +431,10 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     const streamId = this._newId();
+    this._turnStartMs = Date.now();
+    this._turnChars = 0;
+    surfSetEngine(this._engineLabel(route));
+    surfSetBusy(true);
     this._postMessage({ type: 'streamOpen', id: streamId });
 
     try {
@@ -449,6 +469,8 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     } finally {
       this._isProcessing = false;
       this._abort = undefined;
+      surfReportRate(tokensPerSec(this._turnChars, Date.now() - this._turnStartMs));
+      surfSetBusy(false);
       this._postMessage({ type: 'hideTyping' });
       // A settled turn changed the wallet, so the credit pill is never a turn stale.
       if (!offline) {
@@ -516,7 +538,7 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     };
     const events: AgentLoopEvents = {
       onStep: (label) => this._postMessage({ type: 'step', id: streamId, label }),
-      onDelta: (text) => this._postMessage({ type: 'streamDelta', id: streamId, kind: 'content', text }),
+      onDelta: (text) => { this._turnChars += text.length; this._postMessage({ type: 'streamDelta', id: streamId, kind: 'content', text }); },
       onReasoning: (text) => this._postMessage({ type: 'streamDelta', id: streamId, kind: 'thinking', text })
     };
     const result = await runAgentLoop(
@@ -587,6 +609,7 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
     const flush = () => {
       timer = undefined;
       if (pendingContent) {
+        this._turnChars += pendingContent.length;
         this._postMessage({ type: 'streamDelta', id: streamId, kind: 'content', text: pendingContent });
         pendingContent = '';
       }
@@ -697,6 +720,14 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
         content: `\u26a0\ufe0f ${edit.relPath} changed since this proposal was written, so there is nothing safe to diff. Ask again and I will re-read the file.`
       });
     }
+  }
+
+  /** The engine text for the status bar: the model this turn actually used. */
+  private _engineLabel(route: 'online' | 'offline'): string {
+    const base = route === 'offline'
+      ? `\u25cf ${this._selectedLocal || 'Local'}`
+      : `\u2601 ${this._selectedModel || 'Cloud'}`;
+    return this._mode === 'auto' ? `\u26a1 Auto \u00b7 ${base}` : base;
   }
 
   private _newId(): string {
@@ -1133,6 +1164,12 @@ Ask me anything about your code!`;
       box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5);
     }
 
+    .seg-btn[data-mode="auto"].active {
+      background: rgba(245, 158, 11, 0.16);
+      color: #f59e0b;
+      box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.5);
+    }
+
     .sub-badge {
       font-size: 10px;
       padding: 1px 6px;
@@ -1150,6 +1187,7 @@ Ask me anything about your code!`;
 
     .dot.offline { background: #22c55e; }
     .dot.online { background: #3b82f6; }
+    .dot.auto { background: #f59e0b; }
 
     .toolbar {
       margin-left: auto;
@@ -1252,6 +1290,80 @@ Ask me anything about your code!`;
     .model-pill.offline.active { border-color: rgba(34, 197, 94, 0.6); color: #22c55e; }
     .model-pill.online.active { border-color: rgba(59, 130, 246, 0.6); color: #3b82f6; }
 
+    /* "Select Model / Engine" popover: the composer pill opens it, the three
+       tabs pick the routing mode, and the fields below hold the local/cloud
+       model pickers. Auto reveals the hybrid-routing explainer card. */
+    .engine-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 999px;
+      background: var(--vscode-sideBar-background);
+      color: var(--vscode-foreground);
+      font-size: 11px;
+      padding: 3px 10px;
+      max-width: 190px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .engine-pill.offline { border-color: rgba(34, 197, 94, 0.6); color: #22c55e; }
+    .engine-pill.online { border-color: rgba(59, 130, 246, 0.6); color: #3b82f6; }
+    .engine-pill.auto { border-color: rgba(245, 158, 11, 0.6); color: #f59e0b; }
+
+    .engine-popover {
+      margin: 8px 12px 0;
+      padding: 10px 12px;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 12px;
+      background: var(--vscode-sideBar-background);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+    }
+
+    .engine-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .engine-title { font-size: 12px; font-weight: 600; }
+
+    .engine-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+
+    .engine-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 999px;
+      background: var(--vscode-input-background);
+      color: var(--vscode-foreground);
+      font-size: 11px;
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+
+    .engine-tab[data-eg="offline"].active { color: #22c55e; border-color: rgba(34, 197, 94, 0.6); background: rgba(34, 197, 94, 0.12); }
+    .engine-tab[data-eg="online"].active { color: #3b82f6; border-color: rgba(59, 130, 246, 0.6); background: rgba(59, 130, 246, 0.12); }
+    .engine-tab[data-eg="auto"].active { color: #f59e0b; border-color: rgba(245, 158, 11, 0.6); background: rgba(245, 158, 11, 0.12); }
+
+    .engine-field { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    .engine-field-label { font-size: 11px; color: var(--vscode-descriptionForeground); min-width: 88px; }
+    .engine-field .model-pill { flex: 1; max-width: none; }
+
+    .auto-card {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(245, 158, 11, 0.5);
+      border-radius: 10px;
+      background: rgba(245, 158, 11, 0.08);
+    }
+    .auto-card-title { font-size: 11px; font-weight: 600; color: #f59e0b; margin-bottom: 4px; }
+    .auto-card-body { font-size: 11px; line-height: 1.5; color: var(--vscode-foreground); }
+
     .chip-btn {
       border: 1px solid var(--vscode-input-border);
       border-radius: 999px;
@@ -1263,9 +1375,9 @@ Ask me anything about your code!`;
       opacity: 0.8;
     }
 
-    /* Live credit/tier pill, read from the gateway wallet. There is no "Auto" to
-       display here: Offline Mode and Online Cloud are the only two routes. Clicking
-       it is the top-up entry point. */
+    /* Live credit/tier pill, read from the gateway wallet. Auto is a routing
+       mode, not a separate wallet: it spends cloud credits only on the turns it
+       escalates online. Clicking the pill is the top-up entry point. */
     .credit-pill {
       display: inline-flex;
       align-items: center;
@@ -1535,6 +1647,32 @@ Ask me anything about your code!`;
       color: #22c55e;
     }
 
+    /* A subtle accent so the reasoning block reads as its own "card". */
+    .stream-thinking { border-left: 2px solid rgba(139, 92, 246, 0.55); }
+    .stream-thinking summary .thought-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(139, 92, 246, 0.16);
+      color: #a78bfa;
+      margin-left: auto;
+    }
+
+    /* Message-level actions: a Copy affordance that appears on hover. */
+    .msg-actions { display: flex; gap: 6px; margin-top: 6px; opacity: 0; transition: opacity .12s ease; }
+    .message.assistant:hover .msg-actions,
+    .message.user:hover .msg-actions { opacity: 1; }
+    .msg-copy {
+      font-size: 10.5px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--vscode-input-border);
+      background: var(--vscode-sideBar-background);
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+    }
+    .msg-copy:hover { color: var(--vscode-foreground); }
+
     .chips-row {
       display: none;
       flex-wrap: wrap;
@@ -1621,6 +1759,7 @@ Ask me anything about your code!`;
       <span class="chat-title">\u{1F4AC} Chat</span>
       <div class="seg" id="modeToggle">
         <button class="seg-btn" data-mode="offline" onclick="setMode('offline')" title="Answer from the local model on this device"><span class="dot offline"></span>Offline Mode<span class="sub-badge">Air-Gapped</span></button>
+        <button class="seg-btn" data-mode="auto" onclick="setMode('auto')" title="Auto: keep routine work on this device, route complex reasoning to the cloud"><span class="dot auto"></span>Auto</button>
         <button class="seg-btn" data-mode="online" onclick="setMode('online')" title="Answer from the Surf cloud gateway"><span class="dot" id="netDot"></span>Online Cloud</button>
       </div>
       <div class="toolbar">
@@ -1656,6 +1795,31 @@ Ask me anything about your code!`;
       <span>Surf AI is thinking...</span>
     </div>
 
+    <!-- Select Model / Engine popover (opened by the composer engine pill) -->
+    <div class="engine-popover" id="enginePopover" hidden>
+      <div class="engine-head">
+        <span class="engine-title">🧠 Select Model / Engine</span>
+        <button class="icon-btn" onclick="toggleEngine(false)" title="Close">✕</button>
+      </div>
+      <div class="engine-tabs">
+        <button class="engine-tab" data-eg="offline" onclick="pickEngine('offline')" title="Answer from the local model on this device"><span class="dot offline"></span>Offline Models</button>
+        <button class="engine-tab" data-eg="online" onclick="pickEngine('online')" title="Answer from the Surf cloud gateway"><span class="dot online"></span>Online Models</button>
+        <button class="engine-tab" data-eg="auto" onclick="pickEngine('auto')" title="Dynamic hybrid routing between local and cloud">⚡ Auto</button>
+      </div>
+      <div class="engine-field" id="offlineField">
+        <span class="engine-field-label">On this device</span>
+        <select id="localSelect" class="model-pill" onchange="selectLocalModel()" title="Offline model"></select>
+      </div>
+      <div class="engine-field" id="onlineField">
+        <span class="engine-field-label">Surf cloud</span>
+        <select id="modelSelect" class="model-pill" onchange="selectModel()" title="Online model"></select>
+      </div>
+      <div class="auto-card" id="autoCard" hidden>
+        <div class="auto-card-title">⚡ Why use Auto? Dynamic Hybrid Routing</div>
+        <div class="auto-card-body">Routine edits and code-local work run on the model on this device; genuinely complex reasoning is routed to the Surf cloud automatically — no manual switching. Choose Offline Mode if nothing may ever leave this machine.</div>
+      </div>
+    </div>
+
     <!-- Composer -->
     <div class="composer">
       <textarea
@@ -1667,8 +1831,7 @@ Ask me anything about your code!`;
       <div class="chips-row" id="chipsRow"></div>
       <div class="composer-row">
         <button class="icon-btn" onclick="attachContext()" title="Attach context (@file, @selection, @git, @problems)">＋</button>
-        <select id="localSelect" class="model-pill offline" onchange="selectLocalModel()" title="Offline model"></select>
-        <select id="modelSelect" class="model-pill online" onchange="selectModel()" title="Online model"></select>
+        <button class="engine-pill" id="enginePill" onclick="toggleEngine()" title="Choose the model / engine">🧠 Choose Model ▾</button>
         <button class="chip-btn" id="agentToggle" onclick="toggleAgent()" title="Run the multi-step coding agent (tools: files, search, edits, commands)">◎ Agent</button>
         <button class="credit-pill" id="creditPill" onclick="openTopUp()" title="Surf credits">Credits</button>
         <button class="icon-btn" aria-disabled="true" title="Dictate">🎙</button>
@@ -1691,6 +1854,8 @@ Ask me anything about your code!`;
     const typingIndicator = document.getElementById('typingIndicator');
     const modelSelect = document.getElementById('modelSelect');
     const localSelect = document.getElementById('localSelect');
+    const enginePopover = document.getElementById('enginePopover');
+    let currentMode = 'offline';
 
     // Handle messages from extension
     window.addEventListener('message', (event) => {
@@ -1785,6 +1950,7 @@ Ask me anything about your code!`;
       \`;
       
       messagesContainer.appendChild(messageDiv);
+      attachCopy(messageDiv, () => content);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
@@ -1881,6 +2047,7 @@ Ask me anything about your code!`;
         modelSelect.appendChild(opt);
       }
       if (selected) { vscode.postMessage({ type: 'selectModel', value: selected }); }
+      updateEnginePill(currentMode);
     }
 
     function selectModel() {
@@ -1893,6 +2060,7 @@ Ask me anything about your code!`;
         return;
       }
       if (chosen) { selectedOnline = chosen.id; }
+      updateEnginePill(currentMode);
       vscode.postMessage({ type: 'selectModel', value: modelSelect.value });
     }
 
@@ -1933,22 +2101,65 @@ Ask me anything about your code!`;
     }
 
     function selectLocalModel() {
+      updateEnginePill(currentMode);
       vscode.postMessage({ type: 'selectLocalModel', value: localSelect.value });
     }
 
     function applyMode(mode) {
-      const offline = mode !== 'online';
-      const active = offline ? 'offline' : 'online';
+      currentMode = mode;
+      const offline = mode === 'offline';
+      const online = mode === 'online';
+      const auto = mode === 'auto';
       document.querySelectorAll('.seg-btn').forEach((b) => {
-        b.classList.toggle('active', b.getAttribute('data-mode') === active);
+        b.classList.toggle('active', b.getAttribute('data-mode') === mode);
       });
-      localSelect.classList.toggle('active', offline);
-      modelSelect.classList.toggle('active', !offline);
-      const scope = offline ? 'Local' : 'Cloud';
+      document.querySelectorAll('.engine-tab').forEach((b) => {
+        b.classList.toggle('active', b.getAttribute('data-eg') === mode);
+      });
+      // Auto shows both pickers (it routes between them); each explicit mode
+      // shows only the field it actually uses.
+      const offlineField = document.getElementById('offlineField');
+      const onlineField = document.getElementById('onlineField');
+      const autoCard = document.getElementById('autoCard');
+      if (offlineField) { offlineField.hidden = !(offline || auto); }
+      if (onlineField) { onlineField.hidden = !(online || auto); }
+      if (autoCard) { autoCard.hidden = !auto; }
+      updateEnginePill(mode);
+      const scope = auto ? 'Auto' : (offline ? 'Local' : 'Cloud');
       const crumbScope = document.getElementById('crumbScope');
       if (crumbScope) { crumbScope.textContent = scope; }
       const footScope = document.getElementById('footScope');
-      if (footScope) { footScope.textContent = offline ? '🖥 Local' : '☁ Cloud'; }
+      if (footScope) { footScope.textContent = auto ? '⚡ Auto' : (offline ? '🖥 Local' : '☁ Cloud'); }
+    }
+
+    /** Reflect the active engine + its chosen model on the composer pill. */
+    function updateEnginePill(mode) {
+      const pill = document.getElementById('enginePill');
+      if (!pill) { return; }
+      let label;
+      if (mode === 'auto') {
+        label = '⚡ Auto';
+      } else if (mode === 'offline') {
+        const opt = localSelect.selectedOptions && localSelect.selectedOptions[0];
+        label = '● ' + ((opt && opt.textContent) || 'Local model');
+      } else {
+        const opt = modelSelect.selectedOptions && modelSelect.selectedOptions[0];
+        label = '☁ ' + ((opt && opt.textContent) || 'Cloud model');
+      }
+      pill.textContent = label + ' ▾';
+      pill.className = 'engine-pill ' + mode;
+    }
+
+    function toggleEngine(force) {
+      const show = (typeof force === 'boolean') ? force : enginePopover.hidden;
+      enginePopover.hidden = !show;
+    }
+
+    // Choosing a tab sets the routing mode; applyMode re-syncs the tabs, the
+    // visible model fields, the Auto card and the composer pill. The popover
+    // stays open so the model list for the chosen engine is right there.
+    function pickEngine(mode) {
+      setMode(mode);
     }
 
     function setNetDot(online) {
@@ -2028,6 +2239,28 @@ Ask me anything about your code!`;
     // --- Live streaming turns -------------------------------------------
     const streams = new Map();
 
+    /** Right-hand duration badge on the reasoning disclosure. */
+    function setThoughtSummary(s, active) {
+      const summary = s.thinkingEl.querySelector('summary');
+      if (!summary) { return; }
+      if (active) { summary.textContent = 'Thinking\u2026'; return; }
+      const secs = s.thinkMs ? Math.max(1, Math.round(s.thinkMs / 1000)) : 0;
+      summary.innerHTML = 'Thought' + (secs ? ' <span class="thought-badge">' + secs + 's</span>' : '');
+    }
+
+    /** Attach a hover Copy action to a message bubble. */
+    function attachCopy(container, getText) {
+      const bar = document.createElement('div');
+      bar.className = 'msg-actions';
+      const btn = document.createElement('button');
+      btn.className = 'msg-copy';
+      btn.textContent = '\u29C9 Copy';
+      btn.title = 'Copy this message';
+      btn.onclick = () => vscode.postMessage({ type: 'copyMessage', value: getText() });
+      bar.appendChild(btn);
+      container.appendChild(bar);
+    }
+
     function openStream(id) {
       hideTypingForStream();
       const div = document.createElement('div');
@@ -2043,13 +2276,14 @@ Ask me anything about your code!`;
         e.stopPropagation();
         const s = streams.get(id);
         if (s) { s.thinkingOpen = details.open; }
-        details.querySelector('summary').textContent = details.open ? 'Thinking (click to collapse)' : 'Thinking…';
       });
       streams.set(id, {
         div,
         raw: '',
         thinking: '',
         thinkingOpen: false,
+        thinkStart: 0,
+        thinkMs: 0,
         renderTimer: null,
         contentEl: div.querySelector('.message-content'),
         stepsEl: div.querySelector('.steps'),
@@ -2063,12 +2297,14 @@ Ask me anything about your code!`;
       const s = streams.get(id);
       if (!s || !text) { return; }
       if (kind === 'thinking') {
+        if (!s.thinkStart) { s.thinkStart = Date.now(); setThoughtSummary(s, true); }
         s.thinking += text;
         s.thinkingEl.hidden = false;
         s.thinkingBody.textContent = s.thinking;
         scrollBottom();
         return;
       }
+      if (s.thinkStart && !s.thinkMs) { s.thinkMs = Date.now() - s.thinkStart; setThoughtSummary(s, false); }
       s.raw += text;
       if (!s.renderTimer) {
         s.renderTimer = setTimeout(() => {
@@ -2096,13 +2332,15 @@ Ask me anything about your code!`;
       const s = streams.get(id);
       if (!s) { return; }
       if (s.renderTimer) { clearTimeout(s.renderTimer); }
+      if (s.thinkStart && !s.thinkMs) { s.thinkMs = Date.now() - s.thinkStart; }
+      if (!s.thinkingEl.hidden) { setThoughtSummary(s, false); }
       s.contentEl.innerHTML = renderMarkdown(s.raw || 'Done.');
+      attachCopy(s.div, () => s.raw);
       const last = s.stepsEl.lastElementChild;
       if (last) { last.classList.add('done'); }
       if (s.thinkingEl.open) {
         // Auto-collapsed once the answer landed; the user can reopen it.
         s.thinkingEl.open = false;
-        s.thinkingEl.querySelector('summary').textContent = 'Thinking…';
       }
       streams.delete(id);
       scrollBottom();
@@ -2153,6 +2391,7 @@ Ask me anything about your code!`;
         localSelect.appendChild(opt);
       }
       if (selected) { vscode.postMessage({ type: 'selectLocalModel', value: selected }); }
+      updateEnginePill(currentMode);
     }
 
     function renderEditCard(edit) {

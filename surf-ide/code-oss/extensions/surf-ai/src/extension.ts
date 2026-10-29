@@ -14,6 +14,9 @@ import { MODE_STATE_KEY, resolveRoute, type SurfMode } from './model-router';
 import { buildFimPrompt, sanitizeFimCompletion, fimCacheKey, LruCache, FIM_STOP_TOKENS, FIM_MAX_TOKENS } from './fim';
 import { fileChip, selectionChip, gitChip, problemsChip, type ContextChip, type ProblemItem, type SelectionInfo } from './context-chips';
 import type { ProposedEdit } from './edit-proposal';
+import { initSurfStatusBar } from './surf-status';
+import { registerWelcome } from './welcome';
+import { registerGitHubCommands } from './github';
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +39,12 @@ export async function activate(context: vscode.ExtensionContext) {
   // Open clean: no Welcome/getting-started tab, and keep the built-in chat
   // surfaces out of the way so Surf AI is the only assistant the user sees.
   void applySurfDefaults();
+
+  // The IDE chrome a production editor needs: a Surf status bar (engine +
+  // throughput + Go Live), a branded welcome tab, and GitHub push / PR commands.
+  initSurfStatusBar(context);
+  registerWelcome(context);
+  registerGitHubCommands(context);
 
   // Register chat sidebar with new Qoder-like UI
   const chatProvider = new ChatSidebarProvider(context.extensionUri, context);

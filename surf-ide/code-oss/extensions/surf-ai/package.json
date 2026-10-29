@@ -72,6 +72,26 @@
         "command": "surf-ai.rejectProposal",
         "title": "Surf AI: Reject Proposal",
         "icon": "$(close)"
+      },
+      {
+        "command": "surf-ai.showWelcome",
+        "title": "Surf AI: Show Welcome"
+      },
+      {
+        "command": "surf-ai.goLive",
+        "title": "Surf AI: Go Live (Run Dev Server)"
+      },
+      {
+        "command": "surf-ai.githubSignIn",
+        "title": "Surf AI: Sign in to GitHub"
+      },
+      {
+        "command": "surf-ai.githubPush",
+        "title": "Surf AI: Push to GitHub"
+      },
+      {
+        "command": "surf-ai.githubCreatePR",
+        "title": "Surf AI: Create Pull Request"
       }
     ],
     "keybindings": [
